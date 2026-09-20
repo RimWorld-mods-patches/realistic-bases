@@ -20,8 +20,8 @@ Planning must not mutate a RimWorld `Map` or any runtime object. Map reads end w
 |---|---|---|---|
 | P0 checkpoint | Preserve completed P0 before P1 edits | `646db81` | P0 Docker build and runtime matrix complete |
 | P1.0 | Scope, checklist, and evidence policy | `1bec546` | Document review |
-| P1.1 | Stable inputs, seed derivation, snapshots, connected regions | This step's `feat: add deterministic P1 planning inputs` commit | Docker build: 0 warnings/errors; 4/4 focused pure tests passed |
-| P1.2 | Bounded planner, graph/reservations, validation, property matrix | Pending | Full pure property suite |
+| P1.1 | Stable inputs, seed derivation, snapshots, connected regions | `9f0aff1` | Docker build: 0 warnings/errors; 4/4 focused pure tests passed |
+| P1.2 | Bounded planner, graph/reservations, validation, property matrix | This step's `feat: add bounded P1 planner and validator` commit | Docker build: 0 warnings/errors; 12/12 pure tests passed |
 | P1.3 | Map adapter, P0 spawner integration, overlays, report | Pending | Build plus isolated Core runtime |
 | P1.4 | Recovery/optional compatibility matrix and closeout | Pending | Isolated Core and GL + Map Preview runtime evidence |
 
@@ -45,3 +45,11 @@ P1 completes only when fixed inputs produce identical plan digests, invalid terr
 The planning model is a pure C# layer with no RimWorld or `Verse` reference. `TerrainSnapshot` copies its source cells, carries an explicit source/schema version, and exposes only read access. Stable FNV-based digests cover every profile field, snapshot cell, schema version, and explicit seed input. Region analysis uses row-major starts and a fixed four-neighbor order, so region IDs and cell order do not depend on hash-table or runtime enumeration behavior.
 
 Focused Docker tests passed for stable seed/input digests, snapshot copying, deterministic connected regions, and disconnected-region edge metadata. These are pure-test observations, not yet evidence that live map adaptation or integrated generation works.
+
+## P1.2 observations
+
+The planner deterministically orders candidate origins by center distance, a stable seed-derived tie value, and coordinates. Candidate count and route-node count are hard profile inputs and are included in reporting/digests. Each accepted plan contains a compound outline, two rectangular room envelopes, a small circulation graph, an edge route, a gate, and explicit room/interaction/structure/route/roof-support/planned-power/planned-defense reservations. The latter two are reservations only, not functioning systems.
+
+The validator checks input identity, capacity, candidate/route bounds, route continuity and edge termination, room interactions, reservation bounds/conflicts, required reservation classes, and room connectivity. The pure suite passed 12/12 cases: stable seeds, snapshot immutability, deterministic regions, region edge metadata, identical plan digests, disconnected land, narrow corridors, obstructed interactions, impossible capacity, all-water terrain, deterministic candidate limits, and unchanged snapshot digest.
+
+This evidence demonstrates pure planning behavior. Live-map snapshot conversion, spawning separation, overlays, reports, and P0 recovery integration remain P1.3/P1.4 work.

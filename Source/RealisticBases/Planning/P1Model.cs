@@ -64,6 +64,7 @@ namespace RealisticBases.Planning
         }
 
         public bool Has(TerrainTraits traits) => (Traits & traits) == traits;
+        public bool HasAny(TerrainTraits traits) => (Traits & traits) != 0;
     }
 
     public sealed class TerrainSnapshot
@@ -144,13 +145,14 @@ namespace RealisticBases.Planning
     public sealed class SettlementProfile
     {
         public SettlementProfile(string id, int version, int compoundWidth, int compoundHeight,
-            int requiredCapacity, int maxCandidates)
+            int requiredCapacity, int maxCandidates, int maxRouteNodes = 4096)
         {
             if (string.IsNullOrWhiteSpace(id)) throw new ArgumentException("Profile id is required.", nameof(id));
             if (version <= 0) throw new ArgumentOutOfRangeException(nameof(version));
             if (compoundWidth < 5 || compoundHeight < 5) throw new ArgumentOutOfRangeException("Compound dimensions must be at least 5.");
             if (requiredCapacity <= 0) throw new ArgumentOutOfRangeException(nameof(requiredCapacity));
             if (maxCandidates <= 0) throw new ArgumentOutOfRangeException(nameof(maxCandidates));
+            if (maxRouteNodes <= 0) throw new ArgumentOutOfRangeException(nameof(maxRouteNodes));
 
             Id = id;
             Version = version;
@@ -158,6 +160,7 @@ namespace RealisticBases.Planning
             CompoundHeight = compoundHeight;
             RequiredCapacity = requiredCapacity;
             MaxCandidates = maxCandidates;
+            MaxRouteNodes = maxRouteNodes;
         }
 
         public int SchemaVersion => P1Versions.ProfileSchema;
@@ -167,6 +170,7 @@ namespace RealisticBases.Planning
         public int CompoundHeight { get; }
         public int RequiredCapacity { get; }
         public int MaxCandidates { get; }
+        public int MaxRouteNodes { get; }
 
         public string Digest
         {
@@ -180,6 +184,7 @@ namespace RealisticBases.Planning
                 hash = StableHash.Add(hash, CompoundHeight);
                 hash = StableHash.Add(hash, RequiredCapacity);
                 hash = StableHash.Add(hash, MaxCandidates);
+                hash = StableHash.Add(hash, MaxRouteNodes);
                 return StableHash.Hex(hash);
             }
         }
