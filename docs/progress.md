@@ -1,64 +1,59 @@
 # Realistic Bases: progress tracker
 
-Updated: 2026-09-14
+Updated: 2026-09-20
 
 ## Current state
 
-Design and source review are complete. Implementation has not yet been validated in-game. The next authorized milestone is **P0 — Resolve the technical risks**, assigned to a Codex task using **Sol (`gpt-5.6-sol`), medium reasoning effort**.
+Design, source review, and **P0 — Resolve the technical risks are complete**. P0 now has observed in-game evidence in isolated Core and Geological Landforms + Map Preview profiles. The result is a deliberately small technical prototype, not the finished mod: P1 is the next milestone.
 
-Specification: [design and feasibility](design-feasibility.md). Delivery gates: [implementation plan](implementation-plan.md). Existing evidence: [research notes](research-notes.md).
+Specification: [design and feasibility](design-feasibility.md). Delivery gates: [implementation plan](implementation-plan.md). Detailed evidence: [P0 findings](p0-findings.md).
 
 ## Milestones
 
 | Milestone | Status | Completion evidence / next action |
 |---|---|---|
-| Design and feasibility | Complete | Design, implementation plan and source review written; no runtime claims |
-| P0 — Resolve the technical risks | Queued for execution | Complete the seven experiments below and document observed results |
-| P1 — Planner and validation harness | Not started | Wait for P0 integration and recovery decisions |
-| P2 — First complete physical settlement | Not started | Wait for validated planner |
-| P3 — Playable defensive encounter | Not started | Requires P2 and P0 NPC-job findings |
-| P4 — Terrain variety and stronger fortifications | Not started | Requires P3 and terrain-order evidence |
-| P5 — Sustained operation and persistent consequences | Not started | Requires P3; validate P4 archetypes as available |
+| Design and feasibility | Complete | Design, implementation plan, and source review written |
+| P0 — Resolve the technical risks | Complete | Build, Core/GL generation, hostile jobs, save/load, lifecycle, defeat, and both recovery modes observed in game |
+| P1 — Planner and validation harness | Not started | Build the terrain-aware planner around the accepted P0 hooks and invariants |
+| P2 — First complete physical settlement | Not started | Requires P1 |
+| P3 — Playable defensive encounter | Not started | Requires P2; reuse the validated P0 Lord/work approach |
+| P4 — Terrain variety and stronger fortifications | Not started | Requires P3; reuse the validated late generation order |
+| P5 — Sustained operation and persistent consequences | Not started | Requires P3; expand the coarse P0 lifecycle model |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage |
 
 ## P0 checklist
 
-| ID | Experiment / deliverable | Status | Evidence |
-|---|---|---|---|
-| P0.1 | Minimal mod/build setup; Core-only launch, pinned references, debug log and reproducible test saves | Not started | Pending |
-| P0.2 | Trace settlement generation; prototype guarded dedicated generator; record hooks, guards and terrain preservation | Not started | Pending |
-| P0.3 | Generate debug layout after terrain; repeat with Geological Landforms; record order, checksums, exclusions and final validity | Not started | Pending |
-| P0.4 | Custom Lord with hostile defenders holding under damage; actual shell/fuel pickup and use | Not started | Pending |
-| P0.5 | Hostile NPC completes cooking, generator refueling and faction-owned growing work using real inputs | Not started | Pending |
-| P0.6 | Save/load, retreat, removal, re-entry and defeat experiments; establish depletion/damage/roster persistence strategy | Not started | Pending |
-| P0.7 | Forced rejection and partial-spawn failure; demonstrate playable recovery without traps or IEDs | Not started | Pending |
-| P0 report | Technical findings, observed logs, chosen hooks, worker adapter, lifecycle strategy and recovery behavior | Not started | Add `docs/p0-findings.md` when evidence exists |
-
-**P0 exit gate:** all required experiments have observed evidence, or the affected design contract has been explicitly revised with the reason. Source inspection, successful compilation, test scaffolding, or job assignment alone cannot establish the requested in-game behavior. Unrun runtime experiments remain pending.
-
-## Decisions and blockers
-
-| Item | State | Required resolution |
+| ID | Status | Completion evidence |
 |---|---|---|
-| Exact generation hooks and recovery path | Open | P0.2, P0.3 and P0.7 |
-| Enemy work/ownership adapters | Open | P0.4 and P0.5 |
-| Unload/revisit representation | Open | P0.6 |
-| Build and game-test tooling | Unverified for this project | P0.1; verify the local environment |
-| Active execution blocker | None recorded | Record a concrete blocker, attempted remedies and next action if one occurs |
+| P0.1 Minimal mod/build setup | Complete | Repository-prescribed Docker Release build: 0 warnings/errors; isolated Core launch and disposable `.rws` save/reload passed |
+| P0.2 Generation hook and guards | Complete | Guarded `Settlement.MapGeneratorDef` postfix selected `RB_P0_Base_Faction` only for eligible ordinary hostile human settlements; default remains off |
+| P0.3 Terrain and optional-mod order | Complete | Settlement/power ran at 400/401 after terrain; Core and GL 1.7.13.1 full generation passed; GL cliff audit reported both GL and Map Preview active |
+| P0.4 Hostile garrison behavior | Complete | Two-pawn custom Lord ran; holder remained on its post under real damage; worker picked up and consumed finite fuel |
+| P0.5 Hostile NPC work | Complete | Vanilla refuel, bill, and sow work givers completed generator refuel, stove refuel, a meal, and rice sowing without ownership changes or replenishment |
+| P0.6 Lifecycle | Complete | Active work survived save/load; removal/re-entry preserved wood depletion and marker-wall damage; vanilla defeat ended controller ownership |
+| P0.7 Failure recovery | Complete | Core and GL pre-spawn rejection made zero mutations; partial failure removed one owned thing, restored one terrain cell/checksum, and both fallbacks remained playable with no traps/IEDs |
+| P0 report | Complete | [P0 findings](p0-findings.md) records hooks, observed events, accepted revisions, and the reproducible protocol |
 
-Carryover `CLAUDE.md` describes a different mod. Use the Realistic Bases documents as this project's specification; verify any reusable environment facts independently.
+## Accepted P0 decisions
 
-## Update protocol
+| Item | Decision |
+|---|---|
+| Generation integration | Keep the narrowly guarded getter postfix and dedicated generator; do not replace explicitly selected third-party generators |
+| Step order | Preserve `MapCommonBase`; use custom settlement/power steps at 400/401 and audit the final map separately because later vanilla/mod steps may change terrain |
+| Worker adapter | Keep the map-scoped adapter over vanilla work givers; finite physical inputs and observed completion are the correctness boundary |
+| Unload/re-entry | Persist coarse settlement deltas by world-object ID; regenerate defenders on re-entry. Individual defender identity is intentionally outside the current contract |
+| Retreat test | Deterministic map removal/reopen replaces a literal caravan retreat for P0 because it exercises the same map-unload/re-entry persistence boundary without adding caravan behavior to the spike |
+| Arrival test | Require a pass-doors route from map edge to the settlement target. Hostile doors may still require normal breaching in actual play |
+| Map Preview | Its preview pipeline stops before order 230, so the order-400 settlement is intentionally excluded from previews; the live compatibility profile validated coexistence during full generation |
+| Supported build | Tested executable: RimWorld 1.6.4871 rev597. The installed `Version.txt` rev595 text is treated as stale packaging metadata; compile API remains pinned to 1.6.4871 |
 
-- The implementing task changes its milestone to **In progress** when work begins and keeps this tracker current at meaningful checkpoints.
-- Use **Not started**, **Queued for execution**, **In progress**, **Blocked**, or **Complete**. Record partial evidence without marking an unfulfilled gate complete.
-- Link findings, test commands/results, relevant logs or saved test artifacts, and commits where available. Distinguish source evidence, build checks and observed runtime behavior.
-- Record blockers with the failed action and the next concrete step. Preserve finished milestone summaries; add dated updates below.
-- Keep traps and IEDs prohibited throughout. Stay within P0 until its results are reviewed; do not quietly expand into P1 or declare the full mod operational.
+No active P0 blocker remains. Carryover `CLAUDE.md` describes another mod; the Realistic Bases documents remain authoritative.
 
 ## Activity log
 
 | Date | Update |
 |---|---|
-| 2026-09-14 | Completed design, feasibility review and phased implementation plan. |
-| 2026-09-14 | Created progress tracker and queued P0 for a Sol task at medium reasoning effort. |
+| 2026-09-14 | Completed design/feasibility work and started P0 on baseline `0f12114`. |
+| 2026-09-14 | Added the P0 scaffold and probes; Docker build and isolated startup smoke tests passed. |
+| 2026-09-19 | Corrected the Harmony reference to the installed 2.4.1 runtime; observed hostile work, save/load, Core generation, recovery, re-entry, and defeat behavior. |
+| 2026-09-20 | Verified reachable playable arrivals and repeated normal/rejection/partial cases with Geological Landforms 1.7.13.1 and Map Preview active; closed P0. |
