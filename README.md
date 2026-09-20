@@ -8,10 +8,11 @@ Design work for a RimWorld mod that generates terrain-aware, functioning opponen
 - [Progress tracker](docs/progress.md)
 - [MVP supply horizon, trade stock and deferred sustainability](docs/supply-and-mvp-scope.md)
 
-Status: **P2 first complete physical settlement complete**, 2026-09-20. P0, P1, and P2 are complete; P3 remains unstarted. The mod now realizes bounded industrial-temperate and tribal facility, supply, utility, defense, and recovery contracts. Baseline: RimWorld 1.6, Core without DLC.
+Status: **P3 playable defensive encounter in progress**, 2026-09-20. P0, P1, and P2 are complete. P3 is implementing a settlement-scoped garrison, usable defensive posts, finite mortar supplies, and encounter support without expanding into P4 terrain work or P5 trade integration. Baseline: RimWorld 1.6, Core without DLC.
 
 - [P0 findings and reproducible test protocol](docs/p0-findings.md)
 - [P1 planner findings and validation evidence](docs/p1-findings.md)
 - [P2 physical-settlement findings and validation evidence](docs/p2-findings.md)
+- [P3 defensive-encounter findings and validation evidence](docs/p3-findings.md)
 
 The existing `CLAUDE.md` describes Colony Politics and references files absent from this directory. It is carryover context, not the specification for Realistic Bases. These documents concern the settlement mod requested here.

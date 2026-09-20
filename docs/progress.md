@@ -4,7 +4,7 @@ Updated: 2026-09-20
 
 ## Current state
 
-Design, source review, **P0 — Resolve the technical risks**, **P1 — Planner and validation harness**, and **P2 — First complete physical settlement are complete**. P2 now realizes explicit industrial-temperate and tribal facility, budget, supply, utility, defense, runtime, and recovery contracts. P3 remains unstarted.
+Design, source review, **P0 — Resolve the technical risks**, **P1 — Planner and validation harness**, and **P2 — First complete physical settlement are complete**. **P3 — Playable defensive encounter is in progress** under the bounded encounter-supply scope. P4 and later milestones remain unstarted.
 
 Specification: [design and feasibility](design-feasibility.md). Delivery gates: [implementation plan](implementation-plan.md). Detailed evidence: [P0 findings](p0-findings.md).
 
@@ -16,7 +16,7 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 | P0 — Resolve the technical risks | Complete | Build, Core/GL generation, hostile jobs, save/load, lifecycle, defeat, and both recovery modes observed in game |
 | P1 — Planner and validation harness | Complete | Fixed-input determinism, invalid-terrain rejection, bounded termination, required property cases, read-only planning, diagnostics, and Core/GL integration passed; see [P1 findings](p1-findings.md) |
 | P2 — First complete physical settlement | Complete | Industrial/tribal profiles, full plan-driven spawning, real power/freezer/outage behavior, Core recovery, and GL + Map Preview normal/recovery matrices passed; see [P2 findings](p2-findings.md) |
-| P3 — Playable defensive encounter | Not started | Requires P2; reuse the validated P0 Lord/work approach |
+| P3 — Playable defensive encounter | In progress | Bounded checklist committed; replace the P0 probe Lord with a settlement-scoped defensive controller and validate a real supplied encounter |
 | P4 — Terrain variety and stronger fortifications | Not started | Requires P3; reuse the validated late generation order |
 | P5 — Encounter supplies, trade stock, and persistent consequences | Not started | Revised scope: bounded routine/combat reserves, trade consistency and no-duplication persistence; full sustainability post-MVP |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage |
@@ -71,7 +71,19 @@ Commit mapping is recorded in [P1 findings](p1-findings.md). The same stepwise c
 | P2.3 | Plan-driven RimWorld spawning, one-time initialization, equipment/stocks/crop growth, operational power/freezer behavior, and realized-map audit/debug reporting | 29/29 pure tests and Docker Release build passed; Core industrial/tribal, rejection, deep rollback, and real outage audits passed; standalone integration commit | Complete |
 | P2.4 | Recovery and optional-mod regression matrix, declared startup scenario observations, final findings and exit decision | Core rejection/partial rollback and real outage passed; Geological Landforms 1.7.13.1 + Map Preview normal/rejection/deep-partial matrix passed; static checks and closeout commit | Complete |
 
-Step-to-commit mapping and observed evidence are recorded in [P2 findings](p2-findings.md). P3 remains unstarted.
+Step-to-commit mapping and observed evidence are recorded in [P2 findings](p2-findings.md). P3 now proceeds under the checklist below.
+
+## P3 committed checklist
+
+| Step | Scope | Validation and commit policy | Status |
+|---|---|---|---|
+| P3.0 | Milestone scope, bounded checklist, evidence separation, and MVP supply boundary | Documentation review; standalone checkpoint commit | In progress |
+| P3.1 | Pure defensive doctrine: sectors/posts, weapon-aware one-role assignment, pursuit and route bounds, reserves, breach response, needs relief, fallback, invalid-post reassignment, and anti-oscillation state | Deterministic/state-transition tests plus Docker Release build; standalone feature commit | Pending |
+| P3.2 | Physical encounter contract: usable firing posts outside opaque walls, staffed reachable unroofed mortars, finite HE/bounded incendiary stocks, active-rule reload/barrel supplies, roster/facility/power budgets, and tribal exclusions | Pure layout/supply validation and Docker Release build; standalone feature commit | Pending |
+| P3.3 | Runtime garrison Lord/controller, narrow support jobs, physical consumption/exhaustion, local breach response, save/load state reconstruction, diagnostics, and player-scope guards | Pure/runtime-state tests, Docker build, and focused Core live checks; standalone integration commit | Pending |
+| P3.4 | Encounter matrix and closeout: multiple approaches, night, harassment, breach, incendiary threat, operator/power loss, relief, invalid post, exhaustion, active reload, tribal, Core/GL regression, and player unaffected | Record actual runtime evidence separately from estimates/source/build/pure tests; close only passed checks; standalone closeout commit | Pending |
+
+P3 exit is a newly generated supplied encounter whose defenders occupy usable posts, respond locally within pursuit/route limits, consume finite physical supplies, preserve active behavior through save/reload, and do not affect player pawns or settings. This is not a claim of long-term sustainability, trade-stock integration, or full unload/revisit casualty identity.
 
 ## Current MVP scope revision — 2026-09-20
 
@@ -79,7 +91,7 @@ The user reduced the sustainability requirement and added settlement trade-stock
 
 Trade goods must reflect the actual settlement offer separately from operating reserves. Snapshot/ownership/reconciliation support is planned in P5; P2's current generated stocks are not evidence of this new feature. Purchases, sales, looting, depletion and restock cannot duplicate goods. Persistence/ownership correctness remains in the MVP.
 
-P0–P2 findings remain historical evidence; no completed checks were rewritten or new implementation claimed. P3 is still the next unstarted milestone. The earlier P2 outage observation used 360 W while a planning scenario named 650 W; future validation must state the actual load and reconcile that difference rather than repeat an exact-scenario claim.
+P0–P2 findings remain historical evidence; no completed checks were rewritten. P3 is the active milestone. The earlier P2 outage observation used 360 W while a planning scenario named 650 W; P3 validation must state the actual load and reconcile that difference rather than repeat an exact-scenario claim.
 
 ## Activity log
 
@@ -99,4 +111,5 @@ P0–P2 findings remain historical evidence; no completed checks were rewritten 
 | 2026-09-20 | P2.2 added a deterministic 31x25 compound plus 10x13 field, complete facility placements, local-material input, two edge routes, utilities/defenses, and hard validation; 29/29 combined pure tests and Docker Release build passed. |
 | 2026-09-20 | P2.3 replaced the diagnostic shell with full plan-driven settlement spawning and realized-map audits; Core industrial/tribal profiles, zero-mutation rejection, 476-thing/298-roof rollback, clean power topology, freezer operation, and a real six-hour generator-service buffer passed. |
 | 2026-09-20 | P2.4 passed Geological Landforms 1.7.13.1 + Map Preview normal/rejection/deep-partial cases on live maps (including GL cliff/river mutators), final pure/build/XML/diff checks passed, and P2 closed. |
-| 2026-09-20 | Revised P5 to bounded encounter readiness and trade-stock fidelity; documented full sustainability as post-MVP. Documentation only; P3 remains unstarted. |
+| 2026-09-20 | Revised P5 to bounded encounter readiness and trade-stock fidelity; documented full sustainability as post-MVP. Documentation only. |
+| 2026-09-20 | Authorized P3 and established a stepwise defensive-encounter implementation, validation, and commit checklist; P4 remains unstarted. |
