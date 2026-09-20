@@ -4,7 +4,7 @@ Updated: 2026-09-20
 
 ## Current state
 
-Design, source review, and **P0 — Resolve the technical risks are complete**. **P1 — Planner and validation harness is in progress.** P1 is limited to deterministic planning, validation, diagnostics, and integration through the proven P0 boundary; it does not implement P2's complete physical settlement.
+Design, source review, **P0 — Resolve the technical risks**, and **P1 — Planner and validation harness are complete**. P1 remains limited to deterministic planning, validation, diagnostics, and integration through the proven P0 boundary; it does not implement P2's complete physical settlement.
 
 Specification: [design and feasibility](design-feasibility.md). Delivery gates: [implementation plan](implementation-plan.md). Detailed evidence: [P0 findings](p0-findings.md).
 
@@ -14,7 +14,7 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 |---|---|---|
 | Design and feasibility | Complete | Design, implementation plan, and source review written |
 | P0 — Resolve the technical risks | Complete | Build, Core/GL generation, hostile jobs, save/load, lifecycle, defeat, and both recovery modes observed in game |
-| P1 — Planner and validation harness | In progress | Execute the committed P1 checklist below; [P1 findings](p1-findings.md) separates pure, build, and runtime evidence |
+| P1 — Planner and validation harness | Complete | Fixed-input determinism, invalid-terrain rejection, bounded termination, required property cases, read-only planning, diagnostics, and Core/GL integration passed; see [P1 findings](p1-findings.md) |
 | P2 — First complete physical settlement | Not started | Requires P1 |
 | P3 — Playable defensive encounter | Not started | Requires P2; reuse the validated P0 Lord/work approach |
 | P4 — Terrain variety and stronger fortifications | Not started | Requires P3; reuse the validated late generation order |
@@ -57,7 +57,7 @@ No active P0 blocker remains. Carryover `CLAUDE.md` describes another mod; the R
 | P1.1 | Versioned profile inputs, stable seeds, immutable terrain snapshots, connected-region analysis | Docker build: 0 warnings/errors; four focused pure tests passed; committed as the P1.1 feature checkpoint | Complete |
 | P1.2 | Bounded candidate search, rectangular room envelopes, adjacency/circulation, reservations, validator, property matrix | Docker build: 0 warnings/errors; 12/12 pure tests passed including every required property case; committed as the P1.2 feature checkpoint | Complete |
 | P1.3 | Replace fixed diagnostic layout through P0 integration; add overlays and compact generation report | Docker build: 0 warnings/errors; isolated Core primary plan/spawn, playable arrival, overlay, report, terrain preservation, and final audit observed; committed as P1.3 checkpoint | Complete |
-| P1.4 | Integrated rejection/fallback and optional-mod runtime matrix; final findings | Core and GL + Map Preview observed evidence; final P1 commit only after the exit gate passes | In progress |
+| P1.4 | Integrated rejection/fallback and optional-mod runtime matrix; final findings | Core and GL + Map Preview normal/rejection/partial matrix passed, including `GL_Cliff` + `Caves`; final P1 checkpoint committed after full verification | Complete |
 
 Commit mapping is recorded in [P1 findings](p1-findings.md). The same stepwise commit policy applies to later authorized milestones.
 
@@ -73,3 +73,4 @@ Commit mapping is recorded in [P1 findings](p1-findings.md). The same stepwise c
 | 2026-09-20 | P1.1 added versioned inputs, stable seed/digests, copied terrain snapshots, and deterministic connected-region analysis; Docker build and four pure tests passed. |
 | 2026-09-20 | P1.2 added bounded candidates/routes, room and circulation data, occupancy/utility/defense reservations, validation, and the full 12-case pure property suite. |
 | 2026-09-20 | P1.3 replaced fixed-site selection with immutable snapshot planning and plan-driven diagnostic spawning; Core runtime produced a valid plan/spawn, overlay, compact report, playable arrival, and clean final audit. |
+| 2026-09-20 | P1.4 passed Core recovery and GL + Map Preview normal/recovery matrices, including `GL_Cliff` + `Caves`; all P1 exit criteria passed and P1 closed. |
