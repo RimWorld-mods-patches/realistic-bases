@@ -4,7 +4,7 @@ Updated: 2026-09-20
 
 ## Status and evidence rule
 
-P2 is **in progress**. P0 and P1 evidence remains valid for their own integration and planning contracts, but it is not evidence that P2 facilities, utilities, supplies, defenses, or capability profiles work. A building appearing in a plan, source trace, log, or screenshot is not sufficient: P2 closes only after pure rules, compilation, spawning, and the required live runtime properties are separately observed.
+P2 is **complete**. P0 and P1 evidence remains valid for their own integration and planning contracts, but was not treated as evidence that P2 facilities, utilities, supplies, defenses, or capability profiles work. A building appearing in a plan, source trace, log, or screenshot was not sufficient: P2 closed only after pure rules, compilation, spawning, and the required live runtime properties were separately observed.
 
 Evidence is classified as:
 
@@ -21,8 +21,8 @@ No test is recorded as passed until it has run. Reduced fallback layouts are nam
 | P2.0 | Scope, checklist, assumptions, and evidence policy | `f4c2c64` | Document review |
 | P2.1 | Pure versioned industrial/tribal profiles and quantitative budgets | `038ca4d` | 20/20 combined pure tests passed; Docker Release build 0 warnings/errors |
 | P2.2 | Pure deterministic full-facility layout and validator | `90cad5b` | 29/29 combined pure tests passed; Docker Release build 0 warnings/errors |
-| P2.3 | Plan-driven spawning and realized-map audit | This step's feature commit | 29/29 combined pure tests; Docker Release build 0 warnings/errors; Core industrial/tribal/recovery/outage matrix passed |
-| P2.4 | Runtime/recovery/optional-mod matrix and closeout | Pending | Pending |
+| P2.3 | Plan-driven spawning and realized-map audit | `cee2c3e` | 29/29 combined pure tests; Docker Release build 0 warnings/errors; Core industrial/tribal/recovery/outage matrix passed |
+| P2.4 | Runtime/recovery/optional-mod matrix and closeout | This step's closeout commit | GL 1.7.13.1 + Map Preview normal/rejection/deep-partial matrix; final static/build/test checks passed |
 
 ## Initial supported profiles and declared scenarios
 
@@ -60,6 +60,12 @@ The forced pre-spawn rejection recorded zero mutation and completed a full-contr
 
 The live generator-service test filled the real 600 Wd battery, consumed generator fuel to zero, disabled auto-refuel, and shed the two noncritical electric production benches. With the cooler and defenses still connected, the real network drew 360 W. After 19,259 ticks—beyond the declared 15,000-tick six-hour window—the battery retained 483.3 Wd, the freezer remained at -4.7 C with valid exterior exhaust, and the audit reported `servicePassed=True`. This directly validates the conservative 400 Wd minimum rather than relying only on the pure power calculation.
 
+## P2.4 optional-mod regression
+
+The isolated optional profile loaded Geological Landforms 1.7.13.1 and Map Preview together. Its normal industrial run passed the full 12/12 facility audit with one power network, finite stocks, valid exhaust, all beds/routes/interactions, and zero prohibited defenses. The map audit recorded both integrations active on a `GL_Cliff` + `GL_River` + `GL_RiverTerrain` map and preserved the inherited generation order: landform terrain steps before `RB_P0_Settlement@400` and `RB_P0_SettlementPower@401`, followed by later mutator/scatter/final steps.
+
+On the same optional profile, forced pre-spawn rejection recorded zero mutation and the full-contract retry passed. The deep forced partial case removed 476 owned things, restored 298 roofs and the checksum, then passed the complete industrial runtime audit after retry. All three cases preserved terrain outside the planned roof change, emitted no duplicate power-net warning, and contained no trap or IED.
+
 ## Fixed inherited contracts
 
 - Planning reads an immutable terrain snapshot and performs no Verse or map mutation.
@@ -73,8 +79,8 @@ The live generator-service test filled the real 600 Wd battery, consumed generat
 
 ## Exit gate
 
-P2 completes only when both supported profiles realize every required facility and all are reachable and usable; ordinary housing covers four residents without counting jail or medical beds; prohibited defenses are absent; gates have correct faction ownership and preserve attack and retreat topology; the industrial network survives its declared day/night/load scenarios using real connected generation, storage, and finite fuel; freezer temperature is observed with valid exhaust; quantified food bridges the declared effective first-harvest delay; initialized stock/crop value is accounted once; and the tribal profile contains no electric substitutes. P1 determinism, rejection, partial-spawn rollback, and optional-mod compatibility must retain appropriate regression coverage.
+P2 completes only when both supported profiles realize every required facility and all are reachable and usable; ordinary housing covers four residents without counting jail or medical beds; prohibited defenses are absent; gates have correct faction ownership and preserve attack and retreat topology; the industrial network survives its declared day/night/load scenarios using real connected generation, storage, and finite fuel; freezer temperature is observed with valid exhaust; quantified food bridges the declared effective first-harvest delay; initialized stock/crop value is accounted once; and the tribal profile contains no electric substitutes. P1 determinism, rejection, partial-spawn rollback, and optional-mod compatibility must retain appropriate regression coverage. **Every condition passed.**
 
 ## Current evidence and pending checks
 
-P2.3 is complete. The combined P1/P2 console suite passes 29/29 tests in the prescribed SDK container and the mod builds Release with zero warnings and zero errors. Core live checks now cover both profiles, full realized-map audits, clean multi-cell power topology, freezer operation, finite stocks, the real generator-service outage, zero-mutation rejection, and deep partial-spawn rollback/full-contract retry. P2.4 remains the Geological Landforms + Map Preview regression, final static checks, and P2 exit decision. P3 is unstarted.
+P2 is complete. The combined P1/P2 console suite passes 29/29 tests in the prescribed SDK container and the mod builds Release with zero warnings and zero errors. XML validation and `git diff --check` pass. Core live checks cover both profiles, full realized-map audits, clean multi-cell power topology, freezer operation, finite stocks, the real generator-service outage, zero-mutation rejection, and deep partial-spawn rollback/full-contract retry. Geological Landforms 1.7.13.1 + Map Preview normal/rejection/deep-partial cases also pass on live generated maps. P3 is unstarted.

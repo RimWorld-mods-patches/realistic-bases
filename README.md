@@ -7,7 +7,7 @@ Design work for a RimWorld mod that generates terrain-aware, functioning opponen
 - [Research notes and source references](docs/research-notes.md)
 - [Progress tracker](docs/progress.md)
 
-Status: **P2 first complete physical settlement in progress**, 2026-09-20. P0 and P1 are complete; the current milestone is replacing the diagnostic shell with bounded industrial-temperate and tribal facility, supply, utility, and defense profiles. Baseline: RimWorld 1.6, Core without DLC.
+Status: **P2 first complete physical settlement complete**, 2026-09-20. P0, P1, and P2 are complete; P3 remains unstarted. The mod now realizes bounded industrial-temperate and tribal facility, supply, utility, defense, and recovery contracts. Baseline: RimWorld 1.6, Core without DLC.
 
 - [P0 findings and reproducible test protocol](docs/p0-findings.md)
 - [P1 planner findings and validation evidence](docs/p1-findings.md)
