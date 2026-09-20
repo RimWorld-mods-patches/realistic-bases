@@ -19,8 +19,8 @@ Planning must not mutate a RimWorld `Map` or any runtime object. Map reads end w
 | Step | Intended result | Commit | Evidence |
 |---|---|---|---|
 | P0 checkpoint | Preserve completed P0 before P1 edits | `646db81` | P0 Docker build and runtime matrix complete |
-| P1.0 | Scope, checklist, and evidence policy | Pending | Document review |
-| P1.1 | Stable inputs, seed derivation, snapshots, connected regions | Pending | Docker build and focused pure tests |
+| P1.0 | Scope, checklist, and evidence policy | `1bec546` | Document review |
+| P1.1 | Stable inputs, seed derivation, snapshots, connected regions | This step's `feat: add deterministic P1 planning inputs` commit | Docker build: 0 warnings/errors; 4/4 focused pure tests passed |
 | P1.2 | Bounded planner, graph/reservations, validation, property matrix | Pending | Full pure property suite |
 | P1.3 | Map adapter, P0 spawner integration, overlays, report | Pending | Build plus isolated Core runtime |
 | P1.4 | Recovery/optional compatibility matrix and closeout | Pending | Isolated Core and GL + Map Preview runtime evidence |
@@ -39,3 +39,9 @@ Planning must not mutate a RimWorld `Map` or any runtime object. Map reads end w
 ## Exit gate
 
 P1 completes only when fixed inputs produce identical plan digests, invalid terrain is rejected, bounded searches terminate deterministically, the required property cases pass, planning/spawning separation is demonstrated, and the integrated planner/recovery/diagnostic path is observed in isolated game profiles. A successful build alone is insufficient.
+
+## P1.1 observations
+
+The planning model is a pure C# layer with no RimWorld or `Verse` reference. `TerrainSnapshot` copies its source cells, carries an explicit source/schema version, and exposes only read access. Stable FNV-based digests cover every profile field, snapshot cell, schema version, and explicit seed input. Region analysis uses row-major starts and a fixed four-neighbor order, so region IDs and cell order do not depend on hash-table or runtime enumeration behavior.
+
+Focused Docker tests passed for stable seed/input digests, snapshot copying, deterministic connected regions, and disconnected-region edge metadata. These are pure-test observations, not yet evidence that live map adaptation or integrated generation works.
