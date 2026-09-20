@@ -4,7 +4,7 @@ Updated: 2026-09-20
 
 ## Current state
 
-Design, source review, and **P0 — Resolve the technical risks are complete**. P0 now has observed in-game evidence in isolated Core and Geological Landforms + Map Preview profiles. The result is a deliberately small technical prototype, not the finished mod: P1 is the next milestone.
+Design, source review, and **P0 — Resolve the technical risks are complete**. **P1 — Planner and validation harness is in progress.** P1 is limited to deterministic planning, validation, diagnostics, and integration through the proven P0 boundary; it does not implement P2's complete physical settlement.
 
 Specification: [design and feasibility](design-feasibility.md). Delivery gates: [implementation plan](implementation-plan.md). Detailed evidence: [P0 findings](p0-findings.md).
 
@@ -14,7 +14,7 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 |---|---|---|
 | Design and feasibility | Complete | Design, implementation plan, and source review written |
 | P0 — Resolve the technical risks | Complete | Build, Core/GL generation, hostile jobs, save/load, lifecycle, defeat, and both recovery modes observed in game |
-| P1 — Planner and validation harness | Not started | Build the terrain-aware planner around the accepted P0 hooks and invariants |
+| P1 — Planner and validation harness | In progress | Execute the committed P1 checklist below; [P1 findings](p1-findings.md) separates pure, build, and runtime evidence |
 | P2 — First complete physical settlement | Not started | Requires P1 |
 | P3 — Playable defensive encounter | Not started | Requires P2; reuse the validated P0 Lord/work approach |
 | P4 — Terrain variety and stronger fortifications | Not started | Requires P3; reuse the validated late generation order |
@@ -49,6 +49,18 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 
 No active P0 blocker remains. Carryover `CLAUDE.md` describes another mod; the Realistic Bases documents remain authoritative.
 
+## P1 committed checklist
+
+| Step | Scope | Validation and commit policy | Status |
+|---|---|---|---|
+| P1.0 | Milestone scope, checklist, and evidence document | Documentation review; standalone checkpoint commit | Complete |
+| P1.1 | Versioned profile inputs, stable seeds, immutable terrain snapshots, connected-region analysis | Docker build plus pure deterministic tests; commit before site-planner work | In progress |
+| P1.2 | Bounded candidate search, rectangular room envelopes, adjacency/circulation, reservations, validator, property matrix | Pure tests cover determinism, disconnected land, narrow corridors, obstructed interaction cells, impossible capacity, and bounded termination; standalone commit | Not started |
+| P1.3 | Replace fixed diagnostic layout through P0 integration; add overlays and compact generation report | Docker build, XML/whitespace checks, isolated Core runtime; standalone commit | Not started |
+| P1.4 | Integrated rejection/fallback and optional-mod runtime matrix; final findings | Core and GL + Map Preview observed evidence; final P1 commit only after the exit gate passes | Not started |
+
+Commit mapping is recorded in [P1 findings](p1-findings.md). The same stepwise commit policy applies to later authorized milestones.
+
 ## Activity log
 
 | Date | Update |
@@ -57,3 +69,4 @@ No active P0 blocker remains. Carryover `CLAUDE.md` describes another mod; the R
 | 2026-09-14 | Added the P0 scaffold and probes; Docker build and isolated startup smoke tests passed. |
 | 2026-09-19 | Corrected the Harmony reference to the installed 2.4.1 runtime; observed hostile work, save/load, Core generation, recovery, re-entry, and defeat behavior. |
 | 2026-09-20 | Verified reachable playable arrivals and repeated normal/rejection/partial cases with Geological Landforms 1.7.13.1 and Map Preview active; closed P0. |
+| 2026-09-20 | Checkpointed P0 as `646db81`; started P1 with a stepwise validation-and-commit checklist. |
