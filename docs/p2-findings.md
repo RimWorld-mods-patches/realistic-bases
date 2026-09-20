@@ -18,8 +18,8 @@ No test is recorded as passed until it has run. Reduced fallback layouts are nam
 
 | Step | Intended result | Commit | Evidence |
 |---|---|---|---|
-| P2.0 | Scope, checklist, assumptions, and evidence policy | This documentation checkpoint | Document review |
-| P2.1 | Pure versioned industrial/tribal profiles and quantitative budgets | Pending | Pending |
+| P2.0 | Scope, checklist, assumptions, and evidence policy | `f4c2c64` | Document review |
+| P2.1 | Pure versioned industrial/tribal profiles and quantitative budgets | This step's feature commit | 20/20 combined pure tests passed; Docker Release build 0 warnings/errors |
 | P2.2 | Pure deterministic full-facility layout and validator | Pending | Pending |
 | P2.3 | Plan-driven spawning and realized-map audit | Pending | Pending |
 | P2.4 | Runtime/recovery/optional-mod matrix and closeout | Pending | Pending |
@@ -32,7 +32,11 @@ The industrial-temperate profile will provide four ordinary sleeping places, sep
 
 The tribal profile will provide the same resident, jail, kitchen, agriculture, dining/recreation, workshop, storage, medical, perimeter, gatehouse, equipment, and cover categories using tribal-legal content. It uses a pantry and finite preserved/raw food and fuel instead of refrigeration, conduits, batteries, generators, electric benches, or turrets. No electric substitute may be inserted by fallback.
 
-Startup food will be computed from resident nutrition demand, a declared first-harvest delay, an explicit safety margin, and effective crop-growth assumptions. Crop area and initialized growth value are counted in the resource/value report, but initialized plants are spawned only once and never replenished. Imports have a hard value allowance distinct from the locally sourced construction budget. Equipment, stocks, structures, and initialized crops all consume a recorded budget category.
+Startup food is computed as `4 residents × 1.6 nutrition/day × 8 effective days × 1.25 safety factor = 64 nutrition`. The industrial profile carries 72 simple-meal-equivalent units at 0.9 nutrition (64.8 total); the tribal profile carries 1,280 pemmican-equivalent units at 0.05 nutrition (64 total). Effective crop output is conservatively declared as 0.052 nutrition/cell/day, requiring `ceil(6.4 / 0.052) = 124` crop cells. Crop area and initialized growth value are counted in the resource/value report, but initialized plants will be spawned only once and never replenished. Imports have a hard value allowance distinct from the locally sourced construction budget. Equipment, stocks, structures, and initialized crops all consume a recorded budget category.
+
+The industrial profile declares a 1,000 W fueled generator, 300 Wd starting storage for ordinary day/night cases, and a separate 600 Wd service buffer. Its modeled cases are 12 hours at 850 W load, 12 hours at 650 W critical load, and a six-hour 650 W generator-service outage ending with 437 Wd. These are planning calculations only until actual RimWorld networks, fuel behavior, storage, and loads are observed in P2.3/P2.4. The tribal profile has no power scenario and rejects refrigeration, batteries, electric cooking, power facilities, and turrets.
+
+Both resource budgets enforce independent local construction and imported-value ceilings. The digest covers schema/rules versions, residents, capabilities, crop and nutrition assumptions, finite stocks, facility demands, power scenarios, budget totals, and equipment lists. Industrial and tribal digests are stable and distinct.
 
 ## Fixed inherited contracts
 
@@ -51,4 +55,4 @@ P2 completes only when both supported profiles realize every required facility a
 
 ## Current evidence and pending checks
 
-P2.0 document review is complete. No P2 implementation, pure test, build, or live runtime result has yet been claimed. P2.1 is the next step. P3 is unstarted.
+P2.1 is complete. The combined P1/P2 console suite passed 20/20 tests, including all eight new profile/budget cases, in the prescribed SDK container. The mod then built Release with zero warnings and zero errors. This proves the pure calculations and exclusions only; no P2 layout or realized-map property has yet been claimed. P2.2 is next. P3 is unstarted.

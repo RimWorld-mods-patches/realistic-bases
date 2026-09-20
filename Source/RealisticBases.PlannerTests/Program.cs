@@ -21,7 +21,15 @@ internal static class Program
         Run("invalid water terrain is rejected", InvalidWaterTerrainIsRejected);
         Run("candidate search terminates at deterministic limit", CandidateSearchTerminatesAtLimit);
         Run("planning preserves snapshot digest", PlanningPreservesSnapshotDigest);
-        Console.WriteLine("P1.2 pure tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures);
+        Run("P2 profiles have stable distinct digests", P2ProfilesHaveStableDistinctDigests);
+        Run("P2 housing excludes jail and medical capacity", P2HousingExcludesSpecialBeds);
+        Run("P2 startup food bridges first harvest", P2StartupFoodBridgesFirstHarvest);
+        Run("P2 crop demand is resident driven", P2CropDemandIsResidentDriven);
+        Run("P2 resource budgets respect allowances", P2ResourceBudgetsRespectAllowances);
+        Run("P2 industrial power scenarios pass", P2IndustrialPowerScenariosPass);
+        Run("P2 tribal profile has no electric substitutes", P2TribalHasNoElectricSubstitutes);
+        Run("P2 stocks are finite and profile specific", P2StocksAreFiniteAndProfileSpecific);
+        Console.WriteLine("P1/P2 pure tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
 
@@ -155,6 +163,82 @@ internal static class Program
         Equal(before, snapshot.Digest, "snapshot digest after planning");
     }
 
+    private static void P2ProfilesHaveStableDistinctDigests()
+    {
+        Equal(P2ProfileCatalog.IndustrialTemperate.Digest, P2ProfileCatalog.IndustrialTemperate.Digest, "industrial digest stable");
+        NotEqual(P2ProfileCatalog.IndustrialTemperate.Digest, P2ProfileCatalog.TribalTemperate.Digest, "profile digests differ");
+    }
+
+    private static void P2HousingExcludesSpecialBeds()
+    {
+        foreach (PhysicalSettlementProfile profile in P2Profiles())
+        {
+            Equal(profile.Residents, profile.Facilities.Single(f => f.Kind == FacilityKind.Housing).Capacity, profile.Id + " housing");
+            Equal(1, profile.Facilities.Single(f => f.Kind == FacilityKind.Jail).Capacity, profile.Id + " jail");
+            Equal(1, profile.Facilities.Single(f => f.Kind == FacilityKind.Medical).Capacity, profile.Id + " medical");
+        }
+    }
+
+    private static void P2StartupFoodBridgesFirstHarvest()
+    {
+        foreach (PhysicalSettlementProfile profile in P2Profiles())
+            True(profile.StartupNutrition >= profile.RequiredStartupNutrition, profile.Id + " nutrition bridge");
+    }
+
+    private static void P2CropDemandIsResidentDriven()
+    {
+        foreach (PhysicalSettlementProfile profile in P2Profiles())
+        {
+            Equal(124, profile.RequiredCropCells, profile.Id + " crop cells");
+            True(profile.Facilities.Single(f => f.Kind == FacilityKind.Field).Capacity >= profile.RequiredCropCells,
+                profile.Id + " field covers demand");
+        }
+    }
+
+    private static void P2ResourceBudgetsRespectAllowances()
+    {
+        foreach (PhysicalSettlementProfile profile in P2Profiles())
+        {
+            True(profile.Budget.IsWithinLimits, profile.Id + " budget");
+            True(profile.Budget.ImportedValue <= profile.Budget.ImportValueLimit, profile.Id + " imports bounded");
+            True(profile.Budget.InitializedCropValue > 0, profile.Id + " crop value counted");
+        }
+    }
+
+    private static void P2IndustrialPowerScenariosPass()
+    {
+        PhysicalSettlementProfile profile = P2ProfileCatalog.IndustrialTemperate;
+        True(profile.Has(SettlementCapability.Electricity | SettlementCapability.Refrigeration | SettlementCapability.Batteries), "industrial capabilities");
+        True(profile.PowerScenarios.Count == 3 && profile.PowerScenarios.All(s => s.Passes), "all declared scenarios pass");
+        Equal(437, profile.PowerScenarios.Single(s => s.Id == "generator-service-buffer").EndingBatteryWattDays, "finite battery discharge");
+    }
+
+    private static void P2TribalHasNoElectricSubstitutes()
+    {
+        PhysicalSettlementProfile profile = P2ProfileCatalog.TribalTemperate;
+        True(!profile.Has(SettlementCapability.Electricity | SettlementCapability.Refrigeration), "no electricity/refrigeration");
+        True(profile.PowerScenarios.Count == 0, "no power scenarios");
+        True(profile.Facilities.Any(f => f.Kind == FacilityKind.Pantry), "pantry present");
+        True(!profile.Facilities.Any(f => f.Kind == FacilityKind.Freezer || f.Kind == FacilityKind.Power), "no electric facilities");
+    }
+
+    private static void P2StocksAreFiniteAndProfileSpecific()
+    {
+        PhysicalSettlementProfile industrial = P2ProfileCatalog.IndustrialTemperate;
+        PhysicalSettlementProfile tribal = P2ProfileCatalog.TribalTemperate;
+        True(industrial.StartupFoodUnits > 0 && industrial.StartupFuelUnits > 0, "industrial finite stocks");
+        True(tribal.StartupFoodUnits > 0 && tribal.StartupFuelUnits > 0, "tribal finite stocks");
+        NotEqual(industrial.StartupFoodUnits, tribal.StartupFoodUnits, "food unit representation differs");
+        True(industrial.WeaponDefs.All(w => w.StartsWith("Gun_")), "industrial firearms");
+        True(tribal.WeaponDefs.All(w => !w.StartsWith("Gun_")), "tribal weapons");
+    }
+
+    private static IEnumerable<PhysicalSettlementProfile> P2Profiles()
+    {
+        yield return P2ProfileCatalog.IndustrialTemperate;
+        yield return P2ProfileCatalog.TribalTemperate;
+    }
+
     private static SettlementProfile Profile(int candidates = 128) =>
         new SettlementProfile("diagnostic", 1, 7, 7, 20, candidates, 512);
 
@@ -195,7 +279,7 @@ internal static class Program
     private static void Run(string name, Action test)
     {
         try { test(); Console.WriteLine("PASS " + name); }
-        catch (Exception ex) { failures++; Console.WriteLine("FAIL " + name + ": " + ex.Message); }
+        catch (Exception ex) { failures++; Console.WriteLine("FAIL " + name + ": " + ex); }
     }
 
     private static void True(bool condition, string message)
