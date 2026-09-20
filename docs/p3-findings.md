@@ -26,8 +26,8 @@ P4 terrain/fortification variants, P5 trade/persistence integration, specialized
 
 | Step | Implementation | Required evidence before commit | Status / commit |
 |---|---|---|---|
-| P3.0 | Scope, checklist, boundaries, and evidence ledger | Documents agree; P4/P5 remain unstarted | In progress |
-| P3.1 | Pure doctrine and assignment/state model | Determinism; weapon/post compatibility; exclusive roles; pursuit plus route bounds; breach/local response; safe relief; inner fallback; invalid-post stability | Pending |
+| P3.0 | Scope, checklist, boundaries, and evidence ledger | Documents agree; P4/P5 remain unstarted | Complete — `4fca42a` |
+| P3.1 | Pure doctrine and assignment/state model | Determinism; weapon/post compatibility; exclusive roles; pursuit plus route bounds; breach/local response; safe relief; inner fallback; invalid-post stability | Complete — commit recorded after checkpoint |
 | P3.2 | Encounter layout, mortar court, finite supply and capacity budgets | Usable post geometry; mortar reachability/unroofedness/staffing; declared duty quantities; active-rule materials; power delta; tribal hard exclusions; inherited planner properties | Pending |
 | P3.3 | Runtime Lord/controller, support work, consumption, persistence and diagnostics | Build; focused live job/state/consumption/save-load checks; no broad behavior patch; recovery/fallback unchanged | Pending |
 | P3.4 | Full encounter/regression matrix and exit decision | Multiple approach battles; night; long range; gate breach; incendiary; operator/power removal; exhaustion; invalid post; needs relief; active save/reload; tribal; Core/GL; player unaffected | Pending |
@@ -36,21 +36,24 @@ Source inspection, pure tests, compilation, map-generation audits, and live batt
 
 ## Commit mapping
 
-No P3 implementation commit yet. P3.0 will be filled with the standalone documentation commit before code changes begin.
+- P3.0 documentation and checklist: `4fca42a`.
+- P3.1 doctrine/state model: this feature checkpoint; hash will be recorded with the next documentation checkpoint.
 
 ## Evidence ledger
 
 ### Source and API evidence
 
-Pending.
+P3.1 is engine-independent. `GarrisonDoctrine` selects routine, sector hold, local breach response, or inner fallback from an immutable situation. It validates a full pursuit route rather than only the target radius, requires every traversed cell to remain inside the defended bounds, and applies an explicit route-length cap. Posts declare cover, real line of fire, route validity, range band, mortar/inner role, and current usability.
+
+Assignment is stable and exclusive: sorted inputs and deterministic tie-breaking produce one role per defender and one defender per post. Weapon range/class and mortar capability constrain post selection. A still-valid previous post is retained during a 300-tick reassignment cooldown; an invalid post bypasses the cooldown immediately. Needs relief is assigned only when its route is safe and remaining defenders preserve minimum outer staffing. A lost outer defense selects only inner posts/fallback destinations.
 
 ### Pure/state tests
 
-Pending.
+The combined P1/P2/P3 console suite passes 36/36 tests. Seven P3 cases cover deterministic exclusive assignment, weapon/post compatibility, destination-and-route pursuit bounds, threatened-sector breach prioritization, safe relief, inner fallback after invalid outer posts, and stable reassignment without oscillation.
 
 ### Build and static checks
 
-Pending.
+Repository-prescribed Docker Release build passed with zero warnings and zero errors after P3.1. `git diff --check` is required again immediately before the checkpoint commit.
 
 ### Core runtime observations
 
@@ -62,4 +65,4 @@ Pending.
 
 ## Known limitations and next action
 
-The existing implementation still assigns one defender to a fixed P0 hold point and all remaining defenders to the P0 sequential work probe. It has no P3 sectors, exclusive role model, local breach state, mortar, finite magazine, or encounter persistence. The next step is P3.1: implement and test the deterministic defensive doctrine and assignment model before adding map objects or runtime behavior.
+The live implementation still assigns one defender to a fixed P0 hold point and all remaining defenders to the P0 sequential work probe. P3.1 supplies the tested pure decisions but does not yet prove live pawn behavior. The next step is P3.2: extend the physical encounter contract with real usable post geometry, a staffed industrial mortar court, finite combat supplies, active-rule material requirements, coherent capacity/power accounting, and tribal exclusions.

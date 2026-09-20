@@ -10,5 +10,6 @@
     <Compile Include="../RealisticBases/Planning/P1Planner.cs" Link="Planning/P1Planner.cs" />
     <Compile Include="../RealisticBases/Planning/P2Profiles.cs" Link="Planning/P2Profiles.cs" />
     <Compile Include="../RealisticBases/Planning/P2Layout.cs" Link="Planning/P2Layout.cs" />
+    <Compile Include="../RealisticBases/Planning/P3Doctrine.cs" Link="Planning/P3Doctrine.cs" />
   </ItemGroup>
 </Project>

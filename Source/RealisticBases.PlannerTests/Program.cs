@@ -38,7 +38,14 @@ internal static class Program
         Run("P2 gates and facility routes are viable", P2GatesAndFacilityRoutesAreViable);
         Run("P2 layout rejection is bounded", P2LayoutRejectionIsBounded);
         Run("P2 layout selects declared local material", P2LayoutSelectsDeclaredLocalMaterial);
-        Console.WriteLine("P1/P2 pure tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures);
+        Run("P3 assignments are deterministic and exclusive", P3AssignmentsAreDeterministicAndExclusive);
+        Run("P3 assignment is weapon and post aware", P3AssignmentIsWeaponAndPostAware);
+        Run("P3 pursuit validates destination and full route", P3PursuitValidatesDestinationAndFullRoute);
+        Run("P3 breach response remains local", P3BreachResponseRemainsLocal);
+        Run("P3 safe needs relief preserves minimum staffing", P3SafeNeedsReliefPreservesMinimumStaffing);
+        Run("P3 invalid outer posts trigger inner fallback", P3InvalidOuterPostsTriggerInnerFallback);
+        Run("P3 valid assignments resist oscillation", P3ValidAssignmentsResistOscillation);
+        Console.WriteLine("P1/P2/P3 pure tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
 
@@ -353,6 +360,109 @@ internal static class Program
 
     private static PhysicalPlanningInput P2Input(PhysicalSettlementProfile profile) =>
         new PhysicalPlanningInput(profile, FertileOpen(80, 80), 91, new[] { "BlocksGranite" }, 6400);
+
+    private static void P3AssignmentsAreDeterministicAndExclusive()
+    {
+        GarrisonSituation situation = P3Situation();
+        GarrisonPlan first = GarrisonDoctrine.Assign(situation);
+        GarrisonPlan second = GarrisonDoctrine.Assign(situation);
+        Equal(string.Join("|", first.Assignments.Select(AssignmentText)),
+            string.Join("|", second.Assignments.Select(AssignmentText)), "deterministic assignments");
+        Equal(situation.Defenders.Count, first.Assignments.Count, "one assignment per defender");
+        True(first.Assignments.GroupBy(a => a.DefenderId).All(g => g.Count() == 1), "exclusive defender roles");
+        True(first.Assignments.Where(a => a.PostId.Length > 0).GroupBy(a => a.PostId).All(g => g.Count() == 1), "exclusive posts");
+    }
+
+    private static void P3AssignmentIsWeaponAndPostAware()
+    {
+        GarrisonPlan plan = GarrisonDoctrine.Assign(P3Situation());
+        Equal("north-long", plan.Assignments.Single(a => a.DefenderId == 1).PostId, "rifle takes long post");
+        Equal("north-gate", plan.Assignments.Single(a => a.DefenderId == 2).PostId, "melee takes gate post");
+        Equal(GarrisonRole.MortarOperator, plan.Assignments.Single(a => a.DefenderId == 3).Role, "operator takes mortar");
+    }
+
+    private static void P3PursuitValidatesDestinationAndFullRoute()
+    {
+        GridRect bounds = new GridRect(10, 10, 8, 8);
+        GridPoint origin = new GridPoint(11, 11);
+        GridPoint target = new GridPoint(15, 11);
+        GridPoint[] safe = { origin, new GridPoint(12, 11), new GridPoint(13, 11), new GridPoint(14, 11), target };
+        GridPoint[] leaves = { origin, new GridPoint(10, 11), new GridPoint(9, 11), new GridPoint(10, 11),
+            new GridPoint(11, 11), new GridPoint(12, 11), new GridPoint(13, 11), new GridPoint(14, 11), target };
+        True(GarrisonDoctrine.CanPursue(origin, target, safe, bounds, 8), "bounded route accepted");
+        True(!GarrisonDoctrine.CanPursue(origin, target, leaves, bounds, 12), "route leaving bounds rejected");
+        True(!GarrisonDoctrine.CanPursue(origin, new GridPoint(19, 11), safe, bounds, 8), "outside destination rejected");
+    }
+
+    private static void P3BreachResponseRemainsLocal()
+    {
+        GarrisonPlan plan = GarrisonDoctrine.Assign(P3Situation(gateBreached: true, threatenedSector: "north"));
+        Equal(GarrisonState.LocalResponse, plan.State, "breach state");
+        True(plan.Assignments.Where(a => a.PostId.Length > 0).Take(2).All(a => a.SectorId == "north"),
+            "threatened sector receives first compatible defenders");
+        True(plan.Assignments.All(a => a.Role != GarrisonRole.Support), "combat response has no routine support assignment");
+    }
+
+    private static void P3SafeNeedsReliefPreservesMinimumStaffing()
+    {
+        List<DefenderCandidate> defenders = P3Defenders().ToList();
+        defenders[3] = new DefenderCandidate(4, DefenderWeaponClass.ShortRanged, 12, false, true, true, false, false);
+        GarrisonPlan safe = GarrisonDoctrine.Assign(P3Situation(defenders: defenders, needsRouteSafe: true));
+        Equal(GarrisonRole.NeedsRelief, safe.Assignments.Single(a => a.DefenderId == 4).Role, "safe relief granted");
+        GarrisonPlan unsafePlan = GarrisonDoctrine.Assign(P3Situation(defenders: defenders, needsRouteSafe: false));
+        True(unsafePlan.Assignments.Single(a => a.DefenderId == 4).Role != GarrisonRole.NeedsRelief, "unsafe route blocks relief");
+    }
+
+    private static void P3InvalidOuterPostsTriggerInnerFallback()
+    {
+        List<DefensivePost> posts = P3Posts().Select(p => p.Inner ? p :
+            new DefensivePost(p.Id, p.SectorId, p.Cell, p.MinimumRange, p.MaximumRange,
+                p.HasCover, p.HasLineOfFire, false, p.Mortar, p.Inner, p.Usable)).ToList();
+        GarrisonPlan plan = GarrisonDoctrine.Assign(P3Situation(posts: posts, outerDefenseViable: false));
+        Equal(GarrisonState.InnerFallback, plan.State, "fallback state");
+        True(plan.Assignments.Any(a => a.PostId == "inner-east"), "valid inner post occupied");
+        True(plan.Assignments.All(a => a.PostId.Length == 0 || a.PostId.StartsWith("inner-")), "no invalid outer post retained");
+    }
+
+    private static void P3ValidAssignmentsResistOscillation()
+    {
+        List<DefenderCandidate> defenders = P3Defenders().ToList();
+        defenders[0] = new DefenderCandidate(1, DefenderWeaponClass.LongRanged, 30, false, false,
+            false, false, false, "south-long", GarrisonRole.RangedPost, 900);
+        GarrisonPlan stable = GarrisonDoctrine.Assign(P3Situation(tick: 1000, defenders: defenders));
+        Equal("south-long", stable.Assignments.Single(a => a.DefenderId == 1).PostId, "cooldown retains valid post");
+        List<DefensivePost> invalid = P3Posts().Select(p => p.Id == "south-long"
+            ? new DefensivePost(p.Id, p.SectorId, p.Cell, p.MinimumRange, p.MaximumRange,
+                p.HasCover, false, p.RouteWithinBounds, p.Mortar, p.Inner, p.Usable) : p).ToList();
+        GarrisonPlan reassigned = GarrisonDoctrine.Assign(P3Situation(tick: 1000, defenders: defenders, posts: invalid));
+        True(reassigned.Assignments.Single(a => a.DefenderId == 1).PostId != "south-long", "invalid post immediately replaced");
+    }
+
+    private static GarrisonSituation P3Situation(int tick = 1000, IEnumerable<DefenderCandidate> defenders = null,
+        IEnumerable<DefensivePost> posts = null, bool gateBreached = false, string threatenedSector = "north",
+        bool outerDefenseViable = true, bool needsRouteSafe = true) =>
+        new GarrisonSituation(tick, defenders ?? P3Defenders(), posts ?? P3Posts(), true, threatenedSector,
+            gateBreached, outerDefenseViable, needsRouteSafe, new GridPoint(14, 14), new GridPoint(15, 15));
+
+    private static IEnumerable<DefenderCandidate> P3Defenders()
+    {
+        yield return new DefenderCandidate(1, DefenderWeaponClass.LongRanged, 30, false, false, false, false, false);
+        yield return new DefenderCandidate(2, DefenderWeaponClass.Melee, 2, false, false, false, false, false);
+        yield return new DefenderCandidate(3, DefenderWeaponClass.ShortRanged, 16, true, false, false, false, false);
+        yield return new DefenderCandidate(4, DefenderWeaponClass.ShortRanged, 12, false, true, false, false, false);
+    }
+
+    private static IEnumerable<DefensivePost> P3Posts()
+    {
+        yield return new DefensivePost("north-long", "north", new GridPoint(12, 10), 18, 36, true, true, true, false, false, true);
+        yield return new DefensivePost("south-long", "south", new GridPoint(12, 18), 18, 36, true, true, true, false, false, true);
+        yield return new DefensivePost("north-gate", "north", new GridPoint(14, 11), 0, 3, true, true, true, false, false, true);
+        yield return new DefensivePost("mortar", "center", new GridPoint(15, 15), 0, 100, false, true, true, true, false, true);
+        yield return new DefensivePost("inner-east", "inner", new GridPoint(16, 15), 4, 20, true, true, true, false, true, true);
+    }
+
+    private static string AssignmentText(GarrisonAssignment assignment) => assignment.DefenderId + ":" +
+        assignment.Role + ":" + assignment.PostId + ":" + assignment.Destination;
 
     private static TerrainSnapshot FertileOpen(int width, int height)
     {
