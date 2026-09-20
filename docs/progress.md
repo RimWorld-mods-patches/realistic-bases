@@ -4,7 +4,7 @@ Updated: 2026-09-20
 
 ## Current state
 
-Design, source review, **P0 — Resolve the technical risks**, and **P1 — Planner and validation harness are complete**. P1 remains limited to deterministic planning, validation, diagnostics, and integration through the proven P0 boundary; it does not implement P2's complete physical settlement.
+Design, source review, **P0 — Resolve the technical risks**, and **P1 — Planner and validation harness are complete**. **P2 — First complete physical settlement is in progress**. P2 is replacing P1's diagnostic shell with explicit industrial-temperate and tribal facility, budget, supply, utility, and realized-map contracts.
 
 Specification: [design and feasibility](design-feasibility.md). Delivery gates: [implementation plan](implementation-plan.md). Detailed evidence: [P0 findings](p0-findings.md).
 
@@ -15,7 +15,7 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 | Design and feasibility | Complete | Design, implementation plan, and source review written |
 | P0 — Resolve the technical risks | Complete | Build, Core/GL generation, hostile jobs, save/load, lifecycle, defeat, and both recovery modes observed in game |
 | P1 — Planner and validation harness | Complete | Fixed-input determinism, invalid-terrain rejection, bounded termination, required property cases, read-only planning, diagnostics, and Core/GL integration passed; see [P1 findings](p1-findings.md) |
-| P2 — First complete physical settlement | Not started | Requires P1 |
+| P2 — First complete physical settlement | In progress | Checklist and evidence policy established; implement pure profile/budget contracts next |
 | P3 — Playable defensive encounter | Not started | Requires P2; reuse the validated P0 Lord/work approach |
 | P4 — Terrain variety and stronger fortifications | Not started | Requires P3; reuse the validated late generation order |
 | P5 — Sustained operation and persistent consequences | Not started | Requires P3; expand the coarse P0 lifecycle model |
@@ -61,6 +61,18 @@ No active P0 blocker remains. Carryover `CLAUDE.md` describes another mod; the R
 
 Commit mapping is recorded in [P1 findings](p1-findings.md). The same stepwise commit policy applies to later authorized milestones.
 
+## P2 committed checklist
+
+| Step | Scope | Validation and commit policy | Status |
+|---|---|---|---|
+| P2.0 | Milestone scope, bounded checklist, assumptions, and evidence document | Documentation review; standalone checkpoint commit | In progress |
+| P2.1 | Versioned industrial/tribal capabilities, resident-driven facility demand, resource/import budgets, crops, startup food/fuel, equipment, and power scenarios | Focused pure tests for formulas, capability exclusions, finite stocks, and stable digests; Docker build; standalone feature commit | Pending |
+| P2.2 | Deterministic complete-settlement layout: all facilities, fields, gatehouses, logistics routes, interaction cells, utilities, cover/turrets, material allocation, and hard validation | Pure layout/property tests including determinism, reachability, occupancy conflicts, housing counts, power topology, cooler exhaust, and tribal exclusions; Docker build; standalone feature commit | Pending |
+| P2.3 | Plan-driven RimWorld spawning, one-time initialization, equipment/stocks/crop growth, operational power/freezer behavior, and realized-map audit/debug reporting | Docker build and pure regression, then isolated Core industrial and tribal runtime checks; standalone integration commit | Pending |
+| P2.4 | Recovery and optional-mod regression matrix, declared startup scenario observations, final findings and exit decision | Core rejection/partial rollback plus Geological Landforms + Map Preview regression; static checks; closeout commit only if every P2 gate passes | Pending |
+
+Step-to-commit mapping and observed evidence are recorded in [P2 findings](p2-findings.md). P3 remains unstarted.
+
 ## Activity log
 
 | Date | Update |
@@ -74,3 +86,4 @@ Commit mapping is recorded in [P1 findings](p1-findings.md). The same stepwise c
 | 2026-09-20 | P1.2 added bounded candidates/routes, room and circulation data, occupancy/utility/defense reservations, validation, and the full 12-case pure property suite. |
 | 2026-09-20 | P1.3 replaced fixed-site selection with immutable snapshot planning and plan-driven diagnostic spawning; Core runtime produced a valid plan/spawn, overlay, compact report, playable arrival, and clean final audit. |
 | 2026-09-20 | P1.4 passed Core recovery and GL + Map Preview normal/recovery matrices, including `GL_Cliff` + `Caves`; all P1 exit criteria passed and P1 closed. |
+| 2026-09-20 | Authorized P2; established the bounded physical-settlement checklist and evidence policy. |
