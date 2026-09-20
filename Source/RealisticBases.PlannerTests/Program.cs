@@ -45,6 +45,12 @@ internal static class Program
         Run("P3 safe needs relief preserves minimum staffing", P3SafeNeedsReliefPreservesMinimumStaffing);
         Run("P3 invalid outer posts trigger inner fallback", P3InvalidOuterPostsTriggerInnerFallback);
         Run("P3 valid assignments resist oscillation", P3ValidAssignmentsResistOscillation);
+        Run("P3 industrial encounter plan is deterministic and valid", P3IndustrialEncounterPlanIsDeterministicAndValid);
+        Run("P3 posts avoid opaque walls and cover approaches", P3PostsAvoidOpaqueWallsAndCoverApproaches);
+        Run("P3 mortar court is unroofed reachable and supplied", P3MortarCourtIsUnroofedReachableAndSupplied);
+        Run("P3 combat stock is operating reserve only", P3CombatStockIsOperatingReserveOnly);
+        Run("P3 mortar adds no electrical load", P3MortarAddsNoElectricalLoad);
+        Run("P3 tribal encounter excludes mortar content", P3TribalEncounterExcludesMortarContent);
         Console.WriteLine("P1/P2/P3 pure tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
@@ -463,6 +469,66 @@ internal static class Program
 
     private static string AssignmentText(GarrisonAssignment assignment) => assignment.DefenderId + ":" +
         assignment.Role + ":" + assignment.PostId + ":" + assignment.Destination;
+
+    private static void P3IndustrialEncounterPlanIsDeterministicAndValid()
+    {
+        PhysicalPlanningInput input = P2Input(P2ProfileCatalog.IndustrialTemperate);
+        PhysicalSettlementPlan settlement = PhysicalSettlementPlanner.Plan(input).Plan;
+        EncounterPlan first = EncounterPlanner.Plan(settlement, input.Profile, input.Terrain);
+        EncounterPlan second = EncounterPlanner.Plan(settlement, input.Profile, input.Terrain);
+        Equal(first.Digest, second.Digest, "encounter digest");
+        Equal(0, EncounterValidator.Validate(settlement, input.Profile, input.Terrain, first).Count, "encounter validation");
+    }
+
+    private static void P3PostsAvoidOpaqueWallsAndCoverApproaches()
+    {
+        PhysicalPlanningInput input = P2Input(P2ProfileCatalog.IndustrialTemperate);
+        PhysicalSettlementPlan settlement = PhysicalSettlementPlanner.Plan(input).Plan;
+        EncounterPlan encounter = EncounterPlanner.Plan(settlement, input.Profile, input.Terrain);
+        True(encounter.Posts.Where(p => !p.Inner && !p.Mortar).All(p => !settlement.Perimeter.Contains(p.Cell)),
+            "no post occupies solid wall");
+        True(encounter.Posts.Count(p => p.SectorId == "north" && p.MinimumRange > 0) >= 2, "north approach covered");
+        True(encounter.Posts.Count(p => p.SectorId == "south" && p.MinimumRange > 0) >= 2, "south approach covered");
+        True(encounter.Posts.All(p => p.IsValid), "all planned posts usable");
+    }
+
+    private static void P3MortarCourtIsUnroofedReachableAndSupplied()
+    {
+        PhysicalPlanningInput input = P2Input(P2ProfileCatalog.IndustrialTemperate);
+        PhysicalSettlementPlan settlement = PhysicalSettlementPlanner.Plan(input).Plan;
+        EncounterPlan encounter = EncounterPlanner.Plan(settlement, input.Profile, input.Terrain);
+        True(encounter.MortarCell.X >= 0 && !input.Terrain[encounter.MortarCell].Has(TerrainTraits.Roofed), "mortar unroofed");
+        True(input.Terrain[encounter.MortarInteractionCell].Has(TerrainTraits.Standable), "operator cell standable");
+        True(encounter.Posts.Single(p => p.Mortar).Cell.Equals(encounter.MortarInteractionCell), "operator post matches interaction cell");
+        Equal(12, encounter.Supplies.Single(s => s.DefName == "Shell_HighExplosive").Count, "six-hour HE duty");
+        Equal(2, encounter.Supplies.Single(s => s.DefName == "Shell_Incendiary").Count, "bounded incendiary reserve");
+        Equal(2, encounter.Supplies.Single(s => s.DefName == "ReinforcedBarrel").Count, "barrel reserve");
+    }
+
+    private static void P3CombatStockIsOperatingReserveOnly()
+    {
+        PhysicalPlanningInput input = P2Input(P2ProfileCatalog.IndustrialTemperate);
+        EncounterPlan encounter = EncounterPlanner.Plan(PhysicalSettlementPlanner.Plan(input).Plan, input.Profile, input.Terrain);
+        True(encounter.Supplies.Count > 0 && encounter.Supplies.All(s => s.Purpose == StockPurpose.OperatingReserve),
+            "P3 stock is not presented as trade goods");
+    }
+
+    private static void P3MortarAddsNoElectricalLoad()
+    {
+        EncounterProfile profile = P3EncounterProfiles.Industrial;
+        Equal(0, profile.AddedContinuousPowerWatts, "manned mortar is unpowered");
+        Equal(12, profile.DeclaredMortarShots, "declared firing duty");
+    }
+
+    private static void P3TribalEncounterExcludesMortarContent()
+    {
+        PhysicalPlanningInput input = P2Input(P2ProfileCatalog.TribalTemperate);
+        PhysicalSettlementPlan settlement = PhysicalSettlementPlanner.Plan(input).Plan;
+        EncounterPlan encounter = EncounterPlanner.Plan(settlement, input.Profile, input.Terrain);
+        True(!encounter.Profile.MortarCapable && encounter.MortarCell.X < 0, "no mortar facility");
+        True(!encounter.Posts.Any(p => p.Mortar) && encounter.Supplies.Count == 0, "no illegal mortar stocks");
+        Equal(0, EncounterValidator.Validate(settlement, input.Profile, input.Terrain, encounter).Count, "tribal encounter validation");
+    }
 
     private static TerrainSnapshot FertileOpen(int width, int height)
     {

@@ -27,8 +27,8 @@ P4 terrain/fortification variants, P5 trade/persistence integration, specialized
 | Step | Implementation | Required evidence before commit | Status / commit |
 |---|---|---|---|
 | P3.0 | Scope, checklist, boundaries, and evidence ledger | Documents agree; P4/P5 remain unstarted | Complete — `4fca42a` |
-| P3.1 | Pure doctrine and assignment/state model | Determinism; weapon/post compatibility; exclusive roles; pursuit plus route bounds; breach/local response; safe relief; inner fallback; invalid-post stability | Complete — commit recorded after checkpoint |
-| P3.2 | Encounter layout, mortar court, finite supply and capacity budgets | Usable post geometry; mortar reachability/unroofedness/staffing; declared duty quantities; active-rule materials; power delta; tribal hard exclusions; inherited planner properties | Pending |
+| P3.1 | Pure doctrine and assignment/state model | Determinism; weapon/post compatibility; exclusive roles; pursuit plus route bounds; breach/local response; safe relief; inner fallback; invalid-post stability | Complete — `d8c0d63` |
+| P3.2 | Encounter layout, mortar court, finite supply and capacity budgets | Usable post geometry; mortar reachability/unroofedness/staffing; declared duty quantities; active-rule materials; power delta; tribal hard exclusions; inherited planner properties | Complete — commit recorded after checkpoint |
 | P3.3 | Runtime Lord/controller, support work, consumption, persistence and diagnostics | Build; focused live job/state/consumption/save-load checks; no broad behavior patch; recovery/fallback unchanged | Pending |
 | P3.4 | Full encounter/regression matrix and exit decision | Multiple approach battles; night; long range; gate breach; incendiary; operator/power removal; exhaustion; invalid post; needs relief; active save/reload; tribal; Core/GL; player unaffected | Pending |
 
@@ -37,7 +37,8 @@ Source inspection, pure tests, compilation, map-generation audits, and live batt
 ## Commit mapping
 
 - P3.0 documentation and checklist: `4fca42a`.
-- P3.1 doctrine/state model: this feature checkpoint; hash will be recorded with the next documentation checkpoint.
+- P3.1 doctrine/state model: `d8c0d63`.
+- P3.2 physical encounter contract: this feature checkpoint; hash will be recorded with the next documentation checkpoint.
 
 ## Evidence ledger
 
@@ -47,13 +48,21 @@ P3.1 is engine-independent. `GarrisonDoctrine` selects routine, sector hold, loc
 
 Assignment is stable and exclusive: sorted inputs and deterministic tie-breaking produce one role per defender and one defender per post. Weapon range/class and mortar capability constrain post selection. A still-valid previous post is retained during a 300-tick reassignment cooldown; an invalid post bypasses the cooldown immediately. Needs relief is assigned only when its route is safe and remaining defenders preserve minimum outer staffing. A lost outer defense selects only inner posts/fallback destinations.
 
+Vanilla 1.6 source inspection established the runtime contract for P3.2. `JobGiver_ManTurrets` only selects a reservable mannable turret when ammunition is reachable and, for non-classic mortars, barrel fuel is present or reachable. `JobDriver_ManTurret` searches within 40 cells, carries exactly one shell into `CompChangeableProjectile`, consumes that carried Thing, loads a reinforced barrel through `CompRefuelable` when active rules require one, and then mans the interaction cell. Non-player shell loading rejects projectiles whose damage definition does not harm health. `CompChangeableProjectile` serializes shell type and loaded count. These behaviors support real physical consumption and save/load but must still be observed live in P3.3/P3.4.
+
+The P3 encounter plan derives from the immutable P2 plan and adds four exterior ranged posts covering north/south approaches, two inner fallback posts, and two gate-reserve cells without placing a pawn on a solid perimeter wall. The industrial plan adds one 2x2 mortar footprint in an unroofed, heavy-support open court, a reachable interaction post, and a magazine less than 40 cells away. The current four-resident roster is intentionally role-switched: one mortar operator and one support worker are assignments, not extra simultaneous identities; combat reassignment cannot double-assign them.
+
+The provisional combat budget declares two HE shots per game hour for six game hours: 12 HE shells. Two incendiary shells are a separate bounded contingency and do not count toward HE duty; live fire/friendly-risk gating remains required before use. Two reinforced barrels are planned but will be physically spawned only when the active storyteller difficulty does not use classic mortars. All P3 combat stock is tagged `OperatingReserve`; P3 creates no `TradeGoods` allocation and does not implement the P5 trade adapter.
+
+The Core manned mortar is not powered. P3.2 therefore records 0 W of added continuous mortar load. This neither changes nor revalidates P2's observed 360 W outage case, and it does not claim that the earlier 650 W planning model was measured. Live P3 audit will separately report the actual connected network draw with the encounter equipment present.
+
 ### Pure/state tests
 
-The combined P1/P2/P3 console suite passes 36/36 tests. Seven P3 cases cover deterministic exclusive assignment, weapon/post compatibility, destination-and-route pursuit bounds, threatened-sector breach prioritization, safe relief, inner fallback after invalid outer posts, and stable reassignment without oscillation.
+The combined P1/P2/P3 console suite passes 42/42 tests. Seven doctrine cases cover deterministic exclusive assignment, weapon/post compatibility, destination-and-route pursuit bounds, threatened-sector breach prioritization, safe relief, inner fallback after invalid outer posts, and stable reassignment without oscillation. Six encounter cases cover deterministic validation, opaque-wall avoidance and approach coverage, unroofed/reachable mortar geometry and finite supplies, operating-reserve-only stock metadata, zero mortar electrical load, and tribal exclusion.
 
 ### Build and static checks
 
-Repository-prescribed Docker Release build passed with zero warnings and zero errors after P3.1. `git diff --check` is required again immediately before the checkpoint commit.
+Repository-prescribed Docker Release build passed with zero warnings and zero errors after P3.2. `git diff --check` is required again immediately before the checkpoint commit.
 
 ### Core runtime observations
 
@@ -65,4 +74,4 @@ Pending.
 
 ## Known limitations and next action
 
-The live implementation still assigns one defender to a fixed P0 hold point and all remaining defenders to the P0 sequential work probe. P3.1 supplies the tested pure decisions but does not yet prove live pawn behavior. The next step is P3.2: extend the physical encounter contract with real usable post geometry, a staffed industrial mortar court, finite combat supplies, active-rule material requirements, coherent capacity/power accounting, and tribal exclusions.
+The live implementation still assigns one defender to a fixed P0 hold point and all remaining defenders to the P0 sequential work probe. P3.1/P3.2 supply tested pure decisions and layout contracts but do not yet prove live pawn behavior, mortar loading, consumption, or persistence. The next step is P3.3: spawn and audit the encounter additions, replace the P0 Lord with the scoped runtime controller, add narrow support jobs and diagnostics, and validate focused Core behavior before the full battle matrix.
