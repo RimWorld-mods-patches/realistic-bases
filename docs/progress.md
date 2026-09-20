@@ -18,7 +18,7 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 | P2 — First complete physical settlement | Complete | Industrial/tribal profiles, full plan-driven spawning, real power/freezer/outage behavior, Core recovery, and GL + Map Preview normal/recovery matrices passed; see [P2 findings](p2-findings.md) |
 | P3 — Playable defensive encounter | Not started | Requires P2; reuse the validated P0 Lord/work approach |
 | P4 — Terrain variety and stronger fortifications | Not started | Requires P3; reuse the validated late generation order |
-| P5 — Sustained operation and persistent consequences | Not started | Requires P3; expand the coarse P0 lifecycle model |
+| P5 — Encounter supplies, trade stock, and persistent consequences | Not started | Revised scope: bounded routine/combat reserves, trade consistency and no-duplication persistence; full sustainability post-MVP |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage |
 
 ## P0 checklist
@@ -73,6 +73,14 @@ Commit mapping is recorded in [P1 findings](p1-findings.md). The same stepwise c
 
 Step-to-commit mapping and observed evidence are recorded in [P2 findings](p2-findings.md). P3 remains unstarted.
 
+## Current MVP scope revision — 2026-09-20
+
+The user reduced the sustainability requirement and added settlement trade-stock fidelity. P5 now targets best-effort encounter operation backed by finite reserves, with a provisional three-game-day routine horizon and separate six-game-hour declared combat duty budget. Full long-term self-sufficiency, repeated harvest/seasonal testing and continuous production balance are deferred, not deleted. See [supply and MVP scope](supply-and-mvp-scope.md).
+
+Trade goods must reflect the actual settlement offer separately from operating reserves. Snapshot/ownership/reconciliation support is planned in P5; P2's current generated stocks are not evidence of this new feature. Purchases, sales, looting, depletion and restock cannot duplicate goods. Persistence/ownership correctness remains in the MVP.
+
+P0–P2 findings remain historical evidence; no completed checks were rewritten or new implementation claimed. P3 is still the next unstarted milestone. The earlier P2 outage observation used 360 W while a planning scenario named 650 W; future validation must state the actual load and reconcile that difference rather than repeat an exact-scenario claim.
+
 ## Activity log
 
 | Date | Update |
@@ -91,3 +99,4 @@ Step-to-commit mapping and observed evidence are recorded in [P2 findings](p2-fi
 | 2026-09-20 | P2.2 added a deterministic 31x25 compound plus 10x13 field, complete facility placements, local-material input, two edge routes, utilities/defenses, and hard validation; 29/29 combined pure tests and Docker Release build passed. |
 | 2026-09-20 | P2.3 replaced the diagnostic shell with full plan-driven settlement spawning and realized-map audits; Core industrial/tribal profiles, zero-mutation rejection, 476-thing/298-roof rollback, clean power topology, freezer operation, and a real six-hour generator-service buffer passed. |
 | 2026-09-20 | P2.4 passed Geological Landforms 1.7.13.1 + Map Preview normal/rejection/deep-partial cases on live maps (including GL cliff/river mutators), final pure/build/XML/diff checks passed, and P2 closed. |
+| 2026-09-20 | Revised P5 to bounded encounter readiness and trade-stock fidelity; documented full sustainability as post-MVP. Documentation only; P3 remains unstarted. |

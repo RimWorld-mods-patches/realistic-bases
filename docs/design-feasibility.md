@@ -1,6 +1,6 @@
 # Realistic Bases: high-level design and feasibility
 
-2026-09-14 · Proposal · Baseline: RimWorld 1.6, initially Core without DLC
+2026-09-14 · Revised 2026-09-20 · Baseline: RimWorld 1.6, initially Core without DLC
 
 ## 1. Recommendation
 
@@ -8,7 +8,7 @@ Build a **terrain-aware settlement planner with a separate settlement controller
 
 The requested generation and defenses are feasible in principle. Mountain excavation and island access need careful map validation. The largest engineering risk is autonomous NPC operation: food production, hauling, refueling, ammunition manufacture, needs, and defensive duty must coexist. This requires custom NPC job selection and runtime testing, not just map generation.
 
-Use a staged release: first a playable, supplied settlement with working power and defenders that hold sectors; then sustained local production and persistence. The first milestone is useful, but **does not satisfy the complete autonomy requirement**. Completion requires the later operational milestone.
+Use a staged release: first a playable supplied settlement, then an MVP with best-effort operation over a bounded encounter horizon, consistent trade stock, and persistent consequences. Following the user’s 2026-09-20 scope revision, full long-term sustainability and its seasonal/multiple-harvest tests are **post-MVP**. The provisional target is three in-game days of routine supplies, with a separate declared combat duty budget. See [MVP supply and trade scope](supply-and-mvp-scope.md) for the current contract and deferred work.
 
 This is a source-informed feasibility assessment, not a claim that the design already works in-game. Verified behavior and remaining experiments are recorded in [research notes](research-notes.md); delivery gates are in the [implementation plan](implementation-plan.md).
 
@@ -25,13 +25,14 @@ This is a source-informed feasibility assessment, not a claim that the design al
 | All usual facilities | Housing, jail, food preparation/preservation, farming, power where applicable, recreation, workshops, storage; add medical space | First playable version |
 | Personal munitions | Faction-appropriate weapons, armor, and selected carried combat equipment; ammunition only for systems that consume it | First playable version; ammo-mod adapter later |
 | Turrets, cover, mortars and shell variety | Only equipment the settlement can operate, staff, supply, and afford | Core defenses first; specialized shell tactics later |
-| Energy and shell accumulation | Real stored energy and finite physical supplies; actual ongoing production during loaded-map operation | Startup supply first, sustained operation later |
+| Energy and shell accumulation | Real stored energy and finite supplies cover the encounter; feasible support jobs consume real inputs | Encounter readiness in MVP; sustained production post-MVP |
+| Settlement trade stock | Trade goods reflect this settlement’s actual offer, separately from operating reserves; one quantity/ownership record | P5, supported ordinary item types first |
 | Defenders hold position | Sector defense, limited pursuit, reserves, local fallback, and needs relief | First playable version |
 | No traps or IEDs | Hard content invariant, including inherited generation and fallback paths | Every milestone |
 
-“Autonomous” means an eligible settlement can operate through a declared survival horizon without player work orders or free resource injections. It does not mean invulnerable, indefinitely self-sufficient, or that every world settlement runs a full colony simulation while unloaded.
+For the MVP, “autonomous” means best-effort routine/support behavior backed by finite reserves for a declared encounter horizon, without player work orders or free refills. Long-term self-sufficiency is not an MVP gate. The provisional three-day horizon is a design target to calibrate, not a measured player visit duration or a promise against arbitrary destruction. P3 remains the first playable encounter; P6 remains the MVP release gate after revised P5.
 
-A tribal settlement on an ice sheet may have no viable local food/fuel economy. Reduce its population, classify it as dependent on supplies, or reject that layout. Do not invent tribal refrigeration, hydroponics, or unlimited food to hide the problem. The generator should report whether a base is locally self-supporting or depends on finite imports.
+A tribal settlement on an ice sheet may have no viable local food/fuel economy. Reduce its population, classify it as dependent on supplies, or reject that layout. Do not invent tribal refrigeration, hydroponics, or unlimited food to hide the problem. The generator should report estimated encounter coverage, supply dependencies, and unverified production assumptions; reserve size alone must not be labelled proof of local self-sufficiency.
 
 The first release changes newly generated ordinary humanlike faction settlements. Existing loaded maps, player colonies, quest sites, ruins, mechanoid/insect settlements, and special DLC maps retain their own generation unless explicitly supported later. Multiplayer support, global faction warfare, vertical construction, and a new ammunition system are outside the initial release.
 
@@ -152,7 +153,7 @@ Use a resource-flow graph. For each resource, compare supply, consumption, reser
 
 Conceptually, daily food demand is the sum of residents' nutrition requirements. Required cultivated area follows from **effective edible nutrition per cell per day**, after actual harvest and preparation assumptions. Raw plant `growDays` is not a promise of that many calendar days to harvest. A field that technically supports a crop may still fail a winter survival budget.
 
-Startup stocks cover the first harvest and processing delay. Seasonal reserves cover the non-growing period. Bounded imports cover an explicitly declared deficit; self-supporting status requires recurring local production, not only a large initial pantry. Minerals, components, and imported items remain finite; this is not an infinite closed economy.
+For the MVP, edible startup stocks cover the declared encounter horizon even if no harvest finishes during the visit. If a profile relies on cooking or production within that horizon, validate its inputs and support jobs; otherwise treat production as best effort and give it no budget credit. The stronger first-harvest provision already implemented in P2 may remain. Seasonal reserves and repeated crop-cycle validation move post-MVP. Bounded prior imports may explain supplies; no delivery is assumed during an active siege. Minerals, components, and other items remain finite.
 
 ### 6.2 Power budget
 
@@ -162,7 +163,7 @@ Use RimWorld's watt-days for stored energy:
 
 `required usable energy (Wd) = integral(max(0, load W − available generation W), over time in game days) + storage losses + reserve`
 
-For illustration only, an assumed 2,000 W deficit for half a game day requires 1,000 Wd before losses and reserve. This is a unit check, not a proposed settlement loadout. Apply charging efficiency to the input needed to replenish storage; do not apply it again to energy already stored. Validate recharge between recurring deficits, not just survival of one night. The inspected implementation converts watts to energy per tick and models charging efficiency/self-discharge; see evidence E6 in [research notes](research-notes.md).
+For illustration only, an assumed 2,000 W deficit for half a game day requires 1,000 Wd before losses and reserve. This is a unit check, not a proposed settlement loadout. Apply charging efficiency to the input needed to replenish storage; do not apply it again to energy already stored. Validate recharge between recurring deficits within the encounter horizon, not just survival of one night; season-long energy balance is post-MVP. The inspected implementation converts watts to energy per tick and models charging efficiency/self-discharge; see evidence E6 in [research notes](research-notes.md).
 
 Fuel generation requires both a stock horizon and refueling labor. Provide critical/noncritical load groups so an emergency policy can suspend workshops before food preservation and key defenses. Solar flares and destroyed generators should remain meaningful failures; autonomy does not confer immunity to game events.
 
@@ -170,11 +171,17 @@ Fuel generation requires both a stock horizon and refueling labor. Provide criti
 
 Generate finite shells, turret reload materials, fuel, and replacement barrels where the active rules require them. Derive quantities from installed equipment, planned firing duty, engagement horizon, and reload behavior. Mortars also require operators, reachable magazines, legal unroofed firing cells, and valid targets.
 
-A stock target can be computed as `ceil(expected shots per game hour × engagement hours × reserve factor)`, then split by permitted shell type and storage capacity. Rates and factors are configuration inputs to be calibrated in-game, not invented universal constants. Manufacturing must have the correct recipes, ingredients, bench capacity, skill, and available workers. Peak combat use can exceed production; reserves fund that deficit. Destroyed workshops or exhausted ingredients eventually stop replenishment.
+A stock target can be computed as `ceil(expected shots per game hour × engagement hours × reserve factor)`, then split by permitted shell type and storage capacity. Rates and factors are configuration inputs to be calibrated in-game, not invented universal constants. Manufacturing, when enabled, must have the correct recipes, ingredients, bench capacity, skill, and available workers. MVP combat reserves must cover the declared firing duty without relying on unvalidated manufacture. Full shell-production balance is post-MVP; any best-effort replenishment consumes real ingredients and work. Destroyed workshops or exhausted ingredients stop that replenishment.
 
 Start with high-explosive shells and a bounded incendiary option with local fire/friendly-fire checks. Add EMP and smoke only with suitable targeting and loading logic. In the inspected game, NPC mortar loading rejects projectiles whose damage definition does not harm health, and NPCs do not use the player shell filter. Merely placing specialized shells does not implement their tactics (E5). Antigrain shells are disabled by default as a balance choice; no shell is ever converted into an IED.
 
 Ordinary vanilla small arms need no bullet supply model. Give pawns appropriate weapons/armor and handle actual consumable equipment according to its defs. A Combat Extended or other ammunition adapter must supply its own caliber, magazine, reload, armor, and production rules; do not claim compatibility from successful generation alone.
+
+### 6.4 Operating reserves and trade inventory
+
+Treat stock as separate operating reserves and sale goods with one authoritative record of physical quantities. The same units cannot fund both budgets. The sale inventory should reflect the actual stock offered by this settlement, including imports and completed player transactions, not an unrelated random loot table. Sale goods may exceed local production capabilities without granting the faction the technology to manufacture or equip them.
+
+Use a persisted trade-stock snapshot and reconciliation adapter for supported ordinary items. Materialize or transfer those goods to appropriate storage without keeping a second sellable copy; buying, selling, looting, destruction, consumption and re-entry update the same quantities. Retain quality, stuff and condition where applicable. Never regenerate stock merely because the map loads or a warehouse becomes empty. Exact supported-item matching, storage/value constraints, exceptional items and restock rules are specified in [MVP supply and trade scope](supply-and-mvp-scope.md). This consistency work does not require simulating a trade economy.
 
 ## 7. Defender and worker controller
 
@@ -200,7 +207,7 @@ Assign posts using cover, line of fire, weapon range, access, target direction, 
 
 Avoid permanent standoffs and inert defenders through limited sector repositioning, reserves against breaches, appropriate counterbattery fire, and eventual withdrawal when the position is untenable. Closed-gate defenders still need usable firing positions. Allow ordinary combat, injury, morale, and environmental consequences; no global suppression of mental states or invincibility.
 
-For daily work, use a narrow settlement job selector with adapters for cooking, growing, hauling, refueling, shell production, repair, cleaning, tending, and prisoner support. Reuse vanilla job drivers where their faction and ownership assumptions are satisfied. Do not simply route enemies into the colonist work tree: source includes non-colonist work gates and a grower scan over player buildings (E4).
+For MVP daily work, prioritize needs, hauling, refueling, reload support, tending, and cooking where the food budget requires it. Growing, shell production, repair, cleaning, and prisoner support may be best-effort extensions where supported; long-term throughput balancing is post-MVP. An occupied prison still needs care during the encounter; an empty jail does not require spawning prisoners. Use a narrow settlement job selector. Reuse vanilla job drivers where their faction and ownership assumptions are satisfied. Do not simply route enemies into the colonist work tree: source includes non-colonist work gates and a grower scan over player buildings (E4).
 
 Use actual items and normal resource consumption for loaded-map production. Do not emulate autonomy by periodically spawning finished meals and shells. Unsafe/unavailable jobs should yield to another role and produce a diagnostic when a critical operation stalls.
 
@@ -208,9 +215,9 @@ Use actual items and normal resource consumption for loaded-map production. Do n
 
 Store profile/seed/version and off-map resource summaries on a world component keyed to settlement identity. Store the live plan references, ownership, posts, tasks, inventories, and controller state on a map component; serialize Lord state through the normal save mechanism. Rebuild transient indexes and reservations on load.
 
-An unloaded settlement should not keep its map alive merely to tick every resident. Vanilla settlements have a map-removal lifecycle (E7). Full-release persistence therefore needs a baseline plan plus bounded changes for damage, removed buildings, resources, casualties, and looted supplies. Preserve pawn identities through the supported world-pawn lifecycle; never respawn killed or captured residents from the original roster.
+An unloaded settlement should not keep its map alive merely to tick every resident. Vanilla settlements have a map-removal lifecycle (E7). MVP persistence therefore still needs a baseline plan plus bounded changes for damage, removed buildings, resources, casualties, traded goods, and looted supplies; shortening the sustainability horizon does not authorize duplicate goods or residents. Preserve pawn identities through the supported world-pawn lifecycle; never respawn killed or captured residents from the original roster.
 
-No refill on reload or caravan re-entry. In the first playable version, save/load of a loaded encounter is required, but untested revisit persistence must be labelled unsupported. The full-release gate requires tested unload/revisit semantics. Begin off-map behavior with frozen balances and no replenishment; coarse production/trade can follow only after it preserves deficits, trade costs, time, capacity, and siege interruption. Exact per-pawn off-map simulation is unnecessary for the requested encounter quality.
+No refill on reload or caravan re-entry. In the first playable version, save/load of a loaded encounter is required, but untested revisit persistence must be labelled unsupported. The MVP gate requires tested unload/revisit semantics. Begin with frozen off-map operating balances and no simulated production. Reconcile ordinary trade/restock events through the stock adapter, suppressing encounter-time refills and duplicates; a simulated economy or supply-convoy system remains post-MVP. Exact per-pawn off-map simulation is unnecessary for the requested encounter quality.
 
 On capture/claim or a faction change, remove the affected pawn/building from controller ownership immediately. Never overwrite player bills, priorities, doors, or production settings after handover. Settlement defeat, map removal, retreat, and quest interactions require integration tests. Adding the mod should affect future eligible generation; removing it while custom saved components/Lords remain cannot be called safe without a migration path.
 
@@ -226,7 +233,9 @@ Budget settlement size, manpower, weapon quality, fortification, utilities, and 
 | Terrain-aware placement and local materials | High | Actual map grids provide stronger inputs than tile labels |
 | Full mountain excavation / lake enclosure | Medium | Roof support, legal bridges, and arrival connectivity need adversarial seed tests |
 | Working startup power and finite supplies | High | Existing power/consumable systems can represent them; sizing must be validated |
-| Sustained NPC economy while loaded | Medium, substantial work | Work-tree and building ownership assumptions require scoped adapters |
+| Encounter supplies and best-effort NPC support | Medium | Finite reserve sizing and essential support jobs require runtime checks |
+| Sustained NPC economy while loaded (post-MVP) | Medium, substantial work | Full production/labor balance needs extended validation |
+| Trade-stock consistency | Medium, integration spike required | Lazy stock generation, transactions and physical ownership need reconciliation |
 | Holding sectors and local fallback | Medium-high | Custom Lord/duty extension points exist; battle behavior needs live tests |
 | Specialized mortar shell tactics | Medium | NPC loader/targeting needs explicit support |
 | Persistent off-map economy and revisits | Medium-low until prototype | Map removal, stock reconciliation, pawn identity, and loot duplication risks |

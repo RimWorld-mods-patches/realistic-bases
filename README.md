@@ -6,6 +6,7 @@ Design work for a RimWorld mod that generates terrain-aware, functioning opponen
 - [Implementation plan and acceptance criteria](docs/implementation-plan.md)
 - [Research notes and source references](docs/research-notes.md)
 - [Progress tracker](docs/progress.md)
+- [MVP supply horizon, trade stock and deferred sustainability](docs/supply-and-mvp-scope.md)
 
 Status: **P2 first complete physical settlement complete**, 2026-09-20. P0, P1, and P2 are complete; P3 remains unstarted. The mod now realizes bounded industrial-temperate and tribal facility, supply, utility, defense, and recovery contracts. Baseline: RimWorld 1.6, Core without DLC.
 

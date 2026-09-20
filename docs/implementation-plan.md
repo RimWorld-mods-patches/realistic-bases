@@ -1,6 +1,6 @@
 # Realistic Bases: implementation plan
 
-2026-09-14 · Proposed sequence · No implementation completed
+2026-09-14 · Scope revised 2026-09-20 · Implementation status is tracked in [progress](progress.md)
 
 Read the [design and feasibility assessment](design-feasibility.md) for intended behavior and [research notes](research-notes.md) for evidence. Milestones below are release gates, not claims of completed work.
 
@@ -12,16 +12,18 @@ Read the [design and feasibility assessment](design-feasibility.md) for intended
 | RimWorld 1.6 mod scaffold and diagnostics | Planned P0–P1 |
 | Terrain analysis, deterministic procedural layout, facility contracts | Planned P1–P2 |
 | Tech/local-material profiles, walls and gates | Planned P2; layered variants P4 |
-| All requested facility categories | Planned spatial implementation P2; sustained operation P5 |
+| All requested facility categories | Physical implementation P2; encounter operation P5; full sustained operation post-MVP |
 | Weapons, armor, turrets, barricades, sandbags, mortars and physical stocks | Planned P2–P3 |
 | Defensive NPC behavior and essential resupply | Planned P3 |
 | Mountain/lake placement, Geological Landforms compatibility | Planned P4; early terrain-order experiment in P0 |
-| Ongoing food/fuel/shell production, labor, and stock accounting | Planned P5; early NPC-work experiment in P0 |
+| Encounter food/fuel/ammunition reserves and essential NPC support | P5; finite stocks and best-effort jobs over a declared short horizon |
+| Trade inventory reflected in physical supplies, distinct from operating reserves | P5; ordinary-item snapshot/ownership/transaction integration |
+| Long-term food/fuel/shell production balance and seasonal survival | Post-MVP; explicitly deferred in [supply scope](supply-and-mvp-scope.md) |
 | Persistent damage, depletion, casualties and revisits | Planned P5; early lifecycle experiment in P0 |
 | Specialized mortar shell selection/targeting | Planned P6; HE/incendiary baseline P3 |
 | Modded factions, additional DLC, Combat Extended | Rescheduled to optional adapters after the Core release; separate compatibility workloads |
 | Detailed off-map simulation of every pawn | Declined; unnecessary runtime/save burden for this design |
-| Coarse off-map economy and trading | Rescheduled; frozen finite balances are the initial persistence policy |
+| Coarse off-map production, economic simulation and supply convoys | Post-MVP; ordinary trade-stock consistency remains P5 |
 | Traps, IEDs, trap-based killboxes | Declined by explicit user requirement; prohibited in all releases |
 | Multiplayer, custom wide gates, vertical levels | Rescheduled beyond initial release; no implied support |
 
@@ -36,7 +38,7 @@ Proposed code areas:
 | `Generation/Integration` | Eligibility, generator selection, step order, competing-generator detection, failure recovery |
 | `Planning` | Immutable inputs, terrain snapshot, candidate search, room graph, geometry, validation |
 | `Capabilities` | Faction profiles, def catalogs, crop/material/equipment filtering, import limits |
-| `Economy` | Food, fuel, power, ammunition, storage and labor budgets |
+| `Economy` | Encounter reserves, trade-stock ownership/reconciliation, food/fuel/power/ammunition budgets; long-term balance deferred |
 | `Spawning` | Ordered placement of terrain edits, buildings, contents and residents; track owned mutations |
 | `AI` | Settlement Lord, duties, sector assignment, support work and NPC job adapters |
 | `Persistence` | Saved identity, plan version, live state, baseline/deltas and lifecycle reconciliation |
@@ -103,17 +105,21 @@ Integrate Geological Landforms through generated terrain first; add metadata/per
 
 **Exit:** accepted plans survive final-map validation across the terrain matrix. Unsupported island/mountain candidates fall back without damaging the landform. Outer appearance, arrival access, and circulation receive visual review; screenshots alone do not establish pathing or roof safety.
 
-### P5 — Sustained operation and persistent consequences
+### P5 — Encounter supplies, trade stock, and persistent consequences
 
-**Depends on:** P3; apply P4 archetypes as they become valid.
+**Depends on:** P3; apply P4 archetypes as they become valid. Revised by the user on 2026-09-20; [supply and MVP scope](supply-and-mvp-scope.md) defines the detailed contract.
 
-Implement bounded NPC work selection and real cooking, cultivation, hauling, refueling, ammunition production, repair/cleaning, tending, and prisoner care where prisoners exist. Maintain target stocks from consumption and labor budgets; include job failure recovery and work/defense competition. Prove both sow/harvest cycles and recipe completion, not only job assignment.
+Use three in-game days as a provisional routine-supply horizon and a separately stated combat duty budget (initial target: six hours of engagement at declared equipment-specific firing duty within that visit). These are tunable planning defaults, not evidence of how long players stay. Back routine needs and defense with finite actual stocks, account for food spoilage and actual connected power loads, and maintain essential needs/refueling/reload/hauling/tending support. Production is best effort; no unobserved harvest or manufacture may fund the guaranteed encounter budget. Existing larger P2 reserves need not be reduced.
 
-Implement loaded-map serialization and unloaded baseline/delta reconciliation: damaged/destroyed structures, inventories, fuel, battery charge, casualties, captured residents, and removed loot. Begin with no off-map resource growth. Version the schema and test migration; stop controller ownership on faction transfer/claim/defeat.
+Divide inventory into operating reserves and sale goods without double counting. Prototype access to the settlement's actual current trade inventory and restock generation before selecting integration hooks. Read access can generate stock, so snapshot acquisition must be explicit, saved and separate from the pure planner. Reuse existing stock when present; initialize previously absent stock once through a guarded supported path. For supported ordinary goods, materialize actual trade quantities/attributes into storage or transfer ownership through a single-authority adapter. Completed purchases, sales, looting, destruction, emergency reserve transfers and reload/re-entry must reconcile to those same quantities. Do not reroll goods or leave both a sellable copy and lootable copy. Test lazy/empty-stock and restock boundaries. Trade-stock generation is allowed as the game's bounded trade abstraction; encounter-time replenishment and an economic simulator are not required or allowed as shortcuts.
 
-**Exit: full core operational milestone.** Each supported self-supporting profile completes at least two measured crop cycles and its declared seasonal survival horizon with actual consumption/production and no hidden refill. A supplied profile reports a finite horizon and depletes as expected. Ammo production replaces expended shells only after consuming ingredients/work. Re-entry does not recreate loot or residents; power/storage state survives; captured assets obey the player.
+Keep trade goods within storage and loot/value constraints by changing capacity or the authoritative offer coherently before publishing it; never silently truncate already offered stock or duplicate it. Persist/log unsupported item categories; live trade pawns/animals and exotic mod containers need separate adapters and are not materialized in the first MVP trade adapter. They must not be cloned or silently destroyed. Unknown trader behavior is reported as unsupported rather than claimed consistent. Hostility may block trading but must not reroll previously existing goods.
 
-This is the earliest milestone that can claim the requested autonomous settlement behavior. Persistent global economic growth remains optional future work.
+Retain loaded-map serialization and unloaded damage/depletion/casualty reconciliation. Shortening the food horizon does not defer no-duplication correctness: bought or looted goods stay gone, killed/captured residents do not respawn, power/fuel state survives, and claimed assets stop obeying the NPC controller. P0's coarse regenerated defenders remain a prototype limitation to resolve here.
+
+**Exit: MVP encounter-readiness milestone.** Supported profiles have quantified routine/combat coverage, essential support actually works without player orders, stocks deplete honestly, and declared loads/horizons are observed in representative encounter tests. Supported trade items match the canonical offer/transactions and never count twice or regenerate on empty reads, reload or re-entry. Negative tests include exhausted fuel/ammo, loss of a critical worker or generator, buy-then-attack, sell-then-attack, loot-then-revisit, empty stock and a restock boundary. Failure under overwhelming damage is allowed; unexplained refill or fabricated pass evidence is not. Check required state/capture persistence independently of long-term sustainability.
+
+**Outside MVP:** two completed crop cycles, seasonal/winter self-sufficiency, long-running balanced shell manufacture, sustained labor/economic optimization, and off-map production/convoy simulation. Keep facilities and plausible supporting resources, and document unverified long-term behavior. P6 can release the MVP without these deferred tests; use the explicit post-MVP backlog in the supply scope document.
 
 ### P6 — Balance, specialized tactics, and release
 
@@ -123,7 +129,7 @@ Add bounded special-shell selection and targeting, and verify actual EMP/smoke u
 
 Compare against vanilla and the two reference mods on a declared test set using reproducible seed/settings records; each generator runs separately. Measure operational and encounter outcomes rather than asserting superiority from appearance. Plan any optional faction/DLC/ammunition adapters as separately gated changes.
 
-**Exit:** release checklist passes; no unresolved severe/medium correctness defects; known limitations are documented; mod removal/migration claims match tested behavior.
+**Exit: MVP release gate.** Release checklist passes; no unresolved severe/medium correctness defects; known limitations and post-MVP sustainability work are documented; mod removal/migration claims match tested behavior. Revised P5 requires encounter readiness and stock consistency, not long-term self-sufficiency.
 
 ## 4. Validation strategy
 
@@ -135,8 +141,9 @@ Separate pure planning tests from live engine checks. Pure tests cannot prove a 
 | Geometry | No overlaps/out-of-bounds placement; valid foundations/roofs; every required interaction cell and resident route reachable under correct faction rules |
 | Defenses | Enclosure closes except controlled entrances; attacks can reach a breach/gate; posts have actual firing opportunities; no prohibited defense defs |
 | Power | Runtime traces for representative day/night and combat demand, fuel exhaustion, recharge and disconnected circuits |
-| Food/work | Actual harvested nutrition, completed meals, consumed inputs, hauling time, reserve depletion and worker capacity |
-| Ammunition | Shell/barrel/reload stock changes match use; exhaustion stops firing; shell production consumes ingredients and labor |
+| Food/work | Encounter reserve coverage, spoilage, essential jobs and actual consumed inputs; repeated harvest/seasonal balance deferred |
+| Trade stock | Canonical offer versus physical quantities; reserve separation; buy/sell/loot/reload/revisit/empty-stock/restock cases |
+| Ammunition | Shell/barrel/reload stock changes match use; exhaustion stops firing; optional best-effort production consumes real ingredients/work |
 | NPC behavior | Post occupancy, outside-perimeter pursuit events, breach response, needs fulfillment, job stalls and retreat behavior |
 | Lifecycle | Save/load while hauling/reloading/falling back; unload/re-entry; defeat; capture; faction change; missing optional defs |
 | Performance | Generation time distribution, candidate count, allocations where measurable, tick cost and save growth at declared map/population sizes |
@@ -151,10 +158,10 @@ For qualitative comparison, score coherent routes, realistic landform preservati
 
 ## 5. Dependencies, estimates, and remaining decisions
 
-The critical path is **integration and NPC/lifecycle experiments → planner → usable physical base → defensive encounter → sustained operation and persistence**. Elaborate layouts are not the critical path.
+The remaining MVP path is **defensive encounter → supported terrain/fortifications → bounded encounter supplies, trade-stock consistency and persistence → release validation**. P0–P2 are recorded complete; the progress tracker is authoritative for status. Full sustainability is a separate post-MVP workstream.
 
-For one developer comfortable with RimWorld C#/XML and with regular game-test access, use these provisional effort ranges only for planning: P0 1–2 weeks; P1 1–2; P2 2–3; P3 2–4; P4 2–4; P5 4–8; P6 2–4. That is roughly 6–11 developer-weeks to the first playable milestone and 14–27 for the full Core release. Re-estimate after P0; these are judgment-based ranges with no measured project velocity. Optional compatibility work is additional.
+The original effort estimate is superseded by completed P0–P2 work and this scope revision. Re-estimate remaining work after the P5 trade ownership/restock spike: shorter sustainability validation removes work, while faithful trade-stock reconciliation adds a distinct integration risk. No replacement schedule is claimed without that evidence.
 
-Defaults selected to keep work actionable: Core 1.6; small industrial vertical slice; one-to-three wall thickness; ordinary doors as gates; conditional natural terrain enclosure; no antigrain by default; bounded imports; finite stocks; real loaded-map jobs; frozen off-map balances first. Confirm or revise these during design review, but no clarification is required to start P0.
+Current defaults: Core 1.6; one-to-three wall thickness; ordinary doors as gates; conditional natural terrain enclosure; no traps/IEDs or default antigrain; bounded prior imports; finite routine/combat reserves; separate trade-stock ownership; best-effort real jobs; frozen off-map operating balances. Provisional encounter targets are three in-game days routine and six game hours combat at declared duty. Calibrate without silently changing acceptance criteria.
 
-Decisions requiring experimental evidence: exact generator hook and recovery path, NPC work adapters, acceptable seasonal simulation cost, unload/revisit representation, and attainable performance limits. Record their outcomes before committing to downstream implementation contracts.
+Remaining decisions requiring experimental evidence include trade-stock acquisition/ownership/restock hooks, complete unload/revisit reconciliation, measured encounter load/duty budgets, and attainable performance limits. Keep the accepted P0/P1 boundaries; seasonal simulation cost is post-MVP.
