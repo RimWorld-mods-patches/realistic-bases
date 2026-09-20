@@ -89,7 +89,10 @@ namespace RealisticBases.Diagnostics
             }
 
             RealisticBasesMod.Settings.enableP0Generator = true;
-            PlanetTile tile = TileFinder.RandomStartingTile();
+            PlanetTile tile = TileFinder.RandomSettlementTileFor(Faction.OfPlayer, mustBeAutoChoosable: true,
+                extraValidator: candidate => Find.WorldGrid[candidate].PrimaryBiome == BiomeDefOf.TemperateForest &&
+                    Find.WorldGrid[candidate].hilliness != Hilliness.Mountainous &&
+                    Find.WorldGrid[candidate].hilliness != Hilliness.Impassable);
             Settlement settlement = (Settlement)WorldObjectMaker.MakeWorldObject(tile.LayerDef.SettlementWorldObjectDef);
             settlement.Tile = tile;
             settlement.SetFaction(faction);
@@ -217,6 +220,22 @@ namespace RealisticBases.Diagnostics
             P0Log.Message("DEBUG_ARM", "forcePartialFailureNext=true");
         }
 
+        [DebugAction(Category, "Use industrial profile for next generation", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void ForceIndustrialProfile()
+        {
+            RealisticBasesMod.Settings.forceP2ProfileNext = "industrial";
+            P2Log.Message("DEBUG_ARM", "forceP2ProfileNext=industrial");
+        }
+
+        [DebugAction(Category, "Use tribal profile for next generation", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void ForceTribalProfile()
+        {
+            RealisticBasesMod.Settings.forceP2ProfileNext = "tribal";
+            P2Log.Message("DEBUG_ARM", "forceP2ProfileNext=tribal");
+        }
+
         [DebugAction(Category, "Log current map generation audit", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
         private static void LogMapAudit()
@@ -251,6 +270,36 @@ namespace RealisticBases.Diagnostics
         private static void LogP1GenerationReport()
         {
             P1PlanDiagnostics.LogReport(Find.CurrentMap);
+        }
+
+        [DebugAction(Category, "Show current P2 settlement overlay", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void ShowP2PlanningOverlay()
+        {
+            P2PlanDiagnostics.ShowOverlay(Find.CurrentMap);
+            Messages.Message("P2 overlay: facilities, interactions, gates, and independent attack/retreat routes.",
+                MessageTypeDefOf.NeutralEvent, false);
+        }
+
+        [DebugAction(Category, "Log current P2 settlement report", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void LogP2GenerationReport()
+        {
+            P2PlanDiagnostics.LogReport(Find.CurrentMap);
+        }
+
+        [DebugAction(Category, "Audit current P2 settlement runtime", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void AuditP2Runtime()
+        {
+            P2RuntimeAudit.Log(Find.CurrentMap);
+        }
+
+        [DebugAction(Category, "Start P2 generator-service scenario", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void StartP2GeneratorServiceScenario()
+        {
+            P2RuntimeAudit.StartGeneratorServiceScenario(Find.CurrentMap);
         }
 
         [DebugAction(Category, "Spawn hostile garrison/work probe", actionType = DebugActionType.ToolMap,

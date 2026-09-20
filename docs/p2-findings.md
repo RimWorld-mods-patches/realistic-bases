@@ -20,8 +20,8 @@ No test is recorded as passed until it has run. Reduced fallback layouts are nam
 |---|---|---|---|
 | P2.0 | Scope, checklist, assumptions, and evidence policy | `f4c2c64` | Document review |
 | P2.1 | Pure versioned industrial/tribal profiles and quantitative budgets | `038ca4d` | 20/20 combined pure tests passed; Docker Release build 0 warnings/errors |
-| P2.2 | Pure deterministic full-facility layout and validator | This step's feature commit | 29/29 combined pure tests passed; Docker Release build 0 warnings/errors |
-| P2.3 | Plan-driven spawning and realized-map audit | Pending | Pending |
+| P2.2 | Pure deterministic full-facility layout and validator | `90cad5b` | 29/29 combined pure tests passed; Docker Release build 0 warnings/errors |
+| P2.3 | Plan-driven spawning and realized-map audit | This step's feature commit | 29/29 combined pure tests; Docker Release build 0 warnings/errors; Core industrial/tribal/recovery/outage matrix passed |
 | P2.4 | Runtime/recovery/optional-mod matrix and closeout | Pending | Pending |
 
 ## Initial supported profiles and declared scenarios
@@ -44,9 +44,21 @@ The initial supported layout is a deterministic 31×25 one-layer compound plus a
 
 North and south faction-gate openings have independent deterministic routes to the map edge. Route searches are bounded by the smaller of the snapshot area and 10,000 visited cells. The two-gate topology is intended to preserve an approach and a retreat; actual hostile door ownership and realized pathing remain P2.3 runtime checks.
 
-The industrial plan includes a fueled generator, battery, cooler, electric workbenches, conduit tree, two miniturret reservations, and four cover positions. Every powered terminal is on or adjacent to the single planned conduit tree. The cooler is placed in the freezer's west wall with its declared cold side east into the room and hot side west into an exterior, unroofed snapshot cell. The tribal plan contains a pantry, fueled benches, non-firearm equipment, and cover, and the validator hard-rejects any generator, battery, conduit, cooler, turret, or electric-def placement.
+The industrial plan includes a fueled generator, battery, cooler, electric workbenches, conduit tree, two miniturret reservations, and four cover positions. Every powered terminal is on or adjacent to the single planned conduit tree. Source inspection of `Building_Cooler.TickRare` and `IntVec3Utility.RotatedBy` established that a west rotation makes the cold side face east and the hot side face west. The cooler is therefore placed in the freezer's west wall with its cold side in the room and its hot side in an exterior, unroofed snapshot cell. The tribal plan contains a pantry, fueled benches, non-firearm equipment, and cover, and the validator hard-rejects any generator, battery, conduit, cooler, turret, or electric-def placement.
 
 Local wall material is now an explicit, stable, sorted input to the layout digest and the selected wall material must belong to that supplied local palette. Map-side discovery of the actual rock/material palette and def legality remains part of P2.3 integration rather than being inferred from terrain labels in pure code.
+
+## P2.3 realized-map observations
+
+The dedicated settlement step now captures a read-only map snapshot, runs the full P2 planner, and spawns only the validated physical plan. Unsupported or forced rejection does not fall back to the P1 diagnostic shell: a forced rejection retries the same full facility contract, while an actual unsupported-map rejection exits without mutation. Partial-spawn recovery removes owned spawned things, restores changed roofs and recorded plants, verifies the pre-spawn checksum, and then retries the same full P2 plan.
+
+The Core industrial run realized all 12 facilities with 4/4 ordinary beds plus separate prison and medical beds, 2/2 faction doors, both edge topologies, 2/2 usable interaction buildings, 298/298 roofed facility cells, one connected power network, a valid west-exhausting cooler, 72 simple meals (64.8 nutrition), 150 total wood fuel, 124 initialized crops, four equipped residents, two miniturrets, four cover positions, and no trap or IED. Conduits are excluded from the complete occupied footprints of the multi-cell generator and battery; the corrected run emitted no duplicate-power-net warning.
+
+The Core tribal run realized all 11 applicable facilities with the same housing/jail/medical and route contracts, 1,280 pemmican (64 nutrition), 240 total fuel, 124 initialized crops, four equipped residents, four cover positions, and no generator, battery, conduit, cooler, electric bench, or turret. Its runtime audit reported `tribalClean=True` and zero prohibited defenses.
+
+The forced pre-spawn rejection recorded zero mutation and completed a full-contract retry. The deeper forced partial failure occurred after rooms, roofs, utilities, and crops had spawned; rollback removed 476 owned things, restored 298 roof cells, restored the terrain/roof checksum, and the full-contract retry then passed the complete industrial audit. The selected site had no displaced natural plants to restore (`plantsRestored=0`), while the 124 temporary planned crops were among the owned things removed.
+
+The live generator-service test filled the real 600 Wd battery, consumed generator fuel to zero, disabled auto-refuel, and shed the two noncritical electric production benches. With the cooler and defenses still connected, the real network drew 360 W. After 19,259 ticks—beyond the declared 15,000-tick six-hour window—the battery retained 483.3 Wd, the freezer remained at -4.7 C with valid exterior exhaust, and the audit reported `servicePassed=True`. This directly validates the conservative 400 Wd minimum rather than relying only on the pure power calculation.
 
 ## Fixed inherited contracts
 
@@ -65,4 +77,4 @@ P2 completes only when both supported profiles realize every required facility a
 
 ## Current evidence and pending checks
 
-P2.2 is complete. The combined P1/P2 console suite passed 29/29 tests in the prescribed SDK container. The nine layout cases cover deterministic valid industrial planning, tribal exclusions, every facility demand, legal field capacity, cooler exhaust geometry, a connected power tree, dual gate/edge routes plus facility logistics, deterministic bounded rejection, and declared-local material selection. The mod then built Release with zero warnings and zero errors. This proves pure plan properties only; no P2 realized-map property has yet been claimed. P2.3 is next. P3 is unstarted.
+P2.3 is complete. The combined P1/P2 console suite passes 29/29 tests in the prescribed SDK container and the mod builds Release with zero warnings and zero errors. Core live checks now cover both profiles, full realized-map audits, clean multi-cell power topology, freezer operation, finite stocks, the real generator-service outage, zero-mutation rejection, and deep partial-spawn rollback/full-contract retry. P2.4 remains the Geological Landforms + Map Preview regression, final static checks, and P2 exit decision. P3 is unstarted.

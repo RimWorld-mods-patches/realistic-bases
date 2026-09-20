@@ -342,7 +342,7 @@ namespace RealisticBases.Planning
                 Facility("jail", FacilityKind.Jail, c, 10, 2, 5, 7, 1),
                 Facility("medical", FacilityKind.Medical, c, 17, 2, 5, 7, 1),
                 Facility("kitchen", FacilityKind.Kitchen, c, 2, 11, 5, 6, 1),
-                Facility(electric ? "freezer" : "pantry", electric ? FacilityKind.Freezer : FacilityKind.Pantry, c, 9, 11, 5, 6, 24),
+                Facility(electric ? "freezer" : "pantry", electric ? FacilityKind.Freezer : FacilityKind.Pantry, c, 9, 11, 7, 6, 24),
                 Facility("dining", FacilityKind.DiningRecreation, c, 16, 11, 7, 6, 4),
                 Facility("workshop", FacilityKind.Workshop, c, 25, 11, 5, 6, 1),
                 Facility("storage", FacilityKind.BulkStorage, c, 2, 18, 7, 5, 24),
@@ -393,7 +393,7 @@ namespace RealisticBases.Planning
             AddAt(result, facilities, "dining", PhysicalPlacementKind.Dining, "Table2x2c", stuff, false, 140);
             result.Add(Placement(PhysicalPlacementKind.Recreation,
                 profile.Has(SettlementCapability.Electricity) ? "ChessTable" : "HorseshoesPin", stuff,
-                new GridPoint(compound.MinX + 20, compound.MinZ + 14), "North", "dining", false, 100));
+                new GridPoint(compound.MinX + 17, compound.MinZ + 12), "North", "dining", false, 100));
             AddAt(result, facilities, "storage", PhysicalPlacementKind.StorageMarker, "Shelf", stuff, false, 110);
             string preserve = profile.Has(SettlementCapability.Electricity) ? "freezer" : "pantry";
             AddAt(result, facilities, preserve, PhysicalPlacementKind.FoodStock,
@@ -409,11 +409,28 @@ namespace RealisticBases.Planning
                     new GridPoint(compound.MinX + 26, compound.MinZ + 6), "North", "power", true, 500));
                 PhysicalFacility freezer = facilities.Single(f => f.Id == "freezer");
                 result.Add(Placement(PhysicalPlacementKind.Cooler, "Cooler", string.Empty,
-                    new GridPoint(freezer.Bounds.MinX, freezer.Bounds.MinZ + 2), "East", "freezer", true, 350));
-                GridPoint[] powered = result.Where(p => p.Kind == PhysicalPlacementKind.Generator || p.Kind == PhysicalPlacementKind.Battery ||
-                    p.Kind == PhysicalPlacementKind.Cooler || (p.Kind == PhysicalPlacementKind.Workbench && p.DefName.StartsWith("Electric", StringComparison.Ordinal)))
-                    .Select(p => p.Cell).Concat(new[] { new GridPoint(compound.MinX + 12, compound.MinZ + 1), new GridPoint(compound.MinX + 18, compound.MinZ + 1) }).ToArray();
-                foreach (GridPoint cell in ConduitTree(powered))
+                    new GridPoint(freezer.Bounds.MinX, freezer.Bounds.MinZ + 2), "West", "freezer", true, 350));
+                GridPoint generator = result.Single(p => p.Kind == PhysicalPlacementKind.Generator).Cell;
+                GridPoint battery = result.Single(p => p.Kind == PhysicalPlacementKind.Battery).Cell;
+                GridPoint[] powered = result.Where(p => p.Kind == PhysicalPlacementKind.Cooler ||
+                    (p.Kind == PhysicalPlacementKind.Workbench && p.DefName.StartsWith("Electric", StringComparison.Ordinal)))
+                    .Select(p => p.Cell).Concat(new[]
+                    {
+                        new GridPoint(generator.X - 1, generator.Z),
+                        new GridPoint(battery.X - 1, battery.Z),
+                        new GridPoint(compound.MinX + 12, compound.MinZ + 1),
+                        new GridPoint(compound.MinX + 18, compound.MinZ + 1)
+                    }).ToArray();
+                HashSet<GridPoint> transmitterFootprints = new HashSet<GridPoint>
+                {
+                    generator,
+                    new GridPoint(generator.X + 1, generator.Z),
+                    new GridPoint(generator.X, generator.Z + 1),
+                    new GridPoint(generator.X + 1, generator.Z + 1),
+                    battery,
+                    new GridPoint(battery.X, battery.Z + 1)
+                };
+                foreach (GridPoint cell in ConduitTree(powered).Where(c => !transmitterFootprints.Contains(c)))
                     result.Add(Placement(PhysicalPlacementKind.Conduit, "PowerConduit", string.Empty, cell, "North", "power", true, 5));
                 result.Add(Placement(PhysicalPlacementKind.Turret, "Turret_MiniTurret", "Steel",
                     new GridPoint(compound.MinX + 12, compound.MinZ + 1), "South", "defense", true, 700));
@@ -471,7 +488,9 @@ namespace RealisticBases.Planning
             PhysicalPlacementKind kind, string defName, string stuff, bool imported, int value)
         {
             PhysicalFacility facility = facilities.Single(f => f.Id == id);
-            result.Add(Placement(kind, defName, stuff, facility.InteractionCells[0], "North", id, imported, value));
+            GridPoint center = new GridPoint(facility.Bounds.MinX + facility.Bounds.Width / 2,
+                facility.Bounds.MinZ + facility.Bounds.Height / 2);
+            result.Add(Placement(kind, defName, stuff, center, "North", id, imported, value));
         }
 
         private static PhysicalPlacement Placement(PhysicalPlacementKind kind, string defName, string stuff,
@@ -545,7 +564,7 @@ namespace RealisticBases.Planning
             if (electric)
             {
                 PhysicalPlacement cooler = plan.Placements.SingleOrDefault(p => p.Kind == PhysicalPlacementKind.Cooler);
-                if (cooler == null || cooler.Rotation != "East") errors.Add("cooler_orientation");
+                if (cooler == null || cooler.Rotation != "West") errors.Add("cooler_orientation");
                 else
                 {
                     GridPoint exhaust = new GridPoint(cooler.Cell.X - 1, cooler.Cell.Z);
@@ -553,6 +572,25 @@ namespace RealisticBases.Planning
                     if (freezer.Bounds.Contains(exhaust) || input.Terrain[exhaust].Has(TerrainTraits.Roofed)) errors.Add("cooler_exhaust");
                 }
                 HashSet<GridPoint> conduits = new HashSet<GridPoint>(plan.Placements.Where(p => p.Kind == PhysicalPlacementKind.Conduit).Select(p => p.Cell));
+                PhysicalPlacement generator = plan.Placements.SingleOrDefault(p => p.Kind == PhysicalPlacementKind.Generator);
+                PhysicalPlacement battery = plan.Placements.SingleOrDefault(p => p.Kind == PhysicalPlacementKind.Battery);
+                if (generator != null && battery != null)
+                {
+                    GridPoint[] generatorFootprint =
+                    {
+                        generator.Cell,
+                        new GridPoint(generator.Cell.X + 1, generator.Cell.Z),
+                        new GridPoint(generator.Cell.X, generator.Cell.Z + 1),
+                        new GridPoint(generator.Cell.X + 1, generator.Cell.Z + 1)
+                    };
+                    HashSet<GridPoint> transmitterFootprints = new HashSet<GridPoint>(generatorFootprint)
+                    {
+                        battery.Cell,
+                        new GridPoint(battery.Cell.X, battery.Cell.Z + 1)
+                    };
+                    if (transmitterFootprints.Any(conduits.Contains)) errors.Add("conduit_transmitter_overlap");
+                    if (!generatorFootprint.Any(c => Neighbors(c).Any(conduits.Contains))) errors.Add("power_connection_generator");
+                }
                 foreach (PhysicalPlacement powered in plan.Placements.Where(p => p.Kind == PhysicalPlacementKind.Battery || p.Kind == PhysicalPlacementKind.Cooler ||
                     p.Kind == PhysicalPlacementKind.Turret || (p.Kind == PhysicalPlacementKind.Workbench && p.DefName.StartsWith("Electric", StringComparison.Ordinal))))
                     if (!conduits.Contains(powered.Cell) && !Neighbors(powered.Cell).Any(conduits.Contains)) errors.Add("power_connection_" + powered.Kind);

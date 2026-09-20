@@ -15,6 +15,20 @@ namespace RealisticBases.Generation
 {
     public static class P0MapAudit
     {
+        public static string TerrainChecksum(Map map)
+        {
+            unchecked
+            {
+                ulong hash = 1469598103934665603UL;
+                foreach (IntVec3 cell in map.AllCells)
+                {
+                    hash ^= cell.GetTerrain(map).shortHash;
+                    hash *= 1099511628211UL;
+                }
+                return hash.ToString("X16");
+            }
+        }
+
         public static string TerrainRoofChecksum(Map map)
         {
             unchecked
@@ -61,46 +75,40 @@ namespace RealisticBases.Generation
                 return;
             }
 
-            P1PlanningRun primary = P1MapPlanner.Run(map, P1MapPlanner.PrimaryProfile, "primary");
+            P2PlanningRun primary = P2MapPlanner.Run(map, settlement.Faction, "primary");
             if (!primary.Result.Success)
             {
-                P0Log.Message("PLAN_REJECT", "reason=p1_primary_rejected mutationCount=0 constraints=" +
-                    P1MapPlanner.Compact(primary.Result.Rejections));
-                P1PlanningRun fallback = P1MapPlanner.Run(map, P1MapPlanner.CompactProfile, "site_rejection_fallback");
-                if (!fallback.Result.Success)
-                {
-                    P0Log.Error("FALLBACK_REJECT", "reason=p1_compact_rejected mutationCount=0 constraints=" +
-                        P1MapPlanner.Compact(fallback.Result.Rejections));
-                    P1PlanDiagnostics.Record(map, fallback, "untouched-map-exit", new[] { "primary-rejected", "compact-rejected" });
-                    return;
-                }
-                P1PlanDiagnostics.Record(map, fallback, "compact-fallback", new[] { "primary-rejected" });
-                SpawnAndInitialize(map, settlement, fallback.Result.Plan, before, "site_rejection_fallback");
+                P2Log.Error("PLAN_REJECT", "reason=p2_full_contract_rejected mutationCount=0 constraints=" +
+                    P1MapPlanner.Compact(primary.Result.Rejections) + " fallback=none_qualified mapUntouched=true");
+                P2PlanDiagnostics.Record(map, primary, "untouched-map-exit", new[] { "no-qualified-p2-fallback" });
                 return;
             }
 
             if (RealisticBasesMod.Settings.forceRejectNext)
             {
                 RealisticBasesMod.Settings.forceRejectNext = false;
-                P0Log.Message("PLAN_REJECT", "reason=forced_before_spawn mutationCount=0");
-                P1PlanningRun fallback = P1MapPlanner.Run(map, P1MapPlanner.CompactProfile, "forced_rejection_fallback");
-                if (fallback.Result.Success)
-                {
-                    P1PlanDiagnostics.Record(map, fallback, "compact-fallback", new[] { "forced-primary-rejection" });
-                    SpawnAndInitialize(map, settlement, fallback.Result.Plan, before, "forced_rejection_fallback");
-                }
+                P2Log.Message("PLAN_REJECT", "reason=forced_before_spawn mutationCount=0 recovery=full-contract-retry");
+                P2PlanDiagnostics.Record(map, primary, "full-contract-retry", new[] { "forced-primary-rejection" });
+                string failure;
+                P2SettlementSpawner.TrySpawn(map, settlement, primary, before, "forced_rejection_full_contract_retry", false, out failure);
                 return;
             }
 
             if (RealisticBasesMod.Settings.forcePartialFailureNext)
             {
                 RealisticBasesMod.Settings.forcePartialFailureNext = false;
-                RunControlledFailure(map, settlement, primary.Result.Plan, before);
+                string forcedFailure;
+                P2SettlementSpawner.TrySpawn(map, settlement, primary, before, "forced_partial_failure", true, out forcedFailure);
+                P2PlanDiagnostics.Record(map, primary, "full-contract-retry", new[] { "partial-spawn-rollback", forcedFailure });
+                string retryFailure;
+                P2SettlementSpawner.TrySpawn(map, settlement, primary, before, "partial_failure_full_contract_retry", false, out retryFailure);
                 return;
             }
 
-            P1PlanDiagnostics.Record(map, primary, "primary", Array.Empty<string>());
-            SpawnAndInitialize(map, settlement, primary.Result.Plan, before, "primary");
+            P2PlanDiagnostics.Record(map, primary, "primary", Array.Empty<string>());
+            string spawnFailure;
+            if (!P2SettlementSpawner.TrySpawn(map, settlement, primary, before, "primary", false, out spawnFailure))
+                P2Log.Error("SPAWN_ABORT", "reason=" + spawnFailure + " fallback=none_qualified mapRolledBack=true");
         }
 
         private static void RunControlledFailure(Map map, Settlement settlement, SettlementPlan primaryPlan, string before)

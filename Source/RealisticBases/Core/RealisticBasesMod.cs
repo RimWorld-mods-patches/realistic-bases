@@ -12,12 +12,14 @@ namespace RealisticBases.Core
         public bool enableP0Generator;
         public bool forceRejectNext;
         public bool forcePartialFailureNext;
+        public string forceP2ProfileNext;
 
         public override void ExposeData()
         {
             Scribe_Values.Look(ref enableP0Generator, "enableP0Generator", false);
             Scribe_Values.Look(ref forceRejectNext, "forceRejectNext", false);
             Scribe_Values.Look(ref forcePartialFailureNext, "forcePartialFailureNext", false);
+            Scribe_Values.Look(ref forceP2ProfileNext, "forceP2ProfileNext", string.Empty);
         }
     }
 
@@ -53,7 +55,8 @@ namespace RealisticBases.Core
             base.WriteSettings();
             P0Log.Message("SETTINGS", "generator=" + Settings.enableP0Generator +
                 " forceRejectNext=" + Settings.forceRejectNext +
-                " forcePartialFailureNext=" + Settings.forcePartialFailureNext);
+                " forcePartialFailureNext=" + Settings.forcePartialFailureNext +
+                " forceP2ProfileNext=" + Settings.forceP2ProfileNext);
         }
     }
 

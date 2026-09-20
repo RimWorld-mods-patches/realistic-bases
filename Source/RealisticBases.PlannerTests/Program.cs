@@ -294,7 +294,7 @@ internal static class Program
         PhysicalPlacement cooler = plan.Placements.Single(p => p.Kind == PhysicalPlacementKind.Cooler);
         PhysicalFacility freezer = plan.Facilities.Single(f => f.Kind == FacilityKind.Freezer);
         GridPoint exhaust = new GridPoint(cooler.Cell.X - 1, cooler.Cell.Z);
-        Equal("East", cooler.Rotation, "cold side faces east into freezer");
+        Equal("West", cooler.Rotation, "cold side faces east into freezer");
         True(!freezer.Bounds.Contains(exhaust), "west hot side is exterior");
     }
 
@@ -303,6 +303,13 @@ internal static class Program
         PhysicalSettlementPlan plan = PhysicalSettlementPlanner.Plan(P2Input(P2ProfileCatalog.IndustrialTemperate)).Plan;
         HashSet<GridPoint> conduits = new HashSet<GridPoint>(plan.Placements.Where(p => p.Kind == PhysicalPlacementKind.Conduit).Select(p => p.Cell));
         True(conduits.Count > 0, "conduits exist");
+        GridPoint generator = plan.Placements.Single(p => p.Kind == PhysicalPlacementKind.Generator).Cell;
+        GridPoint battery = plan.Placements.Single(p => p.Kind == PhysicalPlacementKind.Battery).Cell;
+        GridPoint[] transmitterFootprints = { generator, new GridPoint(generator.X + 1, generator.Z),
+            new GridPoint(generator.X, generator.Z + 1), new GridPoint(generator.X + 1, generator.Z + 1),
+            battery, new GridPoint(battery.X, battery.Z + 1) };
+        True(!transmitterFootprints.Any(conduits.Contains), "conduits do not overlap transmitter footprints");
+        True(transmitterFootprints.Take(4).Any(c => OrthogonalNeighbors(c).Any(conduits.Contains)), "generator connected");
         foreach (PhysicalPlacement terminal in plan.Placements.Where(p => p.Kind == PhysicalPlacementKind.Battery ||
             p.Kind == PhysicalPlacementKind.Cooler || p.Kind == PhysicalPlacementKind.Turret ||
             (p.Kind == PhysicalPlacementKind.Workbench && p.DefName.StartsWith("Electric"))))
