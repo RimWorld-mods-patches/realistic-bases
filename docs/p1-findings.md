@@ -21,8 +21,8 @@ Planning must not mutate a RimWorld `Map` or any runtime object. Map reads end w
 | P0 checkpoint | Preserve completed P0 before P1 edits | `646db81` | P0 Docker build and runtime matrix complete |
 | P1.0 | Scope, checklist, and evidence policy | `1bec546` | Document review |
 | P1.1 | Stable inputs, seed derivation, snapshots, connected regions | `9f0aff1` | Docker build: 0 warnings/errors; 4/4 focused pure tests passed |
-| P1.2 | Bounded planner, graph/reservations, validation, property matrix | This step's `feat: add bounded P1 planner and validator` commit | Docker build: 0 warnings/errors; 12/12 pure tests passed |
-| P1.3 | Map adapter, P0 spawner integration, overlays, report | Pending | Build plus isolated Core runtime |
+| P1.2 | Bounded planner, graph/reservations, validation, property matrix | `783b702` | Docker build: 0 warnings/errors; 12/12 pure tests passed |
+| P1.3 | Map adapter, P0 spawner integration, overlays, report | This step's `feat: integrate P1 planner diagnostics` commit | Docker build and pure regression passed; isolated Core primary runtime passed |
 | P1.4 | Recovery/optional compatibility matrix and closeout | Pending | Isolated Core and GL + Map Preview runtime evidence |
 
 ## Fixed P1 contracts
@@ -53,3 +53,13 @@ The planner deterministically orders candidate origins by center distance, a sta
 The validator checks input identity, capacity, candidate/route bounds, route continuity and edge termination, room interactions, reservation bounds/conflicts, required reservation classes, and room connectivity. The pure suite passed 12/12 cases: stable seeds, snapshot immutability, deterministic regions, region edge metadata, identical plan digests, disconnected land, narrow corridors, obstructed interactions, impossible capacity, all-water terrain, deterministic candidate limits, and unchanged snapshot digest.
 
 This evidence demonstrates pure planning behavior. Live-map snapshot conversion, spawning separation, overlays, reports, and P0 recovery integration remain P1.3/P1.4 work.
+
+## P1.3 observations
+
+The map adapter performs one read-only pass over terrain, roofs, affordances, natural rock, edifices, fertility, water, standability, and map-edge membership. It produces the immutable snapshot before planning. The generation step then either exits untouched or passes an accepted plan to the separate spawner; the old live-map site search is removed.
+
+An initial live Core run exhausted the original 256/512 center-biased limits on obstructed terrain. It correctly logged rejection with zero mutation and exposed an unsafe assumption in the playable debug harness. The production diagnostic profiles now use a finite 6,400-candidate bound, enough to enumerate every origin on the 80×80 spike map, while synthetic limit tests retain smaller explicit bounds. The untouched-map arrival path now safely falls back to any valid map edge rather than assuming a settlement state exists.
+
+The repeated Core run accepted candidate 438/6400 in 33 ms after a 2 ms snapshot, produced plan digest `EE015D28981DC495`, spawned the plan-driven 9×9 outline with two room envelopes, preserved the settlement-time terrain checksum, passed `noTrapsOrIEDs=True` and `edgeReachablePassDoors=True`, and placed an existing colonist with `targetReachablePassDoors=True`. The overlay reported 4,778 suitable cells, two rooms, 36 route cells, one gate, one roof-support reservation, seven planned-power cells, two planned-defense cells, and 16 retained rejection diagnostics.
+
+The compact report records runtime/planner/profile/snapshot/plan versions, seed and input digest, archetype, planned capacity, explicit `not-modeled-p1` supply status, candidate and route bounds, repairs/fallbacks, timing, and `operationalPower=false operationalDefense=false`. Planning is replayed against the retained input when the record is created; digest equality and unchanged snapshot status are emitted in subsequent reports. This avoids presenting P1 reservations as operational P2/P3 evidence.

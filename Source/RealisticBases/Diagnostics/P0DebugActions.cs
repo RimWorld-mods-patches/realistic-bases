@@ -5,6 +5,7 @@ using LudeonTK;
 using RealisticBases.AI;
 using RealisticBases.Core;
 using RealisticBases.Generation;
+using RealisticBases.Integration;
 using RealisticBases.Persistence;
 using RimWorld;
 using RimWorld.Planet;
@@ -98,19 +99,23 @@ namespace RealisticBases.Diagnostics
             Current.Game.CurrentMap = map;
             if (arrivalPawn != null)
             {
-                IntVec3 arrivalTarget = map.GetComponent<P0MapState>().ArrivalTarget;
-                IntVec3 arrivalCell = map.AllCells
-                    .Where(c => c.OnEdge(map) && c.Standable(map) && !c.Fogged(map) &&
+                P0MapState mapState = map.GetComponent<P0MapState>();
+                IntVec3 arrivalTarget = mapState.Active ? mapState.ArrivalTarget : map.Center;
+                List<IntVec3> reachableEdges = map.AllCells
+                    .Where(c => c.OnEdge(map) && c.Standable(map) && !c.Fogged(map) && arrivalTarget.IsValid &&
                         map.reachability.CanReach(c, arrivalTarget, PathEndMode.OnCell,
                             TraverseParms.For(TraverseMode.PassDoors)))
-                    .OrderBy(c => c.DistanceToSquared(arrivalTarget))
-                    .First();
+                    .OrderBy(c => c.DistanceToSquared(arrivalTarget)).ToList();
+                IntVec3 arrivalCell = reachableEdges.Count > 0
+                    ? reachableEdges[0]
+                    : map.AllCells.Where(c => c.OnEdge(map) && c.Standable(map) && !c.Fogged(map))
+                        .OrderBy(c => c.DistanceToSquared(map.Center)).First();
                 if (arrivalPawn.Spawned)
                 {
                     arrivalPawn.DeSpawn();
                 }
                 GenSpawn.Spawn(arrivalPawn, arrivalCell, map);
-                bool targetReachablePassDoors = map.reachability.CanReach(arrivalCell, arrivalTarget,
+                bool targetReachablePassDoors = arrivalTarget.IsValid && map.reachability.CanReach(arrivalCell, arrivalTarget,
                     PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors));
                 P0Log.Message("PLAYABLE_ARRIVAL", "settlement=" + settlement.ID + " map=" + map.uniqueID +
                     " pawn=" + arrivalPawn.thingIDNumber + " cell=" + arrivalCell +
@@ -230,6 +235,22 @@ namespace RealisticBases.Diagnostics
                 " MapPreview=" + ModsConfig.IsActive("m00nl1ght.mappreview") +
                 " mutators=" + string.Join(",", map.TileInfo.Mutators.Select(m => m.defName).ToArray()) +
                 " orderedSteps=" + ordered);
+        }
+
+        [DebugAction(Category, "Show current P1 planning overlay", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void ShowP1PlanningOverlay()
+        {
+            P1PlanDiagnostics.ShowOverlay(Find.CurrentMap);
+            Messages.Message("P1 overlay: suitability, rooms, interactions, routes, gate, roof support, and planned-only power/defense reservations.",
+                MessageTypeDefOf.NeutralEvent, false);
+        }
+
+        [DebugAction(Category, "Log current P1 generation report", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void LogP1GenerationReport()
+        {
+            P1PlanDiagnostics.LogReport(Find.CurrentMap);
         }
 
         [DebugAction(Category, "Spawn hostile garrison/work probe", actionType = DebugActionType.ToolMap,

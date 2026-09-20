@@ -56,8 +56,8 @@ No active P0 blocker remains. Carryover `CLAUDE.md` describes another mod; the R
 | P1.0 | Milestone scope, checklist, and evidence document | Documentation review; standalone checkpoint commit | Complete |
 | P1.1 | Versioned profile inputs, stable seeds, immutable terrain snapshots, connected-region analysis | Docker build: 0 warnings/errors; four focused pure tests passed; committed as the P1.1 feature checkpoint | Complete |
 | P1.2 | Bounded candidate search, rectangular room envelopes, adjacency/circulation, reservations, validator, property matrix | Docker build: 0 warnings/errors; 12/12 pure tests passed including every required property case; committed as the P1.2 feature checkpoint | Complete |
-| P1.3 | Replace fixed diagnostic layout through P0 integration; add overlays and compact generation report | Docker build, XML/whitespace checks, isolated Core runtime; standalone commit | In progress |
-| P1.4 | Integrated rejection/fallback and optional-mod runtime matrix; final findings | Core and GL + Map Preview observed evidence; final P1 commit only after the exit gate passes | Not started |
+| P1.3 | Replace fixed diagnostic layout through P0 integration; add overlays and compact generation report | Docker build: 0 warnings/errors; isolated Core primary plan/spawn, playable arrival, overlay, report, terrain preservation, and final audit observed; committed as P1.3 checkpoint | Complete |
+| P1.4 | Integrated rejection/fallback and optional-mod runtime matrix; final findings | Core and GL + Map Preview observed evidence; final P1 commit only after the exit gate passes | In progress |
 
 Commit mapping is recorded in [P1 findings](p1-findings.md). The same stepwise commit policy applies to later authorized milestones.
 
@@ -72,3 +72,4 @@ Commit mapping is recorded in [P1 findings](p1-findings.md). The same stepwise c
 | 2026-09-20 | Checkpointed P0 as `646db81`; started P1 with a stepwise validation-and-commit checklist. |
 | 2026-09-20 | P1.1 added versioned inputs, stable seed/digests, copied terrain snapshots, and deterministic connected-region analysis; Docker build and four pure tests passed. |
 | 2026-09-20 | P1.2 added bounded candidates/routes, room and circulation data, occupancy/utility/defense reservations, validation, and the full 12-case pure property suite. |
+| 2026-09-20 | P1.3 replaced fixed-site selection with immutable snapshot planning and plan-driven diagnostic spawning; Core runtime produced a valid plan/spawn, overlay, compact report, playable arrival, and clean final audit. |

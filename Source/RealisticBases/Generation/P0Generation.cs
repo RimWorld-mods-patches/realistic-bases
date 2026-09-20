@@ -4,6 +4,8 @@ using System.Linq;
 using RealisticBases.Core;
 using RealisticBases.Persistence;
 using RealisticBases.AI;
+using RealisticBases.Integration;
+using RealisticBases.Planning;
 using RimWorld;
 using RimWorld.Planet;
 using Verse;
@@ -59,16 +61,21 @@ namespace RealisticBases.Generation
                 return;
             }
 
-            IntVec3 origin;
-            if (!TryFindSite(map, 9, out origin))
+            P1PlanningRun primary = P1MapPlanner.Run(map, P1MapPlanner.PrimaryProfile, "primary");
+            if (!primary.Result.Success)
             {
-                P0Log.Message("PLAN_REJECT", "reason=no_9x9_buildable_edge_reachable_site mutationCount=0");
-                if (!TryFindSite(map, 5, out origin))
+                P0Log.Message("PLAN_REJECT", "reason=p1_primary_rejected mutationCount=0 constraints=" +
+                    P1MapPlanner.Compact(primary.Result.Rejections));
+                P1PlanningRun fallback = P1MapPlanner.Run(map, P1MapPlanner.CompactProfile, "site_rejection_fallback");
+                if (!fallback.Result.Success)
                 {
-                    P0Log.Error("FALLBACK_REJECT", "reason=no_5x5_buildable_edge_reachable_site mutationCount=0");
+                    P0Log.Error("FALLBACK_REJECT", "reason=p1_compact_rejected mutationCount=0 constraints=" +
+                        P1MapPlanner.Compact(fallback.Result.Rejections));
+                    P1PlanDiagnostics.Record(map, fallback, "untouched-map-exit", new[] { "primary-rejected", "compact-rejected" });
                     return;
                 }
-                SpawnAndInitialize(map, settlement, origin, 5, before, "site_rejection_fallback");
+                P1PlanDiagnostics.Record(map, fallback, "compact-fallback", new[] { "primary-rejected" });
+                SpawnAndInitialize(map, settlement, fallback.Result.Plan, before, "site_rejection_fallback");
                 return;
             }
 
@@ -76,10 +83,11 @@ namespace RealisticBases.Generation
             {
                 RealisticBasesMod.Settings.forceRejectNext = false;
                 P0Log.Message("PLAN_REJECT", "reason=forced_before_spawn mutationCount=0");
-                IntVec3 fallback;
-                if (TryFindSite(map, 5, out fallback))
+                P1PlanningRun fallback = P1MapPlanner.Run(map, P1MapPlanner.CompactProfile, "forced_rejection_fallback");
+                if (fallback.Result.Success)
                 {
-                    SpawnAndInitialize(map, settlement, fallback, 5, before, "forced_rejection_fallback");
+                    P1PlanDiagnostics.Record(map, fallback, "compact-fallback", new[] { "forced-primary-rejection" });
+                    SpawnAndInitialize(map, settlement, fallback.Result.Plan, before, "forced_rejection_fallback");
                 }
                 return;
             }
@@ -87,15 +95,17 @@ namespace RealisticBases.Generation
             if (RealisticBasesMod.Settings.forcePartialFailureNext)
             {
                 RealisticBasesMod.Settings.forcePartialFailureNext = false;
-                RunControlledFailure(map, settlement, origin, before);
+                RunControlledFailure(map, settlement, primary.Result.Plan, before);
                 return;
             }
 
-            SpawnAndInitialize(map, settlement, origin, 9, before, "primary");
+            P1PlanDiagnostics.Record(map, primary, "primary", Array.Empty<string>());
+            SpawnAndInitialize(map, settlement, primary.Result.Plan, before, "primary");
         }
 
-        private static void RunControlledFailure(Map map, Settlement settlement, IntVec3 origin, string before)
+        private static void RunControlledFailure(Map map, Settlement settlement, SettlementPlan primaryPlan, string before)
         {
+            IntVec3 origin = ToCell(new GridPoint(primaryPlan.Compound.MinX, primaryPlan.Compound.MinZ));
             List<Thing> spawned = new List<Thing>();
             Dictionary<IntVec3, TerrainDef> changedTerrain = new Dictionary<IntVec3, TerrainDef>();
             try
@@ -125,33 +135,30 @@ namespace RealisticBases.Generation
                     " checksumRestored=" + (rolledBack == before));
             }
 
-            IntVec3 fallback;
-            if (TryFindSite(map, 5, out fallback))
+            P1PlanningRun fallback = P1MapPlanner.Run(map, P1MapPlanner.CompactProfile, "partial_failure_fallback");
+            if (fallback.Result.Success)
             {
-                SpawnAndInitialize(map, settlement, fallback, 5, before, "partial_failure_fallback");
+                P1PlanDiagnostics.Record(map, fallback, "compact-fallback", new[] { "partial-spawn-rollback" });
+                SpawnAndInitialize(map, settlement, fallback.Result.Plan, before, "partial_failure_fallback");
             }
         }
 
-        private static void SpawnAndInitialize(Map map, Settlement settlement, IntVec3 origin, int size, string before, string path)
+        private static void SpawnAndInitialize(Map map, Settlement settlement, SettlementPlan plan, string before, string path)
         {
-            IntVec3 woodCell = origin + new IntVec3(size / 2, 0, size / 2);
-            IntVec3 markerWall = origin;
+            IntVec3 origin = ToCell(new GridPoint(plan.Compound.MinX, plan.Compound.MinZ));
+            int size = plan.Compound.Width;
+            RoomEnvelope stores = plan.Rooms.First(r => r.Id == "stores");
+            IntVec3 woodCell = ToCell(new GridPoint(stores.Bounds.MinX, stores.Bounds.MinZ));
+            PlanReservation markerReservation = plan.Reservations.First(r => r.Kind == ReservationKind.Structure);
+            IntVec3 markerWall = ToCell(markerReservation.Cell);
             int spawnedCount = 0;
-            for (int dx = 0; dx < size; dx++)
+            foreach (PlanReservation reservation in plan.Reservations.Where(r => r.Kind == ReservationKind.Structure))
             {
-                for (int dz = 0; dz < size; dz++)
-                {
-                    bool perimeter = dx == 0 || dz == 0 || dx == size - 1 || dz == size - 1;
-                    if (!perimeter)
-                    {
-                        continue;
-                    }
-                    IntVec3 cell = origin + new IntVec3(dx, 0, dz);
-                    bool gate = dz == 0 && dx == size / 2;
-                    SpawnBuilding(gate ? ThingDefOf.Door : ThingDefOf.Wall, ThingDefOf.Steel, cell, map, settlement.Faction);
-                    spawnedCount++;
-                }
+                SpawnBuilding(ThingDefOf.Wall, ThingDefOf.Steel, ToCell(reservation.Cell), map, settlement.Faction);
+                spawnedCount++;
             }
+            SpawnBuilding(ThingDefOf.Door, ThingDefOf.Steel, ToCell(plan.Gate), map, settlement.Faction);
+            spawnedCount++;
 
             Thing wood = ThingMaker.MakeThing(ThingDefOf.WoodLog);
             wood.stackCount = 30;
@@ -180,8 +187,8 @@ namespace RealisticBases.Generation
             PawnKindDef kind = settlement.Faction.def.basicMemberKind ?? PawnKindDefOf.Pirate;
             Pawn pawnA = PawnGenerator.GeneratePawn(kind, settlement.Faction, map.Tile);
             Pawn pawnB = PawnGenerator.GeneratePawn(kind, settlement.Faction, map.Tile);
-            GenSpawn.Spawn(pawnA, origin + new IntVec3(1, 0, 1), map);
-            GenSpawn.Spawn(pawnB, origin + new IntVec3(size - 2, 0, size - 2), map);
+            GenSpawn.Spawn(pawnA, ToCell(plan.Rooms[0].InteractionCell), map);
+            GenSpawn.Spawn(pawnB, ToCell(plan.Rooms[1].InteractionCell), map);
             List<Pawn> defenders = new[] { pawnA, pawnB }.OrderBy(p => p.thingIDNumber).ToList();
             LordMaker.MakeNewLord(settlement.Faction,
                 new LordJob_P0Garrison(origin + new IntVec3(size / 2, 0, size / 2), origin + new IntVec3(size / 2, 0, size / 2)),
@@ -191,7 +198,9 @@ namespace RealisticBases.Generation
 
             string after = P0MapAudit.TerrainRoofChecksum(map);
             map.GetComponent<P0MapState>().Initialize(settlement, origin, woodCell, markerWall, after);
-            P0Log.Message("SPAWN_COMPLETE", "path=" + path + " layoutSize=" + size + " things=" +
+            P0Log.Message("SPAWN_COMPLETE", "path=" + path + " layoutSize=" + plan.Compound.Width + "x" +
+                plan.Compound.Height + " planDigest=" + plan.Digest + " archetype=" + plan.Archetype +
+                " rooms=" + plan.Rooms.Count + " things=" +
                 (spawnedCount + (wood.Destroyed ? 0 : 1)) + " terrainBefore=" + before + " terrainAfter=" + after +
                 " terrainPreserved=" + (before == after) + " revisit=" + revisit +
                 " restoredWood=" + (wood.Destroyed ? 0 : wood.stackCount) +
@@ -207,38 +216,7 @@ namespace RealisticBases.Generation
             return GenSpawn.Spawn(thing, cell, map, Rot4.North, WipeMode.Vanish);
         }
 
-        private static bool TryFindSite(Map map, int size, out IntVec3 origin)
-        {
-            IntVec3 center = map.Center;
-            foreach (IntVec3 candidate in map.AllCells.OrderBy(c => c.DistanceToSquared(center)))
-            {
-                IntVec3 proposedOrigin = candidate - new IntVec3(size / 2, 0, size / 2);
-                CellRect rect = new CellRect(proposedOrigin.x, proposedOrigin.z, size, size);
-                if (!rect.FullyContainedWithin(map.BoundsRect(12)))
-                {
-                    continue;
-                }
-                bool valid = true;
-                foreach (IntVec3 cell in rect)
-                {
-                    if (cell.Roofed(map) || cell.GetEdifice(map) != null || !cell.Standable(map) ||
-                        !GenConstruct.CanBuildOnTerrain(ThingDefOf.Wall, cell, map, Rot4.North, null, ThingDefOf.Steel))
-                    {
-                        valid = false;
-                        break;
-                    }
-                }
-                IntVec3 gateOutside = proposedOrigin + new IntVec3(size / 2, 0, -1);
-                if (valid && gateOutside.InBounds(map) && gateOutside.Standable(map) &&
-                    map.reachability.CanReachMapEdge(gateOutside, TraverseParms.For(TraverseMode.PassDoors)))
-                {
-                    origin = proposedOrigin;
-                    return true;
-                }
-            }
-            origin = IntVec3.Invalid;
-            return false;
-        }
+        private static IntVec3 ToCell(GridPoint point) => new IntVec3(point.X, 0, point.Z);
     }
 
     public sealed class GenStep_P0SettlementPower : GenStep
