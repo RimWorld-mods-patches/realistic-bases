@@ -29,6 +29,15 @@ internal static class Program
         Run("P2 industrial power scenarios pass", P2IndustrialPowerScenariosPass);
         Run("P2 tribal profile has no electric substitutes", P2TribalHasNoElectricSubstitutes);
         Run("P2 stocks are finite and profile specific", P2StocksAreFiniteAndProfileSpecific);
+        Run("P2 industrial layout is deterministic and valid", P2IndustrialLayoutIsDeterministicAndValid);
+        Run("P2 tribal layout excludes electric placements", P2TribalLayoutExcludesElectricPlacements);
+        Run("P2 layout realizes every facility demand", P2LayoutRealizesEveryFacilityDemand);
+        Run("P2 layout reserves legal crop capacity", P2LayoutReservesLegalCropCapacity);
+        Run("P2 cooler has exterior exhaust", P2CoolerHasExteriorExhaust);
+        Run("P2 power terminals join one conduit tree", P2PowerTerminalsJoinOneConduitTree);
+        Run("P2 gates and facility routes are viable", P2GatesAndFacilityRoutesAreViable);
+        Run("P2 layout rejection is bounded", P2LayoutRejectionIsBounded);
+        Run("P2 layout selects declared local material", P2LayoutSelectsDeclaredLocalMaterial);
         Console.WriteLine("P1/P2 pure tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
@@ -237,6 +246,120 @@ internal static class Program
     {
         yield return P2ProfileCatalog.IndustrialTemperate;
         yield return P2ProfileCatalog.TribalTemperate;
+    }
+
+    private static void P2IndustrialLayoutIsDeterministicAndValid()
+    {
+        PhysicalPlanningInput input = P2Input(P2ProfileCatalog.IndustrialTemperate);
+        PhysicalPlanningResult first = PhysicalSettlementPlanner.Plan(input);
+        PhysicalPlanningResult second = PhysicalSettlementPlanner.Plan(input);
+        True(first.Success && second.Success, "industrial plans succeed: " + string.Join("|", first.Rejections));
+        Equal(first.Plan.Digest, second.Plan.Digest, "physical digest");
+        Equal(0, PhysicalSettlementValidator.Validate(input, first.Plan).Count, "industrial validation");
+    }
+
+    private static void P2TribalLayoutExcludesElectricPlacements()
+    {
+        PhysicalPlanningResult result = PhysicalSettlementPlanner.Plan(P2Input(P2ProfileCatalog.TribalTemperate));
+        True(result.Success, "tribal plan succeeds");
+        True(!result.Plan.Placements.Any(p => p.Kind == PhysicalPlacementKind.Generator || p.Kind == PhysicalPlacementKind.Battery ||
+            p.Kind == PhysicalPlacementKind.Conduit || p.Kind == PhysicalPlacementKind.Cooler || p.Kind == PhysicalPlacementKind.Turret ||
+            p.DefName.StartsWith("Electric")), "no electric placement");
+        True(result.Plan.Facilities.Any(f => f.Kind == FacilityKind.Pantry), "tribal pantry");
+    }
+
+    private static void P2LayoutRealizesEveryFacilityDemand()
+    {
+        foreach (PhysicalSettlementProfile profile in P2Profiles())
+        {
+            PhysicalSettlementPlan plan = PhysicalSettlementPlanner.Plan(P2Input(profile)).Plan;
+            foreach (FacilityDemand demand in profile.Facilities)
+                True(plan.Facilities.Any(f => f.Kind == demand.Kind && f.Capacity >= demand.Capacity), profile.Id + " " + demand.Kind);
+            Equal(4, plan.Placements.Count(p => p.Kind == PhysicalPlacementKind.OrdinaryBed), profile.Id + " ordinary beds");
+        }
+    }
+
+    private static void P2LayoutReservesLegalCropCapacity()
+    {
+        PhysicalPlanningInput input = P2Input(P2ProfileCatalog.IndustrialTemperate);
+        PhysicalSettlementPlan plan = PhysicalSettlementPlanner.Plan(input).Plan;
+        Equal(130, plan.FieldCells.Count, "field cell count");
+        True(plan.FieldCells.All(c => input.Terrain[c].Has(TerrainTraits.Fertile)), "all field cells fertile");
+        True(plan.FieldCells.Count >= input.Profile.RequiredCropCells, "field meets 124-cell demand");
+    }
+
+    private static void P2CoolerHasExteriorExhaust()
+    {
+        PhysicalSettlementPlan plan = PhysicalSettlementPlanner.Plan(P2Input(P2ProfileCatalog.IndustrialTemperate)).Plan;
+        PhysicalPlacement cooler = plan.Placements.Single(p => p.Kind == PhysicalPlacementKind.Cooler);
+        PhysicalFacility freezer = plan.Facilities.Single(f => f.Kind == FacilityKind.Freezer);
+        GridPoint exhaust = new GridPoint(cooler.Cell.X - 1, cooler.Cell.Z);
+        Equal("East", cooler.Rotation, "cold side faces east into freezer");
+        True(!freezer.Bounds.Contains(exhaust), "west hot side is exterior");
+    }
+
+    private static void P2PowerTerminalsJoinOneConduitTree()
+    {
+        PhysicalSettlementPlan plan = PhysicalSettlementPlanner.Plan(P2Input(P2ProfileCatalog.IndustrialTemperate)).Plan;
+        HashSet<GridPoint> conduits = new HashSet<GridPoint>(plan.Placements.Where(p => p.Kind == PhysicalPlacementKind.Conduit).Select(p => p.Cell));
+        True(conduits.Count > 0, "conduits exist");
+        foreach (PhysicalPlacement terminal in plan.Placements.Where(p => p.Kind == PhysicalPlacementKind.Battery ||
+            p.Kind == PhysicalPlacementKind.Cooler || p.Kind == PhysicalPlacementKind.Turret ||
+            (p.Kind == PhysicalPlacementKind.Workbench && p.DefName.StartsWith("Electric"))))
+            True(conduits.Contains(terminal.Cell) || OrthogonalNeighbors(terminal.Cell).Any(conduits.Contains), terminal.Kind + " connected");
+    }
+
+    private static void P2GatesAndFacilityRoutesAreViable()
+    {
+        PhysicalSettlementPlan plan = PhysicalSettlementPlanner.Plan(P2Input(P2ProfileCatalog.IndustrialTemperate)).Plan;
+        Equal(2, plan.Gates.Count, "attack and retreat gates");
+        True(plan.AttackRoute.Count > 0 && plan.RetreatRoute.Count > 0, "both edge routes exist");
+        True(plan.AttackRoute.Last().X == 0 || plan.AttackRoute.Last().Z == 0 || plan.AttackRoute.Last().X == 79 || plan.AttackRoute.Last().Z == 79,
+            "attack route reaches edge");
+        True(plan.RetreatRoute.Last().X == 0 || plan.RetreatRoute.Last().Z == 0 || plan.RetreatRoute.Last().X == 79 || plan.RetreatRoute.Last().Z == 79,
+            "retreat route reaches edge");
+        HashSet<GridPoint> route = new HashSet<GridPoint>(plan.Logistics);
+        foreach (PhysicalFacility facility in plan.Facilities.Where(f => f.Roofed))
+            True(OrthogonalNeighbors(facility.Door).Any(route.Contains), facility.Id + " door joins logistics");
+    }
+
+    private static void P2LayoutRejectionIsBounded()
+    {
+        TerrainCell[] cells = OpenCells(80, 80);
+        for (int i = 0; i < cells.Length; i++) cells[i] = Cell(cells[i].Traits & ~TerrainTraits.Fertile);
+        PhysicalPlanningInput input = new PhysicalPlanningInput(P2ProfileCatalog.IndustrialTemperate,
+            new TerrainSnapshot(80, 80, cells, "infertile-v1"), 99, new[] { "BlocksGranite" }, 3);
+        PhysicalPlanningResult result = PhysicalSettlementPlanner.Plan(input);
+        True(!result.Success && result.LimitReached, "bounded rejection");
+        Equal(3, result.CandidatesConsidered, "candidate bound");
+        True(result.Rejections.All(r => r.Contains("field_cell_illegal")), "specific field rejection");
+    }
+
+    private static void P2LayoutSelectsDeclaredLocalMaterial()
+    {
+        PhysicalPlanningInput input = new PhysicalPlanningInput(P2ProfileCatalog.IndustrialTemperate,
+            FertileOpen(80, 80), 101, new[] { "WoodLog", "BlocksGranite" }, 6400);
+        PhysicalSettlementPlan plan = PhysicalSettlementPlanner.Plan(input).Plan;
+        Equal("BlocksGranite", plan.LocalWallStuff, "stable sorted local selection");
+        True(input.LocalStuffDefs.Contains(plan.LocalWallStuff), "selected material is local");
+    }
+
+    private static PhysicalPlanningInput P2Input(PhysicalSettlementProfile profile) =>
+        new PhysicalPlanningInput(profile, FertileOpen(80, 80), 91, new[] { "BlocksGranite" }, 6400);
+
+    private static TerrainSnapshot FertileOpen(int width, int height)
+    {
+        TerrainCell[] cells = OpenCells(width, height);
+        for (int i = 0; i < cells.Length; i++) cells[i] = Cell(cells[i].Traits | TerrainTraits.Fertile);
+        return new TerrainSnapshot(width, height, cells, "fertile-synthetic-v1");
+    }
+
+    private static IEnumerable<GridPoint> OrthogonalNeighbors(GridPoint point)
+    {
+        yield return new GridPoint(point.X, point.Z - 1);
+        yield return new GridPoint(point.X - 1, point.Z);
+        yield return new GridPoint(point.X + 1, point.Z);
+        yield return new GridPoint(point.X, point.Z + 1);
     }
 
     private static SettlementProfile Profile(int candidates = 128) =>

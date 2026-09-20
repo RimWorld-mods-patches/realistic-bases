@@ -15,7 +15,7 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 | Design and feasibility | Complete | Design, implementation plan, and source review written |
 | P0 — Resolve the technical risks | Complete | Build, Core/GL generation, hostile jobs, save/load, lifecycle, defeat, and both recovery modes observed in game |
 | P1 — Planner and validation harness | Complete | Fixed-input determinism, invalid-terrain rejection, bounded termination, required property cases, read-only planning, diagnostics, and Core/GL integration passed; see [P1 findings](p1-findings.md) |
-| P2 — First complete physical settlement | In progress | P2.1 profile/budget contracts complete; implement deterministic full-facility layout next |
+| P2 — First complete physical settlement | In progress | P2.2 pure full-facility layout complete; integrate plan-driven RimWorld spawning next |
 | P3 — Playable defensive encounter | Not started | Requires P2; reuse the validated P0 Lord/work approach |
 | P4 — Terrain variety and stronger fortifications | Not started | Requires P3; reuse the validated late generation order |
 | P5 — Sustained operation and persistent consequences | Not started | Requires P3; expand the coarse P0 lifecycle model |
@@ -67,8 +67,8 @@ Commit mapping is recorded in [P1 findings](p1-findings.md). The same stepwise c
 |---|---|---|---|
 | P2.0 | Milestone scope, bounded checklist, assumptions, and evidence document | Documentation review; standalone checkpoint commit | Complete |
 | P2.1 | Versioned industrial/tribal capabilities, resident-driven facility demand, resource/import budgets, crops, startup food/fuel, equipment, and power scenarios | 20/20 combined pure tests passed; Docker Release build 0 warnings/errors; standalone feature commit | Complete |
-| P2.2 | Deterministic complete-settlement layout: all facilities, fields, gatehouses, logistics routes, interaction cells, utilities, cover/turrets, material allocation, and hard validation | Pure layout/property tests including determinism, reachability, occupancy conflicts, housing counts, power topology, cooler exhaust, and tribal exclusions; Docker build; standalone feature commit | In progress |
-| P2.3 | Plan-driven RimWorld spawning, one-time initialization, equipment/stocks/crop growth, operational power/freezer behavior, and realized-map audit/debug reporting | Docker build and pure regression, then isolated Core industrial and tribal runtime checks; standalone integration commit | Pending |
+| P2.2 | Deterministic complete-settlement layout: all facilities, fields, gatehouses, logistics routes, interaction cells, utilities, cover/turrets, material allocation, and hard validation | 29/29 combined pure tests passed; deterministic full layout, overlap/capability/route validation; Docker Release build 0 warnings/errors | Complete |
+| P2.3 | Plan-driven RimWorld spawning, one-time initialization, equipment/stocks/crop growth, operational power/freezer behavior, and realized-map audit/debug reporting | Docker build and pure regression, then isolated Core industrial and tribal runtime checks; standalone integration commit | In progress |
 | P2.4 | Recovery and optional-mod regression matrix, declared startup scenario observations, final findings and exit decision | Core rejection/partial rollback plus Geological Landforms + Map Preview regression; static checks; closeout commit only if every P2 gate passes | Pending |
 
 Step-to-commit mapping and observed evidence are recorded in [P2 findings](p2-findings.md). P3 remains unstarted.
@@ -88,3 +88,4 @@ Step-to-commit mapping and observed evidence are recorded in [P2 findings](p2-fi
 | 2026-09-20 | P1.4 passed Core recovery and GL + Map Preview normal/recovery matrices, including `GL_Cliff` + `Caves`; all P1 exit criteria passed and P1 closed. |
 | 2026-09-20 | Authorized P2; established the bounded physical-settlement checklist and evidence policy. |
 | 2026-09-20 | P2.1 added versioned industrial/tribal facility demand, nutrition/crop/fuel/equipment assumptions, bounded budgets, and startup power scenarios; 20/20 combined pure tests and Docker Release build passed. |
+| 2026-09-20 | P2.2 added a deterministic 31x25 compound plus 10x13 field, complete facility placements, local-material input, two edge routes, utilities/defenses, and hard validation; 29/29 combined pure tests and Docker Release build passed. |

@@ -19,8 +19,8 @@ No test is recorded as passed until it has run. Reduced fallback layouts are nam
 | Step | Intended result | Commit | Evidence |
 |---|---|---|---|
 | P2.0 | Scope, checklist, assumptions, and evidence policy | `f4c2c64` | Document review |
-| P2.1 | Pure versioned industrial/tribal profiles and quantitative budgets | This step's feature commit | 20/20 combined pure tests passed; Docker Release build 0 warnings/errors |
-| P2.2 | Pure deterministic full-facility layout and validator | Pending | Pending |
+| P2.1 | Pure versioned industrial/tribal profiles and quantitative budgets | `038ca4d` | 20/20 combined pure tests passed; Docker Release build 0 warnings/errors |
+| P2.2 | Pure deterministic full-facility layout and validator | This step's feature commit | 29/29 combined pure tests passed; Docker Release build 0 warnings/errors |
 | P2.3 | Plan-driven spawning and realized-map audit | Pending | Pending |
 | P2.4 | Runtime/recovery/optional-mod matrix and closeout | Pending | Pending |
 
@@ -37,6 +37,16 @@ Startup food is computed as `4 residents × 1.6 nutrition/day × 8 effective day
 The industrial profile declares a 1,000 W fueled generator, 300 Wd starting storage for ordinary day/night cases, and a separate 600 Wd service buffer. Its modeled cases are 12 hours at 850 W load, 12 hours at 650 W critical load, and a six-hour 650 W generator-service outage ending with 437 Wd. These are planning calculations only until actual RimWorld networks, fuel behavior, storage, and loads are observed in P2.3/P2.4. The tribal profile has no power scenario and rejects refrigeration, batteries, electric cooking, power facilities, and turrets.
 
 Both resource budgets enforce independent local construction and imported-value ceilings. The digest covers schema/rules versions, residents, capabilities, crop and nutrition assumptions, finite stocks, facility demands, power scenarios, budget totals, and equipment lists. Industrial and tribal digests are stable and distinct.
+
+## P2.2 layout observations
+
+The initial supported layout is a deterministic 31×25 one-layer compound plus a separate 10×13 (130-cell) legal field. It contains four ordinary bed placements, separate jail and medical beds, kitchen, freezer or pantry, dining/recreation, workshop, bulk storage, field, gatehouse, defense area, and industrial-only power area. Roofed facility envelopes have explicit perimeter doors and interaction cells; the remaining compound interior is an explicit logistics reservation. The validator rejects missing capacity, overlapping roofed facilities, overlapping non-conduit placements, obstructed/illegal field cells, disconnected interaction access, and prohibited trap/IED names.
+
+North and south faction-gate openings have independent deterministic routes to the map edge. Route searches are bounded by the smaller of the snapshot area and 10,000 visited cells. The two-gate topology is intended to preserve an approach and a retreat; actual hostile door ownership and realized pathing remain P2.3 runtime checks.
+
+The industrial plan includes a fueled generator, battery, cooler, electric workbenches, conduit tree, two miniturret reservations, and four cover positions. Every powered terminal is on or adjacent to the single planned conduit tree. The cooler is placed in the freezer's west wall with its declared cold side east into the room and hot side west into an exterior, unroofed snapshot cell. The tribal plan contains a pantry, fueled benches, non-firearm equipment, and cover, and the validator hard-rejects any generator, battery, conduit, cooler, turret, or electric-def placement.
+
+Local wall material is now an explicit, stable, sorted input to the layout digest and the selected wall material must belong to that supplied local palette. Map-side discovery of the actual rock/material palette and def legality remains part of P2.3 integration rather than being inferred from terrain labels in pure code.
 
 ## Fixed inherited contracts
 
@@ -55,4 +65,4 @@ P2 completes only when both supported profiles realize every required facility a
 
 ## Current evidence and pending checks
 
-P2.1 is complete. The combined P1/P2 console suite passed 20/20 tests, including all eight new profile/budget cases, in the prescribed SDK container. The mod then built Release with zero warnings and zero errors. This proves the pure calculations and exclusions only; no P2 layout or realized-map property has yet been claimed. P2.2 is next. P3 is unstarted.
+P2.2 is complete. The combined P1/P2 console suite passed 29/29 tests in the prescribed SDK container. The nine layout cases cover deterministic valid industrial planning, tribal exclusions, every facility demand, legal field capacity, cooler exhaust geometry, a connected power tree, dual gate/edge routes plus facility logistics, deterministic bounded rejection, and declared-local material selection. The mod then built Release with zero warnings and zero errors. This proves pure plan properties only; no P2 realized-map property has yet been claimed. P2.3 is next. P3 is unstarted.
