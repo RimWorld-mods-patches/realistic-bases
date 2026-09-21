@@ -54,7 +54,7 @@ scope.
 |---|---|---|---|
 | P4.0 | Scope, archetype contract, terrain-mutation/recovery ledger, matrix, and boundaries | Docs agree with P0–P3 evidence and leave P5/P6 unstarted | Complete — this checkpoint |
 | P4.1 | Immutable terrain analysis, versioned archetype inputs, deterministic bounded candidate/rejection model | 47/47 combined pure tests; Docker Release build 0 warnings/errors; same-input/rejection/landform/snapshot cases passed | Complete — this checkpoint |
-| P4.2 | Foothill and excavated-mountain physical plans/spawning with explicit mutation footprints, roof support, natural-boundary preservation, and P3 geometry adapters | 50/50 combined pure tests and Docker Release build 0 warnings/errors. The mountainous harness has twice safely rejected unfit full footprints with `mutationCount=0`; an accepted mountain/foothill and partial-recovery live case is still required before closure. | In progress |
+| P4.2 | Foothill and excavated-mountain physical plans/spawning with explicit mutation footprints, roof support, natural-boundary preservation, and P3 geometry adapters | 50/50 combined pure tests and Docker Release build 0 warnings/errors. Core 160×160 excavated-mountain spawn passed: 187 owned rocks, unowned-rock preservation, routes/gates/utilities/P3/mortar/player arrival all passed. A forced partial mountain spawn restored 477 things, 298 roofs, one owned rock, and the terrain/roof checksum before successful retry. Foothill case remains. | In progress |
 | P4.3 | Lakeshore, peninsula, and supported-island plans with legal approach/bridge/gate/circulation validation | Versioned water-preservation footprint and dry-route pure case added (50/50). Core water and rejected inaccessible/tiny/narrow cases remain required. | In progress |
 | P4.4 | Layered fortifications, palettes/import budgets, climate alternatives, P3/save-reload regression, Core + Geological Landforms matrix, visual review, and exit decision | Actual final-map/path/roof/utility/combat/recovery observations, separate from estimates/screenshots | Pending |
 
@@ -131,8 +131,20 @@ candidate use legal fertile ground without flattening terrain. The debug-only
 `Generate playable mountainous P4 settlement` action is a controlled test harness:
 it requests a Core mountainous world tile but still lets the immutable snapshot
 reject an unfit map before mutation. Two live mountain harness attempts did exactly
-that (`compound_cell_unusable`, `mutationCount=0`), so they are rejection evidence,
-not a claim of mountain support.
+that (`compound_cell_unusable`, `mutationCount=0`), so they are rejection evidence.
+
+The 160×160 Core mountain harness then supplied an accepted physical plan. The final
+spawn recorded 187 excavated rocks, `unownedRockPreserved=true`, 12/12 reachable
+facilities, two faction gates, valid attack/retreat topology, 298 roofed facility
+cells, a P3 controller with eleven posts and a mortar, and a reachable playable
+arrival. Visual inspection showed the expected dark mountain mass and preserved
+outer rock; log/path/roof assertions remain authoritative.
+
+The terrain-following P3 adapter selects every post and its unroofed heavy mortar
+court from immutable open logistics cells instead of fixed exterior coordinates. On
+the forced partial mountain spawn, recovery removed 477 owned things, restored 298
+roofs and the one owned rock, preserved unowned rocks, and restored the original
+terrain/roof checksum. The full-contract retry then spawned normally.
 
 ## P4.3 water contract
 
@@ -144,5 +156,5 @@ to the edge is captured; P4 does not fabricate one.
 
 ## Next action
 
-Find and validate a real Core mountain/foothill map, including pre-spawn and deep
-partial recovery. No P5/P6 work enters this step.
+Find and validate a real Core foothill map, then continue the independent lakeshore
+and P4.4 matrix. No P5/P6 work enters this step.

@@ -98,6 +98,13 @@ namespace RealisticBases.Diagnostics
             GenerateIsolatedHostileSettlement(movePlayerColonist: true, requireMountainous: true);
         }
 
+        [DebugAction(Category, "Generate isolated mountainous P4 settlement", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void GenerateIsolatedMountainousP4Settlement()
+        {
+            GenerateIsolatedHostileSettlement(movePlayerColonist: false, requireMountainous: true);
+        }
+
         private static void GenerateIsolatedHostileSettlement(bool movePlayerColonist, bool requireMountainous = false)
         {
             Pawn arrivalPawn = movePlayerColonist
@@ -135,7 +142,11 @@ namespace RealisticBases.Diagnostics
             settlement.SetFaction(faction);
             Find.WorldObjects.Add(settlement);
             lastDebugSettlementId = settlement.ID;
-            Map map = GetOrGenerateMapUtility.GetOrGenerateMap(tile, new IntVec3(80, 1, 80), null);
+            // The complete P2 footprint is intentionally larger than a compact
+            // test outpost. Give the mountainous P4 harness enough generated
+            // terrain to find a real legal footprint rather than weakening it.
+            IntVec3 mapSize = requireMountainous ? new IntVec3(160, 1, 160) : new IntVec3(80, 1, 80);
+            Map map = GetOrGenerateMapUtility.GetOrGenerateMap(tile, mapSize, null);
             Current.Game.CurrentMap = map;
             if (arrivalPawn != null)
             {

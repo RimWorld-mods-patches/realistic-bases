@@ -159,7 +159,9 @@ namespace RealisticBases.Planning
             if (settlement == null || physicalProfile == null || terrain == null) throw new ArgumentNullException();
             EncounterProfile profile = P3EncounterProfiles.For(physicalProfile);
             GridRect c = settlement.Compound;
-            List<DefensivePost> posts = new List<DefensivePost>
+            List<DefensivePost> posts = settlement.Archetype == TerrainArchetype.ExcavatedMountain
+                ? TerrainFollowingPosts(settlement, terrain)
+                : new List<DefensivePost>
             {
                 Post("north-west", "north", c.MinX + 11, c.MinZ - 1, 10, 38, false),
                 Post("north-east", "north", c.MinX + 19, c.MinZ - 1, 10, 38, false),
@@ -172,8 +174,9 @@ namespace RealisticBases.Planning
                 Post("inner-west", "inner", c.MinX + 12, c.MinZ + 9, 4, 24, true),
                 Post("inner-east", "inner", c.MinX + 18, c.MinZ + 9, 4, 24, true)
             };
-            GridPoint mortar = profile.MortarCapable ? new GridPoint(c.MinX + 26, c.MinZ + 20) : new GridPoint(-1, -1);
-            GridPoint mortarInteraction = profile.MortarCapable ? new GridPoint(c.MinX + 26, c.MinZ + 19) : new GridPoint(-1, -1);
+            GridPoint mortar = profile.MortarCapable ? (settlement.Archetype == TerrainArchetype.ExcavatedMountain
+                ? TerrainFollowingMortarCourt(settlement, terrain) : new GridPoint(c.MinX + 26, c.MinZ + 20)) : new GridPoint(-1, -1);
+            GridPoint mortarInteraction = profile.MortarCapable ? new GridPoint(mortar.X, mortar.Z - 1) : new GridPoint(-1, -1);
             if (profile.MortarCapable)
                 posts.Add(new DefensivePost("mortar", "center", mortarInteraction, 0, 100, false, true, true, true, false, true));
             PhysicalFacility storage = settlement.Facilities.Single(f => f.Kind == FacilityKind.BulkStorage);
@@ -203,6 +206,58 @@ namespace RealisticBases.Planning
 
         private static DefensivePost Post(string id, string sector, int x, int z, int minRange, int maxRange, bool inner) =>
             new DefensivePost(id, sector, new GridPoint(x, z), minRange, maxRange, true, true, true, false, inner, true);
+
+        private static List<DefensivePost> TerrainFollowingPosts(PhysicalSettlementPlan settlement, TerrainSnapshot terrain)
+        {
+            GridRect c = settlement.Compound;
+            GridPoint[] desired =
+            {
+                new GridPoint(c.MinX + 11, c.MinZ + 1), new GridPoint(c.MinX + 19, c.MinZ + 1),
+                new GridPoint(c.MinX + 11, c.MaxZ - 1), new GridPoint(c.MinX + 19, c.MaxZ - 1),
+                new GridPoint(c.MinX + 2, c.MinZ + 12), new GridPoint(c.MaxX - 2, c.MinZ + 12),
+                new GridPoint(c.MinX + 15, c.MinZ + 1), new GridPoint(c.MinX + 15, c.MaxZ - 1),
+                new GridPoint(c.MinX + 12, c.MinZ + 9), new GridPoint(c.MinX + 18, c.MinZ + 9)
+            };
+            string[] ids = { "north-west", "north-east", "south-west", "south-east", "west-center", "east-center", "north-gate", "south-gate", "inner-west", "inner-east" };
+            string[] sectors = { "north", "north", "south", "south", "west", "east", "north", "south", "inner", "inner" };
+            HashSet<GridPoint> used = new HashSet<GridPoint>();
+            List<DefensivePost> result = new List<DefensivePost>();
+            for (int i = 0; i < ids.Length; i++)
+            {
+                GridPoint cell = settlement.Logistics.Where(p => !used.Contains(p) && IsOpenPostCell(terrain, p))
+                    .OrderBy(p => Distance(p, desired[i])).ThenBy(p => p).FirstOrDefault();
+                if (!settlement.Logistics.Contains(cell) || used.Contains(cell))
+                    throw new InvalidOperationException("Terrain-following P3 post has no open logistics cell: " + ids[i]);
+                used.Add(cell);
+                bool gate = i == 6 || i == 7;
+                bool inner = i >= 8;
+                result.Add(new DefensivePost(ids[i], sectors[i], cell, gate ? 0 : inner ? 4 : 10,
+                    gate ? 4 : inner ? 24 : 38, true, true, true, false, inner, true));
+            }
+            return result;
+        }
+
+        private static GridPoint TerrainFollowingMortarCourt(PhysicalSettlementPlan settlement, TerrainSnapshot terrain)
+        {
+            HashSet<GridPoint> logistics = new HashSet<GridPoint>(settlement.Logistics);
+            foreach (GridPoint origin in settlement.Logistics.OrderByDescending(p => p.X).ThenByDescending(p => p.Z))
+            {
+                GridPoint[] footprint = { origin, new GridPoint(origin.X + 1, origin.Z),
+                    new GridPoint(origin.X, origin.Z + 1), new GridPoint(origin.X + 1, origin.Z + 1) };
+                GridPoint interaction = new GridPoint(origin.X, origin.Z - 1);
+                if (footprint.All(p => logistics.Contains(p) && IsOpenHeavyCell(terrain, p)) &&
+                    logistics.Contains(interaction) && IsOpenPostCell(terrain, interaction)) return origin;
+            }
+            throw new InvalidOperationException("Terrain-following P3 mortar court has no open heavy logistics footprint");
+        }
+
+        private static bool IsOpenPostCell(TerrainSnapshot terrain, GridPoint cell) => terrain.InBounds(cell) &&
+            terrain[cell].Has(TerrainTraits.Standable) && !terrain[cell].HasAny(TerrainTraits.Roofed | TerrainTraits.Water | TerrainTraits.Occupied);
+
+        private static bool IsOpenHeavyCell(TerrainSnapshot terrain, GridPoint cell) => IsOpenPostCell(terrain, cell) &&
+            terrain[cell].Has(TerrainTraits.SupportsHeavy);
+
+        private static int Distance(GridPoint a, GridPoint b) => Math.Abs(a.X - b.X) + Math.Abs(a.Z - b.Z);
     }
 
     public static class EncounterValidator
