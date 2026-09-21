@@ -134,9 +134,11 @@ namespace RealisticBases.AI
         private List<int> assignedRoles = new List<int>();
         private List<int> assignedTicks = new List<int>();
         private GarrisonState currentState;
+        private string currentSector = "north";
         private int lastAuditTick = -1;
         private int reassignmentCount;
         private int invalidPostRecoveries;
+        private bool incendiarySafe;
 
         public P3GarrisonController(Map map) : base(map)
         {
@@ -206,9 +208,11 @@ namespace RealisticBases.AI
             Scribe_Collections.Look(ref assignedRoles, "p3AssignedRoles", LookMode.Value);
             Scribe_Collections.Look(ref assignedTicks, "p3AssignedTicks", LookMode.Value);
             Scribe_Values.Look(ref currentState, "p3CurrentState", GarrisonState.Routine);
+            Scribe_Values.Look(ref currentSector, "p3CurrentSector", "north");
             Scribe_Values.Look(ref lastAuditTick, "p3LastAuditTick", -1);
             Scribe_Values.Look(ref reassignmentCount, "p3Reassignments", 0);
             Scribe_Values.Look(ref invalidPostRecoveries, "p3InvalidPostRecoveries", 0);
+            Scribe_Values.Look(ref incendiarySafe, "p3IncendiarySafe", false);
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
                 defenders = defenders?.Where(p => p != null).ToList() ?? new List<Pawn>();
@@ -240,8 +244,9 @@ namespace RealisticBases.AI
                 new GridPoint(supportCenter.x, supportCenter.z), new GridPoint(innerFallback.x, innerFallback.z),
                 routineSupportWorkers));
             UpdateIncendiaryGate(lord, threat);
-            bool changed = force || plan.State != currentState || AssignmentsChanged(plan);
+            bool changed = force || plan.State != currentState || plan.ActiveSector != currentSector || AssignmentsChanged(plan);
             currentState = plan.State;
+            currentSector = plan.ActiveSector;
             if (changed)
             {
                 ApplyAssignments(lord, plan);
@@ -356,7 +361,7 @@ namespace RealisticBases.AI
             float netGainWatts = generatorPower?.PowerNet == null ? 0f :
                 generatorPower.PowerNet.CurrentEnergyGainRate() / CompPower.WattsToWattDaysPerTick;
             P3Log.Message("AUDIT", "map=" + map.uniqueID + " phase=" + phase + " plan=" + planDigest +
-                " profile=" + profileId + " state=" + currentState + " defendersAlive=" +
+                " profile=" + profileId + " state=" + currentState + " sector=" + currentSector + " defendersAlive=" +
                 defenders.Count(p => p != null && !p.Dead) + " assigned=" + assignedPawnIds.Count +
                 " occupiedPosts=" + occupied + " outsideBounds=" + outside + " outsideDetails=" +
                 (outsideDetails.Count == 0 ? "none" : string.Join(",", outsideDetails.ToArray())) + " mortarPresent=" +
@@ -365,8 +370,73 @@ namespace RealisticBases.AI
                 " incendiary=" + incendiary + "/" + initialIncendiary + " barrels=" + barrels +
                 "/" + initialBarrels + " physicalConsumed=" + ((initialHe - he) + (initialIncendiary - incendiary)) +
                 " reassignments=" + reassignmentCount + " invalidPostRecoveries=" + invalidPostRecoveries +
+                " incendiarySafe=" + incendiarySafe + " bounds=" + boundsMin + "+" + boundsWidth + "x" + boundsHeight +
                 " netGainWatts=" + netGainWatts.ToString("F1") + " addedMortarContinuousWatts=0" +
                 " playerPawnsControlled=" + defenders.Count(p => p?.Faction == Faction.OfPlayer));
+        }
+
+        public void DebugBreachGate()
+        {
+            Building_Door door = gateCells.Select(c => c.IsValid ? c.GetEdifice(map) as Building_Door : null)
+                .FirstOrDefault(d => d != null && !d.Destroyed);
+            if (door == null) return;
+            IntVec3 cell = door.Position;
+            door.Destroy(DestroyMode.KillFinalize);
+            P3Log.Message("SCENARIO_GATE_BREACH", "map=" + map.uniqueID + " cell=" + cell);
+        }
+
+        public void DebugInvalidateOuterPosts()
+        {
+            List<IntVec3> outer = postCells.Where((c, i) => i < postFlags.Count && (postFlags[i] & 3) == 0).ToList();
+            List<Thing> cover = ownedThings.Where(t => t != null && t.Spawned &&
+                (t.def.defName == "Sandbags" || t.def.defName == "Barricade") &&
+                outer.Any(c => t.Position.AdjacentTo8WayOrInside(c))).ToList();
+            foreach (Thing thing in cover) thing.Destroy(DestroyMode.KillFinalize);
+            P3Log.Message("SCENARIO_INVALIDATE_OUTER", "map=" + map.uniqueID + " coverDestroyed=" + cover.Count);
+        }
+
+        public void DebugExhaustMortarAmmunition()
+        {
+            int destroyed = 0;
+            foreach (Thing stock in operatingStocks.Where(t => t != null && !t.Destroyed &&
+                (t.def.defName == "Shell_HighExplosive" || t.def.defName == "Shell_Incendiary")).ToList())
+            {
+                destroyed += stock.stackCount;
+                stock.Destroy(DestroyMode.Vanish);
+            }
+            CompChangeableProjectile projectile = (mortar as Building_TurretGun)?.gun?.TryGetComp<CompChangeableProjectile>();
+            int unloaded = projectile?.loadedCount ?? 0;
+            projectile?.LoadShell(null, 0);
+            P3Log.Message("SCENARIO_AMMO_EXHAUSTED", "map=" + map.uniqueID + " looseDestroyed=" + destroyed +
+                " loadedRemoved=" + unloaded);
+        }
+
+        public void DebugRemoveMortarOperator()
+        {
+            Pawn pawn = defenders.FirstOrDefault(p => p != null && !p.Dead && AssignedRole(p) == GarrisonRole.MortarOperator);
+            if (pawn == null) return;
+            int id = pawn.thingIDNumber;
+            pawn.Kill(null);
+            P3Log.Message("SCENARIO_OPERATOR_REMOVED", "map=" + map.uniqueID + " pawn=" + id);
+        }
+
+        public void DebugCutPower()
+        {
+            Thing generator = ownedThings.FirstOrDefault(t => t != null && !t.Destroyed && t.def.defName == "WoodFiredGenerator");
+            if (generator == null) return;
+            int id = generator.thingIDNumber;
+            generator.Destroy(DestroyMode.KillFinalize);
+            P3Log.Message("SCENARIO_POWER_CUT", "map=" + map.uniqueID + " generator=" + id + " destroyed=True");
+        }
+
+        public void DebugDrainNeeds()
+        {
+            Pawn pawn = defenders.Where(p => p != null && p.Spawned && !p.Dead && !p.Downed &&
+                AssignedRole(p) != GarrisonRole.MortarOperator).OrderByDescending(p => p.thingIDNumber).FirstOrDefault();
+            if (pawn == null) return;
+            if (pawn.needs?.food != null) pawn.needs.food.CurLevelPercentage = 0.1f;
+            if (pawn.needs?.rest != null) pawn.needs.rest.CurLevelPercentage = 0.1f;
+            P3Log.Message("SCENARIO_NEEDS_DRAINED", "map=" + map.uniqueID + " pawn=" + pawn.thingIDNumber);
         }
 
         private void EnforceDefendedBounds(Lord lord)
@@ -458,6 +528,7 @@ namespace RealisticBases.AI
             List<Thing> incendiary = operatingStocks.Where(t => t != null && !t.Destroyed &&
                 t.def.defName == "Shell_Incendiary").ToList();
             bool safe = threatPresent && IncendiarySafe();
+            incendiarySafe = safe;
             foreach (Thing stock in incendiary)
             {
                 bool forbidden = lord.extraForbiddenThings.Contains(stock);

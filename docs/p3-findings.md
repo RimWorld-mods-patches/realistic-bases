@@ -1,6 +1,6 @@
 # P3 playable defensive encounter: findings and validation
 
-2026-09-21 · Status: P3.3 complete; P3.4 encounter matrix pending
+2026-09-21 · Status: P3 complete; P4/P5 unstarted
 
 ## Scope and boundaries
 
@@ -29,8 +29,8 @@ P4 terrain/fortification variants, P5 trade/persistence integration, specialized
 | P3.0 | Scope, checklist, boundaries, and evidence ledger | Documents agree; P4/P5 remain unstarted | Complete — `4fca42a` |
 | P3.1 | Pure doctrine and assignment/state model | Determinism; weapon/post compatibility; exclusive roles; pursuit plus route bounds; breach/local response; safe relief; inner fallback; invalid-post stability | Complete — `d8c0d63` |
 | P3.2 | Encounter layout, mortar court, finite supply and capacity budgets | Usable post geometry; mortar reachability/unroofedness/staffing; declared duty quantities; active-rule materials; power delta; tribal hard exclusions; inherited planner properties | Complete — `7feb21a` |
-| P3.3 | Runtime Lord/controller, support work, consumption, persistence and diagnostics | Build; focused live job/state/consumption/save-load checks; no broad behavior patch; recovery/fallback unchanged | Complete — this integration checkpoint |
-| P3.4 | Full encounter/regression matrix and exit decision | Multiple approach battles; night; long range; gate breach; incendiary; operator/power removal; exhaustion; invalid post; needs relief; active save/reload; tribal; Core/GL; player unaffected | Pending |
+| P3.3 | Runtime Lord/controller, support work, consumption, persistence and diagnostics | Build; focused live job/state/consumption/save-load checks; no broad behavior patch; recovery/fallback unchanged | Complete — `820ec44` |
+| P3.4 | Full encounter/regression matrix and exit decision | Multiple approach battles; night; long range; gate breach; incendiary; operator/power removal; exhaustion; invalid post; needs relief; active save/reload; tribal; Core/GL; player unaffected | Complete — this closeout checkpoint |
 
 Source inspection, pure tests, compilation, map-generation audits, and live battle observations are recorded as distinct evidence categories. A duty assignment, successful plan, or clean build is never reported as proof that a pawn occupied a post, a mortar fired, a stock was consumed, or a battle stayed local.
 
@@ -39,7 +39,8 @@ Source inspection, pure tests, compilation, map-generation audits, and live batt
 - P3.0 documentation and checklist: `4fca42a`.
 - P3.1 doctrine/state model: `d8c0d63`.
 - P3.2 physical encounter contract: `7feb21a`.
-- P3.3 runtime garrison integration: this integration checkpoint; hash will be recorded with the P3.4 closeout.
+- P3.3 runtime garrison integration: `820ec44`.
+- P3.4 full runtime matrix and closeout: this closeout checkpoint.
 
 ## Evidence ledger
 
@@ -63,7 +64,7 @@ The combined P1/P2/P3 console suite passes 43/43 tests. Eight doctrine cases cov
 
 ### Build and static checks
 
-Repository-prescribed Docker Release build passed with zero warnings and zero errors after the P3.3 integration. XML validation and `git diff --check` are required again immediately before the checkpoint commit.
+Repository-prescribed Docker Release build passed with zero warnings and zero errors after the P3.4 changes. The combined suite passed 43/43 again. XML validation and `git diff --check` passed immediately before the closeout commit.
 
 ### Core runtime observations
 
@@ -75,10 +76,29 @@ The mortar loaded and fired physical stock under vanilla jobs. Before save, the 
 
 RimWorld's native save loader succeeded through dedicated disposable P3 debug actions. RIMAPI's `/api/v1/game/save` endpoint returned an internal null-reference error in this environment and was not accepted as persistence evidence.
 
+### P3.4 Core encounter matrix
+
+The final Core matrix used the same isolated profile and a drafted test pawn so target movement could not blur sector or fire-risk observations. Moving that pawn to four distinct cells outside the generated bounds produced explicit `north`, `east`, `south`, and `west` duty transitions. The long-range/harassment positions retained local post assignments; every sampled audit reported `outsideBounds=0` and `playerPawnsControlled=0`. Setting local time to 23h preserved the same containment. The audit's fire-risk gate changed between `incendiarySafe=True` at separation and `False` near the settlement; physical incendiary and HE consumption had already been observed in the focused P3.3 battle.
+
+Deterministic scenario actions then exercised failures without introducing free resources:
+
+- destroying one generated gate changed `HoldSectors` to `LocalResponse` with `breached=True`;
+- removing cover around all outer posts changed the controller to `InnerFallback`, assigned all viable defenders inside, and recorded invalid-post recoveries;
+- draining one non-mortar defender assigned exactly that pawn `NeedsRelief` while the remaining defenders stayed assigned;
+- exhausting loose and loaded shells produced `he=0`, `incendiary=0`, `mortarLoaded=none`, and no replacement stock;
+- killing the current mortar operator reduced the live roster from four to three, immediately reassigned another defender as mortar operator, and subsequent audits observed further real shell consumption;
+- removing the wood generator changed measured connected-network gain from 80 W to 0 W while the mortar continued to report 0 W added continuous draw.
+
+One randomized map exposed an invalid southwest post before any settlement mutation. Planning had been called outside the spawner's recovery boundary, so the rejection surfaced as a generation exception. `TrySpawn` now converts an invalid P3 encounter plan into a clean `encounter_plan_rejected` failure before mutation. A rebuilt subsequent fresh generation completed normally. This is rejection containment, not a relaxation of post validation.
+
+The clean tribal pass initialized four defenders and ten posts with `profile=tribal-encounter-v1`, `mortarPresent=False`, zero HE/incendiary/barrel stocks, `netGainWatts=0.0`, `tribalClean=True`, and zero prohibited defenses.
+
 ### Geological Landforms / Map Preview regression
 
-Pending.
+The final disposable compatibility profile loaded Harmony, Core, HugsLib, Geological Landforms 1.7.13.1, Map Preview, RIMAPI 1.10.0, and Realistic Bases. Full generation accepted an industrial plan and initialized four defenders, eleven posts, a finite supplied mortar, and the P3 controller. Periodic combat audit reported `outsideBounds=0`, `playerPawnsControlled=0`, and no exception. The final terrain checksum changed after the order-400 settlement step, consistent with the already accepted later-mutator behavior; edge reachability and the no-trap/no-IED invariant remained true. The disposable profile was restored to Core + RIMAPI after the check.
 
-## Known limitations and next action
+## Exit decision and remaining boundaries
 
-P3.3 now supplies the settlement-scoped Lord/controller, bounded post holding, routine support reassignment, physical mortar consumption, active save/reload reconstruction, and player-scope diagnostics. P3.4 remains: run and record the full approach/night/harassment/breach/incendiary/operator-power-loss/relief/invalid-post/exhaustion/tribal/Core-GL matrix, fix any failures, and make the P3 exit decision without starting P4 or P5.
+P3 passes its exit criteria. A newly generated supplied encounter uses usable exclusive posts, responds to all tested approach sectors and local breaches without unrestricted pursuit, consumes finite physical ammunition, survives active save/reload, handles relief/post/operator/power/ammunition failures, preserves tribal exclusions, coexists with the supported GL/Map Preview stack, and never assumes control of the player pawn.
+
+This does not claim full unload/revisit defender identity, trade-stock ownership/reconciliation, long-term sustainability, specialized tactics, or P4 terrain/fortification variants. Those boundaries remain assigned to P5, post-MVP work, P6, and P4 respectively. No P4 or P5 implementation has started.

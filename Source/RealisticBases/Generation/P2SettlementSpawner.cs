@@ -27,7 +27,16 @@ namespace RealisticBases.Generation
         {
             PhysicalSettlementPlan plan = run.Result.Plan;
             PhysicalSettlementProfile profile = run.Input.Profile;
-            EncounterPlan encounter = EncounterPlanner.Plan(plan, profile, run.Snapshot);
+            EncounterPlan encounter;
+            try
+            {
+                encounter = EncounterPlanner.Plan(plan, profile, run.Snapshot);
+            }
+            catch (Exception ex)
+            {
+                failure = "encounter_plan_rejected:" + ex.Message;
+                return false;
+            }
             List<Thing> spawned = new List<Thing>();
             Dictionary<IntVec3, RoofDef> changedRoofs = new Dictionary<IntVec3, RoofDef>();
             List<PlantRestore> removedPlants = new List<PlantRestore>();

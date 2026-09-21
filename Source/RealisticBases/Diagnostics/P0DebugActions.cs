@@ -337,6 +337,45 @@ namespace RealisticBases.Diagnostics
             Find.CurrentMap?.GetComponent<P3GarrisonController>()?.Audit("manual");
         }
 
+        [DebugAction(Category, "P3 breach one generated gate", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void P3BreachGate() => Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugBreachGate();
+
+        [DebugAction(Category, "P3 invalidate outer defensive posts", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void P3InvalidateOuterPosts() =>
+            Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugInvalidateOuterPosts();
+
+        [DebugAction(Category, "P3 exhaust mortar ammunition", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void P3ExhaustMortarAmmunition() =>
+            Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugExhaustMortarAmmunition();
+
+        [DebugAction(Category, "P3 remove mortar operator", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void P3RemoveMortarOperator() =>
+            Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugRemoveMortarOperator();
+
+        [DebugAction(Category, "P3 cut settlement power", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void P3CutPower() => Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugCutPower();
+
+        [DebugAction(Category, "P3 drain one defender needs", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void P3DrainNeeds() => Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugDrainNeeds();
+
+        [DebugAction(Category, "P3 set local time to 23h", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void P3SetNight()
+        {
+            Map map = Find.CurrentMap;
+            int currentHour = GenLocalDate.HourOfDay(map);
+            int deltaHours = (23 - currentHour + 24) % 24;
+            Find.TickManager.DebugSetTicksGame(Find.TickManager.TicksGame + deltaHours * 2500);
+            P3Log.Message("SCENARIO_NIGHT", "map=" + map.uniqueID + " previousHour=" + currentHour +
+                " currentHour=" + GenLocalDate.HourOfDay(map));
+        }
+
         [DebugAction(Category, "Spawn hostile garrison/work probe", actionType = DebugActionType.ToolMap,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
         private static void SpawnHostileWorkProbe()

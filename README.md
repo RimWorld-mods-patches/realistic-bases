@@ -8,7 +8,7 @@ Design work for a RimWorld mod that generates terrain-aware, functioning opponen
 - [Progress tracker](docs/progress.md)
 - [MVP supply horizon, trade stock and deferred sustainability](docs/supply-and-mvp-scope.md)
 
-Status: **P3 playable defensive encounter in progress**, 2026-09-20. P0, P1, and P2 are complete. P3 is implementing a settlement-scoped garrison, usable defensive posts, finite mortar supplies, and encounter support without expanding into P4 terrain work or P5 trade integration. Baseline: RimWorld 1.6, Core without DLC.
+Status: **P3 playable defensive encounter complete**, 2026-09-21. P0 through P3 are complete; P4 and P5 remain unstarted. P3 provides a settlement-scoped bounded garrison, usable defensive posts, finite mortar supplies, narrow encounter support, active save/reload behavior, and Core/Geological Landforms regression coverage without expanding into P4 terrain work or P5 trade integration. Baseline: RimWorld 1.6, Core without DLC.
 
 - [P0 findings and reproducible test protocol](docs/p0-findings.md)
 - [P1 planner findings and validation evidence](docs/p1-findings.md)
