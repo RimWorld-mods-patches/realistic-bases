@@ -45,12 +45,17 @@ namespace RealisticBases.Integration
             ulong seed = SeedDeriver.Derive(Find.World?.info?.seedString ?? string.Empty, map.Tile.tileId,
                 new SettlementProfile(profile.Id, profile.Version, PhysicalSettlementPlanner.CompoundWidth,
                     PhysicalSettlementPlanner.CompoundHeight, profile.Residents, ProductionCandidateLimit, 10000));
-            PhysicalPlanningInput input = new PhysicalPlanningInput(profile, snapshot, seed, localMaterials, ProductionCandidateLimit);
+            TerrainArchetypeResult terrainResult = TerrainArchetypePlanner.Plan(
+                new TerrainArchetypeInput(profile, snapshot, seed, ProductionCandidateLimit));
+            TerrainArchetype archetype = terrainResult.Success ? terrainResult.Candidate.Archetype : TerrainArchetype.Flat;
+            PhysicalPlanningInput input = new PhysicalPlanningInput(profile, snapshot, seed, localMaterials, ProductionCandidateLimit, archetype);
             Stopwatch planningWatch = Stopwatch.StartNew();
             PhysicalPlanningResult result = PhysicalSettlementPlanner.Plan(input);
             planningWatch.Stop();
             P2Log.Message("PLAN", "phase=" + phase + " profile=" + profile.Id + "/" + profile.Version +
-                " rules=" + P2Versions.Rules + " seed=" + StableHash.Hex(seed) + " inputDigest=" + input.Digest +
+                " rules=" + P2Versions.Rules + " terrainRules=" + P4Versions.Rules + " archetype=" + archetype +
+                " terrainCandidates=" + terrainResult.CandidatesConsidered + "/" + ProductionCandidateLimit +
+                " inputDigest=" + input.Digest +
                 " snapshotDigest=" + snapshot.Digest + " localMaterials=" + string.Join(",", localMaterials.ToArray()) +
                 " success=" + result.Success + " candidates=" + result.CandidatesConsidered + "/" + input.MaxCandidates +
                 " limitReached=" + result.LimitReached + " captureMs=" + captureWatch.ElapsedMilliseconds +

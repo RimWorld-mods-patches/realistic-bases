@@ -42,6 +42,8 @@ internal static class Program
         Run("P4 terrain analysis classifies foothill mountain and lakeshore", P4TerrainAnalysisClassifiesLandforms);
         Run("P4 inaccessible islands reject without assumed bridges", P4InaccessibleIslandRejects);
         Run("P4 terrain candidate search is bounded", P4TerrainCandidateSearchIsBounded);
+        Run("P4 mountain plan owns only roofed rock excavation", P4MountainPlanOwnsOnlyRoofedRock);
+        Run("P4 non-mountain plans have no landform mutation", P4NonMountainPlansHaveNoLandformMutation);
         Run("P3 assignments are deterministic and exclusive", P3AssignmentsAreDeterministicAndExclusive);
         Run("P3 assignment is weapon and post aware", P3AssignmentIsWeaponAndPostAware);
         Run("P3 pursuit validates destination and full route", P3PursuitValidatesDestinationAndFullRoute);
@@ -429,6 +431,33 @@ internal static class Program
         True(!result.Success && result.LimitReached, "bounded terrain rejection");
         Equal(1, result.CandidatesConsidered, "one candidate considered");
         True(result.Rejections.Any(r => r.Contains("insufficient_buildable_land")), "specific rejection");
+    }
+
+    private static void P4MountainPlanOwnsOnlyRoofedRock()
+    {
+        TerrainCell[] cells = FertileOpenCells(80, 80);
+        for (int z = 20; z < 26; z++) for (int x = 20; x < 26; x++)
+            cells[z * 80 + x] = Cell(cells[z * 80 + x].Traits | TerrainTraits.NaturalRock | TerrainTraits.Roofed);
+        TerrainSnapshot terrain = new TerrainSnapshot(80, 80, cells, "mountain-layout-v1");
+        PhysicalPlanningInput input = new PhysicalPlanningInput(P2ProfileCatalog.IndustrialTemperate, terrain,
+            91, new[] { "BlocksGranite" }, 6400, TerrainArchetype.ExcavatedMountain);
+        PhysicalPlanningResult result = PhysicalSettlementPlanner.Plan(input);
+        True(result.Success, "mountain plan accepts a bounded excavation");
+        TerrainMutationFootprint footprint = result.Plan.TerrainMutations;
+        Equal(TerrainArchetype.ExcavatedMountain, result.Plan.Archetype, "archetype retained");
+        True(footprint.ExcavationCells.Count > 0 && footprint.ExcavationCells.Count <= 36,
+            "only the selected portion of the explicit roofed rock patch is excavated");
+        True(footprint.ExcavationCells.All(c => terrain[c].Has(TerrainTraits.NaturalRock | TerrainTraits.Roofed)), "excavation source legal");
+        True(footprint.RoofClearanceCells.SequenceEqual(footprint.ExcavationCells), "every excavation owns its roof change");
+        True(PhysicalSettlementValidator.Validate(input, result.Plan).Count == 0, "mountain plan validates");
+    }
+
+    private static void P4NonMountainPlansHaveNoLandformMutation()
+    {
+        PhysicalPlanningInput input = P2Input(P2ProfileCatalog.IndustrialTemperate);
+        PhysicalSettlementPlan plan = PhysicalSettlementPlanner.Plan(input).Plan;
+        True(!plan.TerrainMutations.HasOwnedLandformMutation, "flat plan does not claim terrain ownership");
+        True(plan.TerrainMutations.PreservedNaturalRockCells.Count == 0, "flat synthetic terrain has no fake natural boundary");
     }
 
     private static PhysicalPlanningInput P2Input(PhysicalSettlementProfile profile) =>

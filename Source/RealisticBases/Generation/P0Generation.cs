@@ -46,6 +46,23 @@ namespace RealisticBases.Generation
             }
         }
 
+        public static string NaturalRockChecksum(Map map, IEnumerable<IntVec3> excludedCells = null)
+        {
+            HashSet<IntVec3> excluded = excludedCells == null ? new HashSet<IntVec3>() : new HashSet<IntVec3>(excludedCells);
+            unchecked
+            {
+                ulong hash = 1469598103934665603UL;
+                foreach (IntVec3 cell in map.AllCells)
+                {
+                    if (excluded.Contains(cell)) continue;
+                    Building edifice = cell.GetEdifice(map);
+                    hash ^= (ulong)(edifice?.def?.building?.isNaturalRock == true ? edifice.def.shortHash : 0);
+                    hash *= 1099511628211UL;
+                }
+                return hash.ToString("X16");
+            }
+        }
+
         public static bool IsProhibitedDefense(Thing thing)
         {
             if (thing is Building_Trap)

@@ -90,12 +90,14 @@ namespace RealisticBases.Planning
     {
         public EncounterPlan(string basePlanDigest, EncounterProfile profile, IEnumerable<DefensivePost> posts,
             GridRect defendedBounds, GridPoint supportCenter, GridPoint innerFallback, GridPoint mortarCell,
-            GridPoint mortarInteractionCell, GridPoint magazineCell, IEnumerable<CombatSupply> supplies)
+            GridPoint mortarInteractionCell, GridPoint magazineCell, IEnumerable<CombatSupply> supplies,
+            IEnumerable<GridPoint> defendedCells)
         {
             BasePlanDigest = basePlanDigest ?? string.Empty;
             Profile = profile ?? throw new ArgumentNullException(nameof(profile));
             Posts = new ReadOnlyCollection<DefensivePost>((posts ?? Enumerable.Empty<DefensivePost>()).ToList());
             DefendedBounds = defendedBounds;
+            DefendedCells = new ReadOnlyCollection<GridPoint>((defendedCells ?? defendedBounds.Points()).Distinct().OrderBy(c => c).ToList());
             SupportCenter = supportCenter;
             InnerFallback = innerFallback;
             MortarCell = mortarCell;
@@ -109,6 +111,10 @@ namespace RealisticBases.Planning
         public EncounterProfile Profile { get; }
         public IReadOnlyList<DefensivePost> Posts { get; }
         public GridRect DefendedBounds { get; }
+        // Do not use DefendedBounds as movement authority. It remains a compact
+        // diagnostic envelope for older saved controllers; this exact set is the
+        // authority for P4 terrain-following layouts.
+        public IReadOnlyList<GridPoint> DefendedCells { get; }
         public GridPoint SupportCenter { get; }
         public GridPoint InnerFallback { get; }
         public GridPoint MortarCell { get; }
@@ -140,6 +146,7 @@ namespace RealisticBases.Planning
                 hash = StableHash.Add(hash, supply.Count);
                 hash = StableHash.Add(hash, (int)supply.Purpose);
             }
+            foreach (GridPoint cell in DefendedCells) { hash = StableHash.Add(hash, cell.X); hash = StableHash.Add(hash, cell.Z); }
             return StableHash.Hex(hash);
         }
     }
@@ -181,10 +188,14 @@ namespace RealisticBases.Planning
                 supplies.Add(new CombatSupply("ReinforcedBarrel", profile.ReinforcedBarrels, StockPurpose.OperatingReserve,
                     "spawned only when active difficulty uses mortar barrels"));
             }
+            GridRect envelope = new GridRect(c.MinX - 2, c.MinZ - 2, c.Width + 4, c.Height + 4);
+            IEnumerable<GridPoint> controlled = settlement.Archetype == TerrainArchetype.ExcavatedMountain
+                ? c.Points().Concat(posts.Select(p => p.Cell))
+                : envelope.Points();
             EncounterPlan result = new EncounterPlan(settlement.Digest, profile, posts,
-                new GridRect(c.MinX - 2, c.MinZ - 2, c.Width + 4, c.Height + 4),
+                envelope,
                 new GridPoint(c.MinX + 15, c.MinZ + 12), new GridPoint(c.MinX + 15, c.MinZ + 9),
-                mortar, mortarInteraction, magazine, supplies);
+                mortar, mortarInteraction, magazine, supplies, controlled);
             IReadOnlyList<string> errors = EncounterValidator.Validate(settlement, physicalProfile, terrain, result);
             if (errors.Count > 0) throw new InvalidOperationException("Invalid P3 encounter plan: " + string.Join(",", errors));
             return result;
@@ -211,7 +222,7 @@ namespace RealisticBases.Planning
                 if (!terrain.InBounds(post.Cell) || !terrain[post.Cell].Has(TerrainTraits.Standable) || !post.IsValid)
                     errors.Add("post_invalid_" + post.Id);
                 if (settlement.Perimeter.Contains(post.Cell)) errors.Add("post_on_opaque_wall_" + post.Id);
-                if (!encounter.DefendedBounds.Contains(post.Cell)) errors.Add("post_outside_bounds_" + post.Id);
+                if (!encounter.DefendedCells.Contains(post.Cell)) errors.Add("post_outside_controlled_geometry_" + post.Id);
             }
             if (encounter.Profile.MortarCapable)
             {

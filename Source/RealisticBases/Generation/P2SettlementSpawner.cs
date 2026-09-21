@@ -22,6 +22,12 @@ namespace RealisticBases.Generation
             public bool Sown;
         }
 
+        private sealed class RockRestore
+        {
+            public IntVec3 Cell;
+            public ThingDef Def;
+        }
+
         public static bool TrySpawn(Map map, Settlement settlement, P2PlanningRun run, string terrainBefore,
             string path, bool forceFailure, out string failure)
         {
@@ -40,9 +46,23 @@ namespace RealisticBases.Generation
             List<Thing> spawned = new List<Thing>();
             Dictionary<IntVec3, RoofDef> changedRoofs = new Dictionary<IntVec3, RoofDef>();
             List<PlantRestore> removedPlants = new List<PlantRestore>();
+            List<RockRestore> removedRocks = new List<RockRestore>();
             string terrainOnlyBefore = P0MapAudit.TerrainChecksum(map);
+            IEnumerable<IntVec3> ownedExcavation = plan.TerrainMutations.ExcavationCells.Select(ToCell);
+            string unownedRockBefore = P0MapAudit.NaturalRockChecksum(map, ownedExcavation);
             try
             {
+                foreach (GridPoint point in plan.TerrainMutations.ExcavationCells)
+                {
+                    IntVec3 cell = ToCell(point);
+                    Building edifice = cell.GetEdifice(map);
+                    if (edifice == null || edifice.def?.building?.isNaturalRock != true)
+                        throw new InvalidOperationException("P4 excavation ledger does not match a natural rock cell: " + cell);
+                    if (!changedRoofs.ContainsKey(cell)) changedRoofs[cell] = map.roofGrid.RoofAt(cell);
+                    removedRocks.Add(new RockRestore { Cell = cell, Def = edifice.def });
+                    edifice.Destroy(DestroyMode.Vanish);
+                    map.roofGrid.SetRoof(cell, null);
+                }
                 IEnumerable<GridPoint> encounterMutationCells = EncounterCoverCells(encounter, plan)
                     .Concat(encounter.Profile.MortarCapable ? MortarFootprint(encounter.MortarCell) : Enumerable.Empty<GridPoint>());
                 foreach (GridPoint point in plan.Compound.Points().Concat(plan.FieldCells).Concat(encounterMutationCells).Distinct())
@@ -74,6 +94,8 @@ namespace RealisticBases.Generation
                     {
                         IntVec3 cell = ToCell(point);
                         if (!changedRoofs.ContainsKey(cell)) changedRoofs[cell] = map.roofGrid.RoofAt(cell);
+                        if (!RoofCollapseUtility.WithinRangeOfRoofHolder(cell, map, assumeNonNoRoofCellsAreRoofed: true))
+                            throw new InvalidOperationException("P4 constructed roof lacks a verified roof holder: " + cell);
                         map.roofGrid.SetRoof(cell, RoofDefOf.RoofConstructed);
                     }
                 }
@@ -190,6 +212,8 @@ namespace RealisticBases.Generation
                     " internalFuel=" + internalFuel + " terrainBefore=" + terrainBefore + " terrainAfter=" + after +
                     " terrainPreserved=" + (terrainOnlyBefore == terrainOnlyAfter) +
                     " plannedRoofChange=" + (terrainBefore != after) + " roofsAdded=" + changedRoofs.Count +
+                    " archetype=" + plan.Archetype + " excavatedRocks=" + removedRocks.Count +
+                    " unownedRockPreserved=" + (unownedRockBefore == P0MapAudit.NaturalRockChecksum(map, ownedExcavation)) +
                     " noTrapsOrIEDs=" + !map.listerThings.AllThings.Any(P0MapAudit.IsProhibitedDefense));
                 failure = null;
                 return true;
@@ -198,6 +222,11 @@ namespace RealisticBases.Generation
             {
                 for (int i = spawned.Count - 1; i >= 0; i--)
                     if (!spawned[i].Destroyed) spawned[i].Destroy(DestroyMode.Vanish);
+                foreach (RockRestore restore in removedRocks)
+                {
+                    if (restore.Cell.GetEdifice(map) != null) continue;
+                    GenSpawn.Spawn(ThingMaker.MakeThing(restore.Def), restore.Cell, map, Rot4.North, WipeMode.Vanish);
+                }
                 foreach (KeyValuePair<IntVec3, RoofDef> pair in changedRoofs) map.roofGrid.SetRoof(pair.Key, pair.Value);
                 foreach (PlantRestore restore in removedPlants)
                 {
@@ -210,7 +239,8 @@ namespace RealisticBases.Generation
                 failure = ex.GetType().Name + ":" + ex.Message;
                 P2Log.Error("SPAWN_RECOVERY", "path=" + path + " exception=" + failure +
                     " ownedThingsRemoved=" + spawned.Count + " roofsRestored=" + changedRoofs.Count +
-                    " plantsRestored=" + removedPlants.Count +
+                    " plantsRestored=" + removedPlants.Count + " rocksRestored=" + removedRocks.Count +
+                    " unownedRockRestored=" + (unownedRockBefore == P0MapAudit.NaturalRockChecksum(map, ownedExcavation)) +
                     " checksumRestored=" + (P0MapAudit.TerrainRoofChecksum(map) == terrainBefore));
                 return false;
             }

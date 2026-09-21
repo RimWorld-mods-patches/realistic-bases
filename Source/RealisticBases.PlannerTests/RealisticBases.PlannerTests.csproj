@@ -13,5 +13,6 @@
     <Compile Include="../RealisticBases/Planning/P3Doctrine.cs" Link="Planning/P3Doctrine.cs" />
     <Compile Include="../RealisticBases/Planning/P3Encounter.cs" Link="Planning/P3Encounter.cs" />
     <Compile Include="../RealisticBases/Planning/P4Terrain.cs" Link="Planning/P4Terrain.cs" />
+    <Compile Include="../RealisticBases/Planning/P4TerrainMutation.cs" Link="Planning/P4TerrainMutation.cs" />
   </ItemGroup>
 </Project>

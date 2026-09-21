@@ -75,7 +75,7 @@ namespace RealisticBases.Planning
     public sealed class PhysicalPlanningInput
     {
         public PhysicalPlanningInput(PhysicalSettlementProfile profile, TerrainSnapshot terrain, ulong seed,
-            IEnumerable<string> localStuffDefs, int maxCandidates)
+            IEnumerable<string> localStuffDefs, int maxCandidates, TerrainArchetype archetype = TerrainArchetype.Flat)
         {
             Profile = profile ?? throw new ArgumentNullException(nameof(profile));
             Terrain = terrain ?? throw new ArgumentNullException(nameof(terrain));
@@ -85,6 +85,7 @@ namespace RealisticBases.Planning
                 .Where(v => !string.IsNullOrWhiteSpace(v)).Distinct(StringComparer.Ordinal).OrderBy(v => v, StringComparer.Ordinal).ToList());
             if (LocalStuffDefs.Count == 0) throw new ArgumentException("At least one local construction material is required.");
             MaxCandidates = maxCandidates;
+            Archetype = archetype;
             Digest = ComputeDigest();
         }
 
@@ -93,6 +94,7 @@ namespace RealisticBases.Planning
         public ulong Seed { get; }
         public IReadOnlyList<string> LocalStuffDefs { get; }
         public int MaxCandidates { get; }
+        public TerrainArchetype Archetype { get; }
         public string Digest { get; }
 
         private string ComputeDigest()
@@ -103,6 +105,7 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, Terrain.Digest);
             hash = StableHash.Add(hash, Seed);
             hash = StableHash.Add(hash, MaxCandidates);
+            hash = StableHash.Add(hash, (int)Archetype);
             foreach (string value in LocalStuffDefs) hash = StableHash.Add(hash, value);
             return StableHash.Hex(hash);
         }
@@ -115,7 +118,8 @@ namespace RealisticBases.Planning
             IEnumerable<GridPoint> logistics, IEnumerable<GridPoint> fieldCells,
             IEnumerable<GridPoint> attackRoute, IEnumerable<GridPoint> retreatRoute,
             IEnumerable<PhysicalFacility> facilities, IEnumerable<PhysicalPlacement> placements,
-            string localWallStuff, int candidatesConsidered, int candidateLimit)
+            string localWallStuff, int candidatesConsidered, int candidateLimit, TerrainArchetype archetype,
+            TerrainMutationFootprint terrainMutations)
         {
             InputDigest = inputDigest;
             ProfileDigest = profileDigest;
@@ -132,6 +136,8 @@ namespace RealisticBases.Planning
             LocalWallStuff = localWallStuff;
             CandidatesConsidered = candidatesConsidered;
             CandidateLimit = candidateLimit;
+            Archetype = archetype;
+            TerrainMutations = terrainMutations ?? throw new ArgumentNullException(nameof(terrainMutations));
             Digest = ComputeDigest();
         }
 
@@ -150,6 +156,8 @@ namespace RealisticBases.Planning
         public string LocalWallStuff { get; }
         public int CandidatesConsidered { get; }
         public int CandidateLimit { get; }
+        public TerrainArchetype Archetype { get; }
+        public TerrainMutationFootprint TerrainMutations { get; }
         public string Digest { get; }
 
         private static IReadOnlyList<GridPoint> Copy(IEnumerable<GridPoint> values) =>
@@ -193,6 +201,8 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, LocalWallStuff);
             hash = StableHash.Add(hash, CandidatesConsidered);
             hash = StableHash.Add(hash, CandidateLimit);
+            hash = StableHash.Add(hash, (int)Archetype);
+            hash = StableHash.Add(hash, TerrainMutations.Digest);
             return StableHash.Hex(hash);
         }
 
@@ -284,8 +294,11 @@ namespace RealisticBases.Planning
             foreach (GridPoint cell in compound.Points())
             {
                 TerrainCell terrain = input.Terrain[cell];
-                if (!terrain.Has(TerrainTraits.Standable | TerrainTraits.Buildable) ||
-                    terrain.HasAny(TerrainTraits.Water | TerrainTraits.Roofed | TerrainTraits.Occupied))
+                bool excavatableMountainRock = input.Archetype == TerrainArchetype.ExcavatedMountain &&
+                    terrain.Has(TerrainTraits.NaturalRock | TerrainTraits.Roofed);
+                if ((!terrain.Has(TerrainTraits.Standable | TerrainTraits.Buildable) && !excavatableMountainRock) ||
+                    terrain.HasAny(TerrainTraits.Water | TerrainTraits.Occupied) ||
+                    (terrain.Has(TerrainTraits.Roofed) && !excavatableMountainRock))
                 {
                     plan = null;
                     rejection = "compound_cell_unusable";
@@ -320,6 +333,19 @@ namespace RealisticBases.Planning
                 return false;
             }
             List<PhysicalFacility> facilities = BuildFacilities(input.Profile, compound);
+            TerrainMutationFootprint mutations = TerrainMutationPlanner.Plan(input.Archetype, input.Terrain, compound, facilities);
+            if (input.Archetype == TerrainArchetype.ExcavatedMountain && mutations.ExcavationCells.Count == 0)
+            {
+                plan = null;
+                rejection = "mountain_candidate_requires_excavation";
+                return false;
+            }
+            if (TerrainMutationPlanner.Validate(input.Archetype, input.Terrain, mutations).Count != 0)
+            {
+                plan = null;
+                rejection = "invalid_terrain_mutation_footprint";
+                return false;
+            }
             List<GridPoint> perimeter = compound.Points().Where(p =>
                 (p.X == compound.MinX || p.X == compound.MaxX || p.Z == compound.MinZ || p.Z == compound.MaxZ) &&
                 !gates.Contains(p)).ToList();
@@ -328,7 +354,7 @@ namespace RealisticBases.Planning
             List<PhysicalPlacement> placements = BuildPlacements(input.Profile, facilities, compound, input.LocalStuffDefs[0]);
             plan = new PhysicalSettlementPlan(input.Digest, input.Profile.Digest, compound, field, gates, perimeter,
                 logistics, field.Points(), attackRoute, retreatRoute, facilities, placements,
-                input.LocalStuffDefs[0], considered, input.MaxCandidates);
+                input.LocalStuffDefs[0], considered, input.MaxCandidates, input.Archetype, mutations);
             rejection = null;
             return true;
         }
@@ -532,6 +558,8 @@ namespace RealisticBases.Planning
         {
             List<string> errors = new List<string>();
             if (plan.InputDigest != input.Digest || plan.ProfileDigest != input.Profile.Digest) errors.Add("input_digest");
+            if (plan.Archetype != input.Archetype) errors.Add("archetype");
+            errors.AddRange(TerrainMutationPlanner.Validate(input.Archetype, input.Terrain, plan.TerrainMutations));
             if (plan.CandidatesConsidered <= 0 || plan.CandidatesConsidered > input.MaxCandidates) errors.Add("candidate_bound");
             if (!input.LocalStuffDefs.Contains(plan.LocalWallStuff)) errors.Add("nonlocal_wall_material");
             foreach (FacilityDemand demand in input.Profile.Facilities)

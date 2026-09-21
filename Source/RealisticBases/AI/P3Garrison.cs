@@ -118,6 +118,7 @@ namespace RealisticBases.AI
         private List<IntVec3> postCells = new List<IntVec3>();
         private List<int> postFlags = new List<int>();
         private List<IntVec3> gateCells = new List<IntVec3>();
+        private List<IntVec3> defendedCells = new List<IntVec3>();
         private IntVec3 supportCenter = IntVec3.Invalid;
         private IntVec3 innerFallback = IntVec3.Invalid;
         private IntVec3 boundsMin = IntVec3.Invalid;
@@ -162,6 +163,7 @@ namespace RealisticBases.AI
             boundsMin = ToCell(new GridPoint(plan.DefendedBounds.MinX, plan.DefendedBounds.MinZ));
             boundsWidth = plan.DefendedBounds.Width;
             boundsHeight = plan.DefendedBounds.Height;
+            defendedCells = plan.DefendedCells.Select(ToCell).Distinct().ToList();
             postIds = plan.Posts.Select(p => p.Id).ToList();
             postSectors = plan.Posts.Select(p => p.SectorId).ToList();
             postCells = plan.Posts.Select(p => ToCell(p.Cell)).ToList();
@@ -192,6 +194,7 @@ namespace RealisticBases.AI
             Scribe_Collections.Look(ref postCells, "p3PostCells", LookMode.Value);
             Scribe_Collections.Look(ref postFlags, "p3PostFlags", LookMode.Value);
             Scribe_Collections.Look(ref gateCells, "p3GateCells", LookMode.Value);
+            Scribe_Collections.Look(ref defendedCells, "p3DefendedCells", LookMode.Value);
             Scribe_Values.Look(ref supportCenter, "p3SupportCenter", IntVec3.Invalid);
             Scribe_Values.Look(ref innerFallback, "p3InnerFallback", IntVec3.Invalid);
             Scribe_Values.Look(ref boundsMin, "p3BoundsMin", IntVec3.Invalid);
@@ -218,6 +221,7 @@ namespace RealisticBases.AI
                 defenders = defenders?.Where(p => p != null).ToList() ?? new List<Pawn>();
                 ownedThings = ownedThings?.Where(t => t != null).ToList() ?? new List<Thing>();
                 operatingStocks = operatingStocks?.Where(t => t != null).ToList() ?? new List<Thing>();
+                defendedCells = defendedCells?.Distinct().ToList() ?? new List<IntVec3>();
                 P3Log.Message("CONTROLLER_RELOADED", "map=" + map.uniqueID + " state=" + currentState +
                     " defenders=" + defenders.Count + " assignments=" + assignedPawnIds.Count +
                     " mortarLoaded=" + MortarLoadedShell() + " heRemaining=" + CountStock("Shell_HighExplosive"));
@@ -598,8 +602,10 @@ namespace RealisticBases.AI
 
         private bool PreviousPostAssigned(string id) => assignedPostIds.Contains(id);
 
-        private bool InsideBounds(IntVec3 cell) => boundsMin.IsValid && cell.x >= boundsMin.x && cell.z >= boundsMin.z &&
-            cell.x < boundsMin.x + boundsWidth && cell.z < boundsMin.z + boundsHeight;
+        private bool InsideBounds(IntVec3 cell) => defendedCells != null && defendedCells.Count > 0
+            ? defendedCells.Contains(cell)
+            : boundsMin.IsValid && cell.x >= boundsMin.x && cell.z >= boundsMin.z &&
+                cell.x < boundsMin.x + boundsWidth && cell.z < boundsMin.z + boundsHeight;
 
         private int CountStock(string defName) => operatingStocks.Where(t => t != null && !t.Destroyed && t.def.defName == defName)
             .Sum(t => t.stackCount);

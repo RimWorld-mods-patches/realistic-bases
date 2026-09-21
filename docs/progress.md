@@ -99,7 +99,7 @@ P0–P3 findings remain historical evidence; no completed checks were rewritten.
 |---|---|---|---|
 | P4.0 | Terrain-archetype scope, mutation/recovery contract, live matrix, evidence policy, and explicit P5/P6 boundary | Documentation review; standalone checkpoint commit | Complete |
 | P4.1 | Immutable terrain analysis and deterministic bounded archetype selection/rejection | 47/47 combined pure tests and Docker Release build 0 warnings/errors; standalone feature commit | Complete |
-| P4.2 | Foothill/excavated-mountain layouts, roof/support/mutation recovery, and P3 geometry adaptation | Pure/build plus Core mountain recovery cases; standalone feature commit | Pending |
+| P4.2 | Foothill/excavated-mountain layouts, roof/support/mutation recovery, and P3 geometry adaptation | 49/49 pure tests and Docker build passed; Core lakeshore regression passed. Core mountain/foothill plus partial-recovery cases remain before completion. | In progress |
 | P4.3 | Lakeshore/peninsula/supported-island layouts with legal approach, bridge, gate, and circulation constraints | Pure/build plus Core water/rejection cases; standalone feature commit | Pending |
 | P4.4 | Layered fortifications, palettes/budgets/climate alternatives, P3/save-reload regression, Core/GL matrix, and exit | Actual runtime/recovery evidence and closeout commit | Pending |
 
@@ -129,3 +129,4 @@ P0–P3 findings remain historical evidence; no completed checks were rewritten.
 | 2026-09-21 | P3.4 passed four approach sectors, night/harassment and incendiary gating, breach/fallback/relief, operator and power loss, finite exhaustion, tribal exclusions, active reload evidence, and Geological Landforms + Map Preview regression. Invalid encounter plans now reject before mutation. P3 closed; P4/P5 remain unstarted. |
 | 2026-09-21 | Authorized P4; documented terrain-adapted archetype, explicit mutation/recovery, fortification, climate, P3-regression, and Core/GL validation gates. P5/P6 remain unstarted. |
 | 2026-09-21 | P4.1 added immutable versioned terrain-archetype analysis with deterministic flat/foothill/excavated-mountain/lakeshore evidence, explicit inaccessible-island rejection, and bounded search. 47/47 pure tests and Docker build passed. |
+| 2026-09-21 | P4.2 implementation checkpoint added an explicit natural-rock/roof mutation ledger, transactional rock restoration, verified constructed-roof support, outside-footprint rock checksums, and exact persisted P3 controlled geometry. 49/49 pure tests and Docker build passed; runtime mountain/recovery evidence remains outstanding. |
