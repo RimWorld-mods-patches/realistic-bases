@@ -159,7 +159,8 @@ namespace RealisticBases.Planning
             if (settlement == null || physicalProfile == null || terrain == null) throw new ArgumentNullException();
             EncounterProfile profile = P3EncounterProfiles.For(physicalProfile);
             GridRect c = settlement.Compound;
-            List<DefensivePost> posts = settlement.Archetype == TerrainArchetype.ExcavatedMountain
+            bool terrainFollowing = settlement.Archetype == TerrainArchetype.ExcavatedMountain || settlement.Archetype == TerrainArchetype.Foothill;
+            List<DefensivePost> posts = terrainFollowing
                 ? TerrainFollowingPosts(settlement, terrain)
                 : new List<DefensivePost>
             {
@@ -174,7 +175,7 @@ namespace RealisticBases.Planning
                 Post("inner-west", "inner", c.MinX + 12, c.MinZ + 9, 4, 24, true),
                 Post("inner-east", "inner", c.MinX + 18, c.MinZ + 9, 4, 24, true)
             };
-            GridPoint mortar = profile.MortarCapable ? (settlement.Archetype == TerrainArchetype.ExcavatedMountain
+            GridPoint mortar = profile.MortarCapable ? (terrainFollowing
                 ? TerrainFollowingMortarCourt(settlement, terrain) : new GridPoint(c.MinX + 26, c.MinZ + 20)) : new GridPoint(-1, -1);
             GridPoint mortarInteraction = profile.MortarCapable ? new GridPoint(mortar.X, mortar.Z - 1) : new GridPoint(-1, -1);
             if (profile.MortarCapable)
@@ -192,7 +193,7 @@ namespace RealisticBases.Planning
                     "spawned only when active difficulty uses mortar barrels"));
             }
             GridRect envelope = new GridRect(c.MinX - 2, c.MinZ - 2, c.Width + 4, c.Height + 4);
-            IEnumerable<GridPoint> controlled = settlement.Archetype == TerrainArchetype.ExcavatedMountain
+            IEnumerable<GridPoint> controlled = terrainFollowing
                 ? c.Points().Concat(posts.Select(p => p.Cell))
                 : envelope.Points();
             EncounterPlan result = new EncounterPlan(settlement.Digest, profile, posts,

@@ -105,7 +105,15 @@ namespace RealisticBases.Diagnostics
             GenerateIsolatedHostileSettlement(movePlayerColonist: false, requireMountainous: true);
         }
 
-        private static void GenerateIsolatedHostileSettlement(bool movePlayerColonist, bool requireMountainous = false)
+        [DebugAction(Category, "Generate playable foothill P4 settlement", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void GeneratePlayableFoothillP4Settlement()
+        {
+            GenerateIsolatedHostileSettlement(movePlayerColonist: true, requireFoothill: true);
+        }
+
+        private static void GenerateIsolatedHostileSettlement(bool movePlayerColonist, bool requireMountainous = false,
+            bool requireFoothill = false)
         {
             Pawn arrivalPawn = movePlayerColonist
                 ? Find.Maps.Where(m => m.IsPlayerHome)
@@ -135,6 +143,8 @@ namespace RealisticBases.Diagnostics
                 extraValidator: candidate => Find.WorldGrid[candidate].PrimaryBiome == BiomeDefOf.TemperateForest &&
                     (requireMountainous
                         ? Find.WorldGrid[candidate].hilliness == Hilliness.Mountainous
+                        : requireFoothill
+                            ? Find.WorldGrid[candidate].hilliness == Hilliness.SmallHills
                         : Find.WorldGrid[candidate].hilliness != Hilliness.Mountainous &&
                             Find.WorldGrid[candidate].hilliness != Hilliness.Impassable));
             Settlement settlement = (Settlement)WorldObjectMaker.MakeWorldObject(tile.LayerDef.SettlementWorldObjectDef);
@@ -145,7 +155,7 @@ namespace RealisticBases.Diagnostics
             // The complete P2 footprint is intentionally larger than a compact
             // test outpost. Give the mountainous P4 harness enough generated
             // terrain to find a real legal footprint rather than weakening it.
-            IntVec3 mapSize = requireMountainous ? new IntVec3(160, 1, 160) : new IntVec3(80, 1, 80);
+            IntVec3 mapSize = requireMountainous || requireFoothill ? new IntVec3(160, 1, 160) : new IntVec3(80, 1, 80);
             Map map = GetOrGenerateMapUtility.GetOrGenerateMap(tile, mapSize, null);
             Current.Game.CurrentMap = map;
             if (arrivalPawn != null)
