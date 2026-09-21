@@ -45,6 +45,7 @@ internal static class Program
         Run("P4 mountain plan owns only roofed rock excavation", P4MountainPlanOwnsOnlyRoofedRock);
         Run("P4 non-mountain plans have no landform mutation", P4NonMountainPlansHaveNoLandformMutation);
         Run("P4 lakeshore plan preserves water and dry routes", P4LakeshorePlanPreservesWaterAndDryRoutes);
+        Run("P4 final navigation rejects an inset wall that blocks the circulation root", P4ConnectivityRejectsBlockedInsetWall);
         Run("P3 assignments are deterministic and exclusive", P3AssignmentsAreDeterministicAndExclusive);
         Run("P3 assignment is weapon and post aware", P3AssignmentIsWeaponAndPostAware);
         Run("P3 pursuit validates destination and full route", P3PursuitValidatesDestinationAndFullRoute);
@@ -474,6 +475,23 @@ internal static class Program
         True(result.Plan.AttackRoute.All(c => !terrain[c].Has(TerrainTraits.Water)), "attack route does not assume water travel");
         True(result.Plan.RetreatRoute.All(c => !terrain[c].Has(TerrainTraits.Water)), "retreat route does not assume water travel");
         True(PhysicalSettlementValidator.Validate(input, result.Plan).Count == 0, "lakeshore plan validates");
+    }
+
+    private static void P4ConnectivityRejectsBlockedInsetWall()
+    {
+        PhysicalPlanningInput input = P2Input(P2ProfileCatalog.IndustrialTemperate);
+        PhysicalSettlementPlan basePlan = PhysicalSettlementPlanner.Plan(input).Plan;
+        GridRect inset = new GridRect(basePlan.Compound.MinX + 1, basePlan.Compound.MinZ + 1,
+            basePlan.Compound.Width - 2, basePlan.Compound.Height - 2);
+        List<GridPoint> blockedInset = inset.Points().Where(p => p.X == inset.MinX || p.X == inset.MaxX ||
+            p.Z == inset.MinZ || p.Z == inset.MaxZ).ToList();
+        PhysicalSettlementPlan invalid = new PhysicalSettlementPlan(basePlan.InputDigest, basePlan.ProfileDigest,
+            basePlan.Compound, basePlan.Field, basePlan.Gates, basePlan.Perimeter, Enumerable.Empty<GridPoint>(), blockedInset,
+            2, basePlan.Logistics, basePlan.FieldCells, basePlan.AttackRoute, basePlan.RetreatRoute, basePlan.Facilities,
+            basePlan.Placements, basePlan.LocalWallStuff, basePlan.CandidatesConsidered, basePlan.CandidateLimit,
+            basePlan.Archetype, basePlan.TerrainMutations);
+        True(P4Connectivity.Validate(input.Terrain, invalid).Any(e => e == "public_root_blocked"),
+            "inset wall is rejected by final resident cell graph");
     }
 
     private static PhysicalPlanningInput P2Input(PhysicalSettlementProfile profile) =>

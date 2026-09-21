@@ -75,17 +75,20 @@ namespace RealisticBases.Planning
     public sealed class PhysicalPlanningInput
     {
         public PhysicalPlanningInput(PhysicalSettlementProfile profile, TerrainSnapshot terrain, ulong seed,
-            IEnumerable<string> localStuffDefs, int maxCandidates, TerrainArchetype archetype = TerrainArchetype.Flat)
+            IEnumerable<string> localStuffDefs, int maxCandidates, TerrainArchetype archetype = TerrainArchetype.Flat,
+            int wallLayers = 1)
         {
             Profile = profile ?? throw new ArgumentNullException(nameof(profile));
             Terrain = terrain ?? throw new ArgumentNullException(nameof(terrain));
             if (maxCandidates <= 0) throw new ArgumentOutOfRangeException(nameof(maxCandidates));
+            if (wallLayers < 1 || wallLayers > 3) throw new ArgumentOutOfRangeException(nameof(wallLayers));
             Seed = seed;
             LocalStuffDefs = new ReadOnlyCollection<string>((localStuffDefs ?? Enumerable.Empty<string>())
                 .Where(v => !string.IsNullOrWhiteSpace(v)).Distinct(StringComparer.Ordinal).OrderBy(v => v, StringComparer.Ordinal).ToList());
             if (LocalStuffDefs.Count == 0) throw new ArgumentException("At least one local construction material is required.");
             MaxCandidates = maxCandidates;
             Archetype = archetype;
+            WallLayers = wallLayers;
             Digest = ComputeDigest();
         }
 
@@ -95,6 +98,7 @@ namespace RealisticBases.Planning
         public IReadOnlyList<string> LocalStuffDefs { get; }
         public int MaxCandidates { get; }
         public TerrainArchetype Archetype { get; }
+        public int WallLayers { get; }
         public string Digest { get; }
 
         private string ComputeDigest()
@@ -106,6 +110,7 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, Seed);
             hash = StableHash.Add(hash, MaxCandidates);
             hash = StableHash.Add(hash, (int)Archetype);
+            hash = StableHash.Add(hash, WallLayers);
             foreach (string value in LocalStuffDefs) hash = StableHash.Add(hash, value);
             return StableHash.Hex(hash);
         }
@@ -115,6 +120,8 @@ namespace RealisticBases.Planning
     {
         public PhysicalSettlementPlan(string inputDigest, string profileDigest, GridRect compound,
             GridRect field, IEnumerable<GridPoint> gates, IEnumerable<GridPoint> perimeter,
+            IEnumerable<GridPoint> reinforcementGates, IEnumerable<GridPoint> reinforcementPerimeter,
+            int wallLayers,
             IEnumerable<GridPoint> logistics, IEnumerable<GridPoint> fieldCells,
             IEnumerable<GridPoint> attackRoute, IEnumerable<GridPoint> retreatRoute,
             IEnumerable<PhysicalFacility> facilities, IEnumerable<PhysicalPlacement> placements,
@@ -127,6 +134,9 @@ namespace RealisticBases.Planning
             Field = field;
             Gates = Copy(gates);
             Perimeter = Copy(perimeter);
+            ReinforcementGates = Copy(reinforcementGates);
+            ReinforcementPerimeter = Copy(reinforcementPerimeter);
+            WallLayers = wallLayers;
             Logistics = Copy(logistics);
             FieldCells = Copy(fieldCells);
             AttackRoute = Copy(attackRoute);
@@ -147,6 +157,9 @@ namespace RealisticBases.Planning
         public GridRect Field { get; }
         public IReadOnlyList<GridPoint> Gates { get; }
         public IReadOnlyList<GridPoint> Perimeter { get; }
+        public IReadOnlyList<GridPoint> ReinforcementGates { get; }
+        public IReadOnlyList<GridPoint> ReinforcementPerimeter { get; }
+        public int WallLayers { get; }
         public IReadOnlyList<GridPoint> Logistics { get; }
         public IReadOnlyList<GridPoint> FieldCells { get; }
         public IReadOnlyList<GridPoint> AttackRoute { get; }
@@ -173,6 +186,9 @@ namespace RealisticBases.Planning
             hash = AddRect(hash, Field);
             foreach (GridPoint value in Gates) hash = AddPoint(hash, value);
             foreach (GridPoint value in Perimeter) hash = AddPoint(hash, value);
+            foreach (GridPoint value in ReinforcementGates) hash = AddPoint(hash, value);
+            foreach (GridPoint value in ReinforcementPerimeter) hash = AddPoint(hash, value);
+            hash = StableHash.Add(hash, WallLayers);
             foreach (GridPoint value in Logistics) hash = AddPoint(hash, value);
             foreach (GridPoint value in FieldCells) hash = AddPoint(hash, value);
             foreach (GridPoint value in AttackRoute) hash = AddPoint(hash, value);
@@ -344,11 +360,30 @@ namespace RealisticBases.Planning
             List<GridPoint> perimeter = compound.Points().Where(p =>
                 (p.X == compound.MinX || p.X == compound.MaxX || p.Z == compound.MinZ || p.Z == compound.MaxZ) &&
                 !gates.Contains(p)).ToList();
+            // Additional bands are deliberately not inferred by inserting an
+            // inset ring. P4Connectivity must reserve a complete gatehouse
+            // crossing and prove all resident paths before any band is added.
+            List<GridPoint> reinforcementGates = new List<GridPoint>();
+            List<GridPoint> reinforcementPerimeter = new List<GridPoint>();
+            if (input.WallLayers != 1)
+            {
+                plan = null;
+                rejection = "wall_layers_require_connectivity_layout";
+                return false;
+            }
             HashSet<GridPoint> roomCells = new HashSet<GridPoint>(facilities.Where(f => f.Roofed).SelectMany(f => f.Bounds.Points()));
             List<GridPoint> logistics = compound.Points().Where(p => !perimeter.Contains(p) && !roomCells.Contains(p)).ToList();
             List<PhysicalPlacement> placements = BuildPlacements(input.Profile, facilities, compound, input.LocalStuffDefs[0]);
             plan = new PhysicalSettlementPlan(input.Digest, input.Profile.Digest, compound, field, gates, perimeter,
+                reinforcementGates, reinforcementPerimeter,
+                input.WallLayers,
                 logistics, field.Points(), attackRoute, retreatRoute, facilities, placements,
+                input.LocalStuffDefs[0], considered, input.MaxCandidates, input.Archetype, mutations);
+            // Persist only final, proven public circulation; it is not a room-complement label.
+            IReadOnlyCollection<GridPoint> publicReachable = PlannedNavigationGrid.Build(input.Terrain, plan).PublicReachable;
+            plan = new PhysicalSettlementPlan(input.Digest, input.Profile.Digest, compound, field, gates, perimeter,
+                reinforcementGates, reinforcementPerimeter, input.WallLayers,
+                publicReachable, field.Points(), attackRoute, retreatRoute, facilities, placements,
                 input.LocalStuffDefs[0], considered, input.MaxCandidates, input.Archetype, mutations);
             rejection = null;
             return true;
@@ -577,6 +612,7 @@ namespace RealisticBases.Planning
             if (plan.InputDigest != input.Digest || plan.ProfileDigest != input.Profile.Digest) errors.Add("input_digest");
             if (plan.Archetype != input.Archetype) errors.Add("archetype");
             errors.AddRange(TerrainMutationPlanner.Validate(input.Archetype, input.Terrain, plan.TerrainMutations));
+            errors.AddRange(P4Connectivity.Validate(input.Terrain, plan));
             if (plan.CandidatesConsidered <= 0 || plan.CandidatesConsidered > input.MaxCandidates) errors.Add("candidate_bound");
             if (!input.LocalStuffDefs.Contains(plan.LocalWallStuff)) errors.Add("nonlocal_wall_material");
             foreach (FacilityDemand demand in input.Profile.Facilities)
@@ -590,6 +626,9 @@ namespace RealisticBases.Planning
                 plan.Placements.Count(p => p.Kind == PhysicalPlacementKind.MedicalBed) != 1) errors.Add("special_beds");
             if (plan.FieldCells.Count < input.Profile.RequiredCropCells || plan.FieldCells.Any(c => !input.Terrain[c].Has(TerrainTraits.Fertile))) errors.Add("field_capacity");
             if (plan.Gates.Count != 2 || plan.Gates.Any(g => !IsPerimeter(g, plan.Compound))) errors.Add("gates");
+            if (plan.WallLayers != input.WallLayers || plan.WallLayers < 1 || plan.WallLayers > 3 ||
+                (plan.WallLayers == 1 && (plan.ReinforcementGates.Any() || plan.ReinforcementPerimeter.Any())) ||
+                plan.ReinforcementPerimeter.Intersect(plan.ReinforcementGates).Any()) errors.Add("wall_layers");
             ValidateEdgeRoute(input.Terrain, plan.AttackRoute, errors, "attack_route");
             ValidateEdgeRoute(input.Terrain, plan.RetreatRoute, errors, "retreat_route");
             List<PhysicalFacility> roofedFacilities = plan.Facilities.Where(f => f.Roofed).ToList();

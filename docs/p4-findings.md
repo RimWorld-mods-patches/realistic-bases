@@ -63,6 +63,8 @@ separate evidence. A candidate label, screenshot, checksum, or optional-mod load
 line is never proof of traversal, roof support, a functioning gate, or safe P3
 combat behavior.
 
+The resident-circulation correction is specified in [P4 connectivity](p4-connectivity.md).
+
 ## Required live matrix
 
 | Terrain/capability case | Required assertion |
