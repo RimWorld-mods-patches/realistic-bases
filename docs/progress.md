@@ -4,7 +4,7 @@ Updated: 2026-09-21
 
 ## Current state
 
-Design, source review, **P0 — Resolve the technical risks**, **P1 — Planner and validation harness**, **P2 — First complete physical settlement**, and **P3 — Playable defensive encounter** are complete. P4 and later milestones remain unstarted.
+Design, source review, **P0 — Resolve the technical risks**, **P1 — Planner and validation harness**, **P2 — First complete physical settlement**, and **P3 — Playable defensive encounter** are complete. **P4 — Terrain variety and stronger fortifications** is in progress. P5 and later milestones remain unstarted.
 
 Specification: [design and feasibility](design-feasibility.md). Delivery gates: [implementation plan](implementation-plan.md). Detailed evidence: [P0 findings](p0-findings.md).
 
@@ -17,7 +17,7 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 | P1 — Planner and validation harness | Complete | Fixed-input determinism, invalid-terrain rejection, bounded termination, required property cases, read-only planning, diagnostics, and Core/GL integration passed; see [P1 findings](p1-findings.md) |
 | P2 — First complete physical settlement | Complete | Industrial/tribal profiles, full plan-driven spawning, real power/freezer/outage behavior, Core recovery, and GL + Map Preview normal/recovery matrices passed; see [P2 findings](p2-findings.md) |
 | P3 — Playable defensive encounter | Complete | Bounded local garrison, physical mortar supply, save/reload, full failure matrix, tribal exclusions, and Core/GL regression passed; see [P3 findings](p3-findings.md) |
-| P4 — Terrain variety and stronger fortifications | Not started | Requires P3; reuse the validated late generation order |
+| P4 — Terrain variety and stronger fortifications | In progress | Terrain-adapted archetype, mutation/recovery, layered-fortification, and terrain-matrix checklist established; see [P4 findings](p4-findings.md) |
 | P5 — Encounter supplies, trade stock, and persistent consequences | Not started | Revised scope: bounded routine/combat reserves, trade consistency and no-duplication persistence; full sustainability post-MVP |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage |
 
@@ -91,7 +91,17 @@ The user reduced the sustainability requirement and added settlement trade-stock
 
 Trade goods must reflect the actual settlement offer separately from operating reserves. Snapshot/ownership/reconciliation support is planned in P5; P2's current generated stocks are not evidence of this new feature. Purchases, sales, looting, depletion and restock cannot duplicate goods. Persistence/ownership correctness remains in the MVP.
 
-P0–P3 findings remain historical evidence; no completed checks were rewritten. P4 and P5 remain unstarted. The earlier P2 outage observation used 360 W while a planning scenario named 650 W; P3 measured 80 W net gain during combat, 0 W after generator removal, and 0 W added continuous mortar load rather than restating the planning value as observed fact.
+P0–P3 findings remain historical evidence; no completed checks were rewritten. P4 is in progress and P5 remains unstarted. The earlier P2 outage observation used 360 W while a planning scenario named 650 W; P3 measured 80 W net gain during combat, 0 W after generator removal, and 0 W added continuous mortar load rather than restating the planning value as observed fact.
+
+## P4 committed checklist
+
+| Step | Scope | Validation and commit policy | Status |
+|---|---|---|---|
+| P4.0 | Terrain-archetype scope, mutation/recovery contract, live matrix, evidence policy, and explicit P5/P6 boundary | Documentation review; standalone checkpoint commit | Complete |
+| P4.1 | Immutable terrain analysis and deterministic bounded archetype selection/rejection | Pure tests and Docker Release build; standalone feature commit | Pending |
+| P4.2 | Foothill/excavated-mountain layouts, roof/support/mutation recovery, and P3 geometry adaptation | Pure/build plus Core mountain recovery cases; standalone feature commit | Pending |
+| P4.3 | Lakeshore/peninsula/supported-island layouts with legal approach, bridge, gate, and circulation constraints | Pure/build plus Core water/rejection cases; standalone feature commit | Pending |
+| P4.4 | Layered fortifications, palettes/budgets/climate alternatives, P3/save-reload regression, Core/GL matrix, and exit | Actual runtime/recovery evidence and closeout commit | Pending |
 
 ## Activity log
 
@@ -117,3 +127,4 @@ P0–P3 findings remain historical evidence; no completed checks were rewritten.
 | 2026-09-20 | P3.2 added deterministic usable outer/inner posts and an industrial unroofed mortar court with a six-hour finite duty budget, conditional barrels, stock-purpose metadata, zero added mortar power load, and hard tribal exclusions; 42/42 pure tests and Docker Release build passed. |
 | 2026-09-21 | P3.3 replaced the P0 probe Lord with the settlement-scoped runtime garrison, added narrow support and mortar jobs, strict assigned-post containment, physical reserve consumption, active save/reload reconstruction, and diagnostics. 43/43 pure tests and a clean Docker build passed; focused Core live checks preserved assignments and a loaded shell across reload with no player pawn control. |
 | 2026-09-21 | P3.4 passed four approach sectors, night/harassment and incendiary gating, breach/fallback/relief, operator and power loss, finite exhaustion, tribal exclusions, active reload evidence, and Geological Landforms + Map Preview regression. Invalid encounter plans now reject before mutation. P3 closed; P4/P5 remain unstarted. |
+| 2026-09-21 | Authorized P4; documented terrain-adapted archetype, explicit mutation/recovery, fortification, climate, P3-regression, and Core/GL validation gates. P5/P6 remain unstarted. |
