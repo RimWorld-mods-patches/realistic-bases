@@ -35,6 +35,74 @@ rg -n "Command line arguments|Loading game from file autostart|GAME_LOADED|Excep
   /tmp/realistic-bases-runtime.log
 ```
 
+## Connect through RIMAPI
+
+The installed [RIMAPI](https://github.com/IlyaChichkov/RIMAPI) mod embeds a local
+HTTP API server in RimWorld. It supports RimWorld 1.5-1.6 and listens on
+`http://127.0.0.1:8765` by default once a colony is loaded; the port is configurable
+in `Options > Mod Settings > RIMAPI`. The server is not available at the main menu.
+RIMAPI also supports Server-Sent Events (SSE) for live updates and extensions from
+other mods; discover the exact routes supported by the installed version with
+`GET /api/v1/dev/endpoints` or the linked documentation.
+
+Use `curl` from the host to inspect or control the running disposable game. Set the
+base URL explicitly if the port was changed:
+
+```bash
+RIMAPI_BASE=http://127.0.0.1:8765
+curl --fail --silent "$RIMAPI_BASE/api/v1/game/state"
+```
+
+The most useful endpoints for runtime tests are:
+
+- `GET /api/v1/game/state` — current tick, pause state, storyteller, wealth, and colonist count.
+- `GET /api/v1/version` — game, mod, and API version information.
+- `GET /api/v1/maps` — loaded maps, including map ids and whether each is the player home map.
+- `GET /api/v1/map/pawns?mapId=0` — pawns on a map with health, mood, and positions.
+- `GET /api/v1/colonists/positions` — lightweight cross-map pawn positions for polling.
+- `GET /api/v1/map/terrain?map_id=0` — terrain/floor grid data.
+- `GET /api/v1/dev/endpoints` — the endpoint list exposed by the installed RIMAPI version.
+- `POST /api/v1/camera/screenshot` — a base64 JPEG of the current game view; useful when a visual assertion is needed.
+- `POST /api/v1/game/speed?speed=0|1|2|3` — pause or change game speed.
+
+RIMAPI responses use an envelope such as `{"success":true,"data":...}`. Check both
+the HTTP status and the JSON `success` field. JSON bodies and response fields use
+`snake_case`; map, pawn, building, and zone ids are integers. Every `POST` must send
+a body so that `Content-Length` is present; for an otherwise bodyless request use
+`-H 'Content-Type: application/json' -d '{}'`.
+
+For this mod, use RIMAPI to confirm the game is alive, find the active map and pawns,
+poll positions, inspect screenshots, pause/restart the simulation, and perform
+vanilla setup actions when a test explicitly needs them. RIMAPI does not expose this
+mod's custom developer actions or `RealisticBases:*` log events automatically, so
+continue to use the authoritative runtime log for `GAME_LOADED`, `SPAWN_COMPLETE`,
+`PLAN_REJECT`, P3 audits, save/reload restoration, and exceptions. Prefer read-only
+GET requests during diagnosis; mutating endpoints such as game load/save, speed,
+building/map edits, pawn edits, and `/api/v1/dev/*` can change or corrupt the
+disposable save and must be intentional. The dev-tools API is effectively God Mode.
+
+Useful examples:
+
+```bash
+# Confirm the loaded disposable colony and discover its map ids.
+curl --fail --silent "$RIMAPI_BASE/api/v1/game/state"
+curl --fail --silent "$RIMAPI_BASE/api/v1/maps"
+
+# Inspect the playable encounter map after SPAWN_COMPLETE.
+curl --fail --silent "$RIMAPI_BASE/api/v1/map/pawns?mapId=0"
+curl --fail --silent "$RIMAPI_BASE/api/v1/colonists/positions"
+
+# Pause before inspecting or changing state through another request.
+curl --fail --silent \
+  -X POST "$RIMAPI_BASE/api/v1/game/speed?speed=0" \
+  -H 'Content-Type: application/json' -d '{}'
+```
+
+See the [RIMAPI quick start](https://ilyachichkov.github.io/RIMAPI/quick_start.html),
+[API reference](https://ilyachichkov.github.io/RIMAPI/api.html), and
+[API conventions](https://ilyachichkov.github.io/RIMAPI/developer_guide/api_conventions.html)
+when an endpoint's exact query names or request schema matters.
+
 ## Control the Unity UI
 
 Use Computer Use and bind the app by bundle id `ludeon.rimworld`. RimWorld exposes almost none of its Unity controls through macOS accessibility, so the reliable developer-action workflow is keyboard driven:
