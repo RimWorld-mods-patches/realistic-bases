@@ -290,14 +290,13 @@ namespace RealisticBases.Planning
             out PhysicalSettlementPlan plan, out string rejection)
         {
             GridRect compound = new GridRect(origin.X, origin.Z, CompoundWidth, CompoundHeight);
-            GridRect field = new GridRect(compound.MaxX + 2, compound.MinZ + 6, FieldWidth, FieldHeight);
             foreach (GridPoint cell in compound.Points())
             {
                 TerrainCell terrain = input.Terrain[cell];
                 bool excavatableMountainRock = input.Archetype == TerrainArchetype.ExcavatedMountain &&
-                    terrain.Has(TerrainTraits.NaturalRock | TerrainTraits.Roofed);
+                    terrain.Has(TerrainTraits.NaturalRock);
                 if ((!terrain.Has(TerrainTraits.Standable | TerrainTraits.Buildable) && !excavatableMountainRock) ||
-                    terrain.HasAny(TerrainTraits.Water | TerrainTraits.Occupied) ||
+                    terrain.Has(TerrainTraits.Water) || (terrain.Has(TerrainTraits.Occupied) && !excavatableMountainRock) ||
                     (terrain.Has(TerrainTraits.Roofed) && !excavatableMountainRock))
                 {
                     plan = null;
@@ -305,16 +304,12 @@ namespace RealisticBases.Planning
                     return false;
                 }
             }
-            foreach (GridPoint cell in field.Points())
+            GridRect field;
+            if (!TryFindField(input.Terrain, compound, out field))
             {
-                TerrainCell terrain = input.Terrain[cell];
-                if (!terrain.Has(TerrainTraits.Standable | TerrainTraits.Fertile) ||
-                    terrain.HasAny(TerrainTraits.Water | TerrainTraits.Roofed | TerrainTraits.Occupied))
-                {
-                    plan = null;
-                    rejection = "field_cell_illegal";
-                    return false;
-                }
+                plan = null;
+                rejection = "field_cell_illegal";
+                return false;
             }
 
             List<GridPoint> gates = new List<GridPoint>
@@ -332,7 +327,7 @@ namespace RealisticBases.Planning
                 rejection = "gate_edge_route";
                 return false;
             }
-            List<PhysicalFacility> facilities = BuildFacilities(input.Profile, compound);
+            List<PhysicalFacility> facilities = BuildFacilities(input.Profile, compound, field);
             TerrainMutationFootprint mutations = TerrainMutationPlanner.Plan(input.Archetype, input.Terrain, compound, facilities);
             if (input.Archetype == TerrainArchetype.ExcavatedMountain && mutations.ExcavationCells.Count == 0)
             {
@@ -359,7 +354,7 @@ namespace RealisticBases.Planning
             return true;
         }
 
-        private static List<PhysicalFacility> BuildFacilities(PhysicalSettlementProfile profile, GridRect c)
+        private static List<PhysicalFacility> BuildFacilities(PhysicalSettlementProfile profile, GridRect c, GridRect field)
         {
             bool electric = profile.Has(SettlementCapability.Electricity);
             return new List<PhysicalFacility>
@@ -373,8 +368,7 @@ namespace RealisticBases.Planning
                 Facility("workshop", FacilityKind.Workshop, c, 25, 11, 5, 6, 1),
                 Facility("storage", FacilityKind.BulkStorage, c, 2, 18, 7, 5, 24),
                 new PhysicalFacility("field", FacilityKind.Field,
-                    new GridRect(c.MaxX + 2, c.MinZ + 6, FieldWidth, FieldHeight),
-                    new GridPoint(c.MaxX + 1, c.MinZ + 12), Enumerable.Empty<GridPoint>(), profile.RequiredCropCells, false),
+                    field, new GridPoint(field.MinX, field.MinZ), Enumerable.Empty<GridPoint>(), profile.RequiredCropCells, false),
                 new PhysicalFacility("gatehouse", FacilityKind.Gatehouse,
                     new GridRect(c.MinX + 13, c.MinZ, 5, c.Height), new GridPoint(c.MinX + 15, c.MinZ),
                     new[] { new GridPoint(c.MinX + 14, c.MinZ + 1), new GridPoint(c.MinX + 16, c.MinZ + 1) }, 2, false),
@@ -386,6 +380,29 @@ namespace RealisticBases.Planning
                 ? new[] { new PhysicalFacility("power", FacilityKind.Power, new GridRect(c.MinX + 24, c.MinZ + 2, 5, 7),
                     new GridPoint(c.MinX + 26, c.MinZ + 8), new[] { new GridPoint(c.MinX + 26, c.MinZ + 7) }, 1, false) }
                 : Enumerable.Empty<PhysicalFacility>()).ToList();
+        }
+
+        private static bool TryFindField(TerrainSnapshot terrain, GridRect compound, out GridRect field)
+        {
+            GridRect[] candidates =
+            {
+                new GridRect(compound.MaxX + 2, compound.MinZ + 6, FieldWidth, FieldHeight),
+                new GridRect(compound.MinX - FieldWidth - 1, compound.MinZ + 6, FieldWidth, FieldHeight),
+                new GridRect(compound.MinX + 10, compound.MinZ - FieldHeight - 1, FieldWidth, FieldHeight),
+                new GridRect(compound.MinX + 10, compound.MaxZ + 2, FieldWidth, FieldHeight)
+            };
+            foreach (GridRect candidate in candidates)
+            {
+                if (candidate.MinX < 0 || candidate.MinZ < 0 || candidate.MaxX >= terrain.Width || candidate.MaxZ >= terrain.Height) continue;
+                if (candidate.Points().All(cell => terrain[cell].Has(TerrainTraits.Standable | TerrainTraits.Fertile) &&
+                    !terrain[cell].HasAny(TerrainTraits.Water | TerrainTraits.Roofed | TerrainTraits.Occupied)))
+                {
+                    field = candidate;
+                    return true;
+                }
+            }
+            field = default(GridRect);
+            return false;
         }
 
         private static PhysicalFacility Facility(string id, FacilityKind kind, GridRect compound,

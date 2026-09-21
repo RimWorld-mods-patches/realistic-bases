@@ -58,10 +58,13 @@ namespace RealisticBases.Generation
                     Building edifice = cell.GetEdifice(map);
                     if (edifice == null || edifice.def?.building?.isNaturalRock != true)
                         throw new InvalidOperationException("P4 excavation ledger does not match a natural rock cell: " + cell);
-                    if (!changedRoofs.ContainsKey(cell)) changedRoofs[cell] = map.roofGrid.RoofAt(cell);
                     removedRocks.Add(new RockRestore { Cell = cell, Def = edifice.def });
                     edifice.Destroy(DestroyMode.Vanish);
-                    map.roofGrid.SetRoof(cell, null);
+                    if (plan.TerrainMutations.RoofClearanceCells.Contains(point))
+                    {
+                        if (!changedRoofs.ContainsKey(cell)) changedRoofs[cell] = map.roofGrid.RoofAt(cell);
+                        map.roofGrid.SetRoof(cell, null);
+                    }
                 }
                 IEnumerable<GridPoint> encounterMutationCells = EncounterCoverCells(encounter, plan)
                     .Concat(encounter.Profile.MortarCapable ? MortarFootprint(encounter.MortarCell) : Enumerable.Empty<GridPoint>());

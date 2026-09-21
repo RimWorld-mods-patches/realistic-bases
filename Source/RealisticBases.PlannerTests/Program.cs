@@ -44,6 +44,7 @@ internal static class Program
         Run("P4 terrain candidate search is bounded", P4TerrainCandidateSearchIsBounded);
         Run("P4 mountain plan owns only roofed rock excavation", P4MountainPlanOwnsOnlyRoofedRock);
         Run("P4 non-mountain plans have no landform mutation", P4NonMountainPlansHaveNoLandformMutation);
+        Run("P4 lakeshore plan preserves water and dry routes", P4LakeshorePlanPreservesWaterAndDryRoutes);
         Run("P3 assignments are deterministic and exclusive", P3AssignmentsAreDeterministicAndExclusive);
         Run("P3 assignment is weapon and post aware", P3AssignmentIsWeaponAndPostAware);
         Run("P3 pursuit validates destination and full route", P3PursuitValidatesDestinationAndFullRoute);
@@ -448,7 +449,7 @@ internal static class Program
         True(footprint.ExcavationCells.Count > 0 && footprint.ExcavationCells.Count <= 36,
             "only the selected portion of the explicit roofed rock patch is excavated");
         True(footprint.ExcavationCells.All(c => terrain[c].Has(TerrainTraits.NaturalRock | TerrainTraits.Roofed)), "excavation source legal");
-        True(footprint.RoofClearanceCells.SequenceEqual(footprint.ExcavationCells), "every excavation owns its roof change");
+        True(footprint.RoofClearanceCells.SequenceEqual(footprint.ExcavationCells), "every roofed excavation owns its roof change");
         True(PhysicalSettlementValidator.Validate(input, result.Plan).Count == 0, "mountain plan validates");
     }
 
@@ -458,6 +459,21 @@ internal static class Program
         PhysicalSettlementPlan plan = PhysicalSettlementPlanner.Plan(input).Plan;
         True(!plan.TerrainMutations.HasOwnedLandformMutation, "flat plan does not claim terrain ownership");
         True(plan.TerrainMutations.PreservedNaturalRockCells.Count == 0, "flat synthetic terrain has no fake natural boundary");
+    }
+
+    private static void P4LakeshorePlanPreservesWaterAndDryRoutes()
+    {
+        TerrainCell[] cells = FertileOpenCells(80, 80);
+        for (int z = 0; z < 80; z++) cells[z * 80 + 18] = Cell(TerrainTraits.Water);
+        TerrainSnapshot terrain = new TerrainSnapshot(80, 80, cells, "lakeshore-layout-v1");
+        PhysicalPlanningInput input = new PhysicalPlanningInput(P2ProfileCatalog.IndustrialTemperate, terrain,
+            91, new[] { "BlocksGranite" }, 6400, TerrainArchetype.Lakeshore);
+        PhysicalPlanningResult result = PhysicalSettlementPlanner.Plan(input);
+        True(result.Success, "lakeshore has a dry legal layout");
+        True(result.Plan.TerrainMutations.PreservedWaterCells.Count >= 8, "water boundary is explicit");
+        True(result.Plan.AttackRoute.All(c => !terrain[c].Has(TerrainTraits.Water)), "attack route does not assume water travel");
+        True(result.Plan.RetreatRoute.All(c => !terrain[c].Has(TerrainTraits.Water)), "retreat route does not assume water travel");
+        True(PhysicalSettlementValidator.Validate(input, result.Plan).Count == 0, "lakeshore plan validates");
     }
 
     private static PhysicalPlanningInput P2Input(PhysicalSettlementProfile profile) =>

@@ -91,7 +91,14 @@ namespace RealisticBases.Diagnostics
             GenerateIsolatedHostileSettlement(movePlayerColonist: true);
         }
 
-        private static void GenerateIsolatedHostileSettlement(bool movePlayerColonist)
+        [DebugAction(Category, "Generate playable mountainous P4 settlement", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void GeneratePlayableMountainousP4Settlement()
+        {
+            GenerateIsolatedHostileSettlement(movePlayerColonist: true, requireMountainous: true);
+        }
+
+        private static void GenerateIsolatedHostileSettlement(bool movePlayerColonist, bool requireMountainous = false)
         {
             Pawn arrivalPawn = movePlayerColonist
                 ? Find.Maps.Where(m => m.IsPlayerHome)
@@ -119,8 +126,10 @@ namespace RealisticBases.Diagnostics
             RealisticBasesMod.Settings.enableP0Generator = true;
             PlanetTile tile = TileFinder.RandomSettlementTileFor(Faction.OfPlayer, mustBeAutoChoosable: true,
                 extraValidator: candidate => Find.WorldGrid[candidate].PrimaryBiome == BiomeDefOf.TemperateForest &&
-                    Find.WorldGrid[candidate].hilliness != Hilliness.Mountainous &&
-                    Find.WorldGrid[candidate].hilliness != Hilliness.Impassable);
+                    (requireMountainous
+                        ? Find.WorldGrid[candidate].hilliness == Hilliness.Mountainous
+                        : Find.WorldGrid[candidate].hilliness != Hilliness.Mountainous &&
+                            Find.WorldGrid[candidate].hilliness != Hilliness.Impassable));
             Settlement settlement = (Settlement)WorldObjectMaker.MakeWorldObject(tile.LayerDef.SettlementWorldObjectDef);
             settlement.Tile = tile;
             settlement.SetFaction(faction);

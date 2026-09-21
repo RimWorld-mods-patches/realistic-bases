@@ -12,12 +12,13 @@ namespace RealisticBases.Planning
     {
         public TerrainMutationFootprint(IEnumerable<GridPoint> excavationCells,
             IEnumerable<GridPoint> roofClearanceCells, IEnumerable<GridPoint> constructedRoofCells,
-            IEnumerable<GridPoint> preservedNaturalRockCells)
+            IEnumerable<GridPoint> preservedNaturalRockCells, IEnumerable<GridPoint> preservedWaterCells = null)
         {
             ExcavationCells = Copy(excavationCells);
             RoofClearanceCells = Copy(roofClearanceCells);
             ConstructedRoofCells = Copy(constructedRoofCells);
             PreservedNaturalRockCells = Copy(preservedNaturalRockCells);
+            PreservedWaterCells = Copy(preservedWaterCells);
             Digest = ComputeDigest();
         }
 
@@ -25,6 +26,7 @@ namespace RealisticBases.Planning
         public IReadOnlyList<GridPoint> RoofClearanceCells { get; }
         public IReadOnlyList<GridPoint> ConstructedRoofCells { get; }
         public IReadOnlyList<GridPoint> PreservedNaturalRockCells { get; }
+        public IReadOnlyList<GridPoint> PreservedWaterCells { get; }
         public bool HasOwnedLandformMutation => ExcavationCells.Count != 0 || RoofClearanceCells.Count != 0;
         public string Digest { get; }
 
@@ -39,6 +41,7 @@ namespace RealisticBases.Planning
             foreach (GridPoint cell in RoofClearanceCells) hash = Add(hash, cell, 2);
             foreach (GridPoint cell in ConstructedRoofCells) hash = Add(hash, cell, 3);
             foreach (GridPoint cell in PreservedNaturalRockCells) hash = Add(hash, cell, 4);
+            foreach (GridPoint cell in PreservedWaterCells) hash = Add(hash, cell, 5);
             return StableHash.Hex(hash);
         }
 
@@ -63,17 +66,25 @@ namespace RealisticBases.Planning
             if (terrain == null) throw new ArgumentNullException(nameof(terrain));
             HashSet<GridPoint> compoundCells = new HashSet<GridPoint>(compound.Points());
             HashSet<GridPoint> excavations = archetype == TerrainArchetype.ExcavatedMountain
-                ? new HashSet<GridPoint>(compoundCells.Where(c => terrain[c].Has(TerrainTraits.NaturalRock | TerrainTraits.Roofed)))
+                ? new HashSet<GridPoint>(compoundCells.Where(c => terrain[c].Has(TerrainTraits.NaturalRock)))
                 : new HashSet<GridPoint>();
+            HashSet<GridPoint> roofClearance = new HashSet<GridPoint>(excavations.Where(c => terrain[c].Has(TerrainTraits.Roofed)));
             HashSet<GridPoint> constructedRoofs = new HashSet<GridPoint>((facilities ?? Enumerable.Empty<PhysicalFacility>())
                 .Where(f => f.Roofed).SelectMany(f => f.Bounds.Points()));
             HashSet<GridPoint> preserved = new HashSet<GridPoint>();
+            HashSet<GridPoint> water = new HashSet<GridPoint>();
             foreach (GridPoint cell in terrain.Points())
             {
                 if (!terrain[cell].Has(TerrainTraits.NaturalRock) || excavations.Contains(cell)) continue;
                 if (Neighbors.Any(n => compoundCells.Contains(new GridPoint(cell.X + n.X, cell.Z + n.Z)))) preserved.Add(cell);
             }
-            return new TerrainMutationFootprint(excavations, excavations, constructedRoofs, preserved);
+            if (archetype == TerrainArchetype.Lakeshore)
+            {
+                foreach (GridPoint cell in compoundCells)
+                    foreach (GridPoint neighbor in Neighbors.Select(n => new GridPoint(cell.X + n.X, cell.Z + n.Z)))
+                        if (terrain.InBounds(neighbor) && terrain[neighbor].Has(TerrainTraits.Water)) water.Add(neighbor);
+            }
+            return new TerrainMutationFootprint(excavations, roofClearance, constructedRoofs, preserved, water);
         }
 
         public static IReadOnlyList<string> Validate(TerrainArchetype archetype, TerrainSnapshot terrain,
@@ -85,12 +96,21 @@ namespace RealisticBases.Planning
                 errors.Add("unexpected_landform_mutation");
             foreach (GridPoint cell in footprint.ExcavationCells)
             {
-                if (!terrain.InBounds(cell) || !terrain[cell].Has(TerrainTraits.NaturalRock | TerrainTraits.Roofed))
-                    errors.Add("excavation_not_roofed_natural_rock");
-                if (!footprint.RoofClearanceCells.Contains(cell)) errors.Add("excavation_without_roof_ledger");
+                if (!terrain.InBounds(cell) || !terrain[cell].Has(TerrainTraits.NaturalRock))
+                    errors.Add("excavation_not_natural_rock");
+                if (terrain[cell].Has(TerrainTraits.Roofed) && !footprint.RoofClearanceCells.Contains(cell))
+                    errors.Add("roofed_excavation_without_roof_ledger");
             }
+            if (footprint.RoofClearanceCells.Any(c => !footprint.ExcavationCells.Contains(c) || !terrain[c].Has(TerrainTraits.Roofed)))
+                errors.Add("invalid_roof_clearance");
             if (footprint.ExcavationCells.Intersect(footprint.PreservedNaturalRockCells).Any())
                 errors.Add("excavates_preserved_boundary");
+            if (archetype == TerrainArchetype.Lakeshore && footprint.PreservedWaterCells.Count < 8)
+                errors.Add("lakeshore_requires_preserved_water_boundary");
+            if (archetype != TerrainArchetype.Lakeshore && footprint.PreservedWaterCells.Count != 0)
+                errors.Add("unexpected_water_boundary");
+            if (footprint.PreservedWaterCells.Any(c => !terrain.InBounds(c) || !terrain[c].Has(TerrainTraits.Water)))
+                errors.Add("water_boundary_not_water");
             if (footprint.ConstructedRoofCells.Any(c => !terrain.InBounds(c))) errors.Add("roof_out_of_bounds");
             return new ReadOnlyCollection<string>(errors.Distinct().ToList());
         }
