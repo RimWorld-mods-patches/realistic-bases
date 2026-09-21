@@ -45,6 +45,7 @@ internal static class Program
         Run("P3 safe needs relief preserves minimum staffing", P3SafeNeedsReliefPreservesMinimumStaffing);
         Run("P3 invalid outer posts trigger inner fallback", P3InvalidOuterPostsTriggerInnerFallback);
         Run("P3 valid assignments resist oscillation", P3ValidAssignmentsResistOscillation);
+        Run("P3 routine reserves a support worker", P3RoutineReservesSupportWorker);
         Run("P3 industrial encounter plan is deterministic and valid", P3IndustrialEncounterPlanIsDeterministicAndValid);
         Run("P3 posts avoid opaque walls and cover approaches", P3PostsAvoidOpaqueWallsAndCoverApproaches);
         Run("P3 mortar court is unroofed reachable and supplied", P3MortarCourtIsUnroofedReachableAndSupplied);
@@ -444,10 +445,21 @@ internal static class Program
         True(reassigned.Assignments.Single(a => a.DefenderId == 1).PostId != "south-long", "invalid post immediately replaced");
     }
 
+    private static void P3RoutineReservesSupportWorker()
+    {
+        GarrisonPlan routine = GarrisonDoctrine.Assign(P3Situation(hostileThreat: false));
+        Equal(GarrisonState.Routine, routine.State, "routine state");
+        Equal(1, routine.Assignments.Count(a => a.Role == GarrisonRole.Support), "declared routine support count");
+        Equal(4, routine.Assignments.Single(a => a.Role == GarrisonRole.Support).DefenderId,
+            "support-capable short-range defender selected");
+        GarrisonPlan combat = GarrisonDoctrine.Assign(P3Situation(hostileThreat: true));
+        True(combat.Assignments.All(a => a.Role != GarrisonRole.Support), "support worker returns to combat");
+    }
+
     private static GarrisonSituation P3Situation(int tick = 1000, IEnumerable<DefenderCandidate> defenders = null,
         IEnumerable<DefensivePost> posts = null, bool gateBreached = false, string threatenedSector = "north",
-        bool outerDefenseViable = true, bool needsRouteSafe = true) =>
-        new GarrisonSituation(tick, defenders ?? P3Defenders(), posts ?? P3Posts(), true, threatenedSector,
+        bool outerDefenseViable = true, bool needsRouteSafe = true, bool hostileThreat = true) =>
+        new GarrisonSituation(tick, defenders ?? P3Defenders(), posts ?? P3Posts(), hostileThreat, threatenedSector,
             gateBreached, outerDefenseViable, needsRouteSafe, new GridPoint(14, 14), new GridPoint(15, 15));
 
     private static IEnumerable<DefenderCandidate> P3Defenders()
@@ -489,6 +501,8 @@ internal static class Program
             "no post occupies solid wall");
         True(encounter.Posts.Count(p => p.SectorId == "north" && p.MinimumRange > 0) >= 2, "north approach covered");
         True(encounter.Posts.Count(p => p.SectorId == "south" && p.MinimumRange > 0) >= 2, "south approach covered");
+        True(encounter.Posts.Any(p => p.SectorId == "west" && p.MinimumRange > 0), "west approach covered");
+        True(encounter.Posts.Any(p => p.SectorId == "east" && p.MinimumRange > 0), "east approach covered");
         True(encounter.Posts.All(p => p.IsValid), "all planned posts usable");
     }
 

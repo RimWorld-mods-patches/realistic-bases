@@ -19,6 +19,7 @@ namespace RealisticBases.Diagnostics
     {
         private const string Category = "Realistic Bases P0";
         private const string DisposableSaveName = "RealisticBases-P0-Disposable";
+        private const string P3ActiveSaveName = "RealisticBases-P3-Active";
         private static int lastDebugSettlementId = -1;
 
         [DebugAction(Category, "Save disposable P0 game", actionType = DebugActionType.Action,
@@ -47,6 +48,33 @@ namespace RealisticBases.Diagnostics
             P0Log.Message("DISPOSABLE_RELOAD_REQUEST", "name=" + DisposableSaveName +
                 " tick=" + Find.TickManager.TicksGame);
             GameDataSaveLoader.CheckVersionAndLoadGame(DisposableSaveName);
+        }
+
+        [DebugAction(Category, "Save active P3 test game", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void SaveActiveP3Game()
+        {
+            GameDataSaveLoader.SaveGame(P3ActiveSaveName);
+            P3Log.Message("ACTIVE_SAVE_CREATED", "name=" + P3ActiveSaveName +
+                " tick=" + Find.TickManager.TicksGame);
+            Messages.Message("Saved active P3 test game as " + P3ActiveSaveName,
+                MessageTypeDefOf.TaskCompletion, false);
+        }
+
+        [DebugAction(Category, "Reload active P3 test game", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void ReloadActiveP3Game()
+        {
+            string path = GenFilePaths.FilePathForSavedGame(P3ActiveSaveName);
+            if (!System.IO.File.Exists(path))
+            {
+                Messages.Message("No active P3 test save exists at " + path,
+                    MessageTypeDefOf.RejectInput, false);
+                return;
+            }
+            P3Log.Message("ACTIVE_RELOAD_REQUEST", "name=" + P3ActiveSaveName +
+                " tick=" + Find.TickManager.TicksGame);
+            GameDataSaveLoader.CheckVersionAndLoadGame(P3ActiveSaveName);
         }
 
         [DebugAction(Category, "Generate isolated hostile P0 settlement", actionType = DebugActionType.Action,
@@ -300,6 +328,13 @@ namespace RealisticBases.Diagnostics
         private static void StartP2GeneratorServiceScenario()
         {
             P2RuntimeAudit.StartGeneratorServiceScenario(Find.CurrentMap);
+        }
+
+        [DebugAction(Category, "Audit current P3 defensive encounter", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void AuditP3Encounter()
+        {
+            Find.CurrentMap?.GetComponent<P3GarrisonController>()?.Audit("manual");
         }
 
         [DebugAction(Category, "Spawn hostile garrison/work probe", actionType = DebugActionType.ToolMap,

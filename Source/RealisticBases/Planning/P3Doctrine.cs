@@ -148,8 +148,9 @@ namespace RealisticBases.Planning
     {
         public GarrisonSituation(int tick, IEnumerable<DefenderCandidate> defenders, IEnumerable<DefensivePost> posts,
             bool hostileThreat, string threatenedSector, bool gateBreached, bool outerDefenseViable,
-            bool needsRouteSafe, GridPoint supportCenter, GridPoint innerFallback)
+            bool needsRouteSafe, GridPoint supportCenter, GridPoint innerFallback, int routineSupportWorkers = 1)
         {
+            if (routineSupportWorkers < 0) throw new ArgumentOutOfRangeException(nameof(routineSupportWorkers));
             Tick = tick;
             Defenders = new ReadOnlyCollection<DefenderCandidate>((defenders ?? throw new ArgumentNullException(nameof(defenders)))
                 .OrderBy(d => d.Id).ToList());
@@ -162,6 +163,7 @@ namespace RealisticBases.Planning
             NeedsRouteSafe = needsRouteSafe;
             SupportCenter = supportCenter;
             InnerFallback = innerFallback;
+            RoutineSupportWorkers = routineSupportWorkers;
         }
 
         public int Tick { get; }
@@ -174,6 +176,7 @@ namespace RealisticBases.Planning
         public bool NeedsRouteSafe { get; }
         public GridPoint SupportCenter { get; }
         public GridPoint InnerFallback { get; }
+        public int RoutineSupportWorkers { get; }
     }
 
     public static class GarrisonDoctrine
@@ -189,9 +192,31 @@ namespace RealisticBases.Planning
             if (state != GarrisonState.Routine && validPosts.Count == 0) state = GarrisonState.InnerFallback;
 
             HashSet<string> occupied = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<int> routineSupport = new HashSet<int>(state == GarrisonState.Routine
+                ? situation.Defenders.Where(d => d.CanSupport && !d.NeedsRelief)
+                    .OrderBy(d => d.CanOperateMortar)
+                    .ThenBy(d => d.WeaponClass == DefenderWeaponClass.LongRanged)
+                    .ThenBy(d => d.WeaponRange)
+                    .ThenBy(d => d.Id)
+                    .Take(situation.RoutineSupportWorkers).Select(d => d.Id)
+                : Enumerable.Empty<int>());
             List<GarrisonAssignment> assignments = new List<GarrisonAssignment>();
             foreach (DefenderCandidate defender in situation.Defenders)
             {
+                if (MustRelieve(defender, situation, state))
+                {
+                    assignments.Add(new GarrisonAssignment(defender.Id, GarrisonRole.NeedsRelief, string.Empty,
+                        string.Empty, situation.SupportCenter, situation.Tick, "safe_needs_relief"));
+                    continue;
+                }
+
+                if (routineSupport.Contains(defender.Id))
+                {
+                    assignments.Add(new GarrisonAssignment(defender.Id, GarrisonRole.Support, string.Empty,
+                        string.Empty, situation.SupportCenter, situation.Tick, "routine_support"));
+                    continue;
+                }
+
                 DefensivePost previous = validPosts.FirstOrDefault(p => p.Id == defender.PreviousPostId &&
                     Compatible(defender, p) && !occupied.Contains(p.Id));
                 bool cooldown = situation.Tick - defender.LastAssignmentTick < ReassignmentCooldownTicks;
@@ -199,13 +224,6 @@ namespace RealisticBases.Planning
                 {
                     occupied.Add(previous.Id);
                     assignments.Add(PostAssignment(defender, previous, state, situation.Tick, "stable_assignment"));
-                    continue;
-                }
-
-                if (MustRelieve(defender, situation, state))
-                {
-                    assignments.Add(new GarrisonAssignment(defender.Id, GarrisonRole.NeedsRelief, string.Empty,
-                        string.Empty, situation.SupportCenter, situation.Tick, "safe_needs_relief"));
                     continue;
                 }
 

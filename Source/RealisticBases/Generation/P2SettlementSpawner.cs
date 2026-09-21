@@ -27,13 +27,16 @@ namespace RealisticBases.Generation
         {
             PhysicalSettlementPlan plan = run.Result.Plan;
             PhysicalSettlementProfile profile = run.Input.Profile;
+            EncounterPlan encounter = EncounterPlanner.Plan(plan, profile, run.Snapshot);
             List<Thing> spawned = new List<Thing>();
             Dictionary<IntVec3, RoofDef> changedRoofs = new Dictionary<IntVec3, RoofDef>();
             List<PlantRestore> removedPlants = new List<PlantRestore>();
             string terrainOnlyBefore = P0MapAudit.TerrainChecksum(map);
             try
             {
-                foreach (GridPoint point in plan.Compound.Points().Concat(plan.FieldCells).Distinct())
+                IEnumerable<GridPoint> encounterMutationCells = EncounterCoverCells(encounter, plan)
+                    .Concat(encounter.Profile.MortarCapable ? MortarFootprint(encounter.MortarCell) : Enumerable.Empty<GridPoint>());
+                foreach (GridPoint point in plan.Compound.Points().Concat(plan.FieldCells).Concat(encounterMutationCells).Distinct())
                 {
                     Plant plant = ToCell(point).GetPlant(map);
                     if (plant == null) continue;
@@ -81,6 +84,24 @@ namespace RealisticBases.Generation
                     spawned.Add(SpawnPlacement(placement, map, settlement.Faction, wallStuff));
                 }
 
+                string coverDefName = profile.Has(SettlementCapability.Electricity) ? "Sandbags" : "Barricade";
+                ThingDef coverDef = RequireDef(coverDefName);
+                ThingDef coverStuff = profile.Has(SettlementCapability.Electricity) ? ThingDefOf.Steel : wallStuff;
+                foreach (GridPoint coverCell in EncounterCoverCells(encounter, plan))
+                    spawned.Add(SpawnBuilding(coverDef, coverStuff, ToCell(coverCell), map, settlement.Faction, Rot4.North));
+
+                Thing mortar = null;
+                List<Thing> combatStocks = new List<Thing>();
+                if (encounter.Profile.MortarCapable)
+                {
+                    mortar = SpawnBuilding(ThingDefOf.Turret_Mortar, ThingDefOf.Steel, ToCell(encounter.MortarCell),
+                        map, settlement.Faction, Rot4.North);
+                    spawned.Add(mortar);
+                    IntVec3 actualInteraction = mortar.InteractionCell;
+                    if (!actualInteraction.InBounds(map) || !actualInteraction.Standable(map) || map.roofGrid.Roofed(actualInteraction))
+                        throw new InvalidOperationException("Mortar interaction cell is not reachable and unroofed: " + actualInteraction);
+                }
+
                 int cropCount = 0;
                 ThingDef cropDef = RequireDef(profile.CropDef);
                 foreach (GridPoint point in plan.FieldCells.Take(profile.RequiredCropCells))
@@ -114,13 +135,30 @@ namespace RealisticBases.Generation
                 SpawnStacks(RequireDef(profile.Has(SettlementCapability.Electricity) ? "MedicineIndustrial" : "MedicineHerbal"),
                     10, InteriorCells(medical), map, spawned);
 
+                if (encounter.Profile.MortarCapable)
+                {
+                    Queue<IntVec3> magazineCells = new Queue<IntVec3>(InteriorCells(storage)
+                        .Where(c => c.Standable(map) && c.GetEdifice(map) == null &&
+                            !c.GetThingList(map).Any(t => t.def.category == ThingCategory.Item)));
+                    foreach (CombatSupply supply in encounter.Supplies)
+                    {
+                        if (supply.DefName == "ReinforcedBarrel" && Find.Storyteller.difficulty.classicMortars) continue;
+                        if (magazineCells.Count == 0) throw new InvalidOperationException("No P3 magazine cell remains for " + supply.DefName);
+                        Thing stock = ThingMaker.MakeThing(RequireDef(supply.DefName));
+                        stock.stackCount = Math.Min(stock.def.stackLimit, supply.Count);
+                        stock = GenSpawn.Spawn(stock, magazineCells.Dequeue(), map, Rot4.North, WipeMode.Vanish);
+                        spawned.Add(stock);
+                        combatStocks.Add(stock);
+                    }
+                }
+
                 map.powerNetManager.UpdatePowerNetsAndConnections_First();
                 Thing battery = spawned.FirstOrDefault(t => t.TryGetComp<CompPowerBattery>() != null);
                 battery?.TryGetComp<CompPowerBattery>()?.SetStoredEnergyPct(0.5f);
 
                 List<Pawn> defenders = SpawnResidents(map, settlement, profile, plan, spawned);
-                IntVec3 hold = ToCell(plan.Facilities.Single(f => f.Kind == FacilityKind.Defense).InteractionCells[0]);
-                LordMaker.MakeNewLord(settlement.Faction, new LordJob_P0Garrison(hold, ToCell(plan.Compound.Points().ElementAt(plan.Compound.Area / 2))), map, defenders);
+                map.GetComponent<P3GarrisonController>().Initialize(settlement, plan, encounter, defenders, spawned, mortar, combatStocks);
+                LordMaker.MakeNewLord(settlement.Faction, new LordJob_P3Garrison(settlement.ID), map, defenders);
 
                 Thing wood = spawned.FirstOrDefault(t => t.def == ThingDefOf.WoodLog);
                 IntVec3 woodCell = wood?.Position ?? ToCell(storage.Door);
@@ -137,6 +175,8 @@ namespace RealisticBases.Generation
                 string terrainOnlyAfter = P0MapAudit.TerrainChecksum(map);
                 P2Log.Message("SPAWN_COMPLETE", "path=" + path + " profile=" + profile.Id + " planDigest=" + plan.Digest +
                     " things=" + spawned.Count + " residents=" + defenders.Count + " crops=" + cropCount +
+                    " encounterDigest=" + encounter.Digest + " posts=" + encounter.Posts.Count +
+                    " mortar=" + encounter.Profile.MortarCapable + " combatStocks=" + combatStocks.Sum(t => t.stackCount) +
                     " startupFoodUnits=" + profile.StartupFoodUnits + " startupFuelUnits=" + profile.StartupFuelUnits +
                     " internalFuel=" + internalFuel + " terrainBefore=" + terrainBefore + " terrainAfter=" + after +
                     " terrainPreserved=" + (terrainOnlyBefore == terrainOnlyAfter) +
@@ -265,6 +305,25 @@ namespace RealisticBases.Generation
             for (int z = facility.Bounds.MinZ + 1; z < facility.Bounds.MaxZ; z++)
                 for (int x = facility.Bounds.MinX + 1; x < facility.Bounds.MaxX; x++)
                     yield return new IntVec3(x, 0, z);
+        }
+
+        private static IEnumerable<GridPoint> EncounterCoverCells(EncounterPlan encounter, PhysicalSettlementPlan plan)
+        {
+            foreach (DefensivePost post in encounter.Posts.Where(p => !p.Inner && !p.Mortar && p.MinimumRange > 0))
+            {
+                if (post.Cell.Z < plan.Compound.MinZ) yield return new GridPoint(post.Cell.X, post.Cell.Z - 1);
+                else if (post.Cell.Z > plan.Compound.MaxZ) yield return new GridPoint(post.Cell.X, post.Cell.Z + 1);
+                else if (post.Cell.X < plan.Compound.MinX) yield return new GridPoint(post.Cell.X - 1, post.Cell.Z);
+                else if (post.Cell.X > plan.Compound.MaxX) yield return new GridPoint(post.Cell.X + 1, post.Cell.Z);
+            }
+        }
+
+        private static IEnumerable<GridPoint> MortarFootprint(GridPoint origin)
+        {
+            yield return origin;
+            yield return new GridPoint(origin.X + 1, origin.Z);
+            yield return new GridPoint(origin.X, origin.Z + 1);
+            yield return new GridPoint(origin.X + 1, origin.Z + 1);
         }
 
         private static ThingDef RequireDef(string name) => DefDatabase<ThingDef>.GetNamed(name, true);

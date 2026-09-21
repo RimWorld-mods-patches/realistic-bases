@@ -158,13 +158,15 @@ namespace RealisticBases.Planning
                 Post("north-east", "north", c.MinX + 19, c.MinZ - 1, 10, 38, false),
                 Post("south-west", "south", c.MinX + 11, c.MaxZ + 1, 10, 38, false),
                 Post("south-east", "south", c.MinX + 19, c.MaxZ + 1, 10, 38, false),
-                Post("north-gate", "north", c.MinX + 14, c.MinZ + 1, 0, 4, false),
-                Post("south-gate", "south", c.MinX + 16, c.MaxZ - 1, 0, 4, false),
+                Post("west-center", "west", c.MinX - 1, c.MinZ + 12, 10, 38, false),
+                Post("east-center", "east", c.MaxX + 1, c.MinZ + 12, 10, 38, false),
+                Post("north-gate", "north", c.MinX + 15, c.MinZ + 1, 0, 4, false),
+                Post("south-gate", "south", c.MinX + 15, c.MaxZ - 1, 0, 4, false),
                 Post("inner-west", "inner", c.MinX + 12, c.MinZ + 9, 4, 24, true),
                 Post("inner-east", "inner", c.MinX + 18, c.MinZ + 9, 4, 24, true)
             };
             GridPoint mortar = profile.MortarCapable ? new GridPoint(c.MinX + 26, c.MinZ + 20) : new GridPoint(-1, -1);
-            GridPoint mortarInteraction = profile.MortarCapable ? new GridPoint(c.MinX + 26, c.MinZ + 22) : new GridPoint(-1, -1);
+            GridPoint mortarInteraction = profile.MortarCapable ? new GridPoint(c.MinX + 26, c.MinZ + 19) : new GridPoint(-1, -1);
             if (profile.MortarCapable)
                 posts.Add(new DefensivePost("mortar", "center", mortarInteraction, 0, 100, false, true, true, true, false, true));
             PhysicalFacility storage = settlement.Facilities.Single(f => f.Kind == FacilityKind.BulkStorage);

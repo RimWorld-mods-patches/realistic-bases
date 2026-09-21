@@ -66,6 +66,11 @@ namespace RealisticBases.Core
         public static MapGeneratorDef RB_P0_Base_Faction;
         public static DutyDef RB_P0_WorkSettlement;
         public static DutyDef RB_P0_HoldPost;
+        public static DutyDef RB_P3_DefendPost;
+        public static DutyDef RB_P3_ManMortar;
+        public static DutyDef RB_P3_Support;
+        public static DutyDef RB_P3_Relief;
+        public static DutyDef RB_P3_InnerFallback;
 
         static RBDefOf()
         {
