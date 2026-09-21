@@ -38,6 +38,10 @@ internal static class Program
         Run("P2 gates and facility routes are viable", P2GatesAndFacilityRoutesAreViable);
         Run("P2 layout rejection is bounded", P2LayoutRejectionIsBounded);
         Run("P2 layout selects declared local material", P2LayoutSelectsDeclaredLocalMaterial);
+        Run("P4 archetype selection is deterministic and preserves terrain", P4ArchetypeSelectionIsDeterministic);
+        Run("P4 terrain analysis classifies foothill mountain and lakeshore", P4TerrainAnalysisClassifiesLandforms);
+        Run("P4 inaccessible islands reject without assumed bridges", P4InaccessibleIslandRejects);
+        Run("P4 terrain candidate search is bounded", P4TerrainCandidateSearchIsBounded);
         Run("P3 assignments are deterministic and exclusive", P3AssignmentsAreDeterministicAndExclusive);
         Run("P3 assignment is weapon and post aware", P3AssignmentIsWeaponAndPostAware);
         Run("P3 pursuit validates destination and full route", P3PursuitValidatesDestinationAndFullRoute);
@@ -52,7 +56,7 @@ internal static class Program
         Run("P3 combat stock is operating reserve only", P3CombatStockIsOperatingReserveOnly);
         Run("P3 mortar adds no electrical load", P3MortarAddsNoElectricalLoad);
         Run("P3 tribal encounter excludes mortar content", P3TribalEncounterExcludesMortarContent);
-        Console.WriteLine("P1/P2/P3 pure tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures);
+        Console.WriteLine("P1/P2/P3/P4 pure tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
 
@@ -365,6 +369,68 @@ internal static class Program
         True(input.LocalStuffDefs.Contains(plan.LocalWallStuff), "selected material is local");
     }
 
+    private static void P4ArchetypeSelectionIsDeterministic()
+    {
+        TerrainSnapshot snapshot = FertileOpen(80, 80);
+        string before = snapshot.Digest;
+        TerrainArchetypeInput input = new TerrainArchetypeInput(P2ProfileCatalog.IndustrialTemperate, snapshot, 1001, 16);
+        TerrainArchetypeResult first = TerrainArchetypePlanner.Plan(input);
+        TerrainArchetypeResult second = TerrainArchetypePlanner.Plan(input);
+        True(first.Success && second.Success, "open land accepts");
+        Equal(TerrainArchetype.Flat, first.Candidate.Archetype, "open land is flat");
+        Equal(first.Candidate.Archetype, second.Candidate.Archetype, "stable archetype");
+        Equal(first.Candidate.Anchor, second.Candidate.Anchor, "stable anchor");
+        Equal(before, snapshot.Digest, "analysis preserves snapshot");
+    }
+
+    private static void P4TerrainAnalysisClassifiesLandforms()
+    {
+        TerrainCell[] foothillCells = FertileOpenCells(80, 80);
+        for (int z = 20; z < 26; z++) for (int x = 20; x < 26; x++)
+            foothillCells[z * 80 + x] = Cell(foothillCells[z * 80 + x].Traits | TerrainTraits.NaturalRock);
+        TerrainArchetypeResult foothill = TerrainArchetypePlanner.Plan(new TerrainArchetypeInput(P2ProfileCatalog.IndustrialTemperate,
+            new TerrainSnapshot(80, 80, foothillCells, "foothill-v1"), 1002, 16));
+        Equal(TerrainArchetype.Foothill, foothill.Candidate.Archetype, "foothill classification");
+
+        TerrainCell[] mountainCells = FertileOpenCells(80, 80);
+        for (int z = 20; z < 26; z++) for (int x = 20; x < 26; x++)
+            mountainCells[z * 80 + x] = Cell(mountainCells[z * 80 + x].Traits | TerrainTraits.NaturalRock | TerrainTraits.Roofed);
+        TerrainArchetypeResult mountain = TerrainArchetypePlanner.Plan(new TerrainArchetypeInput(P2ProfileCatalog.IndustrialTemperate,
+            new TerrainSnapshot(80, 80, mountainCells, "mountain-v1"), 1003, 16));
+        Equal(TerrainArchetype.ExcavatedMountain, mountain.Candidate.Archetype, "mountain classification");
+
+        TerrainCell[] shoreCells = FertileOpenCells(80, 80);
+        for (int z = 1; z < 79; z++) for (int x = 0; x < 4; x++) shoreCells[z * 80 + x] = Cell(TerrainTraits.Water);
+        TerrainArchetypeResult shore = TerrainArchetypePlanner.Plan(new TerrainArchetypeInput(P2ProfileCatalog.IndustrialTemperate,
+            new TerrainSnapshot(80, 80, shoreCells, "shore-v1"), 1004, 16));
+        Equal(TerrainArchetype.Lakeshore, shore.Candidate.Archetype, "lakeshore classification");
+    }
+
+    private static void P4InaccessibleIslandRejects()
+    {
+        TerrainCell[] cells = Enumerable.Repeat(Cell(TerrainTraits.Water), 80 * 80).ToArray();
+        for (int z = 20; z < 60; z++) for (int x = 20; x < 60; x++)
+            cells[z * 80 + x] = Cell(TerrainTraits.Standable | TerrainTraits.Buildable | TerrainTraits.Fertile | TerrainTraits.SupportsHeavy);
+        TerrainArchetypeResult result = TerrainArchetypePlanner.Plan(new TerrainArchetypeInput(P2ProfileCatalog.IndustrialTemperate,
+            new TerrainSnapshot(80, 80, cells, "island-v1"), 1005, 16));
+        True(!result.Success, "unapproachable island rejects");
+        True(result.Rejections.Any(r => r.Contains("island_requires_verified_approach")), "does not assume a bridge");
+    }
+
+    private static void P4TerrainCandidateSearchIsBounded()
+    {
+        TerrainCell[] cells = Enumerable.Repeat(Cell(TerrainTraits.Water), 80 * 80).ToArray();
+        for (int z = 0; z < 20; z++) for (int x = 0; x < 20; x++)
+            cells[z * 80 + x] = Cell(TerrainTraits.Standable | TerrainTraits.Buildable | TerrainTraits.Fertile | TerrainTraits.SupportsHeavy | TerrainTraits.MapEdge);
+        for (int z = 40; z < 50; z++) for (int x = 40; x < 50; x++)
+            cells[z * 80 + x] = Cell(TerrainTraits.Standable | TerrainTraits.Buildable | TerrainTraits.Fertile | TerrainTraits.SupportsHeavy);
+        TerrainArchetypeResult result = TerrainArchetypePlanner.Plan(new TerrainArchetypeInput(P2ProfileCatalog.IndustrialTemperate,
+            new TerrainSnapshot(80, 80, cells, "tiny-edge-v1"), 1006, 1));
+        True(!result.Success && result.LimitReached, "bounded terrain rejection");
+        Equal(1, result.CandidatesConsidered, "one candidate considered");
+        True(result.Rejections.Any(r => r.Contains("insufficient_buildable_land")), "specific rejection");
+    }
+
     private static PhysicalPlanningInput P2Input(PhysicalSettlementProfile profile) =>
         new PhysicalPlanningInput(profile, FertileOpen(80, 80), 91, new[] { "BlocksGranite" }, 6400);
 
@@ -546,9 +612,15 @@ internal static class Program
 
     private static TerrainSnapshot FertileOpen(int width, int height)
     {
+        TerrainCell[] cells = FertileOpenCells(width, height);
+        return new TerrainSnapshot(width, height, cells, "fertile-synthetic-v1");
+    }
+
+    private static TerrainCell[] FertileOpenCells(int width, int height)
+    {
         TerrainCell[] cells = OpenCells(width, height);
         for (int i = 0; i < cells.Length; i++) cells[i] = Cell(cells[i].Traits | TerrainTraits.Fertile);
-        return new TerrainSnapshot(width, height, cells, "fertile-synthetic-v1");
+        return cells;
     }
 
     private static IEnumerable<GridPoint> OrthogonalNeighbors(GridPoint point)

@@ -53,7 +53,7 @@ scope.
 | Step | Implementation | Required evidence before commit | Status / commit |
 |---|---|---|---|
 | P4.0 | Scope, archetype contract, terrain-mutation/recovery ledger, matrix, and boundaries | Docs agree with P0–P3 evidence and leave P5/P6 unstarted | Complete — this checkpoint |
-| P4.1 | Immutable terrain analysis, versioned archetype inputs, deterministic bounded candidate/rejection model | Pure tests for same-input digest, terrain/capability selection, water/rock/roof rejection, bounded fallback, unchanged snapshots | Pending |
+| P4.1 | Immutable terrain analysis, versioned archetype inputs, deterministic bounded candidate/rejection model | 47/47 combined pure tests; Docker Release build 0 warnings/errors; same-input/rejection/landform/snapshot cases passed | Complete — this checkpoint |
 | P4.2 | Foothill and excavated-mountain physical plans/spawning with explicit mutation footprints, roof support, natural-boundary preservation, and P3 geometry adapters | Build/pure tests; Core mountain/foothill live cases; pre-spawn and deep-partial recovery | Pending |
 | P4.3 | Lakeshore, peninsula, and supported-island plans with legal approach/bridge/gate/circulation validation | Build/pure tests; Core water and rejected inaccessible/tiny/narrow cases; terrain-preserving fallback | Pending |
 | P4.4 | Layered fortifications, palettes/import budgets, climate alternatives, P3/save-reload regression, Core + Geological Landforms matrix, visual review, and exit decision | Actual final-map/path/roof/utility/combat/recovery observations, separate from estimates/screenshots | Pending |
@@ -92,7 +92,29 @@ compatibility observation using Geological Landforms 1.7.13.1 plus Map Preview.
 Those P0/P3 observations establish ordering/coexistence only; each P4 geometry must
 be tested afresh.
 
+## P4.1 immutable terrain analysis
+
+`TerrainArchetypePlanner` is a pure, versioned pre-layout classifier. It examines
+only the immutable `TerrainSnapshot` and a capability profile, uses deterministic
+edge-connected regions, and returns a candidate with its observed land, buildable,
+fertile, natural-rock, roofed-rock, and water-boundary counts. It recognizes flat,
+foothill, excavated-mountain, and lakeshore evidence but does not yet mutate a map
+or claim that an archetype can spawn; P4.2/P4.3 must supply the corresponding
+physical geometry and runtime validation.
+
+An isolated land region is explicitly rejected as
+`island_requires_verified_approach`. The model does not infer a bridge or water
+passability. Inadequate buildable/fertile capacity likewise rejects before a layout
+or map mutation. Region consideration is capped by the input maximum and the
+snapshot digest remains unchanged.
+
+Four added pure cases passed with the prior suite (47/47 total): deterministic
+selection/snapshot preservation; foothill, roofed-rock mountain, and lakeshore
+classification; inaccessible-island rejection without an assumed bridge; and
+bounded insufficient-land rejection. The Docker Release build passed with zero
+warnings/errors.
+
 ## Next action
 
-Implement P4.1: introduce a versioned terrain-archetype model and deterministic
-candidate classification/rejection tests without mutating live maps or starting P5.
+Implement P4.2: turn accepted foothill and roofed-rock terrain evidence into explicit
+physical layout/mutation-footprint plans and validators, before any live carving.

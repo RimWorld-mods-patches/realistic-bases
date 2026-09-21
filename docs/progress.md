@@ -98,7 +98,7 @@ P0–P3 findings remain historical evidence; no completed checks were rewritten.
 | Step | Scope | Validation and commit policy | Status |
 |---|---|---|---|
 | P4.0 | Terrain-archetype scope, mutation/recovery contract, live matrix, evidence policy, and explicit P5/P6 boundary | Documentation review; standalone checkpoint commit | Complete |
-| P4.1 | Immutable terrain analysis and deterministic bounded archetype selection/rejection | Pure tests and Docker Release build; standalone feature commit | Pending |
+| P4.1 | Immutable terrain analysis and deterministic bounded archetype selection/rejection | 47/47 combined pure tests and Docker Release build 0 warnings/errors; standalone feature commit | Complete |
 | P4.2 | Foothill/excavated-mountain layouts, roof/support/mutation recovery, and P3 geometry adaptation | Pure/build plus Core mountain recovery cases; standalone feature commit | Pending |
 | P4.3 | Lakeshore/peninsula/supported-island layouts with legal approach, bridge, gate, and circulation constraints | Pure/build plus Core water/rejection cases; standalone feature commit | Pending |
 | P4.4 | Layered fortifications, palettes/budgets/climate alternatives, P3/save-reload regression, Core/GL matrix, and exit | Actual runtime/recovery evidence and closeout commit | Pending |
@@ -128,3 +128,4 @@ P0–P3 findings remain historical evidence; no completed checks were rewritten.
 | 2026-09-21 | P3.3 replaced the P0 probe Lord with the settlement-scoped runtime garrison, added narrow support and mortar jobs, strict assigned-post containment, physical reserve consumption, active save/reload reconstruction, and diagnostics. 43/43 pure tests and a clean Docker build passed; focused Core live checks preserved assignments and a loaded shell across reload with no player pawn control. |
 | 2026-09-21 | P3.4 passed four approach sectors, night/harassment and incendiary gating, breach/fallback/relief, operator and power loss, finite exhaustion, tribal exclusions, active reload evidence, and Geological Landforms + Map Preview regression. Invalid encounter plans now reject before mutation. P3 closed; P4/P5 remain unstarted. |
 | 2026-09-21 | Authorized P4; documented terrain-adapted archetype, explicit mutation/recovery, fortification, climate, P3-regression, and Core/GL validation gates. P5/P6 remain unstarted. |
+| 2026-09-21 | P4.1 added immutable versioned terrain-archetype analysis with deterministic flat/foothill/excavated-mountain/lakeshore evidence, explicit inaccessible-island rejection, and bounded search. 47/47 pure tests and Docker build passed. |
