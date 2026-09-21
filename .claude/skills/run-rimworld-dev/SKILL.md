@@ -39,7 +39,7 @@ rg -n "Command line arguments|Loading game from file autostart|GAME_LOADED|Excep
 
 The installed [RIMAPI](https://github.com/IlyaChichkov/RIMAPI) mod embeds a local
 HTTP API server in RimWorld. It supports RimWorld 1.5-1.6 and listens on
-`http://127.0.0.1:8765` by default once a colony is loaded; the port is configurable
+`http://localhost:8765` by default once a colony is loaded; the port is configurable
 in `Options > Mod Settings > RIMAPI`. The server is not available at the main menu.
 RIMAPI also supports Server-Sent Events (SSE) for live updates and extensions from
 other mods; discover the exact routes supported by the installed version with
@@ -49,8 +49,8 @@ Use `curl` from the host to inspect or control the running disposable game. Set 
 base URL explicitly if the port was changed:
 
 ```bash
-RIMAPI_BASE=http://127.0.0.1:8765
-curl --fail --silent "$RIMAPI_BASE/api/v1/game/state"
+RIMAPI_BASE=http://localhost:8765
+curl --noproxy '*' --fail --silent "$RIMAPI_BASE/api/v1/game/state"
 ```
 
 The most useful endpoints for runtime tests are:
@@ -58,7 +58,7 @@ The most useful endpoints for runtime tests are:
 - `GET /api/v1/game/state` — current tick, pause state, storyteller, wealth, and colonist count.
 - `GET /api/v1/version` — game, mod, and API version information.
 - `GET /api/v1/maps` — loaded maps, including map ids and whether each is the player home map.
-- `GET /api/v1/map/pawns?mapId=0` — pawns on a map with health, mood, and positions.
+- `GET /api/v1/map/pawns?map_id=0` — pawns on a map with health, mood, and positions.
 - `GET /api/v1/colonists/positions` — lightweight cross-map pawn positions for polling.
 - `GET /api/v1/map/terrain?map_id=0` — terrain/floor grid data.
 - `GET /api/v1/dev/endpoints` — the endpoint list exposed by the installed RIMAPI version.
@@ -85,15 +85,15 @@ Useful examples:
 
 ```bash
 # Confirm the loaded disposable colony and discover its map ids.
-curl --fail --silent "$RIMAPI_BASE/api/v1/game/state"
-curl --fail --silent "$RIMAPI_BASE/api/v1/maps"
+curl --noproxy '*' --fail --silent "$RIMAPI_BASE/api/v1/game/state"
+curl --noproxy '*' --fail --silent "$RIMAPI_BASE/api/v1/maps"
 
 # Inspect the playable encounter map after SPAWN_COMPLETE.
-curl --fail --silent "$RIMAPI_BASE/api/v1/map/pawns?mapId=0"
-curl --fail --silent "$RIMAPI_BASE/api/v1/colonists/positions"
+curl --noproxy '*' --fail --silent "$RIMAPI_BASE/api/v1/map/pawns?map_id=0"
+curl --noproxy '*' --fail --silent "$RIMAPI_BASE/api/v1/colonists/positions"
 
 # Pause before inspecting or changing state through another request.
-curl --fail --silent \
+curl --noproxy '*' --fail --silent \
   -X POST "$RIMAPI_BASE/api/v1/game/speed?speed=0" \
   -H 'Content-Type: application/json' -d '{}'
 ```
