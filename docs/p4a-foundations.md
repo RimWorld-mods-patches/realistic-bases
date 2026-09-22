@@ -1,6 +1,6 @@
 # P4A foundations: procedural settlement layouts
 
-2026-09-22 · Status: **foundation investigation and pure-planner prototype only**. P4A is not complete; P4 is still in progress under separate ownership; P5 is not started.
+2026-09-22 (updated 2026-09-23) · Status: **foundation investigation and pure-planner prototype only**. P4A is not complete; P4 is still in progress under separate ownership; P5 is not started.
 
 This document is the P4A foundation workstream's own record. The shared milestone documents (`implementation-plan.md`, `progress.md`, `p4-findings.md`, `p4-connectivity.md`) were deliberately left unchanged while P4 work runs concurrently.
 
@@ -69,7 +69,7 @@ Line numbers refer to `a41477e`.
 
 A planner needs a cheap feasibility check **inside** its search loop, on its own irregular-enclosure model, before any `PhysicalSettlementPlan` exists. The prototype's `ProceduralLayoutValidator` applies the P4 connectivity semantics to explicit masks: one root, cardinal-only floods, rooms excluded from public transit, room-local job access, final obstacles, and no exterior re-entry. It also checks P4A-specific properties that P4's grid does not express: multi-cell fixture footprints, irregular perimeter closure, capacity versus demand, and hard relationship distances.
 
-It is **not** a replacement for `PlannedNavigationGrid`. The integration plan (§5) is to generalize `PlannedNavigationGrid` to accept an explicit public mask and explicit gate interior endpoints. The P4A check then becomes a planner-internal pre-filter, and the P4 grid remains the single acceptance authority. Until then, the tests run **both** on every accepted layout, so any divergence shows up.
+It is **not** a replacement for `PlannedNavigationGrid`. The integration plan (§5) is to generalize `PlannedNavigationGrid` to accept an explicit public mask and explicit gate interior endpoints. The P4A check then becomes a planner-internal pre-filter, and the P4 grid remains the single acceptance authority. Until then, the tests run the P4A check on every accepted layout. They also run `P4Connectivity.Validate` on every layout the current P4 representation can express, and they count the layouts it cannot express (§7).
 
 ## 3. Proposed interfaces and ownership boundaries
 
@@ -93,7 +93,7 @@ It is **not** a replacement for `PlannedNavigationGrid`. The integration plan (�
 
 ### 3.3 Adapter to the P4 plan (`ProceduralLayoutAdapter.ToPhysicalPlan`)
 
-The adapter produces a `PhysicalSettlementPlan`. Its compound is the bounding rectangle of the enclosure and its walls, and its perimeter is the procedural wall. Gates are the procedural north and south gates, which lie on the bounding rectangle so that P4's `InsideGate` stays valid. The reinforcement gates and bands have exactly P4's geometry. Rooms become roofed `PhysicalFacility`s. Each fixture becomes one `PhysicalPlacement` at its access-adjacent anchor. The adapter supplies an empty mutation footprint and the procedural exterior routes.
+The adapter produces a `PhysicalSettlementPlan`. Its compound is the bounding rectangle of the enclosure and its walls, and its perimeter is the procedural wall. Gates are the procedural gates. A layout is representable only when every gate lies on the bounding rectangle, so that P4's `InsideGate` infers the correct endpoint, and when no multilayer band runs east/west. Otherwise the adapter returns no plan and lists the incompatibilities. The reinforcement gates and bands have exactly P4's geometry. Rooms become roofed `PhysicalFacility`s. Each fixture becomes one `PhysicalPlacement` at its access-adjacent anchor. The adapter supplies an empty mutation footprint and the procedural exterior routes.
 
 Known adapter losses, which are integration prerequisites:
 
@@ -117,13 +117,13 @@ For those reasons, the adapter output is checked with `P4Connectivity.Validate`,
 
 ## 4. Bounded implementation checklist (this workstream)
 
-| Step | Scope | Evidence required | Status |
+| Step | Scope | Evidence | Status / commit |
 |---|---|---|---|
-| F0 | This assessment | Documentation review | See §7 |
-| F1 | Demand model, relationship graph, and furnishing rules | Pure tests: demand monotonicity and capability legality | See §7 |
-| F2 | Seeded bounded placement on an eroded usable mask, street/branch circulation with repair, enclosure, gates, bands, exterior routes, pre-acceptance validator, and diagnostics | Pure tests: determinism, variation, demand, obstacles, rejection cases, budget, and input immutability | See §7 |
-| F3 | Adapter to `PhysicalSettlementPlan`, cross-check with `P4Connectivity.Validate` for layers 1–3, and ASCII export of examples | Pure tests plus the committed ASCII examples | See §7 |
-| F4 | Findings and handoff | This document | See §7 |
+| F0 | This assessment | Documentation review | Complete: `74e5d57` |
+| F1 | Demand model, relationship graph, and furnishing rules (climate, lighting, wall-backed benches, personal rooms) | Pure tests for demand scaling, climate fixtures, and bench orientation | Complete: `7144e9f` |
+| F2 | Seeded bounded street-first placement with repair branches, synthetic excavation with natural roof support, enclosure, free gates, bands, exterior routes, validator, and diagnostics | Pure tests for determinism, variation, demand, obstacles, rejections, budget/immutability, and rock doctrine | Complete: `7144e9f` |
+| F3 | Adapter to `PhysicalSettlementPlan`, cross-check with `P4Connectivity.Validate`, and ASCII export | Pure cross-check test and examples in `docs/p4a-examples/` | Complete: `7144e9f` (code), `00efed4` (examples) |
+| F4 | Findings and handoff | This document (§6–§9) | Complete: this commit |
 
 Explicitly **not** in this workstream: changing the live generator, spawner, audit, P3 posts, AI, wall construction, excavation, P4 tests or documents, runtime testing, mountains/water/islands, fields, power conduits, traps or IEDs (never), P5.
 
@@ -139,6 +139,116 @@ Explicitly **not** in this workstream: changing the live generator, spawner, aud
 8. Add the explicit, logged fixed-compound fallback required by the plan, and report its selection frequency.
 9. Run the live matrix: Core flat industrial/tribal, wall layers 1–3, pathing and job audits, P3 regression, and rollback.
 
-## 6. Design (prototype)
+## 6. Design decisions (agreed with the user on 2026-09-22)
 
-Detailed in §7 after implementation.
+| Decision | Choice | Consequence |
+|---|---|---|
+| Gate placement | **Free.** Gates may use any straight run of built wall where public circulation meets the perimeter. | `P4Connectivity` can cross-check only the layouts whose gates happen to be representable. Generalizing the P4 grid (§5.1) is a hard integration prerequisite. |
+| Under-rock bases | **Synthetic excavation is implemented.** It is exercised only on synthetic mountains. | This is still no claim of live mountain support. Terra's P4 excavation, mutation ledger and rollback stay authoritative. |
+| Seed | `LayoutSeed.Derive(worldSeed, tile, factionId, profileId, profileVersion)` plus the P4A planner version. It contains no compound dimensions. Purpose sub-seeds: `rooms`, `site`, `attempt`, `doctrine`, `branches`, `gate`, and others. | The integration must persist the seed with the settlement so revisits never reroll. |
+| Mortar versus protection | A profile `MortarBiasPercent` rolled once against the `doctrine` sub-seed. The chosen doctrine falls back to the other one and records why. | Profiles that cannot use a mortar always prefer rock protection when it exists. A dropped mortar is written into `Notes` as a capability loss. |
+| Excavation bound | A profile cell budget (`60 + R×70` industrial, `60 + R×35` tribal). A hard reject per candidate. The score is protection gained against cells dug. | The budget is checked again by the validator. |
+| Roof support | A retained thick roof must reach **intact natural rock** within 6.9 cells through retained-roof cells. **Built walls never count** as holders. | This mirrors vanilla `RoofCollapseUtility.WithinRangeOfRoofHolder` (radius 6.9, flood over roofed cells). I confirmed from `Roofs.xml` that `RoofRockThick` has `canCollapse` true. |
+| Retained roof ledger | `ProceduralLayout.RetainedThickRoof` sits next to Terra's `TerrainMutationFootprint` type. | P4's current `Validate` would demand roof clearance for these cells, so a ledger extension is a prerequisite (§5). |
+| Generation approach | Street-first growth: a seeded 2-wide spine with entrance plazas at both ends, seeded and repair branches, rooms placed on the frontage, a setback, an outline wall, and gates. | Public connectivity holds by construction, and the validator confirms it independently. |
+
+Requirements the user added:
+
+- **Temperature control in every living room** (barracks, bedroom, jail, medical, dining) when the climate requires it. Industrial settlements use `Heater` and a wall-mounted `Cooler` whose exhaust goes to an open-sky public cell. Tribal settlements use a `Campfire` and a `PassiveCooler`. Rooms fully under thick roof skip cooling, because `RoomTempTracker` pulls them toward 15 °C. Climate is an explicit `LayoutClimate` input, because the snapshot has none. The thresholds (heating below 10 °C, cooling above 30 °C) are provisional.
+- **Lighting in every room**: `StandingLamp` for industrial settlements and `TorchLamp` for tribal ones.
+- **Batteries indoors.** The power room is always roofed. Generator count is derived from the worst-case powered load, including the power room's own draw.
+- **Workbenches and stoves** stand with their back row against a wall and their interaction cell facing the room. The test checks the vanilla rotation convention (`interactionCellOffset` (0,0,-1) rotated) against the planned access cell. P2's current layout places benches at the room centre (§1.1).
+- **Rich settlements** (`HousingStandard.PersonalRooms`) get one bedroom per resident instead of 8-bed barracks.
+
+Other design points:
+
+- **Fixtures.** Footprints come from Core defs: bed 1×2, stove/bench 3×1 with an interaction cell, generator 2×2, battery 1×2, table 2×2 with four chairs. Every fixture is treated conservatively as blocking.
+- **Furnishing.** Capacity is the result of actually furnishing a candidate size. A placement is kept only if a flood from the door's interior cell still reaches every access cell.
+- **Oversized demands** split into at most 8 rooms of a kind.
+- **Placement margin.** Rooms and streets keep `setback + 1 + outerClearance` (default 3) Chebyshev cells from unusable terrain, which guarantees a legal outline wall. The margin is conservative. Isolated boulders consume a 7×7 area.
+
+## 7. Evidence (synthetic planner evidence only; no live game evidence)
+
+The commands run in the repository-prescribed SDK container. A separate NuGet cache volume keeps them isolated from the P4 worktree:
+
+```text
+docker run --rm -v "$PWD":/mod -v realistic-bases-p4a-nuget:/root/.nuget/packages \
+  -w /mod/Source/RealisticBases mcr.microsoft.com/dotnet/sdk:8.0 dotnet build -c Release
+docker run --rm -v "$PWD":/mod -v realistic-bases-p4a-nuget:/root/.nuget/packages \
+  -w /mod/Source/RealisticBases.LayoutTests mcr.microsoft.com/dotnet/sdk:8.0 \
+  dotnet run -c Release -- --export /mod/docs/p4a-examples
+docker run --rm -v "$PWD":/mod -v realistic-bases-p4a-nuget:/root/.nuget/packages \
+  -w /mod/Source/RealisticBases.PlannerTests mcr.microsoft.com/dotnet/sdk:8.0 dotnet run -c Release
+```
+
+Results at `7144e9f`:
+
+- The mod assembly (net472) built with **0 warnings and 0 errors**. The new planning files compile into the DLL, but nothing references them.
+- The new `RealisticBases.LayoutTests` passed **18/18** in about 5 s.
+- The existing `RealisticBases.PlannerTests` passed **52/52** with no regressions. `Program.cs` was not modified.
+- `git diff --check` was clean.
+
+| Required demonstration | Test and observed result |
+|---|---|
+| Identical inputs produce identical layouts and digests | Replayed digest, ASCII, and search trace are identical. |
+| Several seeds give internal differences beyond translation or rotation | Seeds 1–6 on the same 120×120 plains are pairwise **not** equivalent under all 8 rigid motions. 6/6 distinct door-adjacency topologies and 6/6 distinct room-size sets. |
+| Population/demand changes capacity and geometry coherently | 4→16 residents: enclosure 617→1048 cells, rooms 9→10 (barracks split), interior area 156→423, more stoves and tables. Barracks split at 8 beds. Storage and beds grow with population. |
+| Obstacles alter the layout | Plains versus the same map with a pond, a rock ridge, and boulders (same seed): non-equivalent layouts, with nothing placed on water or obstacles. |
+| Connectivity and access hold after planned blocking footprints | The validator floods over final walls, room walls, multi-cell fixtures, the court, and undug rock. Injected blockers are each reported: a door's outside cell (`room_door_disconnected_kitchen`), a stove's interaction cell (`interaction_unreachable_kitchen_Stove`), a ring around gate 1's inside endpoint (`gate1_disconnected`, even though its exterior route exists, so exterior re-entry is not accepted), the root (`public_root_blocked`), and a full street cut. |
+| Bedrooms, prisons, and freezers never become corridors | Every room has exactly one portal, and no room cell belongs to public circulation. Every door and gate endpoint is in the one public component. |
+| Impossible demand, disconnected terrain, and narrow passages reject predictably | `insufficient_usable_area` (population 20 on 40×40; small islands; two pockets joined only by a 3-wide pass, each eroded to 196 cells against ~504 needed). `room_demand_exceeds_legal_dimensions` (400 residents; a floor of 400 dining seats). `no_valid_layout` with `no_gate_candidate` (a 58×58 island with no dry route to the map edge: no bridge or water crossing is assumed). `search_budget_exhausted` (120 residents on 120×120 passes the loose area pre-check but exceeds the bounded search). |
+| Search is bounded and inputs are unchanged | `maxEvaluations=60` rejects after exactly 60 evaluations. The terrain, input, and requirement digests are unchanged. Every counter stays within its budget. |
+| Rock doctrine | Tribal, cold, mountain: `RockProtected`, 3/4 living rooms under retained thick roof, 225/270 cells excavated, no unsupported roof cell, rock used as natural perimeter. Industrial with bias 100 gives `OpenGround` with an open-sky mortar court. Bias 0 gives `RockProtected`, no court, and the note `mortar_court_dropped_for_rock_protection`. A 20×20 dug hall is unsupported, while a 12×12 room held by its rock walls is supported. |
+| Wall layers 1–3 | Every gate reserves (L−1) aligned band doors, 4(L−1) band walls, vestibules, staging, and an exterior route. The validator checks alignment, terrain, overlap, and the route never re-entering the enclosure. |
+| P4 adapter cross-check | 1/24 layouts (layers 1–3 × 8 seeds) were representable by `PlannedNavigationGrid` at `a41477e`, and that one passed `P4Connectivity.Validate`. The other 23 were not representable, because their gates are not on the bounding rectangle or have east/west bands (§1.3). They are counted and reported, not forced. |
+
+The inspectable examples in `docs/p4a-examples/` each carry a legend and, for the mountain cases, a roof view:
+
+- three plains seeds
+- 16 residents
+- obstacles
+- 3 wall layers
+- industrial cold personal rooms
+- industrial hot barracks
+- tribal cold barracks
+- tribal rock-protected
+- the mortar and protect doctrines
+
+## 8. Limitations of the foundation
+
+- **Evidence.** All of it is pure and synthetic. No live map, spawning, pathing, `TraverseParms`, job, temperature, or roof collapse was observed.
+- **Mountains.** Mountain and under-rock support is synthetic only. Live mountains, lakeshores, and islands are not claimed. The ordinary land and rock classes do not model shallow water (always blocked) or thin rock roofs (every roofed rock is treated as thick).
+- **Gate count.** A layout may accept one gate (`MinimumGates=1`) when the second spine end is inside rock. This happened in the rock-protected example. The shortfall is written into `Notes`.
+- **Geometry.**
+  - Room envelopes are rectangular.
+  - Neighbouring rooms have double walls; there are no shared walls.
+  - One door per room.
+  - The main street is 2 wide and straight, with no loops except by chance.
+  - The margin around every unusable cell is conservative.
+- **Fixtures.** Chairs are non-blocking and every other fixture is treated as blocking. Lamps and torches are treated as blocking, which is conservative. Heater and cooler counts are area rules of thumb (40 cells each, passive coolers 25), not thermal simulation. The heating and cooling thresholds are provisional.
+- **Not planned yet:** fields (only the required count is output), power conduits, P3 posts, doors' materials, and trade and stock allocation.
+- **Validator.** It duplicates P4 connectivity semantics for the irregular model. §2.1 and §5.1 explain how this converges into the one P4 authority.
+- **Pre-check.** The area pre-check is a necessary condition only. Marginal demands fall through to the bounded search and can end with `search_budget_exhausted` rather than an area rejection.
+
+## 9. Handoff: what remains for P4A after P4 is final
+
+The foundation delivers a working, deterministic, bounded pure planner, reached as `ProceduralLayoutPlanner.Plan(ProceduralLayoutInput)`. It derives demand from population, capability, climate, and wealth, grows circulation, places furnished rooms, optionally digs under rock, encloses the result, and chooses gates and bands. It explains rejections, validates its own final occupancy, and exports ASCII. None of it is wired into generation.
+
+Remaining P4A work, in dependency order, to start only after P4 closes:
+
+1. **Generalize P4 connectivity with the P4 owner (§5.1).** Add explicit public masks and gate endpoints, gatehouse bands in any direction, multi-cell footprints, and a walled-versus-roofed distinction. Fix the `Has`/`HasAny` blocking test. Then make `ProceduralLayoutValidator` a pre-filter only, and reach a 24/24 adapter cross-check.
+2. **Extend the mutation ledger** with retained thick roof (`RetainedThickRoof`). Add live collapse checks and rollback for excavation-with-roof.
+3. **Adapt P2 and P3 consumers** (§5.2–§5.4): capacity per kind, per-room fixtures, procedural posts, the mortar court, and the magazine.
+4. **Integrate the P4 archetypes into the usable mask** (§5.7): foothill, lakeshore preservation, island approaches. Only then claim terrain support.
+5. **Place fields and route conduits** (§5.5). Add the logged fixed fallback and its frequency (§5.8).
+6. **Persist the P4A seed** with the settlement, version the planner, and replace `MinimumBuildableCells` (§5.6).
+7. **Run the live matrix** (§5.9): Core flat industrial and tribal, cold and hot climates, wall layers 1–3, rock-protected and mortar doctrines, pathing and job audits, P3 regression, rollback, and visual review. Keep the separation between pure and live evidence.
+
+Improvements the tests suggested but that are not required:
+
+- shared room walls
+- corridor loops and wider plazas
+- a smarter margin, so interior boulders no longer consume a 7×7 area
+- an area pre-check calibrated from observed enclosure-to-room ratios, which are roughly 1.3–1.5 on plains
+
+P4A is **not complete**, and P5 is not started.
