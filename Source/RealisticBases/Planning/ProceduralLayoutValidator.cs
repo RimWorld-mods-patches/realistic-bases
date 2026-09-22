@@ -158,6 +158,49 @@ namespace RealisticBases.Planning
             return new ReadOnlyCollection<string>(errors.Distinct().ToList());
         }
 
+        // Loadout rules (plan step 6): catalog legality and no prohibited content for every item and
+        // stuff, role and climate rules, apparel layering, and the equipment budget.
+        public static IReadOnlyList<string> ValidateLoadout(ProceduralLayoutInput input, ProceduralLayout layout, SettlementLoadout loadout)
+        {
+            List<string> errors = new List<string>();
+            if (input == null || loadout == null) return new[] { "missing_input_or_loadout" };
+            LayoutKit kit = input.Equipment.Kit;
+            TechCatalog catalog = input.Catalog;
+            LayoutClimate climate = input.Requirements.Climate;
+            if (loadout.Stage.Digest != kit.Stage.Digest) errors.Add("loadout_stage_mismatch");
+            foreach (LoadoutItem item in loadout.AllItems)
+            {
+                CatalogDef def;
+                if (!catalog.TryGet(item.DefName, out def)) { errors.Add("loadout_unknown_" + item.DefName); continue; }
+                if (ProhibitedContent.IsProhibited(def)) errors.Add("loadout_prohibited_" + item.DefName);
+                else if (!catalog.IsLegal(def, kit.Stage)) errors.Add("loadout_illegal_" + item.DefName);
+                if (item.Stuff != null && !catalog.IsLegal(item.Stuff, kit.Stage)) errors.Add("loadout_illegal_stuff_" + item.DefName + "_" + item.Stuff);
+                if (item.Count <= 0) errors.Add("loadout_count_" + item.DefName);
+            }
+            if (loadout.Residents.Count != input.Requirements.Residents) errors.Add("loadout_resident_count");
+            if (!loadout.Residents.Any(r => r.Role == LoadoutRole.RangedLine)) errors.Add("loadout_no_ranged_line");
+            if (kit.Stage.Level < SettlementTechStageLevel.IndustrialMid && loadout.Residents.Any(r => r.Role == LoadoutRole.Heavy)) errors.Add("loadout_heavy_below_mid");
+            if (layout != null && layout.Court != null && input.Requirements.Residents > 1 && !loadout.Residents.Any(r => r.Role == LoadoutRole.Support))
+                errors.Add("loadout_no_mortar_crew");
+            if (loadout.Residents.Count(r => r.Elite) > 1) errors.Add("loadout_elite_count");
+            bool cold = climate.HeatingRequired && !climate.CoolingRequired;
+            foreach (ResidentLoadout resident in loadout.Residents)
+            {
+                if (resident.Utility != null && resident.Utility.DefName == "Apparel_ShieldBelt" &&
+                    (resident.Weapon == null || !LayoutLoadoutModel.IsMelee(resident.Weapon.DefName))) errors.Add("shield_belt_on_ranged_" + resident.Index);
+                List<CatalogDef> worn = resident.Apparel.Select(a => { CatalogDef d; catalog.TryGet(a.DefName, out d); return d; }).Where(d => d != null).ToList();
+                for (int i = 0; i < worn.Count; i++)
+                    for (int j = i + 1; j < worn.Count; j++)
+                        if (LayoutLoadoutModel.Conflicts(worn[i], worn[j])) errors.Add("apparel_layer_conflict_" + resident.Index);
+                if (climate.CoolingRequired && resident.Apparel.Any(a => a.DefName == "Apparel_Parka" || a.DefName == "Apparel_Duster"))
+                    errors.Add("hot_climate_cold_gear_" + resident.Index);
+                if (cold && !worn.Any(d => d.ApparelLayers.Contains("Shell"))) errors.Add("cold_without_shell_" + resident.Index);
+            }
+            if (loadout.Success && loadout.EquipmentValue > input.Requirements.EquipmentValueLimit) errors.Add("equipment_budget");
+            if (loadout.EquipmentValueLimit != input.Requirements.EquipmentValueLimit) errors.Add("equipment_limit_mismatch");
+            return new ReadOnlyCollection<string>(errors.Distinct().ToList());
+        }
+
         private static void ValidatePower(ProceduralLayoutInput input, ProceduralLayout layout, LayoutTerrainGrid grid, HashSet<GridPoint> enclosure,
             HashSet<GridPoint> roomCells, HashSet<GridPoint> courtCells, HashSet<GridPoint> yardCells, HashSet<GridPoint> built, List<string> errors)
         {

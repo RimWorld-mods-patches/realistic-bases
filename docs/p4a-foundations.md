@@ -1,6 +1,6 @@
 # P4A foundations: procedural settlement layouts
 
-2026-09-22 (updated 2026-09-23) · Status: **foundation investigation and pure-planner prototype only**. P4A is not complete; P4 is still in progress under separate ownership; P5 is not started.
+2026-09-22 (updated 2026-09-23) · Status: **foundation investigation and pure-planner prototype only**, extended with the pure tech-stage equipment model (plan steps 1–6, §10). P4A is not complete; P4 is still in progress under separate ownership; P5 is not started.
 
 This document is the P4A foundation workstream's own record. The shared milestone documents (`implementation-plan.md`, `progress.md`, `p4-findings.md`, `p4-connectivity.md`) were deliberately left unchanged while P4 work runs concurrently.
 
@@ -181,10 +181,10 @@ docker run --rm -v "$PWD":/mod -v realistic-bases-p4a-nuget:/root/.nuget/package
   -w /mod/Source/RealisticBases.PlannerTests mcr.microsoft.com/dotnet/sdk:8.0 dotnet run -c Release
 ```
 
-Results at `7144e9f`:
+Results after plan step 6 (the tech-stage equipment commits are listed in §10; the foundation itself was first recorded at `7144e9f` with 18/18):
 
 - The mod assembly (net472) built with **0 warnings and 0 errors**. The new planning files compile into the DLL, but nothing references them.
-- The new `RealisticBases.LayoutTests` passed **18/18** in about 5 s.
+- The new `RealisticBases.LayoutTests` passed **62/62** in about 11 s: the 18 foundation tests and 44 tech-stage equipment tests.
 - The existing `RealisticBases.PlannerTests` passed **52/52** with no regressions. `Program.cs` was not modified.
 - `git diff --check` was clean.
 
@@ -196,11 +196,11 @@ Results at `7144e9f`:
 | Obstacles alter the layout | Plains versus the same map with a pond, a rock ridge, and boulders (same seed): non-equivalent layouts, with nothing placed on water or obstacles. |
 | Connectivity and access hold after planned blocking footprints | The validator floods over final walls, room walls, multi-cell fixtures, the court, and undug rock. Injected blockers are each reported: a door's outside cell (`room_door_disconnected_kitchen`), a stove's interaction cell (`interaction_unreachable_kitchen_Stove`), a ring around gate 1's inside endpoint (`gate1_disconnected`, even though its exterior route exists, so exterior re-entry is not accepted), the root (`public_root_blocked`), and a full street cut. |
 | Bedrooms, prisons, and freezers never become corridors | Every room has exactly one portal, and no room cell belongs to public circulation. Every door and gate endpoint is in the one public component. |
-| Impossible demand, disconnected terrain, and narrow passages reject predictably | `insufficient_usable_area` (population 20 on 40×40; small islands; two pockets joined only by a 3-wide pass, each eroded to 196 cells against ~504 needed). `room_demand_exceeds_legal_dimensions` (400 residents; a floor of 400 dining seats). `no_valid_layout` with `no_gate_candidate` (a 58×58 island with no dry route to the map edge: no bridge or water crossing is assumed). `search_budget_exhausted` (120 residents on 120×120 passes the loose area pre-check but exceeds the bounded search). |
+| Impossible demand, disconnected terrain, and narrow passages reject predictably | `insufficient_usable_area` (population 20 on 40×40; small islands; two pockets joined only by a 3-wide pass, each eroded to 196 cells against ~504 needed). `room_demand_exceeds_legal_dimensions` (400 residents; a floor of 400 dining seats). `no_valid_layout` with `no_gate_candidate` (a 58×58 island with no dry route to the map edge: no bridge or water crossing is assumed). `search_budget_exhausted` (120 tribal residents on 120×120 pass the loose area pre-check but exceed the bounded search). 120 industrial residents now reject earlier with `room_demand_exceeds_legal_dimensions:Power:8`, because their load needs more than eight generators. |
 | Search is bounded and inputs are unchanged | `maxEvaluations=60` rejects after exactly 60 evaluations. The terrain, input, and requirement digests are unchanged. Every counter stays within its budget. |
 | Rock doctrine | Tribal, cold, mountain: `RockProtected`, 3/4 living rooms under retained thick roof, 225/270 cells excavated, no unsupported roof cell, rock used as natural perimeter. Industrial with bias 100 gives `OpenGround` with an open-sky mortar court. Bias 0 gives `RockProtected`, no court, and the note `mortar_court_dropped_for_rock_protection`. A 20×20 dug hall is unsupported, while a 12×12 room held by its rock walls is supported. |
 | Wall layers 1–3 | Every gate reserves (L−1) aligned band doors, 4(L−1) band walls, vestibules, staging, and an exterior route. The validator checks alignment, terrain, overlap, and the route never re-entering the enclosure. |
-| P4 adapter cross-check | 1/24 layouts (layers 1–3 × 8 seeds) were representable by `PlannedNavigationGrid` at `a41477e`, and that one passed `P4Connectivity.Validate`. The other 23 were not representable, because their gates are not on the bounding rectangle or have east/west bands (§1.3). They are counted and reported, not forced. |
+| P4 adapter cross-check | 7/24 layouts (layers 1–3 × 8 seeds) are representable by `PlannedNavigationGrid` at `a41477e`, and all 7 pass `P4Connectivity.Validate` (1/24 before the catalog furnishing of step 4 changed the layouts). The others are not representable, because their gates are not on the bounding rectangle or have east/west bands (§1.3). They are counted and reported, not forced. Power yards map to blocking generator placements. |
 
 The inspectable examples in `docs/p4a-examples/` each carry a legend and, for the mountain cases, a roof view:
 
@@ -213,6 +213,11 @@ The inspectable examples in `docs/p4a-examples/` each carry a legend and, for th
 - tribal cold barracks
 - tribal rock-protected
 - the mortar and protect doctrines
+- Industrial Early with a wind turbine and its clear zone (`plains-industrial-early-wind`)
+- Industrial Mid with a geothermal yard on a steam geyser (`plains-industrial-mid-geothermal`)
+- Industrial Mid rock-protected, fuel-only power (`mountain-industrial-mid-rock-protected-power`)
+
+Since plan step 4 the examples show the catalog kit: tribal bedrolls, torches, campfire kitchens, one crafting spot, stools, stockpile zones and wooden walls; shelves ('k'), vitals monitors ('V'), power yards ('Y') and wind clear zones ('w') where the stage has them. Each header lists the material ledger and the power plan.
 
 ## 8. Limitations of the foundation
 
@@ -225,7 +230,7 @@ The inspectable examples in `docs/p4a-examples/` each carry a legend and, for th
   - One door per room.
   - The main street is 2 wide and straight, with no loops except by chance.
   - The margin around every unusable cell is conservative.
-- **Fixtures.** Chairs are non-blocking and every other fixture is treated as blocking. Lamps and torches are treated as blocking, which is conservative. Heater and cooler counts are area rules of thumb (40 cells each, passive coolers 25), not thermal simulation. The heating and cooling thresholds are provisional.
+- **Fixtures.** Since plan step 4, blocking follows catalog passability (anything not `Standable` blocks), so spots, bedrolls, seats and horseshoe pins are non-blocking and every placed fixture still keeps a reachable neighbour. Only straight-ahead interaction offsets are modelled; others reject with `interaction_offset_unsupported:<def>`. Heater and cooler counts are area rules of thumb (40 cells each, passive coolers 25), not thermal simulation. The heating and cooling thresholds are provisional.
 - **Not planned yet:** fields (only the required count is output), power conduits, P3 posts, doors' materials, and trade and stock allocation.
 - **Validator.** It duplicates P4 connectivity semantics for the irregular model. §2.1 and §5.1 explain how this converges into the one P4 authority.
 - **Pre-check.** The area pre-check is a necessary condition only. Marginal demands fall through to the bounded search and can end with `search_budget_exhausted` rather than an area rejection.
@@ -252,3 +257,37 @@ Improvements the tests suggested but that are not required:
 - an area pre-check calibrated from observed enclosure-to-room ratios, which are roughly 1.3–1.5 on plains
 
 P4A is **not complete**, and P5 is not started.
+
+## 10. Tech-stage equipment (plan steps 1–6)
+
+`docs/plans/2026-09-23-tech-stage-equipment.md` extends this foundation. Steps 1–6 are implemented as pure, engine-independent code with synthetic evidence only; steps 7–8 (runtime catalog adapter, equipping and spawning) wait for P4. Nothing is wired into the live generator.
+
+| Step | What was built | Commit |
+|---|---|---|
+| 1. Stage model | `SettlementTechStage` (six cumulative research sets, ceilings, adaptations with reasons, `TryStepDown`), faction bands, `LayoutSeed.DeriveFaction` | `3e9ecde` |
+| 2. Catalog and legality | `CatalogDef`, `TechCatalog`, prohibited-content filter (traps, IEDs) before legality; `tools/extract-core-catalog.py` and the Core 1.6.4871 test fixture | `087fe9a` |
+| 3. Role table | `RoleTable` with MaxStage/MinStage caps, `RoleResolver` with step-down ("cannot equip its tier"), `TechCatalog.RawMinimumTiers` | `ae78272` |
+| 4. Planner integration | `LayoutEquipment` / `LayoutKit`, role-driven furnishing from catalog footprints, Stonecutting adaptation, construction stuff, wood and stone ledger | `487f661` |
+| 5. Power progression | `LayoutPowerPlan`: dispatchable floor, geothermal/solar/wind yards, batteries, fuel stock, chemfuel from Mid | `f6d7d65` |
+| 6. Gear and stock | `SettlementLoadout`: roles, weapons, apparel by stage and climate, quality, armoury, medicine, components, equipment budget | this commit |
+
+Evidence: 44 new LayoutTests (62/62 total), PlannerTests 52/52 unchanged, mod build 0/0. Highlights: the six stage sets are closed under vanilla prerequisites; no trap or IED is ever legal; tribal layouts and loadouts contain no ComplexFurniture, smithy, gun, flak or industrial medicine; wood-poor stony tribes adapt Stonecutting and build in stone; the power plan always covers the critical load with dispatchable generators; loadouts pass `ValidateLoadout` for every stage and climate.
+
+Measured equipment value per resident (8 residents, seed 5, unlimited budget; gear + 25% armoury + medicine and components; vanilla `CalculatedBaseMarketValue` with quality factors 0.5/0.75/1/1.25/1.5/2.5/5), which calibrated the provisional budget table:
+
+| Stage | Temperate | Cold | Default budget per resident |
+|---|---|---|---|
+| Neolithic | 289 | 495 | 325 |
+| Medieval | 869 | 901 | 900 |
+| IndustrialEarly | 664 | 852 | 1000 |
+| IndustrialMid | 1553 | 2015 | 1600 |
+| IndustrialLate | 2343 | 2465 | 2400 |
+| Spacer | 5110 | 5159 | 5200 |
+
+Climates that need heating multiply the default by 1.2; colder kits above that degrade quality first.
+
+Provisional constants (all named in code): faction band weights and the Medieval chance for tribes; role MaxStage/MinStage caps; the ×1.25 wood-scarcity threshold, the enclosure-outline estimate (4 × √(1.5 × room area)) and the 3-day fuel horizon; `CellsPerShelf`; renewable capacity factors (solar 0.5, wind 0.4, watermill and geothermal 1.0), four units per source, a six-hour battery bridge; loadout role shares, armoury share, medicine and component stocks, quality weights and value factors; import limits (5500 / 1400) and the equipment budget table.
+
+Known limits: wind turbines face North only and rarely fit between packed rooms; the watermill is deferred to the P4 river archetype; exotic raw stuff is gated by `RawMinimumTiers`; Steel, cloth and component costs of furniture are summarized but not charged; the loadout is standalone (not part of the layout digest).
+
+Remaining (after P4): step 7 builds `TechCatalog` from `DefDatabase` (DLC and mods), persists the stage per faction, and fills `LayoutLocalResources` (wood yield, local stone, river and geyser cells) from the live map. Step 8 strips and re-equips residents, spawns stocks, and fixes the P2 profiles through the catalog, verified by the live matrix in the plan.

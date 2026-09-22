@@ -73,6 +73,17 @@ internal static class Program
         Run("power: chemfuel when wood is short, imported at catalog value", PowerChemfuel);
         Run("power: watermill and oversized power diagnostics", PowerDiagnostics);
         Run("unsupported interaction offsets reject with a diagnostic", InteractionOffsetUnsupported);
+        Run("loadout: role shares by stage", LoadoutRoles);
+        Run("loadout: role x stage weapon golden table", LoadoutWeapons);
+        Run("loadout: stage apparel golden table", LoadoutApparel);
+        Run("loadout: cold adds shells, hot never does", LoadoutClimate);
+        Run("loadout: spacer shield belts only on melee, one helmet", LoadoutSpacer);
+        Run("loadout: quality is seeded and deterministic", LoadoutQualityDeterminism);
+        Run("loadout: armoury, medicine and component stocks", LoadoutStocks);
+        Run("loadout: tribal has no gun, flak or industrial medicine", LoadoutTribal);
+        Run("loadout: temperate kits fit the stage default budget", LoadoutBudgetDefaults);
+        Run("loadout: budget degrades then rejects", LoadoutBudgetDegradation);
+        Run("loadout: built from a planned layout and validated", LoadoutFromLayout);
         Console.WriteLine("P4A layout foundation tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures +
             " elapsedMs=" + watch.ElapsedMilliseconds);
         return failures == 0 ? 0 : 1;
@@ -809,6 +820,249 @@ internal static class Program
         ProceduralLayoutResult result = PlanWith(Plains(120), LayoutRequirements.FromPopulation(6, Tribal, Temperate), 1, null, skewed);
         Equal("interaction_offset_unsupported:CraftingSpot", result.RejectionCode, "diagnostic instead of a silent furnishing failure");
         Equal(0, result.Stats.EvaluationCount, "before search");
+    }
+
+    // ---- loadout (synthetic; vanilla CalculatedBaseMarketValue port) ----
+
+    private static SettlementLoadout Loadout(SettlementTechStageLevel level, LayoutClimate climate = null, int residents = 8, ulong seed = 5,
+        int equipmentValueLimit = -1, bool mortarCrew = true)
+    {
+        LayoutRequirements requirements = Kit(level, climate, residents, equipmentValueLimit);
+        LayoutEquipment equipment = LayoutEquipment.Resolve(requirements, CoreCatalog, null, 2, 1);
+        return LayoutLoadoutModel.Build(requirements, equipment.Kit, CoreCatalog, seed, 2, mortarCrew);
+    }
+
+    private static LayoutRequirements Kit(SettlementTechStageLevel level, LayoutClimate climate, int residents = 8, int equipmentValueLimit = -1) =>
+        LayoutRequirements.FromPopulation(residents, level >= SettlementTechStageLevel.IndustrialEarly ? Industrial : Tribal, climate ?? Temperate,
+            stage: TechStageModel.Create(level), equipmentValueLimit: equipmentValueLimit);
+
+    private static void LoadoutValid(SettlementTechStageLevel level, LayoutClimate climate, SettlementLoadout loadout)
+    {
+        ProceduralLayoutInput input = new ProceduralLayoutInput(Kit(level, climate, loadout.Residents.Count, loadout.EquipmentValueLimit), Plains(120), 1, CoreCatalog);
+        IReadOnlyList<string> errors = ProceduralLayoutValidator.ValidateLoadout(input, null, loadout);
+        Equal(0, errors.Count, level + " " + climate + " loadout valid: " + string.Join(",", errors.Take(6)));
+    }
+
+    private static void LoadoutRoles()
+    {
+        Func<SettlementTechStageLevel, int, bool, string> roles = (level, n, crew) => string.Join(",", LayoutLoadoutModel.Roles(n, level, crew));
+        Equal("RangedLine,RangedLine,RangedLine,Marksman,CloseDefense,CloseDefense,MeleeReserve,Support",
+            roles(SettlementTechStageLevel.IndustrialEarly, 8, true), "8 residents before Mid: heavy folded into the line");
+        Equal("RangedLine,RangedLine,Marksman,CloseDefense,CloseDefense,Heavy,MeleeReserve,Support",
+            roles(SettlementTechStageLevel.IndustrialMid, 8, true), "8 residents from Mid");
+        Equal("RangedLine", roles(SettlementTechStageLevel.Spacer, 1, true), "a lone resident is line");
+        True(LayoutLoadoutModel.Roles(4, SettlementTechStageLevel.IndustrialEarly, true).Contains(LoadoutRole.Support), "mortar crew kept");
+        True(!LayoutLoadoutModel.Roles(4, SettlementTechStageLevel.IndustrialEarly, false).Contains(LoadoutRole.Support), "no crew without a court");
+        foreach (int n in new[] { 1, 2, 3, 5, 13, 40 })
+        {
+            List<LoadoutRole> list = LayoutLoadoutModel.Roles(n, SettlementTechStageLevel.IndustrialMid, true);
+            True(list.Count == n && list.Contains(LoadoutRole.RangedLine), n + " residents keep a line");
+        }
+    }
+
+    private static void LoadoutWeapons()
+    {
+        Dictionary<SettlementTechStageLevel, string> golden = new Dictionary<SettlementTechStageLevel, string>
+        {
+            { SettlementTechStageLevel.Neolithic, "RangedLine=Bow_Recurve Marksman=Bow_Recurve CloseDefense=MeleeWeapon_Club MeleeReserve=MeleeWeapon_Club Support=MeleeWeapon_Knife" },
+            { SettlementTechStageLevel.Medieval, "RangedLine=Bow_Great Marksman=Bow_Great CloseDefense=MeleeWeapon_LongSword MeleeReserve=MeleeWeapon_LongSword Support=MeleeWeapon_Knife" },
+            { SettlementTechStageLevel.IndustrialEarly, "RangedLine=Gun_BoltActionRifle Marksman=Gun_BoltActionRifle CloseDefense=Gun_PumpShotgun MeleeReserve=MeleeWeapon_LongSword Support=Gun_Revolver" },
+            { SettlementTechStageLevel.IndustrialMid, "RangedLine=Gun_AssaultRifle Marksman=Gun_SniperRifle CloseDefense=Gun_ChainShotgun Heavy=Gun_LMG MeleeReserve=MeleeWeapon_LongSword Support=Gun_Autopistol" },
+            { SettlementTechStageLevel.IndustrialLate, "RangedLine=Gun_AssaultRifle Marksman=Gun_SniperRifle CloseDefense=Gun_ChainShotgun Heavy=Gun_Minigun MeleeReserve=MeleeWeapon_LongSword Support=Gun_Autopistol" },
+            { SettlementTechStageLevel.Spacer, "RangedLine=Gun_ChargeRifle Marksman=Gun_ChargeRifle CloseDefense=Gun_ChainShotgun Heavy=Gun_Minigun MeleeReserve=MeleeWeapon_LongSword Support=Gun_Autopistol" }
+        };
+        foreach (KeyValuePair<SettlementTechStageLevel, string> entry in golden)
+        {
+            SettlementLoadout loadout = Loadout(entry.Key);
+            foreach (string pair in entry.Value.Split(' '))
+            {
+                string[] kv = pair.Split('=');
+                LoadoutRole role = (LoadoutRole)Enum.Parse(typeof(LoadoutRole), kv[0]);
+                True(loadout.Residents.Where(r => r.Role == role).All(r => r.Weapon != null && r.Weapon.DefName == kv[1]) &&
+                    loadout.Residents.Any(r => r.Role == role), entry.Key + " " + role + " expects " + kv[1]);
+            }
+            LoadoutValid(entry.Key, Temperate, loadout);
+        }
+        SettlementLoadout medieval = Loadout(SettlementTechStageLevel.Medieval);
+        True(medieval.Residents.Where(r => LayoutLoadoutModel.IsMelee(r.Weapon.DefName)).All(r => r.Weapon.Stuff == "Steel"), "medieval melee is steel");
+        SettlementLoadout tribal = Loadout(SettlementTechStageLevel.Neolithic);
+        True(tribal.Residents.Where(r => r.Weapon.DefName == "MeleeWeapon_Club").All(r => r.Weapon.Stuff == "WoodLog"), "tribal clubs are wooden");
+        True(!Loadout(SettlementTechStageLevel.IndustrialEarly).Residents.Any(r => r.Weapon.DefName.StartsWith("Bow_") || r.Weapon.DefName == "MeleeWeapon_Club"),
+            "no bows or clubs above Medieval");
+    }
+
+    private static void LoadoutApparel()
+    {
+        Dictionary<SettlementTechStageLevel, string> line = new Dictionary<SettlementTechStageLevel, string>
+        {
+            { SettlementTechStageLevel.Neolithic, "Apparel_TribalA,Apparel_WarMask" },
+            { SettlementTechStageLevel.Medieval, "Apparel_PlateArmor,Apparel_BasicShirt,Apparel_Pants" },
+            { SettlementTechStageLevel.IndustrialEarly, "Apparel_SimpleHelmet,Apparel_BasicShirt,Apparel_Pants" },
+            { SettlementTechStageLevel.IndustrialMid, "Apparel_FlakVest,Apparel_FlakPants,Apparel_SimpleHelmet,Apparel_BasicShirt" },
+            { SettlementTechStageLevel.IndustrialLate, "Apparel_FlakJacket,Apparel_AdvancedHelmet,Apparel_FlakVest,Apparel_FlakPants,Apparel_BasicShirt" },
+            { SettlementTechStageLevel.Spacer, "Apparel_ArmorRecon,Apparel_ArmorHelmetRecon,Apparel_BasicShirt,Apparel_Pants" }
+        };
+        foreach (KeyValuePair<SettlementTechStageLevel, string> entry in line)
+        {
+            SettlementLoadout loadout = Loadout(entry.Key);
+            ResidentLoadout rifleman = loadout.Residents.First(r => r.Role == LoadoutRole.RangedLine && !r.Elite);
+            Equal(entry.Value, string.Join(",", rifleman.Apparel.Select(a => a.DefName)), entry.Key + " line apparel");
+        }
+        SettlementLoadout medieval = Loadout(SettlementTechStageLevel.Medieval);
+        True(medieval.Residents.Where(r => LayoutLoadoutModel.IsFrontLine(r.Role)).All(r => r.Apparel.Any(a => a.DefName == "Apparel_PlateArmor")) &&
+            !medieval.Residents.Where(r => !LayoutLoadoutModel.IsFrontLine(r.Role)).Any(r => r.Apparel.Any(a => a.DefName == "Apparel_PlateArmor")),
+            "plate armour on the front line only");
+        SettlementLoadout spacer = Loadout(SettlementTechStageLevel.Spacer);
+        True(spacer.Residents.Where(r => r.Role == LoadoutRole.Heavy || r.Elite).All(r => r.Apparel.Any(a => a.DefName == "Apparel_PowerArmor")),
+            "power armour for the heavy and the elite");
+        True(spacer.Residents.Where(r => r.Role != LoadoutRole.Heavy && !r.Elite && r.Role != LoadoutRole.Support)
+            .All(r => r.Apparel.Any(a => a.DefName == "Apparel_ArmorRecon")), "recon armour for the other combat roles");
+        Equal("Cloth", Loadout(SettlementTechStageLevel.IndustrialEarly).Residents[0].Apparel.First(a => a.DefName == "Apparel_Pants").Stuff, "early fabric is cloth");
+        Equal("Synthread", Loadout(SettlementTechStageLevel.IndustrialMid).Residents[0].Apparel.First(a => a.DefName == "Apparel_BasicShirt").Stuff, "synthread from Mid");
+        Equal("Leather_Plain", Loadout(SettlementTechStageLevel.Neolithic).Residents[0].Apparel.First(a => a.DefName == "Apparel_TribalA").Stuff, "tribal leather");
+        True(Loadout(SettlementTechStageLevel.IndustrialMid).Residents.Where(r => r.Role == LoadoutRole.Support).All(r => r.Utility != null &&
+            r.Utility.DefName == "Apparel_SmokepopBelt"), "support carries a smokepop belt from Mid");
+    }
+
+    private static void LoadoutClimate()
+    {
+        foreach (SettlementTechStageLevel level in TechStageModel.Levels)
+        {
+            SettlementLoadout cold = Loadout(level, Cold);
+            SettlementLoadout hot = Loadout(level, Hot);
+            LoadoutValid(level, Cold, cold);
+            LoadoutValid(level, Hot, hot);
+            string shell = level == SettlementTechStageLevel.Medieval ? "Apparel_Duster" : "Apparel_Parka";
+            True(cold.Residents.Any(r => r.Apparel.Any(a => a.DefName == shell)), level + " cold adds " + shell);
+            True(!hot.AllItems.Any(i => i.DefName == "Apparel_Parka" || i.DefName == "Apparel_Duster"), level + " hot never adds parkas or dusters");
+            True(!Loadout(level).AllItems.Any(i => i.DefName == "Apparel_Parka" || i.DefName == "Apparel_Duster"), level + " temperate has none");
+        }
+    }
+
+    private static void LoadoutSpacer()
+    {
+        SettlementLoadout spacer = Loadout(SettlementTechStageLevel.Spacer, Temperate, 12);
+        List<ResidentLoadout> belted = spacer.Residents.Where(r => r.Utility != null && r.Utility.DefName == "Apparel_ShieldBelt").ToList();
+        True(belted.Count > 0, "melee reserve wears shield belts");
+        True(belted.All(r => LayoutLoadoutModel.IsMelee(r.Weapon.DefName) && (r.Role == LoadoutRole.MeleeReserve || r.Role == LoadoutRole.CloseDefense)),
+            "shield belts only with melee weapons");
+        foreach (ResidentLoadout resident in spacer.Residents)
+        {
+            List<CatalogDef> worn = resident.Apparel.Select(a => { CatalogDef d; CoreCatalog.TryGet(a.DefName, out d); return d; }).ToList();
+            True(worn.Count(d => d.ApparelLayers.Contains("Overhead")) <= 1, "one helmet for #" + resident.Index + ": " + string.Join(",", resident.Apparel));
+        }
+        CatalogDef recon, advanced;
+        CoreCatalog.TryGet("Apparel_ArmorHelmetRecon", out recon);
+        CoreCatalog.TryGet("Apparel_AdvancedHelmet", out advanced);
+        True(LayoutLoadoutModel.Conflicts(recon, advanced), "FullHead covers UpperHead");
+        LoadoutValid(SettlementTechStageLevel.Spacer, Temperate, spacer);
+    }
+
+    private static void LoadoutQualityDeterminism()
+    {
+        SettlementLoadout a = Loadout(SettlementTechStageLevel.IndustrialMid, Temperate, 8, 11);
+        SettlementLoadout b = Loadout(SettlementTechStageLevel.IndustrialMid, Temperate, 8, 11);
+        Equal(a.Digest, b.Digest, "same seed, same loadout");
+        NotEqual(a.Digest, Loadout(SettlementTechStageLevel.IndustrialMid, Temperate, 8, 12).Digest, "seed varies quality");
+        Equal(1, a.Residents.Count(r => r.Elite), "one elite");
+        foreach (SettlementTechStageLevel level in TechStageModel.Levels)
+        {
+            IReadOnlyList<int> weights = LayoutLoadoutModel.QualityWeights(level);
+            Equal(100, weights.Sum(), level + " quality weights sum to 100");
+            int top = Enumerable.Range(0, weights.Count).Last(q => weights[q] > 0);
+            SettlementLoadout loadout = Loadout(level, Temperate, 16, 3, 10000000);
+            True(loadout.Residents.Where(r => !r.Elite).SelectMany(r => r.Items).All(i => (int)i.Quality.Value <= top), level + " quality within the stage table");
+        }
+        True(Loadout(SettlementTechStageLevel.Neolithic, Temperate, 16, 3, 10000000).AllItems.Where(i => i.Quality.HasValue)
+            .Count(i => i.Quality.Value <= LoadoutQuality.Poor) > 0, "tribal gear is often poor");
+    }
+
+    private static void LoadoutStocks()
+    {
+        SettlementLoadout early = Loadout(SettlementTechStageLevel.IndustrialEarly, Temperate, 8, 5, 10000000);
+        Equal(2, early.Armoury.Where(i => IsWeapon(i.DefName)).Sum(i => i.Count), "ceil(25% of 8) spare weapons");
+        True(early.Armoury.Any(i => i.DefName == "Gun_BoltActionRifle") && early.Armoury.Any(i => i.DefName == "MeleeWeapon_LongSword"), "line and melee spares");
+        Equal(2, early.Armoury.Where(i => i.DefName == "Apparel_Pants").Sum(i => i.Count), "two spare apparel sets");
+        Equal("MedicineHerbal", early.Medicine.Single().DefName, "herbal before Mid");
+        Equal(2 * 8 + 5, early.Medicine.Single().Count, "medicine 2 per resident + 5");
+        Equal("MedicineIndustrial", Loadout(SettlementTechStageLevel.IndustrialMid).Medicine.Single().DefName, "industrial medicine from Mid");
+        Equal(3, Loadout(SettlementTechStageLevel.IndustrialEarly, Temperate, 10, 5, 10000000).Armoury.Where(i => IsWeapon(i.DefName)).Sum(i => i.Count),
+            "ceil(25% of 10)");
+        Equal(4, early.Components.Single(c => c.DefName == "ComponentIndustrial").Count, "components = generators + 2");
+        True(!early.Components.Any(c => c.DefName == "ComponentSpacer"), "no spacer components below Spacer");
+        True(!Loadout(SettlementTechStageLevel.IndustrialLate, Temperate, 8, 5, 10000000).Components.Any(c => c.DefName == "ComponentSpacer"), "none at Late");
+        SettlementLoadout spacer = Loadout(SettlementTechStageLevel.Spacer, Temperate, 8, 5, 10000000);
+        Equal(2, spacer.Components.Single(c => c.DefName == "ComponentSpacer").Count, "ComponentSpacer only at Spacer");
+        True(CoreCatalog.IsLegal("ComponentSpacer", TechStageModel.Create(SettlementTechStageLevel.Spacer)) &&
+            !CoreCatalog.IsLegal("ComponentSpacer", TechStageModel.Create(SettlementTechStageLevel.IndustrialLate)), "decision C: raw, Spacer minimum tier");
+    }
+
+    private static bool IsWeapon(string defName)
+    {
+        CatalogDef def;
+        return CoreCatalog.TryGet(defName, out def) && def.Category == CatalogCategory.Weapon;
+    }
+
+    private static void LoadoutTribal()
+    {
+        foreach (LayoutClimate climate in new[] { Temperate, Cold, Hot })
+        {
+            SettlementLoadout tribal = Loadout(SettlementTechStageLevel.Neolithic, climate, 12);
+            True(!tribal.AllItems.Any(i => i.DefName.StartsWith("Gun_")), climate + " no guns");
+            True(!tribal.AllItems.Any(i => i.DefName.StartsWith("Apparel_Flak") || i.DefName == "Apparel_SimpleHelmet"), climate + " no flak or helmets");
+            True(!tribal.AllItems.Any(i => i.DefName == "MedicineIndustrial") && tribal.Components.Count == 0, climate + " no industrial medicine or components");
+            True(tribal.AllItems.Where(i => i.Quality.HasValue).All(i => CoreCatalog.IsLegal(i.DefName, TechStageModel.Create(SettlementTechStageLevel.Neolithic))),
+                climate + " all legal");
+            LoadoutValid(SettlementTechStageLevel.Neolithic, climate, tribal);
+        }
+    }
+
+    private static void LoadoutBudgetDefaults()
+    {
+        foreach (SettlementTechStageLevel level in TechStageModel.Levels)
+        {
+            SettlementLoadout loadout = Loadout(level);
+            True(loadout.Success && loadout.Degradations.Count == 0, level + " temperate kit fits the stage default: " + loadout.EquipmentValue + "/" +
+                loadout.EquipmentValueLimit + " " + string.Join(",", loadout.Degradations));
+            Equal(8 * LayoutLoadoutModel.DefaultEquipmentValuePerResident(level), loadout.EquipmentValueLimit, level + " default limit");
+        }
+        Equal((int)Math.Round(8 * 1000 * 1.2), Kit(SettlementTechStageLevel.IndustrialEarly, Cold).EquipmentValueLimit, "cold multiplier");
+        LayoutRequirements profile = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, Temperate);
+        Equal(Math.Max(P2ProfileCatalog.IndustrialTemperate.Budget.EquipmentValue, 4 * 1000), profile.EquipmentValueLimit, "profile budget is at least the stage default");
+        Equal(0, LayoutLoadoutModel.UnitValue(CoreCatalog, "NoSuchDef", null, null), "unknown defs have no value");
+        // Vanilla CalculatedBaseMarketValue: bolt-action rifle = costs + work x 0.0036.
+        CatalogDef rifle;
+        CoreCatalog.TryGet("Gun_BoltActionRifle", out rifle);
+        double expected = rifle.CostList.Sum(c => { CatalogDef d; CoreCatalog.TryGet(c.Key, out d); return c.Value * d.MarketValue; }) + rifle.WorkToMake * 0.0036;
+        Equal((int)Math.Round(expected, MidpointRounding.AwayFromZero), LayoutLoadoutModel.UnitValue(CoreCatalog, "Gun_BoltActionRifle", null, LoadoutQuality.Normal),
+            "vanilla market value port");
+    }
+
+    private static void LoadoutBudgetDegradation()
+    {
+        SettlementLoadout full = Loadout(SettlementTechStageLevel.IndustrialMid, Temperate, 8, 5, 10000000);
+        True(full.Success && full.Degradations.Count == 0, "unlimited budget keeps everything");
+        SettlementLoadout slightly = Loadout(SettlementTechStageLevel.IndustrialMid, Temperate, 8, 5, full.EquipmentValue - 1);
+        True(slightly.Success && slightly.Degradations.SequenceEqual(new[] { "quality_degraded" }), "first quality drops one step");
+        True(slightly.EquipmentValue < full.EquipmentValue && slightly.Armoury.Count > 0, "armoury kept after the quality step");
+        SettlementLoadout tighter = Loadout(SettlementTechStageLevel.IndustrialMid, Temperate, 8, 5, slightly.EquipmentValue - 1);
+        True(tighter.Degradations.Take(2).SequenceEqual(new[] { "quality_degraded", "armoury_dropped" }) && tighter.Armoury.Count == 0, "then the armoury goes");
+        SettlementLoadout broke = Loadout(SettlementTechStageLevel.IndustrialMid, Temperate, 8, 5, 100);
+        True(!broke.Success && broke.Rejection == LayoutLoadoutModel.EquipmentBudgetExceeded, "then it rejects");
+        True(broke.Degradations.SequenceEqual(new[] { "quality_degraded", "armoury_dropped", "utility_dropped" }), "every degradation recorded");
+        True(broke.Residents.All(r => r.Utility == null), "utility dropped");
+    }
+
+    private static void LoadoutFromLayout()
+    {
+        ProceduralLayoutInput input = Input(Plains(130), LayoutRequirements.FromPopulation(8, Industrial, Temperate), 1);
+        ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
+        Accepted(result);
+        SettlementLoadout loadout = LayoutLoadoutModel.Build(input, result.Layout);
+        Equal(result.Layout.Power.Generators + 2, loadout.Components.Single(c => c.DefName == "ComponentIndustrial").Count, "components follow the layout's generators");
+        Equal(result.Layout.Court != null, loadout.Residents.Any(r => r.Role == LoadoutRole.Support), "mortar crew follows the court");
+        Equal(0, ProceduralLayoutValidator.ValidateLoadout(input, result.Layout, loadout).Count, "valid against the layout");
+        Equal(loadout.Digest, LayoutLoadoutModel.Build(input, result.Layout).Digest, "deterministic");
     }
 
     // ---- helpers ----

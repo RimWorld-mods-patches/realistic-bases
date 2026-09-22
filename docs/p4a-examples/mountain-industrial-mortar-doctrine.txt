@@ -7,7 +7,7 @@ legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' pub
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
 roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  ' ' open sky
 
-digest=BBEAF173D73D9BFB doctrine=OpenGround gates=1 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=863
+digest=723FB644D55FC12C doctrine=OpenGround gates=1 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=863
   barracks-1  bounds=40,50,6x7    door=43,50   6/6 beds
   dining      bounds=41,38,6x10   door=44,47   8/6 seats
   freezer     bounds=47,50,8x9    door=51,50   37/36 stockpile-cells

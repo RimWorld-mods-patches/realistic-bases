@@ -7,7 +7,7 @@ legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' pub
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
 roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  ' ' open sky
 
-digest=48FE0CB0360ED4B6 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=803
+digest=3481007FAD158F8A doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=803
   bedroom-1   bounds=49,58,5x5    door=53,60   1/1 beds
   bedroom-2   bounds=55,52,6x5    door=58,56   1/1 beds
   bedroom-3   bounds=44,51,5x6    door=47,56   1/1 beds

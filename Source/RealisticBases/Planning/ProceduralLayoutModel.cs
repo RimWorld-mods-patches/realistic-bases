@@ -138,7 +138,8 @@ namespace RealisticBases.Planning
 
         public LayoutRequirements(int residents, SettlementCapability capabilities, HousingStandard housing,
             LayoutClimate climate, int mortarBiasPercent, int excavationBudgetCells, int fieldCells,
-            IEnumerable<KeyValuePair<LayoutRoomKind, int>> capacityFloors = null, SettlementTechStage stage = null, int importValueLimit = -1)
+            IEnumerable<KeyValuePair<LayoutRoomKind, int>> capacityFloors = null, SettlementTechStage stage = null, int importValueLimit = -1,
+            int equipmentValueLimit = -1)
         {
             if (residents <= 0) throw new ArgumentOutOfRangeException(nameof(residents));
             if (mortarBiasPercent < 0 || mortarBiasPercent > 100) throw new ArgumentOutOfRangeException(nameof(mortarBiasPercent));
@@ -161,6 +162,7 @@ namespace RealisticBases.Planning
             CapacityFloors = new ReadOnlyDictionary<LayoutRoomKind, int>(floors);
             Stage = stage ?? DefaultStage(capabilities);
             ImportValueLimit = importValueLimit >= 0 ? importValueLimit : DefaultImportValueLimit(capabilities);
+            EquipmentValueLimit = equipmentValueLimit >= 0 ? equipmentValueLimit : DefaultEquipmentValueLimit(residents, Stage, climate);
             Digest = ComputeDigest();
         }
 
@@ -168,6 +170,14 @@ namespace RealisticBases.Planning
         public static SettlementTechStage DefaultStage(SettlementCapability capabilities) =>
             TechStageModel.Create((capabilities & SettlementCapability.Electricity) != 0
                 ? SettlementTechStageLevel.IndustrialEarly : SettlementTechStageLevel.Neolithic);
+
+        // Stage default per resident, raised for climates that need heating (LayoutLoadoutModel constants).
+        public static int DefaultEquipmentValueLimit(int residents, SettlementTechStage stage, LayoutClimate climate)
+        {
+            double perResident = LayoutLoadoutModel.DefaultEquipmentValuePerResident(stage.Level) *
+                (climate != null && climate.HeatingRequired ? LayoutLoadoutModel.ColdClimateBudgetFactor : 1.0);
+            return (int)Math.Round(residents * perResident, MidpointRounding.AwayFromZero);
+        }
 
         public static int DefaultImportValueLimit(SettlementCapability capabilities) =>
             (capabilities & SettlementCapability.Electricity) != 0 ? DefaultImportValueLimitElectric : DefaultImportValueLimitNonElectric;
@@ -184,6 +194,8 @@ namespace RealisticBases.Planning
         public SettlementTechStage Stage { get; }
         // Wood imports beyond this market value reject with material_budget_exceeded.
         public int ImportValueLimit { get; }
+        // Resident gear, armoury and medicine/component stocks beyond this market value degrade, then reject.
+        public int EquipmentValueLimit { get; }
         public string Digest { get; }
         public bool Electric => Has(SettlementCapability.Electricity);
         public bool Refrigerated => Has(SettlementCapability.Refrigeration);
@@ -199,11 +211,11 @@ namespace RealisticBases.Planning
 
         public static LayoutRequirements FromPopulation(int residents, SettlementCapability capabilities, LayoutClimate climate,
             HousingStandard housing = HousingStandard.Barracks, IEnumerable<KeyValuePair<LayoutRoomKind, int>> floors = null,
-            SettlementTechStage stage = null, int importValueLimit = -1)
+            SettlementTechStage stage = null, int importValueLimit = -1, int equipmentValueLimit = -1)
         {
             bool electric = (capabilities & SettlementCapability.Electricity) != 0;
             return new LayoutRequirements(residents, capabilities, housing, climate,
-                electric ? 50 : 0, 60 + residents * (electric ? 70 : 35), residents * 31, floors, stage, importValueLimit);
+                electric ? 50 : 0, 60 + residents * (electric ? 70 : 35), residents * 31, floors, stage, importValueLimit, equipmentValueLimit);
         }
 
         // P2 profile capacities act as floors; population rules may raise them.
@@ -218,9 +230,12 @@ namespace RealisticBases.Planning
                 if (TryMap(demand.Kind, out kind)) floors.Add(new KeyValuePair<LayoutRoomKind, int>(kind, demand.Capacity));
             }
             bool electric = profile.Has(SettlementCapability.Electricity);
+            SettlementTechStage resolved = stage ?? DefaultStage(profile.Capabilities);
+            // P2 budgets were set for P2's fixed kits; a staged kit gets at least the stage default.
+            int equipment = Math.Max(profile.Budget.EquipmentValue, DefaultEquipmentValueLimit(profile.Residents, resolved, climate));
             return new LayoutRequirements(profile.Residents, profile.Capabilities, housing, climate,
-                electric ? 50 : 0, 60 + profile.Residents * (electric ? 70 : 35), profile.RequiredCropCells, floors, stage,
-                profile.Budget.ImportValueLimit);
+                electric ? 50 : 0, 60 + profile.Residents * (electric ? 70 : 35), profile.RequiredCropCells, floors, resolved,
+                profile.Budget.ImportValueLimit, equipment);
         }
 
         private static bool TryMap(FacilityKind kind, out LayoutRoomKind result)
@@ -258,6 +273,7 @@ namespace RealisticBases.Planning
             }
             hash = StableHash.Add(hash, Stage.Digest);
             hash = StableHash.Add(hash, ImportValueLimit);
+            hash = StableHash.Add(hash, EquipmentValueLimit);
             return StableHash.Hex(hash);
         }
     }

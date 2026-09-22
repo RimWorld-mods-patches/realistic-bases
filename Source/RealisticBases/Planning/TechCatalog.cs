@@ -33,11 +33,12 @@ namespace RealisticBases.Planning
             IEnumerable<string> apparelBodyParts = null, int basePowerConsumption = 0, IEnumerable<string> fuel = null,
             double fuelPerDay = 0, bool hasInteractionCell = false, GridPoint interactionOffset = default(GridPoint),
             CatalogPassability passability = CatalogPassability.Standable, double marketValue = 0, string thingClass = null,
-            string designationCategory = null, bool isTrap = false, IEnumerable<string> producedAt = null, bool raw = false, int stackLimit = 1)
+            string designationCategory = null, bool isTrap = false, IEnumerable<string> producedAt = null, bool raw = false, int stackLimit = 1, double workToMake = 0)
         {
             if (string.IsNullOrEmpty(defName)) throw new ArgumentNullException(nameof(defName));
             if (sizeX < 1 || sizeZ < 1) throw new ArgumentOutOfRangeException(nameof(sizeX));
             if (stackLimit < 1) throw new ArgumentOutOfRangeException(nameof(stackLimit));
+            if (workToMake < 0) throw new ArgumentOutOfRangeException(nameof(workToMake));
             if (costStuffCount < 0 || fuelPerDay < 0 || marketValue < 0) throw new ArgumentOutOfRangeException(nameof(costStuffCount));
             DefName = defName;
             Category = category;
@@ -73,6 +74,7 @@ namespace RealisticBases.Planning
             ProducedAt = List(producedAt);
             Raw = raw;
             StackLimit = stackLimit;
+            WorkToMake = workToMake;
         }
 
         public string DefName { get; }
@@ -112,6 +114,8 @@ namespace RealisticBases.Planning
         public bool Raw { get; }
         // Units per stored stack (vanilla stackLimit, default 1).
         public int StackLimit { get; }
+        // max(WorkToMake, WorkToBuild) from statBases; feeds the vanilla market value formula.
+        public double WorkToMake { get; }
         public bool GeneratesPower => BasePowerConsumption < 0;
         public bool Blocking => Passability == CatalogPassability.Impassable;
 
@@ -151,7 +155,8 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, IsTrap ? 1 : 0);
             hash = AddList(hash, ProducedAt);
             hash = StableHash.Add(hash, Raw ? 1 : 0);
-            return StableHash.Add(hash, StackLimit);
+            hash = StableHash.Add(hash, StackLimit);
+            return AddScaled(hash, WorkToMake);
         }
 
         internal static ulong AddList(ulong hash, IReadOnlyList<string> values)

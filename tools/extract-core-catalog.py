@@ -268,6 +268,9 @@ def main():
             args.append("producedAt: " + strs(produced))
         if raw:
             args.append("raw: true")
+        work = max(float(text(d, "statBases/WorkToMake", "0")), float(text(d, "statBases/WorkToBuild", "0")))
+        if work > 0:
+            args.append("workToMake: %r" % work)
         stack = text(d, "stackLimit")
         if stack and int(stack) > 1:
             args.append("stackLimit: %d" % int(stack))
