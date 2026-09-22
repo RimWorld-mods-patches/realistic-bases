@@ -1,0 +1,84 @@
+# plains-industrial-16 (synthetic terrain; planner evidence only, not a live map)
+legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access
+        B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
+        f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court
+        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
+        outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
+roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  ' ' open sky
+
+digest=2BDB8B2E8895F6A7 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=1048
+  barracks-1  bounds=60,76,9x6    door=68,79   8/8 beds
+  barracks-2  bounds=71,57,11x5   door=71,59   8/8 beds
+  dining      bounds=71,69,12x8   door=71,70   16/16 seats
+  freezer     bounds=57,63,12x13  door=68,67   101/96 stockpile-cells
+  jail        bounds=77,78,5x5    door=79,78   2/2 beds
+  kitchen     bounds=71,62,6x6    door=71,65   2/2 stoves
+  medical     bounds=62,58,7x5    door=68,59   3/3 beds
+  power       bounds=71,52,12x5   door=71,55   3/3 generators
+  storage     bounds=56,86,12x13  door=61,86   105/96 stockpile-cells
+  workshop    bounds=71,79,5x8    door=71,85   3/3 benches
+  note: excavated=0/1180 retainedThickRoof=0
+  note: gates=2 desired=2
+                     *               
+                     *               
+                     *               
+   ################  *               
+   #,,,,,,,,,,,,,,#  *               
+   #,############,#  *               
+   #,#LLLL______#,#  *               
+   #,#__________#,#  *               
+   #,#__________#,#  *               
+   #,#__________#,#  *               
+   #,#__________#,#  s               
+   #,#__________#,###G#              
+   #,#__________#,,,,,#              
+   #,#__________#,,,,,#              
+   #,#__________#,,,,,#              
+   #,#__________#,==,,#####          
+   #,#____._____#,==,,,,,,#          
+   #,#####D######,==#####,#          
+   #,,,,,,==========D..W#,#          
+   ######,,,,,,,,,==#WiW#,#######    
+       ##########,==#WiW#,,,,,,,#    
+       #,,,,,,,,,,==#W.W#,#####,#    
+       #,#########==#.iW#,#PPL#,#    
+       #,#BB.L...#==#.LW#,#PP.#,#    
+       #,#BB.....D==#####,#...#,#    
+       #,#BB.BBBB#==,,,,,,##D##,##   
+    ####,#BB.BBBB#===========,,,,#   
+    #,,,,#########==############,#   
+    #,############==#...c...c.R#,#   
+    #,#__________#==#...TTc.TTc#,#   
+    #,#__________#==#.ccTTccTT.#,#   
+    #,#__________#==#.TTccTTcc.#,#   
+    #,#__________#==#cTT.cTT..L#,#   
+    #,#__________#==D..c...c..L#,#   
+    #,#_________iC==############,#   
+    #,#__________#========iMM,,,,#   
+    #,#L________.D==######,MM,####   
+    #,#L________iC==#SSSS#,,,,#      
+    #,#L________iC==D.iiS#,####      
+    #,#L________iC==#...S#,#         
+    #,############==#...L#,######    
+    #,,,,,,#######==######,,,,,,#    
+    ######,#HH...#==###########,#    
+         #,#HH...#==#LBBBBB.BB#,#    
+         #,#HH.L.D==D.BBBBB.BB#,#    
+         #,#######==#.......BB#,##   
+         #,,,,,,,,==###########,,#   
+         ########,==############,#   
+                #,==D.AAAEEEEEE#,#   
+                #,==#.AAAEEEEEE#,#   
+                #,==#.........L#,#   
+               ##,==############,#   
+               #,,==,,,,,,,,,,,,,#   
+               #,,,,,,############   
+               #,,,,,,#              
+               #,,,,,,#              
+               #####G##              
+                    s                
+                    *                
+                    *                
+                    *                
+
+search: sites=1 attempts=1 evaluations=7561 repairs=1 routeNodes=24280 budgetExhausted=False
