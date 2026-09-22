@@ -61,6 +61,18 @@ internal static class Program
         Run("default resources never trigger the adaptation", DefaultResourcesNoAdaptation);
         Run("unresolvable climate control rejects", ClimateControlUnresolved);
         Run("stage and resources participate in digests", EquipmentDigests);
+        Run("power: tribal has none", PowerTribalNone);
+        Run("power: early is wood-fired dispatchable plus wind", PowerEarly);
+        Run("power: mid on open sky adds renewables", PowerMidOpenSky);
+        Run("power: rock-protected mid is fuel only with a larger stock", PowerRockProtected);
+        Run("power: fuel stock matches rate x horizon and is stored", PowerFuelStock);
+        Run("power: geothermal yard sits on the geyser", PowerGeothermal);
+        Run("power: wind clear zone respected", PowerWindZone);
+        Run("power: critical load covered by dispatchable output", PowerCriticalCovered);
+        Run("power: battery count matches the formula", PowerBatteries);
+        Run("power: chemfuel when wood is short, imported at catalog value", PowerChemfuel);
+        Run("power: watermill and oversized power diagnostics", PowerDiagnostics);
+        Run("unsupported interaction offsets reject with a diagnostic", InteractionOffsetUnsupported);
         Console.WriteLine("P4A layout foundation tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures +
             " elapsedMs=" + watch.ElapsedMilliseconds);
         return failures == 0 ? 0 : 1;
@@ -294,7 +306,7 @@ internal static class Program
     {
         ProceduralLayoutResult huge = Plan(Plains(40), LayoutRequirements.FromPopulation(20, Industrial, Temperate), 1);
         Equal("insufficient_usable_area", huge.RejectionCode, "population exceeds usable land");
-        ProceduralLayoutResult crowded = Plan(Plains(120), LayoutRequirements.FromPopulation(120, Industrial, Temperate), 1);
+        ProceduralLayoutResult crowded = Plan(Plains(120), LayoutRequirements.FromPopulation(120, Tribal, Temperate), 1);
         Equal("search_budget_exhausted", crowded.RejectionCode, "area pre-check passes but bounded search gives up");
         True(crowded.Stats.EvaluationCount <= 200000, "crowded search stays within budget");
         ProceduralLayoutResult absurd = Plan(Plains(120), LayoutRequirements.FromPopulation(400, Industrial, Temperate), 1);
@@ -605,6 +617,200 @@ internal static class Program
             f.Kind == LayoutFixtureKind.Battery), "every furnishing fixture records its role");
     }
 
+    // ---- power progression (synthetic) ----
+
+    private static readonly SettlementTechStage MidStage = TechStageModel.Create(SettlementTechStageLevel.IndustrialMid);
+    private static readonly List<GridPoint> CentreGeysers = new List<GridPoint> { new GridPoint(70, 65), new GridPoint(58, 65), new GridPoint(65, 58), new GridPoint(65, 72) };
+
+    private static ProceduralLayoutResult Mid(ulong seed, LayoutClimate climate = null, LayoutLocalResources resources = null, int importValueLimit = -1) =>
+        PlanWith(Plains(130), LayoutRequirements.FromPopulation(8, Industrial, climate ?? Temperate, stage: MidStage, importValueLimit: importValueLimit), seed, resources);
+
+    private static ProceduralLayoutResult Early(ulong seed, int residents = 8) =>
+        PlanWith(Plains(130), LayoutRequirements.FromPopulation(residents, Industrial, Temperate), seed, null);
+
+    private static void PowerTribalNone()
+    {
+        ProceduralLayoutResult result = Plan(Plains(120), LayoutRequirements.FromPopulation(6, Tribal, Cold), 3);
+        Accepted(result);
+        True(result.Layout.Power == null && result.Layout.PowerYards.Count == 0, "no power plan");
+        True(!result.Layout.AllFixtures.Any(f => f.Kind == LayoutFixtureKind.Generator || f.Kind == LayoutFixtureKind.Battery), "no generator or battery");
+        True(!result.Layout.Rooms.Any(r => r.Kind == LayoutRoomKind.Power), "no power room");
+        Equal(0, result.Layout.Materials.GeneratorFuel, "no generator fuel");
+    }
+
+    private static void PowerEarly()
+    {
+        int wind = 0;
+        foreach (ulong seed in new ulong[] { 1, 2, 3, 4 })
+        {
+            ProceduralLayoutResult result = Early(seed);
+            Accepted(result);
+            LayoutPowerPlan power = result.Layout.Power;
+            Equal(LayoutPowerModel.WoodGenerator, power.GeneratorDef, "early dispatchable is wood-fired");
+            True(result.Layout.AllFixtures.Where(f => f.Kind == LayoutFixtureKind.Generator).All(f => f.DefName == LayoutPowerModel.WoodGenerator), "no chemfuel generator");
+            True(power.Yards.All(y => y.DefName == LayoutPowerModel.Wind), "only wind is legal at early: " + string.Join(",", power.Yards.Select(y => y.DefName)));
+            Equal(LayoutEquipment.Wood, result.Layout.Materials.GeneratorFuelDef, "wood fuel");
+            if (power.Yards.Count > 0) wind++;
+            else Contains(power.Diagnostics, "power_source_unplaceable:WindTurbine:no_clear_zone");
+        }
+        True(wind > 0, "a wind turbine fits for at least one seed");
+    }
+
+    private static void PowerMidOpenSky()
+    {
+        ProceduralLayoutResult result = Mid(1);
+        Accepted(result);
+        LayoutPowerPlan power = result.Layout.Power;
+        True(power.Yards.Any(y => y.DefName == LayoutPowerModel.Solar || y.DefName == LayoutPowerModel.Wind), "solar or wind on open sky");
+        True(power.Yards.All(y => y.Cells.All(c => !result.Layout.ConstructedRoof.Contains(c))), "yards stay open-sky");
+        LayoutEquipment equipment = new ProceduralLayoutInput(LayoutRequirements.FromPopulation(8, Industrial, Temperate, stage: MidStage), Plains(130), 1, CoreCatalog).Equipment;
+        True(power.Generators < equipment.Demand.PowerGenerators, "renewables reduce dispatchable units below the worst case " +
+            power.Generators + "<" + equipment.Demand.PowerGenerators);
+        True(power.Yards.All(y => y.Cells.All(c => result.Layout.Enclosure.Contains(c))), "yards inside the enclosure");
+    }
+
+    private static void PowerRockProtected()
+    {
+        LayoutRequirements requirements = new LayoutRequirements(8, Industrial, HousingStandard.Barracks, Temperate, 0, 700, 186, null, MidStage);
+        ProceduralLayoutResult rock = PlanWith(Mountain(130, 110), requirements, 4, null);
+        Accepted(rock);
+        Equal(LayoutDoctrine.RockProtected, rock.Layout.Doctrine, "protect doctrine");
+        True(rock.Layout.Power.Yards.Count == 0, "fuel only");
+        Contains(rock.Layout.Power.Diagnostics, "renewables_skipped_rock_protected");
+        ProceduralLayoutResult open = Mid(4);
+        Accepted(open);
+        True(rock.Layout.Power.FuelStock > open.Layout.Power.FuelStock, "larger fuel stock: " + rock.Layout.Power.FuelStock + ">" + open.Layout.Power.FuelStock);
+        ExportLayout("mountain-industrial-mid-rock-protected-power", rock, true);
+    }
+
+    private static void PowerFuelStock()
+    {
+        foreach (ProceduralLayoutResult result in new[] { Early(1), Mid(1), Mid(2, Cold) })
+        {
+            Accepted(result);
+            LayoutPowerPlan power = result.Layout.Power;
+            CatalogDef generator;
+            CoreCatalog.TryGet(power.GeneratorDef, out generator);
+            Equal((int)Math.Ceiling(power.Generators * generator.FuelPerDay * LayoutEquipment.FuelHorizonDays), power.FuelStock, "stock = units x rate x horizon");
+            Equal(power.FuelStock, result.Layout.Materials.GeneratorFuel, "ledger carries the stock");
+        }
+        LayoutRequirements requirements = LayoutRequirements.FromPopulation(8, Industrial, Temperate);
+        LayoutEquipment equipment = LayoutEquipment.Resolve(requirements, CoreCatalog, null, 2, 1);
+        int worstStock = LayoutPowerModel.FuelStock(equipment.Kit.Generator, equipment.Demand.PowerGenerators);
+        int storage = equipment.Demand.Rooms.Where(r => r.Kind == LayoutRoomKind.Storage).Sum(r => r.Capacity);
+        Equal(Math.Max(12, 6 * 8) + (worstStock + 74) / 75, storage, "storage raised by the worst-case fuel stacks");
+    }
+
+    private static void PowerGeothermal()
+    {
+        LayoutLocalResources resources = new LayoutLocalResources(int.MaxValue, null, null, CentreGeysers);
+        ProceduralLayoutResult result = Mid(1, null, resources);
+        Accepted(result);
+        LayoutPowerYard yard = result.Layout.PowerYards.SingleOrDefault(y => y.DefName == LayoutPowerModel.Geothermal);
+        True(yard != null, "geothermal placed: " + string.Join(",", result.Layout.Power.Diagnostics));
+        GridPoint geyser = CentreGeysers.Single(g => yard.Cells.Contains(g));
+        Equal(new GridPoint(geyser.X - 2, geyser.Z - 2), yard.Cells.Min(), "vanilla footprint: Position == geyser");
+        True(new[] { geyser, new GridPoint(geyser.X + 1, geyser.Z), new GridPoint(geyser.X, geyser.Z + 1), new GridPoint(geyser.X + 1, geyser.Z + 1) }
+            .All(yard.Cells.Contains), "the geyser's 2x2 lies in the 6x6 footprint");
+        Equal(36, yard.Cells.Count, "6x6 footprint");
+        TerrainSnapshot occupiedGeysers = Build(130, 130, (x, z) => CentreGeysers.Any(g => (x == g.X || x == g.X + 1) && (z == g.Z || z == g.Z + 1)) ? TerrainTraits.Occupied : Ground);
+        ProceduralLayoutResult occupied = PlanWith(occupiedGeysers, LayoutRequirements.FromPopulation(8, Industrial, Temperate, stage: MidStage), 1, resources);
+        Accepted(occupied);
+        True(occupied.Layout.PowerYards.Any(y => y.DefName == LayoutPowerModel.Geothermal), "geysers reported as Occupied terrain still host geothermal");
+        ExportLayout("plains-industrial-mid-geothermal", result);
+    }
+
+    private static void PowerWindZone()
+    {
+        ProceduralLayoutResult result = Early(3);
+        Accepted(result);
+        LayoutPowerYard turbine = result.Layout.PowerYards.Single(y => y.DefName == LayoutPowerModel.Wind);
+        int minX = turbine.Cells.Min(c => c.X), minZ = turbine.Cells.Min(c => c.Z);
+        True(turbine.Cells.All(c => c.X >= minX && c.X <= minX + 6 && c.Z >= minZ && c.Z <= minZ + 1) && turbine.Cells.Count == 14, "7x2 north footprint");
+        True(turbine.ZoneCells.Count == 7 * 16 && turbine.ZoneCells.All(c => c.X >= minX && c.X <= minX + 6 &&
+            ((c.Z >= minZ + 2 && c.Z <= minZ + 11) || (c.Z >= minZ - 6 && c.Z <= minZ - 1))), "vanilla wind cells: 10 rows ahead, 6 behind");
+        Equal("North", turbine.Rotation, "north only");
+        HashSet<GridPoint> blocked = new HashSet<GridPoint>(result.Layout.Rooms.SelectMany(r => r.Bounds.Points()).Concat(result.Layout.BuiltWalls)
+            .Concat(result.Layout.PowerYards.Where(y => y != turbine).SelectMany(y => y.Cells)).Concat(result.Layout.ConstructedRoof));
+        True(turbine.ZoneCells.All(c => result.Layout.Enclosure.Contains(c) && !blocked.Contains(c)), "clear zone unroofed, building-free, inside the enclosure");
+        ExportLayout("plains-industrial-early-wind", result);
+    }
+
+    private static void PowerCriticalCovered()
+    {
+        LayoutLocalResources everything = new LayoutLocalResources(int.MaxValue, null, new[] { new GridPoint(5, 5) }, CentreGeysers);
+        foreach (ProceduralLayoutResult result in new[] { Mid(1, Cold, everything), Mid(2, Hot, everything), Early(3), Mid(3, Cold) })
+        {
+            Accepted(result);
+            int critical, nonCritical;
+            LayoutPowerModel.Loads(result.Layout.Rooms, out critical, out nonCritical);
+            LayoutPowerPlan power = result.Layout.Power;
+            True(critical > 0, "scenario has a critical load");
+            True(power.Generators * power.GeneratorWatts >= critical, "dispatchable covers critical " + power.Generators * power.GeneratorWatts + ">=" + critical +
+                " despite renewables " + power.RenewableWatts);
+            True(power.Generators * power.GeneratorWatts + power.RenewableWatts >= critical + nonCritical, "all load covered");
+        }
+    }
+
+    private static void PowerBatteries()
+    {
+        Equal(1, LayoutPowerModel.Batteries(0), "at least one");
+        Equal(1, LayoutPowerModel.Batteries(2400), "2400W x 6h = 600Wd");
+        Equal(2, LayoutPowerModel.Batteries(2401), "just over one battery");
+        Equal(3, LayoutPowerModel.Batteries(4801), "three");
+        foreach (ProceduralLayoutResult result in new[] { Early(1), Mid(3, Cold), PlanWith(Plains(150), LayoutRequirements.FromPopulation(24, Industrial, Cold), 2, null) })
+        {
+            Accepted(result);
+            int critical, nonCritical;
+            LayoutPowerModel.Loads(result.Layout.Rooms, out critical, out nonCritical);
+            int expected = Math.Max(1, (int)Math.Ceiling(critical * 6.0 / 24 / 600));
+            Equal(expected, result.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.Battery), "battery count for " + critical + "W critical");
+            True(result.Layout.AllFixtures.Where(f => f.Kind == LayoutFixtureKind.Battery).All(f => f.RoomId == "power"), "batteries indoors");
+        }
+    }
+
+    private static void PowerChemfuel()
+    {
+        ProceduralLayoutResult result = Mid(1, null, new LayoutLocalResources(0), 100000);
+        Accepted(result);
+        LayoutPowerPlan power = result.Layout.Power;
+        Equal(LayoutPowerModel.ChemfuelGenerator, power.GeneratorDef, "chemfuel when wood cannot cover the stock");
+        Equal("Chemfuel", power.FuelDef, "chemfuel stock");
+        LayoutMaterialLedger materials = result.Layout.Materials;
+        Equal(power.FuelStock, materials.GeneratorFuelImported, "all chemfuel imported");
+        Equal((int)Math.Ceiling(materials.ImportedWood * 1.2 + power.FuelStock * 2.3), materials.ImportValue, "chemfuel valued at its catalog market value");
+        ProceduralLayoutResult woodRich = Mid(1);
+        Equal(LayoutPowerModel.WoodGenerator, woodRich.Layout.Power.GeneratorDef, "wood when the yield covers the stock");
+        ProceduralLayoutResult early = PlanWith(Plains(130), LayoutRequirements.FromPopulation(8, Industrial, Temperate, importValueLimit: 100000), 1, new LayoutLocalResources(0));
+        Accepted(early);
+        Equal(LayoutPowerModel.WoodGenerator, early.Layout.Power.GeneratorDef, "early has no chemfuel: imported wood instead");
+        True(early.Layout.Materials.ImportedWood >= early.Layout.Power.FuelStock, "generator wood imported");
+    }
+
+    private static void PowerDiagnostics()
+    {
+        ProceduralLayoutResult dry = Mid(1);
+        Contains(dry.Layout.Power.Diagnostics, "power_source_unplaceable:WatermillGenerator:no_river");
+        Contains(dry.Layout.Power.Diagnostics, "power_source_unplaceable:GeothermalGenerator:no_geyser");
+        ProceduralLayoutResult river = Mid(1, null, new LayoutLocalResources(int.MaxValue, null, new[] { new GridPoint(3, 60), new GridPoint(3, 61) }));
+        Contains(river.Layout.Power.Diagnostics, "power_source_unplaceable:WatermillGenerator:river_outside_enclosure");
+        ProceduralLayoutResult oversized = Plan(Plains(120), LayoutRequirements.FromPopulation(120, Industrial, Temperate), 1);
+        Equal("room_demand_exceeds_legal_dimensions", oversized.RejectionCode, "a load beyond eight generators rejects before search");
+        True(oversized.Diagnostics.Any(d => d.Detail.StartsWith("room_demand_exceeds_legal_dimensions:Power")), "power room named");
+    }
+
+    private static void InteractionOffsetUnsupported()
+    {
+        TechCatalog skewed = new TechCatalog("skewed", CoreCatalog.Defs.Where(d => d.DefName != "CraftingSpot").Concat(new[]
+        {
+            new CatalogDef("CraftingSpot", CatalogCategory.Building, hasInteractionCell: true, interactionOffset: new GridPoint(1, -1),
+                thingClass: "Building_WorkTable", designationCategory: "Production")
+        }), CoreCatalog.Research);
+        ProceduralLayoutResult result = PlanWith(Plains(120), LayoutRequirements.FromPopulation(6, Tribal, Temperate), 1, null, skewed);
+        Equal("interaction_offset_unsupported:CraftingSpot", result.RejectionCode, "diagnostic instead of a silent furnishing failure");
+        Equal(0, result.Stats.EvaluationCount, "before search");
+    }
+
     // ---- helpers ----
 
     private static ProceduralLayoutInput Input(TerrainSnapshot terrain, LayoutRequirements requirements, ulong seed,
@@ -701,7 +907,8 @@ internal static class Program
 
     private static TerrainSnapshot TerrainFor(string name) =>
         name.StartsWith("mountain") ? Mountain(130, 110) : name.StartsWith("obstacles") ? Obstacles(120) :
-        name == "plains-industrial-16" ? Plains(140) : name.Contains("personal") ? Plains(130) : Plains(120);
+        name == "plains-industrial-16" ? Plains(140) : name.Contains("personal") || name.StartsWith("plains-industrial-mid") ||
+        name.StartsWith("plains-industrial-early") ? Plains(130) : Plains(120);
 
     // ---- synthetic terrain ----
 

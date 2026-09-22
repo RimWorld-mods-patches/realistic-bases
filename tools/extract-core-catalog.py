@@ -268,6 +268,9 @@ def main():
             args.append("producedAt: " + strs(produced))
         if raw:
             args.append("raw: true")
+        stack = text(d, "stackLimit")
+        if stack and int(stack) > 1:
+            args.append("stackLimit: %d" % int(stack))
         lines.append("            new CatalogDef(" + ", ".join(args) + "),")
 
     research_lines = []

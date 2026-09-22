@@ -33,10 +33,11 @@ namespace RealisticBases.Planning
             IEnumerable<string> apparelBodyParts = null, int basePowerConsumption = 0, IEnumerable<string> fuel = null,
             double fuelPerDay = 0, bool hasInteractionCell = false, GridPoint interactionOffset = default(GridPoint),
             CatalogPassability passability = CatalogPassability.Standable, double marketValue = 0, string thingClass = null,
-            string designationCategory = null, bool isTrap = false, IEnumerable<string> producedAt = null, bool raw = false)
+            string designationCategory = null, bool isTrap = false, IEnumerable<string> producedAt = null, bool raw = false, int stackLimit = 1)
         {
             if (string.IsNullOrEmpty(defName)) throw new ArgumentNullException(nameof(defName));
             if (sizeX < 1 || sizeZ < 1) throw new ArgumentOutOfRangeException(nameof(sizeX));
+            if (stackLimit < 1) throw new ArgumentOutOfRangeException(nameof(stackLimit));
             if (costStuffCount < 0 || fuelPerDay < 0 || marketValue < 0) throw new ArgumentOutOfRangeException(nameof(costStuffCount));
             DefName = defName;
             Category = category;
@@ -71,6 +72,7 @@ namespace RealisticBases.Planning
             IsTrap = isTrap;
             ProducedAt = List(producedAt);
             Raw = raw;
+            StackLimit = stackLimit;
         }
 
         public string DefName { get; }
@@ -108,6 +110,8 @@ namespace RealisticBases.Planning
         public IReadOnlyList<string> ProducedAt { get; }
         // Mined, harvested, butchered or salvaged: legal without a local producer.
         public bool Raw { get; }
+        // Units per stored stack (vanilla stackLimit, default 1).
+        public int StackLimit { get; }
         public bool GeneratesPower => BasePowerConsumption < 0;
         public bool Blocking => Passability == CatalogPassability.Impassable;
 
@@ -146,7 +150,8 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, DesignationCategory);
             hash = StableHash.Add(hash, IsTrap ? 1 : 0);
             hash = AddList(hash, ProducedAt);
-            return StableHash.Add(hash, Raw ? 1 : 0);
+            hash = StableHash.Add(hash, Raw ? 1 : 0);
+            return StableHash.Add(hash, StackLimit);
         }
 
         internal static ulong AddList(ulong hash, IReadOnlyList<string> values)

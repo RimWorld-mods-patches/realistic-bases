@@ -365,8 +365,9 @@ namespace RealisticBases.Planning
     // along the door wall. Each candidate was proven by running the furnishing rule.
     public sealed class LayoutRoomDemand
     {
-        internal LayoutRoomDemand(string id, LayoutRoomKind kind, int capacity, string unit, IList<GridRect> sizes)
+        internal LayoutRoomDemand(string id, LayoutRoomKind kind, int capacity, string unit, IList<GridRect> sizes, int batteries = 0)
         {
+            Batteries = batteries;
             Id = id;
             Kind = kind;
             Capacity = capacity;
@@ -379,6 +380,8 @@ namespace RealisticBases.Planning
         public int Capacity { get; }
         public string Unit { get; }
         public IReadOnlyList<GridRect> CandidateSizes { get; }
+        // Power room only: batteries placed next to the generators.
+        public int Batteries { get; }
         public bool Living => LayoutDemandModel.IsLiving(Kind);
         public int MinimumBoundsArea => CandidateSizes.Count == 0 ? 0 : CandidateSizes.Min(s => (s.Width + 2) * (s.Height + 2));
     }
@@ -414,13 +417,21 @@ namespace RealisticBases.Planning
 
     public sealed class LayoutDemandSet
     {
-        internal LayoutDemandSet(IList<LayoutRoomDemand> rooms, IList<LayoutRelationship> relations, IList<string> rejections, int estimatedLoadWatts)
+        internal LayoutDemandSet(IList<LayoutRoomDemand> rooms, IList<LayoutRelationship> relations, IList<string> rejections, int estimatedLoadWatts,
+            int criticalWatts = 0, int powerGenerators = 0)
         {
             Rooms = new ReadOnlyCollection<LayoutRoomDemand>(rooms);
             Relationships = new ReadOnlyCollection<LayoutRelationship>(relations);
             Rejections = new ReadOnlyCollection<string>(rejections);
             EstimatedLoadWatts = estimatedLoadWatts;
+            CriticalWatts = criticalWatts;
+            PowerGenerators = powerGenerators;
         }
+
+        // Worst-case (largest candidate) critical load of the non-power rooms.
+        public int CriticalWatts { get; }
+        // Dispatchable-only worst case: generators covering the whole load, used before the search.
+        public int PowerGenerators { get; }
 
         public IReadOnlyList<LayoutRoomDemand> Rooms { get; }
         public IReadOnlyList<LayoutRelationship> Relationships { get; }
@@ -444,8 +455,9 @@ namespace RealisticBases.Planning
 
         public static bool IsStockpile(LayoutRoomKind kind) => kind == LayoutRoomKind.Storage || kind == LayoutRoomKind.Freezer || kind == LayoutRoomKind.Pantry;
 
-        public static LayoutDemandSet Derive(LayoutRequirements requirements, LayoutKit kit, ulong roomSeed)
+        public static LayoutDemandSet Derive(LayoutRequirements requirements, LayoutKit kit, ulong roomSeed, int extraStorageCells = 0)
         {
+            if (extraStorageCells < 0) throw new ArgumentOutOfRangeException(nameof(extraStorageCells));
             if (requirements == null) throw new ArgumentNullException(nameof(requirements));
             if (kit == null) throw new ArgumentNullException(nameof(kit));
             int r = requirements.Residents;
@@ -465,11 +477,14 @@ namespace RealisticBases.Planning
             Add(wanted, requirements, LayoutRoomKind.Dining, r);
             // Every distinct craft bench once, then more benches up to the population target.
             Add(wanted, requirements, LayoutRoomKind.Workshop, Math.Max(Math.Max(1, Ceil(r, 6)), kit.WorkshopDefs.Count));
-            Add(wanted, requirements, LayoutRoomKind.Storage, Math.Max(12, 6 * r));
+            // Generator fuel stock is stored physically: its stacks raise the storage demand.
+            Add(wanted, requirements, LayoutRoomKind.Storage, Math.Max(12, 6 * r) + extraStorageCells);
 
             List<string> rejections = new List<string>();
             List<LayoutRoomDemand> rooms = new List<LayoutRoomDemand>();
             int load = 0;
+            int critical = 0;
+            int generatorsNeeded = 0;
             foreach (IGrouping<LayoutRoomKind, KeyValuePair<LayoutRoomKind, int>> group in wanted.GroupBy(w => w.Key))
             {
                 List<LayoutRoomDemand> built = group.Key == LayoutRoomKind.Barracks || group.Key == LayoutRoomKind.Bedroom
@@ -482,23 +497,30 @@ namespace RealisticBases.Planning
                 }
                 rooms.AddRange(built);
                 load += built.Sum(d => MaxLoad(d, requirements, kit));
+                critical += built.Sum(d => MaxCritical(d, requirements, kit));
             }
             if (kit.Powered && kit.GeneratorWatts > 0 && rejections.Count == 0)
             {
-                // The power room's own lamp/heater draw is part of the load it must cover.
+                // Dispatchable-only worst case; the power room's own draw is part of the load it must cover.
+                int batteries = LayoutPowerModel.Batteries(critical);
                 for (int generators = Math.Max(1, Ceil(load, kit.GeneratorWatts)); generators <= MaxSplit; generators++)
                 {
-                    LayoutRoomDemand power = Build(LayoutRoomKind.Power, generators, "power", requirements, kit, roomSeed);
+                    LayoutRoomDemand power = BuildPowerRoom(requirements, kit, generators, batteries, roomSeed);
                     if (power == null) { rejections.Add("room_demand_exceeds_legal_dimensions:Power:" + generators); break; }
                     int total = load + MaxLoad(power, requirements, kit);
                     if (generators * kit.GeneratorWatts < total) continue;
                     rooms.Add(power);
                     load = total;
+                    generatorsNeeded = generators;
                     break;
                 }
+                if (generatorsNeeded == 0 && rejections.Count == 0) rejections.Add("room_demand_exceeds_legal_dimensions:Power:" + MaxSplit);
             }
-            return new LayoutDemandSet(rooms, Relationships(rooms, roomSeed), rejections, load);
+            return new LayoutDemandSet(rooms, Relationships(rooms, roomSeed), rejections, load, critical, generatorsNeeded);
         }
+
+        internal static LayoutRoomDemand BuildPowerRoom(LayoutRequirements requirements, LayoutKit kit, int generators, int batteries, ulong roomSeed) =>
+            Build(LayoutRoomKind.Power, generators, "power", requirements, kit, roomSeed, batteries);
 
         private static void Add(List<KeyValuePair<LayoutRoomKind, int>> wanted, LayoutRequirements requirements, LayoutRoomKind kind, int derived) =>
             wanted.Add(new KeyValuePair<LayoutRoomKind, int>(kind, Math.Max(derived, requirements.Floor(kind))));
@@ -524,13 +546,14 @@ namespace RealisticBases.Planning
 
         private static string Id(LayoutRoomKind kind, int index, bool numbered) => kind.ToString().ToLowerInvariant() + (numbered ? "-" + index : string.Empty);
 
-        private static LayoutRoomDemand Build(LayoutRoomKind kind, int capacity, string id, LayoutRequirements requirements, LayoutKit kit, ulong roomSeed)
+        private static LayoutRoomDemand Build(LayoutRoomKind kind, int capacity, string id, LayoutRequirements requirements, LayoutKit kit, ulong roomSeed,
+            int batteries = 0)
         {
             List<GridRect> legal = new List<GridRect>();
             for (int w = MinInterior; w <= MaxInterior; w++)
                 for (int h = MinInterior; h <= MaxInterior; h++)
                 {
-                    LayoutFurnishResult result = LayoutFurnishing.Furnish(kind, w, h, (w + 1) / 2, capacity, FurnishContext(kit, requirements, false, null));
+                    LayoutFurnishResult result = LayoutFurnishing.Furnish(kind, w, h, (w + 1) / 2, capacity, FurnishContext(kit, requirements, false, null, batteries));
                     if (result.Success) legal.Add(new GridRect(0, 0, w, h));
                 }
             if (legal.Count == 0) return null;
@@ -538,21 +561,37 @@ namespace RealisticBases.Planning
             List<GridRect> sizes = legal.Where(s => s.Area <= minimum * NearMinimalAreaFactor)
                 .OrderBy(s => s.Area).ThenBy(s => Math.Abs(s.Width - s.Height)).ThenBy(s => s.Width).Take(MaxSizesPerRoom)
                 .OrderBy(s => LayoutSeed.Key(LayoutSeed.Sub(roomSeed, id), s.Width, s.Height)).ToList();
-            return new LayoutRoomDemand(id, kind, capacity, Unit(kind), sizes);
+            return new LayoutRoomDemand(id, kind, capacity, Unit(kind), sizes, batteries);
         }
 
-        internal static LayoutFurnishContext FurnishContext(LayoutKit kit, LayoutRequirements requirements, bool thickRoofed, Func<int, bool> exhaustAllowed) =>
-            new LayoutFurnishContext(kit, requirements.Climate.HeatingRequired, requirements.Climate.CoolingRequired && !thickRoofed, exhaustAllowed);
+        internal static LayoutFurnishContext FurnishContext(LayoutKit kit, LayoutRequirements requirements, bool thickRoofed, Func<int, bool> exhaustAllowed,
+            int batteries = 0) =>
+            new LayoutFurnishContext(kit, requirements.Climate.HeatingRequired, requirements.Climate.CoolingRequired && !thickRoofed, exhaustAllowed, batteries);
 
-        // Upper bound on the powered load: the largest candidate size and worst-case climate.
-        private static int MaxLoad(LayoutRoomDemand demand, LayoutRequirements requirements, LayoutKit kit)
+        // Upper bound on the critical load of a room over its candidate sizes.
+        internal static int MaxCritical(LayoutRoomDemand demand, LayoutRequirements requirements, LayoutKit kit)
         {
             if (!kit.Powered) return 0;
             int max = 0;
             foreach (GridRect size in demand.CandidateSizes)
             {
                 LayoutFurnishResult result = LayoutFurnishing.Furnish(demand.Kind, size.Width, size.Height, (size.Width + 1) / 2,
-                    demand.Capacity, FurnishContext(kit, requirements, false, null));
+                    demand.Capacity, FurnishContext(kit, requirements, false, null, demand.Batteries));
+                if (result.Success)
+                    max = Math.Max(max, result.Fixtures.Where(f => LayoutPowerModel.IsCritical(demand.Kind, f.Kind, f.Role, f.Watts)).Sum(f => f.Watts));
+            }
+            return max;
+        }
+
+        // Upper bound on the powered load: the largest candidate size and worst-case climate.
+        internal static int MaxLoad(LayoutRoomDemand demand, LayoutRequirements requirements, LayoutKit kit)
+        {
+            if (!kit.Powered) return 0;
+            int max = 0;
+            foreach (GridRect size in demand.CandidateSizes)
+            {
+                LayoutFurnishResult result = LayoutFurnishing.Furnish(demand.Kind, size.Width, size.Height, (size.Width + 1) / 2,
+                    demand.Capacity, FurnishContext(kit, requirements, false, null, demand.Batteries));
                 if (result.Success) max = Math.Max(max, result.Watts);
             }
             return max;
@@ -613,8 +652,9 @@ namespace RealisticBases.Planning
 
     public sealed class LayoutFurnishContext
     {
-        public LayoutFurnishContext(LayoutKit kit, bool heating, bool cooling, Func<int, bool> exhaustAllowed)
+        public LayoutFurnishContext(LayoutKit kit, bool heating, bool cooling, Func<int, bool> exhaustAllowed, int batteries = 0)
         {
+            Batteries = batteries;
             Kit = kit ?? throw new ArgumentNullException(nameof(kit));
             Heating = heating;
             Cooling = cooling;
@@ -622,6 +662,8 @@ namespace RealisticBases.Planning
         }
 
         public LayoutKit Kit { get; }
+        // Power room only: batteries to place (at least one).
+        public int Batteries { get; }
         public bool Electric => Kit.Powered;
         public bool Heating { get; }
         public bool Cooling { get; }
@@ -746,7 +788,8 @@ namespace RealisticBases.Planning
                         for (int i = 0; kit.WorkshopDefs.Count > 0 && i < capacityTarget; i++)
                         {
                             CatalogDef bench = kit.WorkshopDefs[i % kit.WorkshopDefs.Count];
-                            if (!room.Place(From(bench, LayoutFixtureKind.Workbench, CraftRoleOf(kit, bench)), 1)) break;
+                            Template template = From(bench, LayoutFixtureKind.Workbench, CraftRoleOf(kit, bench));
+                            if (template == null || !room.Place(template, 1)) break;
                             capacity++;
                         }
                         break;
@@ -758,7 +801,7 @@ namespace RealisticBases.Planning
                     case LayoutRoomKind.Power:
                         capacity = PlaceAll(room, From(kit.Generator, LayoutFixtureKind.Generator, null, true), capacityTarget);
                         Template battery = From(kit.Battery, LayoutFixtureKind.Battery, null, true);
-                        if (capacity >= capacityTarget && (battery == null || !room.Place(battery, capacityTarget))) failure = "batteries";
+                        if (capacity >= capacityTarget && (battery == null || !room.Place(battery, Math.Max(1, context.Batteries)))) failure = "batteries";
                         break;
                 }
                 if (failure == null && capacity < capacityTarget) failure = "capacity";

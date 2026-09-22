@@ -2,58 +2,61 @@
 legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access
         B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
         f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
+        Y power yard (solar/wind/geothermal)  w wind clear zone
         g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
 roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  ' ' open sky
 
-digest=A5FE8AC2D5B74CA0 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=679
-  barracks-1  bounds=64,62,5x9    door=66,62   6/6 beds
-  dining      bounds=51,62,6x10   door=55,62   8/6 seats
-  freezer     bounds=55,53,11x7   door=60,59   40/36 stockpile-cells
-  jail        bounds=71,63,5x5    door=71,66   1/1 beds
-  kitchen     bounds=58,62,6x5    door=60,62   1/1 stoves
-  medical     bounds=66,55,5x5    door=68,59   1/1 beds
-  power       bounds=44,59,5x9    door=46,59   2/2 generators
-  storage     bounds=54,47,12x6   door=54,50   37/36 stockpile-cells
-  workshop    bounds=48,46,5x10   door=52,50   4/4 benches
+digest=DE84CE96D998AE55 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=646
+  barracks-1  bounds=53,62,5x9    door=56,62   6/6 beds
+  dining      bounds=71,64,6x9    door=71,65   8/6 seats
+  freezer     bounds=63,62,7x11   door=66,62   40/36 stockpile-cells
+  jail        bounds=54,47,5x6    door=54,50   1/1 beds
+  kitchen     bounds=66,54,5x6    door=68,59   1/1 stoves
+  medical     bounds=47,54,6x5    door=52,56   1/1 beds
+  power       bounds=45,49,8x5    door=52,52   2/2 generators
+  storage     bounds=55,53,11x7   door=60,59   42/38 stockpile-cells
+  workshop    bounds=58,62,5x10   door=60,62   4/4 benches
   note: excavated=0/480 retainedThickRoof=0
   note: gates=2 desired=2
-  note: materials walls=339 doors=11 stuff=WoodLog:3170 constructionWood=3170 fuelWood=0 localWood=3170 importedWood=0 importValue=0
+  note: materials walls=331 doors=11 stuff=WoodLog:3130 constructionWood=3130 fuelWood=0 generatorFuel=WoodLog:132/imported 0 localWood=3262 importedWood=0 importValue=0
+  power: critical=400W nonCritical=1330W WoodFiredGeneratorx2 batteries=1 renewables= (0W) fuel=WoodLog:132
+  power: power_source_unplaceable:WindTurbine:no_clear_zone
 
 
 
-          ##########
-          #,,,,,,,,#   #########
-          #,######,#   #,,,,,,,#
-          #,#Rc..#,#   #,#####,#
-   ########,#LTTc#,#   #,#BBB#,########
-   #,,,,,,,,#cTT.#,#####,#BBB#,,,,,,,,#
-   #,#####,,#.cc.#,,,,,,,#...#,,#####,#
-   #,#EEL#,,#.TTc#,#######BB.#,=D.PP#,#
-   #,#EE.#,,#cTT.#,#SSSL##BB.#,=#..L#,#
-   #,#EE.#,,#..c.#,#.i..##BB.#,=#...#,#
-   #,#EE.#,,#....#,#....##L..#,=#####,#
-   #,#AA.#,,####D#,##D#####D##,=,,,,,,#
-   #,#AA.#,,====================,,,####
-   #,#...#,,====================,,,Gs*****
-   #,##D##,,,,=,###C#D#C#####D##,,,#
-   #,,,======i=,#__i_._i__##...#,,,#
-   ###,,,,,,MM=,#________k##..H#,###
-     #G#,,,,MM=,#________k##.LH#,#
-******s#,#####=,#_________######,#
-       #,#WWW#=,#_kkkkkkLL#,,,,,,#
-       #,#Li.#=,###########,######
-       #,#W..#=############,#
-       #,#Wi.#=#__kkkkkk_L#,#
-       #,#W..D=D.________L#,#
-       #,#W.W#,#_________k#,#
-       #,#WiW#,#_________k#,#
-       #,#W.W#,############,#
-       #,#####,,,,,,,,,,,,,,#
-       #,,,,,,,##############
-       #########
+                     ##################
+                ######,,,,,,,,,,,,,,,,#
+           ######,,,,,,#######,######,#
+           #,,,,,,######LLkk_#,#.c.R#,#
+           #,######WWW##_____#,#.TTc#,#
+           #,#BBB##WiW##k____#,#cTT.#,#
+           #,#BBB##WiW##k____#,#.cc.#,#
+           #,#...##W.W##k____#,#.TTc#,#
+           #,#BB.##W..##k____#,#cTTL#,#
+         ###,#BB.##Wi.##k____#=D..c.#,#
+       ###,,,#BB.##W..##k____#=######,#
+       #,,,MM#L..##L..##i_._i#=,,,,,,,#
+       #,,,MM###D###D###C#D#C#=,,,#####
+******sG,,,i===================,,,Gs******
+     ###,,,====================,,,#
+     #,,,,,,,=,#####D#######D##,,,#
+     #,######=,#____.____##...#,,,#
+     #,#....#=,#________k##...#,###
+     #,#L...D=,#________k##.iL#,#
+   ###,#HH..#=,#_________##SSS#,#
+   #,,,######=,#_kkkkkkLL######,#
+   #,########=,###########,,,,,,#
+   #,#L.....D=#####,,,,,,,,######
+   #,#EEEEA.#=#.PP#,########
+   #,#EEEEA.#=D..L#,#
+   #,########,#...#,#
+   #,,,,,,,,,,#...#,#
+   ##########,#####,#
+            #,,,,,,,#
+            #########
 
 
 
 
-search: sites=1 attempts=1 evaluations=3764 repairs=4 routeNodes=19101 budgetExhausted=False
+search: sites=1 attempts=1 evaluations=3439 repairs=1 routeNodes=19164 budgetExhausted=False

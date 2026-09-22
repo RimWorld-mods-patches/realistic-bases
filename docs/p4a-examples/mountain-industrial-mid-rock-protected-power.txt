@@ -1,0 +1,119 @@
+# mountain-industrial-mid-rock-protected-power (synthetic terrain; planner evidence only, not a live map)
+legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access
+        B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
+        f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
+        Y power yard (solar/wind/geothermal)  w wind clear zone
+        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
+        outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
+roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  ' ' open sky
+
+digest=9A47DB32C9EC7E0C doctrine=RockProtected gates=1 wallLayers=1 court=False excavated=319 retainedRoof=319 enclosure=567
+  barracks-1  bounds=61,28,9x6    door=61,31   8/8 beds rock-protected
+  dining      bounds=61,20,8x8    door=61,26   8/8 seats rock-protected
+  freezer     bounds=49,27,10x9   door=55,27   51/48 stockpile-cells rock-protected
+  jail        bounds=57,5,5x6     door=60,10   1/1 beds rock-protected
+  kitchen     bounds=54,20,5x6    door=56,25   1/1 stoves rock-protected
+  medical     bounds=61,34,5x6    door=61,36   2/2 beds rock-protected
+  power       bounds=53,37,8x5    door=59,37   2/2 generators rock-protected
+  storage     bounds=61,11,10x9   door=61,17   53/50 stockpile-cells rock-protected
+  workshop    bounds=53,12,6x8    door=58,15   4/4 benches
+  note: mortar_court_dropped_for_rock_protection
+  note: excavated=319/700 retainedThickRoof=319
+  note: gates=1 desired=2
+  note: materials walls=45 doors=10 stuff=WoodLog:1760 constructionWood=1760 fuelWood=0 generatorFuel=WoodLog:132/imported 0 localWood=1892 importedWood=0 importValue=0
+  power: critical=400W nonCritical=1330W WoodFiredGeneratorx2 batteries=1 renewables= (0W) fuel=WoodLog:132
+  power: renewables_skipped_rock_protected
+        ^^^^^^^^^^^^^^^^^^^^^^^
+        ^^^^^^^^^^^^^^^^^^^^^^^
+        ^^^^^^^^^^^^^^^^^^^^^^^
+       ^^^^^^^^^^^^^^^^^^^^^^^^
+       ^^^^^^^^^^^^^^^^^^^^^^^^
+      ^^^^EEEEAL^^^^^^^^^^^^^^^
+      ^^^^EEEEA.^^^^^^^^^^^^^^^
+     ^^^^^......^^.HH^^^^^^^^^^
+   ##^^^^^^^^^^D^^.HH^^^^^^^^^^
+   #,^^^^^^^^^^==D..L^^^^^^^^^^
+   #,^^^^^^^^^^==^...^^^^^^^^^^
+   #,^LLkkkkkk^==^^^^^^^^^^^^^^
+   #,^________^==^^^^^^^^^^^^^^
+   #,^k_______^==^LBBB.BB^^^^^^
+   #,^k_______^==D.BBB.BB^^^^^^
+   #,^k_______^==^.....BB^^^^^^
+   #,^k_______^==^BB...BB^^^^^^
+   #,^_ii__.__^==^^^^^^^^^^^^^^
+   #,#^CC^^D^^^==^^^^^^^^^^^^^^
+   #,,,==========D...c.R^^^^^^^
+   ###,,,,^^D^^==^...TTc^^^^^^^
+     #G##,^...^==^.ccTT.^^^^^^^
+      s #,#...^==^.TTcc.^^^^^^^
+      * ^^^.iL^==^cTT..L^^^^^^^
+      *#^^^SSS^==^..c...^^^^^^^
+      *#,^^^^^^==^^^^^^^^^^^^^^
+      *#,^^^^^^==^^^^^^^^^^^^^^
+      *#,#WWWW^==^kkkkkk_L^^^^^
+      *#,#Wii.^==D.______L^^^^^
+      *#,#W...^==^_______k^^^^^
+      *#,#W...D==^_______k^^^^^
+      *#,#WiiL^==^_______k^^^^^
+      *#,#WWWW^==^_______k^^^^^
+      *#,##^^^^==^________^^^^^
+      *#,,,^^^^==^^^^^^^^^^^^^^
+      *####^^^^^D^^^^^^^^^^^^^^
+      *    ^^^...^^^^^^^^^^^^^^
+      *    ^^^...^^^^^^^^^^^^^^
+      *    ^^^..P^^^^^^^^^^^^^^
+      *    ^^^.LP^^^^^^^^^^^^^^
+      *   ^^^^^^^^^^^^^^^^^^^^^
+      *   ^^^^^^^^^^^^^^^^^^^^^
+      *     ^^^^^^^^^^^^^^^^^^^
+      *     ^^^^^^^^^^^^^^^^^^^
+      *    ^^^^^^^^^^^^^^^^^^^^
+
+roof view:
+        ^^^^^^^^^^^^^^^^^^^^^^^
+        ^^^^^^^^^^^^^^^^^^^^^^^
+        ^^^^^^^^^^^^^^^^^^^^^^^
+       ^^^^^^^^^^^^^^^^^^^^^^^^
+       ^^^^^^^^^^^^^^^^^^^^^^^^
+      ^^^^RRRRRR^^^^^^^^^^^^^^^
+      ^^^^RRRRRR^^^^^^^^^^^^^^^
+     ^^^^^RRRRRR^^RRR^^^^^^^^^^
+     ^^^^^^^^^^R^^RRR^^^^^^^^^^
+     ^^^^^^^^^^RRRRRR^^^^^^^^^^
+     ^^^^^^^^^^RR^RRR^^^^^^^^^^
+     ^RRRRRRRR^RR^^^^^^^^^^^^^^
+     ^RRRRRRRR^RR^^^^^^^^^^^^^^
+     ^RRRRRRRR^RR^RRRRRRR^^^^^^
+     ^RRRRRRRR^RRRRRRRRRR^^^^^^
+     ^RRRRRRRR^RR^RRRRRRR^^^^^^
+     ^RRRRRRRR^RR^RRRRRRR^^^^^^
+     ^RRRRRRRR^RR^^^^^^^^^^^^^^
+     r^RR^^R^^^RR^^^^^^^^^^^^^^
+         RRRRRRRRRRRRRRR^^^^^^^
+          ^^R^^RR^RRRRRR^^^^^^^
+          ^RRR^RR^RRRRRR^^^^^^^
+          rRRR^RR^RRRRRR^^^^^^^
+        ^^^RRR^RR^RRRRRR^^^^^^^
+        ^^^RRR^RR^RRRRRR^^^^^^^
+         ^^^^^^RR^^^^^^^^^^^^^^
+         ^^^^^^RR^^^^^^^^^^^^^^
+         rRRRR^RR^RRRRRRRR^^^^^
+         rRRRR^RRRRRRRRRRR^^^^^
+         rrRRR^RR^RRRRRRRR^^^^^
+         rrRRRRRR^RRRRRRRR^^^^^
+         rrRRR^RR^RRRRRRRR^^^^^
+         rrRRR^RR^RRRRRRRR^^^^^
+         rr^^^^RR^RRRRRRRR^^^^^
+           ^^^^RR^^^^^^^^^^^^^^
+           ^^^^^R^^^^^^^^^^^^^^
+           ^^^RRR^^^^^^^^^^^^^^
+           ^^^RRR^^^^^^^^^^^^^^
+           ^^^RRR^^^^^^^^^^^^^^
+           ^^^RRR^^^^^^^^^^^^^^
+          ^^^^^^^^^^^^^^^^^^^^^
+          ^^^^^^^^^^^^^^^^^^^^^
+            ^^^^^^^^^^^^^^^^^^^
+            ^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^
+
+search: sites=1 attempts=2 evaluations=8635 repairs=1 routeNodes=11971 budgetExhausted=False

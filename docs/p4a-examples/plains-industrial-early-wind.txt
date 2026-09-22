@@ -1,0 +1,63 @@
+# plains-industrial-early-wind (synthetic terrain; planner evidence only, not a live map)
+legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access
+        B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
+        f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
+        Y power yard (solar/wind/geothermal)  w wind clear zone
+        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
+        outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
+roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  ' ' open sky
+
+digest=7C54B47434C9968F doctrine=OpenGround gates=1 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=885
+  barracks-1  bounds=55,67,7x7    door=58,67   8/8 beds
+  dining      bounds=71,76,6x10   door=73,76   8/8 seats
+  freezer     bounds=58,74,13x7   door=64,74   50/48 stockpile-cells
+  jail        bounds=75,58,5x6    door=75,62   1/1 beds
+  kitchen     bounds=74,71,6x5    door=74,73   1/1 stoves
+  medical     bounds=80,63,5x5    door=81,67   2/2 beds
+  power       bounds=80,69,5x5    door=82,69   1/1 generators
+  storage     bounds=59,58,13x7   door=65,64   52/50 stockpile-cells
+  workshop    bounds=62,67,8x6    door=65,67   4/4 benches
+  note: excavated=0/620 retainedThickRoof=0
+  note: gates=1 desired=2
+  note: materials walls=368 doors=10 stuff=WoodLog:3465 constructionWood=3465 fuelWood=0 generatorFuel=WoodLog:66/imported 0 localWood=3531 importedWood=0 importValue=0
+  power: critical=400W nonCritical=1330W WoodFiredGeneratorx1 batteries=1 renewables=WindTurbine (920W) fuel=WoodLog:66
+
+
+
+                      ##########
+                      #,,,,,,,,#
+                      #,######,#
+                      #,#Rc..#,#
+                      #,#LTTc#,#
+         ##############,#cTT.#,#    ###########
+         #,,,,,,,,,,,,,,#.cc.#,#    #,,,,,,,,,#
+         #,##############.TTc#,#    #,wwwwwww,#
+         #,#LLkkkkkkkk_##cTT.#,#    #,wwwwwww,#
+         #,#___________##..c.#,#    #,wwwwwww,#
+         #,#k__________##....#,#### #,wwwwwww,#
+         #,#k__________###D###,,,,# #,wwwwwww,#
+      ####,#_____.ii___#,,=######,###,wwwwwww,#
+      #,,,,######DCC####,,=#..LS#,,,,,wwwwwww,#
+      #,#######,,==========D..iS######wwwwwww,#
+      #,#BBBBB#########,,,=#...S##EEA#wwwwwww,#
+      #,#BBBBB##WWWWWW#,,,=#######EEA#wwwwwww,#
+      #,#.....##Wi..iW#,,,=,,,,,,#L..#YYYYYYY,#
+    ###,#BB.BB##Wi..iW#,,,=,,,,,,##D##YYYYYYY,#
+    #,,,#BB..L##WL...W#,,,============iwwwwww,#
+    #,,,###D######D####,,,=,,,,,,#D###wwwwwww,#
+    #,,,=====================,,,,#...#wwwwwww,#
+    #,,,==i==================,,,,#.HH#wwwwwww,#
+***sG,,,,MM,######D######,,=,,,,,#LHH#wwwwwww,#
+    #,,,,MM,#_____._____#,,=##########wwwwwww,#
+    ####,,,,#__________k#,,=D.PP#,,,,,,,,,,,,,#
+       ####,#__________k#,,,#..L#,#############
+          #,#___________#,#,#...#,#
+          #,#_kkkkkkkkLL#,#,#...#,#
+          #,#############,#,#####,#
+          #,,,,,,,,,,,,,,,#,,,,,,,#
+          #########################
+
+
+
+
+search: sites=1 attempts=1 evaluations=7433 repairs=2 routeNodes=19793 budgetExhausted=False

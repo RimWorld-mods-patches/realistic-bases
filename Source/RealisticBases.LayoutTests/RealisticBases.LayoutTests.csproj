@@ -20,5 +20,6 @@
     <Compile Include="../RealisticBases/Planning/TechCatalog.cs" Link="Planning/TechCatalog.cs" />
     <Compile Include="../RealisticBases/Planning/SettlementRoles.cs" Link="Planning/SettlementRoles.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutEquipment.cs" Link="Planning/LayoutEquipment.cs" />
+    <Compile Include="../RealisticBases/Planning/LayoutPower.cs" Link="Planning/LayoutPower.cs" />
   </ItemGroup>
 </Project>

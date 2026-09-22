@@ -2,104 +2,106 @@
 legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access
         B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
         f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
+        Y power yard (solar/wind/geothermal)  w wind clear zone
         g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
 roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  ' ' open sky
 
-digest=AA588F3E5EC40168 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=696
+digest=BBEAF173D73D9BFB doctrine=OpenGround gates=1 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=863
   barracks-1  bounds=40,50,6x7    door=43,50   6/6 beds
   dining      bounds=41,38,6x10   door=44,47   8/6 seats
   freezer     bounds=47,50,8x9    door=51,50   37/36 stockpile-cells
   jail        bounds=31,54,5x5    door=31,57   1/1 beds
   kitchen     bounds=47,43,5x5    door=49,47   1/1 stoves
   medical     bounds=35,43,6x5    door=38,47   1/1 beds
-  power       bounds=31,60,7x6    door=31,61   2/2 generators
-  storage     bounds=42,61,10x7   door=46,61   37/36 stockpile-cells
+  power       bounds=31,59,6x5    door=31,61   1/1 generators
+  storage     bounds=41,61,11x7   door=46,61   42/38 stockpile-cells
   workshop    bounds=24,55,6x8    door=29,60   4/4 benches
   note: excavated=0/600 retainedThickRoof=0
-  note: gates=2 desired=2
-  note: materials walls=358 doors=11 stuff=WoodLog:3265 constructionWood=3265 fuelWood=0 localWood=3265 importedWood=0 importValue=0
-                                 ^^^^^^^^^
-                                  ^^^^^^^^
-                                  ^^^^^^^^
-                     ############  ^^^^^^^
-                     #,,,,,,,,,,^^^^^^^^^^
-          ############,##########^^^^^^^^^
-          #,,,,,,,,,##,#LLkkkkkk#^^^^^^^^^
-          #,#######,##,#________#^^^^^^^^^
-   ########,#AALEE#,##,#k_______#,^^^^^^^^
-   #,,,,,,,,#AA.EE#,##,#k_______#,^^^^^^^^
-   #,######,#...EE#,##,#___.____#,#^^^^^^^
-   #,#WWWW#=D...EE#,##,####D#####,#^^^^^^^
-   #,#Wii.D=#######,##,,,,,=,,,,,,##^^^^^^
-   #,#W...#=,,,,,,,,######,=,,,,,,,,^^^^^^
-   #,#W...#=#####,########,=########^^^^^^
-   #,#WiiL#=D.PP#,##,,,,,,,=#LLkkkk#^^^^^^
-   #,#WWWW#=#..L#,##,######=#______#^^^^^^
-   #,######=#...#,##,#BBBB#=#k_____#^^^^^^
-   #,,,,,,,=#####,##,#BBBB#=#k_____#^^^^^^
-   #######,=,,,,,,##,#....#=#k_____#^^^^^^
-    ######,=,#######,#BB.L#=#k_____#^^^^^^
-    #,,,,#,=,#######,#BB..#=#_i_._i#^^^^^^
-***sG,,,,,,=,,,,,,,,,###D##=##C#D#C#^^^^^^
-    #,,,==============================^^^^
-    #,,,============================i=^^^^
-    #,,,,,,,,,,,###D#####D####D##,,MM^^^^^
-    #,,,,###G##,#....##....##...#,,MM^^^^^
-    ######  s #,#...H##.c..##.iL#^^^^^^^^^
-************* #,#..LH##.TTc##SSS#^^^^^^^^^
-              #,#######cTT.######^^^^^^^^^
-              #,,,,,,,#.cc.#,,,,^^^^^^^^^^
-              #######,#.TTc#,###^^^^^^^^^^
-                    #,#cTTL#,# ^^^^^^^^^^^
-                    #,#..cR#,# ^^^^^^^^^^^
-                    #,######,#^^^^^^^^^^^^
-                    #,,,,,,,,#^^^^^^^^^^^^
-                    ##########^^^^^^^^^^^^
-                              ^^^^^^^^^^^^
-                              ^^^^^^^^^^^^
-                              ^^^^^^^^^^^^
+  note: gates=1 desired=2
+  note: materials walls=362 doors=10 stuff=WoodLog:3260 constructionWood=3260 fuelWood=0 generatorFuel=WoodLog:66/imported 0 localWood=3326 importedWood=0 importValue=0
+  power: critical=400W nonCritical=1330W WoodFiredGeneratorx1 batteries=1 renewables=WindTurbine (920W) fuel=WoodLog:66
+                                         ^^^^^^^^^
+                                          ^^^^^^^^
+                                          ^^^^^^^^
+                            #############  ^^^^^^^
+                            #,,,,,,,,,,,^^^^^^^^^^
+                            #,###########^^^^^^^^^
+                            #,#LLkkkkkk_#^^^^^^^^^
+   ###########    ###########,#_________#^^^^^^^^^
+   #,,,,,,,,,######,,,,,,,,##,#k________#,^^^^^^^^
+   #,wwwwwww,,,,,,,,######,##,#k________#,^^^^^^^^
+   #,wwwwwww,######,#.LEE#,##,#____.____#,#^^^^^^^
+   #,wwwwwww,#WWWW#=D..EE#,##,#####D#####,#^^^^^^^
+   #,wwwwwww,#Wii.D=#..AA#,##,,,,,,=,,,,,,##^^^^^^
+   #,wwwwwww,#W...#=######,#######,=,,,,,,,,^^^^^^
+   #,wwwwwww,#W...#=#####,,#######,=########^^^^^^
+   #,wwwwwww,#WiiL#=D.PP#,##,,,,,,,=#LLkkkk#^^^^^^
+   #,wwwwwww,#WWWW#=#..L#,##,######=#______#^^^^^^
+   #,wwwwwww,######=#...#,##,#BBBB#=#k_____#^^^^^^
+   #,wwwwwww,,,,,,,=#####,##,#BBBB#=#k_____#^^^^^^
+   #,YYYYYYY,,,,,,,=,,,,,,##,#....#=#k_____#^^^^^^
+   #,YYYYYYY,,,,,,,=,#######,#BB.L#=#k_____#^^^^^^
+   #,wwwwi==========,#######,#BB..#=#_i_._i#^^^^^^
+   #,wwwwwww,,,,,,,=,,,,,,,,,###D##=##C#D#C#^^^^^^
+   #,wwwwwww,,,,==============================^^^^
+   #,wwwwwww,,,,============================i=^^^^
+   #,wwwwwww,,,,,,,,,,,,###D#####D####D##,,MM^^^^^
+   #,wwwwwww,,,,,######,#....##....##...#,,MM^^^^^
+   #,,,,,,,,,#G###    #,#...H##.c..##.iL#^^^^^^^^^
+   ###########s       #,#..LH##.TTc##SSS#^^^^^^^^^
+***************       #,#######cTT.######^^^^^^^^^
+                      #,,,,,,,#.cc.#,,,,^^^^^^^^^^
+                      #######,#.TTc#,###^^^^^^^^^^
+                            #,#cTTL#,# ^^^^^^^^^^^
+                            #,#..cR#,# ^^^^^^^^^^^
+                            #,######,#^^^^^^^^^^^^
+                            #,,,,,,,,#^^^^^^^^^^^^
+                            ##########^^^^^^^^^^^^
+                                      ^^^^^^^^^^^^
+                                      ^^^^^^^^^^^^
+                                      ^^^^^^^^^^^^
 
 roof view:
-                                 ^^^^^^^^^
-                                  ^^^^^^^^
-                                  ^^^^^^^^
-                                   ^^^^^^^
-                                ^^^^^^^^^^
-                       rrrrrrrrrr^^^^^^^^^
-                       rrrrrrrrrr^^^^^^^^^
-            rrrrrrr    rrrrrrrrrr^^^^^^^^^
-            rrrrrrr    rrrrrrrrrr ^^^^^^^^
-            rrrrrrr    rrrrrrrrrr ^^^^^^^^
-     rrrrrr rrrrrrr    rrrrrrrrrr  ^^^^^^^
-     rrrrrr rrrrrrr    rrrrrrrrrr  ^^^^^^^
-     rrrrrr rrrrrrr                 ^^^^^^
-     rrrrrr                         ^^^^^^
-     rrrrrr rrrrr           rrrrrrrr^^^^^^
-     rrrrrr rrrrr           rrrrrrrr^^^^^^
-     rrrrrr rrrrr    rrrrrr rrrrrrrr^^^^^^
-     rrrrrr rrrrr    rrrrrr rrrrrrrr^^^^^^
-            rrrrr    rrrrrr rrrrrrrr^^^^^^
-                     rrrrrr rrrrrrrr^^^^^^
-                     rrrrrr rrrrrrrr^^^^^^
-                     rrrrrr rrrrrrrr^^^^^^
-                     rrrrrr rrrrrrrr^^^^^^
-                                      ^^^^
-                                      ^^^^
-                rrrrrrrrrrrrrrrrr    ^^^^^
-                rrrrrrrrrrrrrrrrr    ^^^^^
-                rrrrrrrrrrrrrrrrr^^^^^^^^^
-                rrrrrrrrrrrrrrrrr^^^^^^^^^
-                rrrrrrrrrrrrrrrrr^^^^^^^^^
-                      rrrrrr    ^^^^^^^^^^
-                      rrrrrr    ^^^^^^^^^^
-                      rrrrrr   ^^^^^^^^^^^
-                      rrrrrr   ^^^^^^^^^^^
-                      rrrrrr  ^^^^^^^^^^^^
-                              ^^^^^^^^^^^^
-                              ^^^^^^^^^^^^
-                              ^^^^^^^^^^^^
-                              ^^^^^^^^^^^^
-                              ^^^^^^^^^^^^
+                                         ^^^^^^^^^
+                                          ^^^^^^^^
+                                          ^^^^^^^^
+                                           ^^^^^^^
+                                        ^^^^^^^^^^
+                              rrrrrrrrrrr^^^^^^^^^
+                              rrrrrrrrrrr^^^^^^^^^
+                              rrrrrrrrrrr^^^^^^^^^
+                              rrrrrrrrrrr ^^^^^^^^
+                    rrrrrr    rrrrrrrrrrr ^^^^^^^^
+             rrrrrr rrrrrr    rrrrrrrrrrr  ^^^^^^^
+             rrrrrr rrrrrr    rrrrrrrrrrr  ^^^^^^^
+             rrrrrr rrrrrr                  ^^^^^^
+             rrrrrr rrrrrr                  ^^^^^^
+             rrrrrr rrrrr           rrrrrrrr^^^^^^
+             rrrrrr rrrrr           rrrrrrrr^^^^^^
+             rrrrrr rrrrr    rrrrrr rrrrrrrr^^^^^^
+             rrrrrr rrrrr    rrrrrr rrrrrrrr^^^^^^
+                    rrrrr    rrrrrr rrrrrrrr^^^^^^
+                             rrrrrr rrrrrrrr^^^^^^
+                             rrrrrr rrrrrrrr^^^^^^
+                             rrrrrr rrrrrrrr^^^^^^
+                             rrrrrr rrrrrrrr^^^^^^
+                                              ^^^^
+                                              ^^^^
+                        rrrrrrrrrrrrrrrrr    ^^^^^
+                        rrrrrrrrrrrrrrrrr    ^^^^^
+                        rrrrrrrrrrrrrrrrr^^^^^^^^^
+                        rrrrrrrrrrrrrrrrr^^^^^^^^^
+                        rrrrrrrrrrrrrrrrr^^^^^^^^^
+                              rrrrrr    ^^^^^^^^^^
+                              rrrrrr    ^^^^^^^^^^
+                              rrrrrr   ^^^^^^^^^^^
+                              rrrrrr   ^^^^^^^^^^^
+                              rrrrrr  ^^^^^^^^^^^^
+                                      ^^^^^^^^^^^^
+                                      ^^^^^^^^^^^^
+                                      ^^^^^^^^^^^^
+                                      ^^^^^^^^^^^^
+                                      ^^^^^^^^^^^^
 
-search: sites=2 attempts=5 evaluations=25300 repairs=16 routeNodes=6613 budgetExhausted=False
+search: sites=2 attempts=5 evaluations=29889 repairs=15 routeNodes=10507 budgetExhausted=False
