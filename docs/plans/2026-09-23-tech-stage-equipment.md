@@ -61,7 +61,7 @@ Adaptations (such as Stonecutting) add research per settlement with a recorded r
 
 ## Implementation steps
 
-Each step is validated (Docker Release build with 0 warnings/errors, pure tests, `git diff --check`) and committed separately. Steps 1–5 are pure and can start now in the P4A worktree. Steps 6–8 need P4 to be finished.
+Each step is validated (Docker Release build with 0 warnings/errors, pure tests, `git diff --check`) and committed separately. Steps 1–6 are pure and can start now in the P4A worktree. Steps 7–8 need P4 to be finished.
 
 1. **Stage model.** Add `SettlementTechStage` (level, ceiling, research set, adaptations with reasons), the stage bands, `LayoutSeed` faction sub-seed selection, and a schema version.
    - Tests: stable per-faction stage; every band respected; the sets are monotonic.

@@ -44,6 +44,11 @@ internal static class Program
         Run("tech stage respects every faction band", TechStageBands);
         Run("tech stage research sets are monotonic", TechStageMonotonic);
         Run("tech stage adaptations and step-down", TechStageAdaptations);
+        Run("catalog stage sets are closed under prerequisites", CatalogPrerequisiteClosure);
+        Run("catalog golden legality per stage", CatalogGoldenLegality);
+        Run("catalog never allows traps or IEDs", CatalogProhibitedContent);
+        Run("catalog legality rules and rule order", CatalogLegalityRules);
+        Run("catalog fixture data and digest", CatalogFixtureData);
         Console.WriteLine("P4A layout foundation tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures +
             " elapsedMs=" + watch.ElapsedMilliseconds);
         return failures == 0 ? 0 : 1;
@@ -674,6 +679,165 @@ internal static class Program
         Equal(SettlementTechStageLevel.IndustrialEarly, lower.Level, "one level lower");
         True(lower.HasResearch("Fabrication") && lower.Adaptations.Count == 1, "step-down keeps adaptations");
         True(!lower.HasResearch("FlakArmor"), "step-down drops the stage's own research");
+    }
+
+    // ---- tech catalog (synthetic Core fixture; test data, not live defs) ----
+
+    private static TechCatalog coreCatalog;
+    private static TechCatalog CoreCatalog => coreCatalog ?? (coreCatalog = CoreCatalogFixture.Build());
+
+    private static void CatalogPrerequisiteClosure()
+    {
+        foreach (SettlementTechStageLevel level in TechStageModel.Levels)
+        {
+            SettlementTechStage stage = TechStageModel.Create(level);
+            IReadOnlyList<string> gaps = CoreCatalog.ResearchSetGaps(stage.Research);
+            Equal(0, gaps.Count, level + " closed under prerequisites: " + string.Join(",", gaps));
+            True(!stage.Research.Any(ProhibitedContent.IsProhibitedResearch), level + " never contains IEDs research");
+        }
+        CatalogResearch ieds;
+        True(CoreCatalog.TryGetResearch("IEDs", out ieds), "fixture carries the IEDs research");
+        Contains(CoreCatalog.ResearchSetGaps(new[] { "HospitalBed", "IEDs" }), "missing_prerequisite:HospitalBed->SterileMaterials");
+        Contains(CoreCatalog.ResearchSetGaps(new[] { "IEDs" }), "prohibited_research:IEDs");
+        Contains(CoreCatalog.ResearchSetGaps(new[] { "NoSuchProject" }), "unknown_research:NoSuchProject");
+    }
+
+    private static void CatalogGoldenLegality()
+    {
+        Golden(SettlementTechStageLevel.Neolithic,
+            new[] { "Bedroll", "SleepingSpot", "CraftingSpot", "Campfire", "TorchLamp", "PassiveCooler", "FueledStove", "Wall", "Door",
+                "HorseshoesPin", "Bow_Short", "Bow_Recurve", "MeleeWeapon_Club", "MeleeWeapon_Knife", "Pila", "Apparel_TribalA",
+                "Apparel_Parka", "WoodLog", "ChunkGranite", "MedicineHerbal", "Leather_Plain", "Cloth" },
+            new[]
+            {
+                "Bed=research_missing", "Shelf=research_missing", "DiningChair=research_missing", "ChessTable=research_missing",
+                "OrnateDoor=research_missing", "Vent=research_missing", "FueledSmithy=research_missing", "HandTailoringBench=research_missing",
+                "TableStonecutter=research_missing", "BlocksGranite=producer_illegal", "Gun_Revolver=research_missing",
+                "Apparel_Cape=above_ceiling", "StandingLamp=research_missing", "Heater=research_missing",
+                "WoodFiredGenerator=research_missing", "Bow_Great=research_missing", "MeleeWeapon_Ikwa=research_missing",
+                "Apparel_BasicShirt=research_missing"
+            });
+        Golden(SettlementTechStageLevel.Medieval,
+            new[] { "Bed", "Shelf", "DiningChair", "FueledSmithy", "HandTailoringBench", "TableStonecutter", "BlocksGranite",
+                "MeleeWeapon_LongSword", "Apparel_PlateArmor", "Bow_Great", "Apparel_BasicShirt", "Apparel_Cape" },
+            new[] { "Gun_Revolver=research_missing", "StandingLamp=research_missing", "Apparel_SimpleHelmet=above_ceiling", "Battery=research_missing" });
+        Golden(SettlementTechStageLevel.IndustrialEarly,
+            new[] { "Gun_BoltActionRifle", "Gun_Revolver", "Gun_PumpShotgun", "Turret_Mortar", "Shell_HighExplosive", "WoodFiredGenerator",
+                "ChemfuelPoweredGenerator", "WindTurbine", "Battery", "StandingLamp", "Heater", "Cooler", "ElectricStove", "ElectricSmithy",
+                "TableMachining", "Apparel_SimpleHelmet", "Bed" },
+            new[]
+            {
+                "Apparel_FlakVest=research_missing", "HospitalBed=research_missing", "Gun_AssaultRifle=research_missing",
+                "SolarGenerator=research_missing", "Chemfuel=producer_illegal", "MedicineIndustrial=research_missing",
+                "Turret_MiniTurret=research_missing"
+            });
+        Golden(SettlementTechStageLevel.IndustrialMid,
+            new[] { "HospitalBed", "Apparel_FlakVest", "Gun_SniperRifle", "Gun_AssaultRifle", "SolarGenerator", "WatermillGenerator",
+                "GeothermalGenerator", "Chemfuel", "MedicineIndustrial", "Turret_MiniTurret" },
+            new[] { "VitalsMonitor=research_missing", "Gun_Minigun=research_missing", "Gun_ChargeRifle=research_missing", "FabricationBench=research_missing" });
+        Golden(SettlementTechStageLevel.IndustrialLate,
+            new[] { "VitalsMonitor", "MultiAnalyzer", "Gun_Minigun", "FabricationBench" },
+            new[] { "Gun_ChargeRifle=research_missing", "Apparel_ShieldBelt=research_missing" });
+        Golden(SettlementTechStageLevel.Spacer,
+            new[] { "Gun_ChargeRifle", "Apparel_PowerArmor", "Apparel_ShieldBelt", "HospitalBed", "Gun_Revolver" },
+            new string[0]);
+
+        HashSet<string> previous = new HashSet<string>();
+        foreach (SettlementTechStageLevel level in TechStageModel.Levels)
+        {
+            HashSet<string> legal = new HashSet<string>(CoreCatalog.LegalDefs(TechStageModel.Create(level)).Select(d => d.DefName));
+            True(previous.All(legal.Contains), level + " keeps every earlier legal def");
+            True(legal.Count > previous.Count, level + " adds legal defs");
+            previous = legal;
+        }
+    }
+
+    private static void Golden(SettlementTechStageLevel level, string[] legal, string[] illegal)
+    {
+        SettlementTechStage stage = TechStageModel.Create(level);
+        foreach (string def in legal)
+            True(CoreCatalog.IsLegal(def, stage), level + " should allow " + def + ": " + CoreCatalog.Evaluate(def, stage));
+        foreach (string entry in illegal)
+        {
+            string[] parts = entry.Split('=');
+            CatalogLegality verdict = CoreCatalog.Evaluate(parts[0], stage);
+            True(!verdict.Legal, level + " should forbid " + parts[0]);
+            Equal(parts[1], verdict.Code, level + " " + parts[0] + " reason (" + verdict.Reason + ")");
+        }
+    }
+
+    private static void CatalogProhibitedContent()
+    {
+        string[] prohibited = CoreCatalog.Defs.Where(ProhibitedContent.IsProhibited).Select(d => d.DefName).ToArray();
+        True(prohibited.SequenceEqual(new[] { "TrapIED_AntigrainWarhead", "TrapIED_EMP", "TrapIED_Firefoam", "TrapIED_HighExplosive",
+            "TrapIED_Incendiary", "TrapIED_Smoke", "TrapSpike" }), "Core traps and IEDs: " + string.Join(",", prohibited));
+        foreach (SettlementTechStageLevel level in TechStageModel.Levels)
+        {
+            SettlementTechStage stage = TechStageModel.Create(level).WithAdaptation("IEDs", "test_only_forced");
+            True(!CoreCatalog.LegalDefs(stage).Any(d => ProhibitedContent.IsProhibited(d)), level + " legal set has no trap or IED");
+            foreach (string def in prohibited) Equal(CatalogLegality.Prohibited, CoreCatalog.Evaluate(def, stage).Code, level + " " + def);
+        }
+    }
+
+    private static void CatalogLegalityRules()
+    {
+        TechCatalog catalog = new TechCatalog("rules", new[]
+        {
+            new CatalogDef("Spot", CatalogCategory.Building),
+            new CatalogDef("SpacerThing", CatalogCategory.Apparel, techLevel: TechTier.Spacer),
+            new CatalogDef("QuietTrap", CatalogCategory.Building, thingClass: "Building_TrapDamager"),
+            new CatalogDef("Pit", CatalogCategory.Building, isTrap: true),
+            new CatalogDef("ScrapIEDKit", CatalogCategory.Item),
+            new CatalogDef("Bench", CatalogCategory.Building, research: new[] { "Stonecutting" }),
+            new CatalogDef("Blocks", CatalogCategory.Item, producedAt: new[] { "Bench" }),
+            new CatalogDef("Ore", CatalogCategory.Item, producedAt: new[] { "Bench" }, raw: true),
+            new CatalogDef("Orphan", CatalogCategory.Item, producedAt: new[] { "MissingBench" }),
+            new CatalogDef("Loot", CatalogCategory.Item),
+            new CatalogDef("SmithedAxe", CatalogCategory.Weapon, producedAt: new[] { "Bench" })
+        }, new[] { new CatalogResearch("Stonecutting", TechTier.Medieval) });
+        SettlementTechStage tribal = TechStageModel.Create(SettlementTechStageLevel.Neolithic);
+        True(catalog.IsLegal("Spot", tribal), "undefined tech level and no research is legal");
+        Equal(CatalogLegality.AboveCeiling, catalog.Evaluate("SpacerThing", tribal).Code, "no-research def above ceiling");
+        Equal(CatalogLegality.Prohibited, catalog.Evaluate("QuietTrap", tribal).Code, "trap class");
+        Equal(CatalogLegality.Prohibited, catalog.Evaluate("Pit", tribal).Code, "trap flag");
+        Equal(CatalogLegality.Prohibited, catalog.Evaluate("ScrapIEDKit", tribal).Code, "IED name");
+        Equal(CatalogLegality.ProducerIllegal, catalog.Evaluate("Blocks", tribal).Code, "producer gate");
+        True(catalog.IsLegal("Blocks", tribal.WithAdaptation("Stonecutting", "local_wood_scarce")), "adaptation legalizes the producer");
+        True(catalog.IsLegal("Ore", tribal), "raw items need no producer");
+        Equal(CatalogLegality.ProducerIllegal, catalog.Evaluate("Orphan", tribal).Code, "unknown producer");
+        True(catalog.IsLegal("Loot", tribal), "item without producer");
+        True(catalog.IsLegal("SmithedAxe", tribal), "producer gate applies to items only");
+        Equal("unknown_def:Nope", catalog.Evaluate("Nope", tribal).Reason, "unknown def");
+        Equal("research_missing:Stonecutting", catalog.Evaluate("Bench", tribal).Reason, "research reason names the project");
+    }
+
+    private static void CatalogFixtureData()
+    {
+        TechCatalog catalog = CoreCatalog;
+        Equal(catalog.Digest, CoreCatalogFixture.Build().Digest, "digest stable");
+        True(catalog.Defs.Select(d => d.DefName).SequenceEqual(catalog.Defs.Select(d => d.DefName).OrderBy(n => n, StringComparer.Ordinal)), "defs sorted");
+        CatalogDef def;
+        True(catalog.TryGet("Bed", out def) && def.SizeX == 1 && def.SizeZ == 2 && def.ResearchPrerequisites.Contains("ComplexFurniture"), "bed");
+        True(catalog.TryGet("FueledSmithy", out def) && def.SizeX == 3 && def.SizeZ == 1 && def.HasInteractionCell &&
+            def.InteractionOffset.Equals(new GridPoint(0, -1)) && def.Fuel.Contains("WoodLog"), "smithy");
+        True(catalog.TryGet("WoodFiredGenerator", out def) && def.BasePowerConsumption == -1000 && def.FuelPerDay == 22 && def.SizeX == 2 && def.SizeZ == 2, "wood generator");
+        True(catalog.TryGet("ChemfuelPoweredGenerator", out def) && def.BasePowerConsumption == -1000 && def.FuelPerDay == 4.5 && def.Fuel.Contains("Chemfuel"), "chemfuel generator");
+        True(catalog.TryGet("WindTurbine", out def) && def.SizeX == 7 && def.SizeZ == 2 && def.BasePowerConsumption == -2300, "wind turbine");
+        True(catalog.TryGet("SolarGenerator", out def) && def.SizeX == 4 && def.SizeZ == 4 && def.BasePowerConsumption == -1700, "solar");
+        True(catalog.TryGet("WatermillGenerator", out def) && def.SizeX == 5 && def.SizeZ == 6, "watermill");
+        True(catalog.TryGet("GeothermalGenerator", out def) && def.SizeX == 6 && def.SizeZ == 6, "geothermal");
+        True(catalog.TryGet("Wall", out def) && def.Blocking && def.StuffCategories.Count > 0, "wall");
+        True(catalog.TryGet("BlocksGranite", out def) && def.ProducedAt.SequenceEqual(new[] { "TableStonecutter" }) && !def.Raw, "stone blocks");
+        True(catalog.TryGet("Apparel_Parka", out def) && def.ApparelLayers.Contains("Shell") && def.ApparelBodyParts.Contains("Torso"), "parka");
+        True(catalog.TryGet("Gun_Revolver", out def) && def.ResearchPrerequisites.SequenceEqual(new[] { "Gunsmithing" }), "revolver inherits Gunsmithing");
+        True(!catalog.Defs.Any(d => d.DefName.StartsWith("Artillery_") || d.DefName == "Gun_MiniTurret"), "turret-top guns excluded");
+        TechCatalog changed = new TechCatalog(catalog.Source, catalog.Defs.Where(d => d.DefName != "Bed")
+            .Concat(new[] { new CatalogDef("Bed", CatalogCategory.Building, sizeX: 1, sizeZ: 2) }), catalog.Research);
+        NotEqual(catalog.Digest, changed.Digest, "digest covers def fields");
+        bool threw = false;
+        try { new TechCatalog("dup", new[] { new CatalogDef("A", CatalogCategory.Item), new CatalogDef("A", CatalogCategory.Item) }, null); }
+        catch (ArgumentException) { threw = true; }
+        True(threw, "duplicate defs rejected");
     }
 
     private static void Run(string name, Action test)
