@@ -250,6 +250,28 @@ namespace RealisticBases.Planning
             Digest = ComputeDigest();
         }
 
+        // Minimum tech tier for exotic raw items whose vanilla techLevel is Undefined
+        // (salvaged or traded, never locally produced). The one override table,
+        // shared by the fixture and the runtime adapter. PROVISIONAL.
+        public static IReadOnlyDictionary<string, TechTier> RawMinimumTiers { get; } = new ReadOnlyDictionary<string, TechTier>(
+            new Dictionary<string, TechTier>(StringComparer.Ordinal)
+            {
+                { "Synthread", TechTier.Industrial },
+                { "Plasteel", TechTier.Industrial },
+                { "Uranium", TechTier.Industrial },
+                { "ComponentIndustrial", TechTier.Industrial },
+                { "Hyperweave", TechTier.Spacer },
+                { "ComponentSpacer", TechTier.Spacer }
+            });
+
+        // The def's techLevel, raised by RawMinimumTiers for raw items with an Undefined techLevel.
+        public static TechTier EffectiveTechLevel(CatalogDef def)
+        {
+            if (def == null) throw new ArgumentNullException(nameof(def));
+            TechTier minimum;
+            return def.Raw && def.TechLevel == TechTier.Undefined && RawMinimumTiers.TryGetValue(def.DefName, out minimum) ? minimum : def.TechLevel;
+        }
+
         public string Source { get; }
         // Sorted (ordinal) by defName.
         public IReadOnlyList<CatalogDef> Defs { get; }
@@ -285,7 +307,8 @@ namespace RealisticBases.Planning
             if (ProhibitedContent.IsProhibited(def)) return CatalogLegality.No(CatalogLegality.Prohibited);
             List<string> missing = def.ResearchPrerequisites.Where(r => !stage.HasResearch(r)).ToList();
             if (missing.Count > 0) return CatalogLegality.No(CatalogLegality.ResearchMissing, string.Join(",", missing));
-            if (def.TechLevel > stage.Ceiling) return CatalogLegality.No(CatalogLegality.AboveCeiling, def.TechLevel + ">" + stage.Ceiling);
+            TechTier tier = EffectiveTechLevel(def);
+            if (tier > stage.Ceiling) return CatalogLegality.No(CatalogLegality.AboveCeiling, tier + ">" + stage.Ceiling);
             if (def.Category == CatalogCategory.Item && !def.Raw && def.ProducedAt.Count > 0)
             {
                 // Producers are buildings, which have no producer check, so this never recurses further.
@@ -331,6 +354,12 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, Source);
             hash = StableHash.Add(hash, Defs.Count);
             foreach (CatalogDef def in Defs) hash = def.AddTo(hash);
+            hash = StableHash.Add(hash, RawMinimumTiers.Count);
+            foreach (KeyValuePair<string, TechTier> minimum in RawMinimumTiers.OrderBy(m => m.Key, StringComparer.Ordinal))
+            {
+                hash = StableHash.Add(hash, minimum.Key);
+                hash = StableHash.Add(hash, (int)minimum.Value);
+            }
             hash = StableHash.Add(hash, Research.Count);
             foreach (CatalogResearch project in Research)
             {

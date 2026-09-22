@@ -49,6 +49,10 @@ internal static class Program
         Run("catalog never allows traps or IEDs", CatalogProhibitedContent);
         Run("catalog legality rules and rule order", CatalogLegalityRules);
         Run("catalog fixture data and digest", CatalogFixtureData);
+        Run("catalog raw minimum tiers gate exotic stuff", CatalogRawMinimumTiers);
+        Run("roles resolve per stage from the Core catalog", RoleCoreResolution);
+        Run("unequippable tier steps down and re-resolves the kit", RoleStepDown);
+        Run("essential role without legal option rejects at Neolithic", RoleRejection);
         Console.WriteLine("P4A layout foundation tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures +
             " elapsedMs=" + watch.ElapsedMilliseconds);
         return failures == 0 ? 0 : 1;
@@ -838,6 +842,110 @@ internal static class Program
         try { new TechCatalog("dup", new[] { new CatalogDef("A", CatalogCategory.Item), new CatalogDef("A", CatalogCategory.Item) }, null); }
         catch (ArgumentException) { threw = true; }
         True(threw, "duplicate defs rejected");
+    }
+
+    private static void CatalogRawMinimumTiers()
+    {
+        SettlementTechStage neolithic = TechStageModel.Create(SettlementTechStageLevel.Neolithic);
+        SettlementTechStage early = TechStageModel.Create(SettlementTechStageLevel.IndustrialEarly);
+        SettlementTechStage late = TechStageModel.Create(SettlementTechStageLevel.IndustrialLate);
+        SettlementTechStage spacer = TechStageModel.Create(SettlementTechStageLevel.Spacer);
+        foreach (string def in new[] { "Plasteel", "Synthread", "ComponentIndustrial", "Uranium", "Hyperweave", "ComponentSpacer" })
+            Equal(CatalogLegality.AboveCeiling, CoreCatalog.Evaluate(def, neolithic).Code, "neolithic lacks " + def);
+        foreach (string def in new[] { "Plasteel", "Synthread", "ComponentIndustrial", "Uranium" })
+            True(CoreCatalog.IsLegal(def, early), "industrial early has " + def);
+        Equal(CatalogLegality.AboveCeiling, CoreCatalog.Evaluate("ComponentSpacer", late).Code, "industrial late lacks ComponentSpacer");
+        Equal(CatalogLegality.AboveCeiling, CoreCatalog.Evaluate("Hyperweave", late).Code, "industrial late lacks Hyperweave");
+        True(CoreCatalog.IsLegal("ComponentSpacer", spacer) && CoreCatalog.IsLegal("Hyperweave", spacer), "spacer has ComponentSpacer and Hyperweave");
+        True(CoreCatalog.IsLegal("Steel", neolithic) && CoreCatalog.IsLegal("WoodLog", neolithic), "ordinary raw stuff stays legal");
+        CatalogDef def2;
+        True(CoreCatalog.TryGet("ComponentSpacer", out def2) && def2.Raw && def2.ResearchPrerequisites.Count == 0, "ComponentSpacer is raw without production research");
+        Equal(TechTier.Spacer, TechCatalog.EffectiveTechLevel(def2), "effective tier from the override table");
+    }
+
+    private static void RoleCoreResolution()
+    {
+        Dictionary<SettlementTechStageLevel, string> expected = new Dictionary<SettlementTechStageLevel, string>
+        {
+            { SettlementTechStageLevel.Neolithic, "Sleep=Bedroll Light=TorchLamp Cooking=FueledStove CraftSmithing=CraftingSpot CraftTailoring=CraftingSpot Storage=Stockpile Door=Door Seat=Stool Recreation=HorseshoesPin Heat=Campfire Cool=PassiveCooler MedicalBed=Bedroll" },
+            { SettlementTechStageLevel.Medieval, "Sleep=Bed Light=TorchLamp Cooking=FueledStove CraftSmithing=FueledSmithy CraftTailoring=HandTailoringBench CraftStonecutting=TableStonecutter Storage=Shelf Seat=DiningChair Recreation=ChessTable" },
+            { SettlementTechStageLevel.IndustrialEarly, "Sleep=Bed Light=StandingLamp Cooking=ElectricStove CraftSmithing=ElectricSmithy CraftMachining=TableMachining Heat=Heater Cool=Cooler Defense=Sandbags MedicalBed=Bed" },
+            { SettlementTechStageLevel.IndustrialMid, "MedicalBed=HospitalBed Defense=Turret_MiniTurret UtilityBelt=Apparel_SmokepopBelt" },
+            { SettlementTechStageLevel.IndustrialLate, "MedicalMonitor=VitalsMonitor CraftFabrication=FabricationBench Defense=Turret_Autocannon" },
+            { SettlementTechStageLevel.Spacer, "UtilityBelt=Apparel_ShieldBelt Sleep=Bed Light=StandingLamp" }
+        };
+        foreach (SettlementTechStageLevel level in TechStageModel.Levels)
+        {
+            RoleResolutionSet set = RoleResolver.Resolve(CoreCatalog, TechStageModel.Create(level));
+            True(set.Success && set.StepDowns.Count == 0 && set.Stage.Level == level, level + " resolves without step-down");
+            True(set.Resolutions.Where(r => r.Essential).All(r => r.Resolved), level + " essentials resolved");
+            foreach (string pair in expected[level].Split(' '))
+            {
+                string[] kv = pair.Split('=');
+                Equal(kv[1], set.ChosenDefName((SettlementRole)Enum.Parse(typeof(SettlementRole), kv[0])), level + " " + kv[0]);
+            }
+            foreach (RoleResolution r in set.Resolutions.Where(r => !r.Resolved))
+                Contains(set.Diagnostics, RoleResolver.RoleUnresolved + ":" + r.Role);
+            Equal(set.Digest, RoleResolver.Resolve(CoreCatalog, TechStageModel.Create(level)).Digest, level + " digest stable");
+        }
+        RoleResolutionSet tribal = RoleResolver.Resolve(CoreCatalog, TechStageModel.Create(SettlementTechStageLevel.Neolithic));
+        string[] complexFurniture = { "Bed", "Shelf", "DiningChair", "ChessTable", "OrnateDoor", "Vent", "FueledSmithy", "HandTailoringBench" };
+        True(!tribal.Resolutions.SelectMany(r => r.Candidates).Any(o => complexFurniture.Contains(o.DefName)), "tribal kit has no ComplexFurniture, smithy or tailoring bench");
+        Contains(tribal.Diagnostics, "role_unresolved:CraftStonecutting");
+        RoleResolutionSet adapted = RoleResolver.Resolve(CoreCatalog, TechStageModel.Create(SettlementTechStageLevel.Neolithic).WithAdaptation("Stonecutting", "local_wood_scarce"));
+        Equal("TableStonecutter", adapted.ChosenDefName(SettlementRole.CraftStonecutting), "stonecutting adaptation resolves the stonecutter");
+        NotEqual(tribal.Digest, adapted.Digest, "adaptation changes the resolution digest");
+        RoleResolutionSet early = RoleResolver.Resolve(CoreCatalog, TechStageModel.Create(SettlementTechStageLevel.IndustrialEarly));
+        True(early.Get(SettlementRole.Light).Rejected.Any(r => r.Key == "TorchLamp" && r.Value == "above_max_stage:Medieval"), "torch capped above Medieval");
+        True(early.Get(SettlementRole.Sleep).Candidates.Select(o => o.DefName).SequenceEqual(new[] { "Bed" }), "no primitive sleep fallback at industrial");
+        True(early.Get(SettlementRole.Defense).Candidates.Select(o => o.DefName).SequenceEqual(new[] { "Sandbags", "Barricade" }), "cover uncapped, turrets gated");
+    }
+
+    private static void RoleStepDown()
+    {
+        TechCatalog noBed = new TechCatalog("core-without-bed", CoreCatalog.Defs.Where(d => d.DefName != "Bed"), CoreCatalog.Research);
+        SettlementTechStage mid = TechStageModel.Create(SettlementTechStageLevel.IndustrialMid).WithAdaptation("Fabrication", "test_adaptation");
+        RoleResolutionSet set = RoleResolver.Resolve(noBed, mid);
+        True(set.Success, "resolves after stepping down");
+        Equal(SettlementTechStageLevel.IndustrialMid, set.RequestedStage.Level, "requested stage recorded");
+        // No Core option is capped at IndustrialEarly, so Sleep stays unresolved there and a second step reaches Bedroll.
+        True(set.StepDowns.SequenceEqual(new[]
+        {
+            "stage_step_down:IndustrialMid->IndustrialEarly:essential_role_unresolved:Sleep",
+            "stage_step_down:IndustrialEarly->Medieval:essential_role_unresolved:Sleep"
+        }), "step-down log: " + string.Join("|", set.StepDowns));
+        Equal(SettlementTechStageLevel.Medieval, set.Stage.Level, "final stage");
+        True(set.Stage.HasResearch("Fabrication"), "adaptations survive step-down");
+        RoleResolutionSet direct = RoleResolver.Resolve(noBed, TechStageModel.Create(SettlementTechStageLevel.Medieval).WithAdaptation("Fabrication", "test_adaptation"));
+        foreach (RoleResolution r in set.Resolutions)
+            Equal(direct.ChosenDefName(r.Role), r.ChosenDefName, "whole kit re-resolved at the lower tier: " + r.Role);
+        Equal("Bedroll", set.ChosenDefName(SettlementRole.Sleep), "sleep falls back to bedroll");
+        Equal("TorchLamp", set.ChosenDefName(SettlementRole.Light), "light re-resolved at Medieval");
+        Equal("FueledSmithy", set.ChosenDefName(SettlementRole.CraftSmithing), "smithing re-resolved at Medieval");
+
+        // One step with a table whose primitive option is capped at IndustrialEarly.
+        List<RoleDefinition> definitions = RoleTable.Standard.Definitions.Where(d => d.Role != SettlementRole.Sleep).ToList();
+        definitions.Add(new RoleDefinition(SettlementRole.Sleep, true, new[] { RoleOption.Def("Bed"), RoleOption.Def("Bedroll", SettlementTechStageLevel.IndustrialEarly) }));
+        RoleTable table = new RoleTable(definitions);
+        NotEqual(RoleTable.Standard.Digest, table.Digest, "table digest covers caps");
+        RoleResolutionSet single = RoleResolver.Resolve(noBed, TechStageModel.Create(SettlementTechStageLevel.IndustrialMid), table);
+        True(single.StepDowns.SequenceEqual(new[] { "stage_step_down:IndustrialMid->IndustrialEarly:essential_role_unresolved:Sleep" }), "single step-down");
+        Equal(SettlementTechStageLevel.IndustrialEarly, single.Stage.Level, "final stage one lower");
+        Equal("Bedroll", single.ChosenDefName(SettlementRole.Sleep), "sleep at early");
+        Equal("Sandbags", single.ChosenDefName(SettlementRole.Defense), "defense re-resolved at early (no GunTurrets)");
+        True(single.Get(SettlementRole.MedicalBed).Rejected.Any(r => r.Key == "HospitalBed" && r.Value.StartsWith("research_missing")), "medical re-resolved at early");
+    }
+
+    private static void RoleRejection()
+    {
+        TechCatalog noDoor = new TechCatalog("core-without-door", CoreCatalog.Defs.Where(d => d.DefName != "Door"), CoreCatalog.Research);
+        RoleResolutionSet tribal = RoleResolver.Resolve(noDoor, TechStageModel.Create(SettlementTechStageLevel.Neolithic));
+        True(!tribal.Success && tribal.StepDowns.Count == 0, "neolithic cannot step down");
+        Equal("essential_role_unresolved:Door", tribal.Diagnostics[0], "rejection diagnostic first");
+        RoleResolutionSet medieval = RoleResolver.Resolve(noDoor, TechStageModel.Create(SettlementTechStageLevel.Medieval));
+        True(!medieval.Success && medieval.Stage.Level == SettlementTechStageLevel.Neolithic, "steps down to neolithic, then rejects");
+        True(medieval.StepDowns.SequenceEqual(new[] { "stage_step_down:Medieval->Neolithic:essential_role_unresolved:Door" }), "logged step-down before rejection");
+        Contains(medieval.Diagnostics, "essential_role_unresolved:Door");
     }
 
     private static void Run(string name, Action test)

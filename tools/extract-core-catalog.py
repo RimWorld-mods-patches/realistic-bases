@@ -25,7 +25,10 @@ STOCK_ITEMS = {"ComponentIndustrial", "ComponentSpacer", "MedicineHerbal", "Medi
                "MedicineUltratech", "Chemfuel"}
 STOCK_PREFIXES = ("Shell_",)
 # Items obtainable without local production (mined, harvested, butchered, salvaged).
-RAW_ITEMS = {"ComponentIndustrial", "MedicineHerbal"}
+# Raw items skip the producer gate and recipe-only research (that research gates
+# local production, not possession). Minimum tiers for exotic raw items live in
+# TechCatalog.RawMinimumTiers.
+RAW_ITEMS = {"ComponentIndustrial", "ComponentSpacer", "MedicineHerbal"}
 RAW_STUFF_CATEGORIES = {"Woody", "Leathery", "Fabric", "Metallic"}
 TECH_LEVELS = ["Undefined", "Animal", "Neolithic", "Medieval", "Industrial", "Spacer", "Ultra", "Archotech"]
 
@@ -176,6 +179,8 @@ def main():
 
     lines = []
     for name, kind, d, stuff_provides, thing_categories in selected:
+        raw = name in RAW_ITEMS or "StoneChunks" in thing_categories or \
+            (kind == "Item" and any(c in RAW_STUFF_CATEGORIES for c in stuff_provides))
         args = ['"%s"' % name, "CatalogCategory." + kind]
         tech = text(d, "techLevel", "Undefined")
         if tech not in TECH_LEVELS:
@@ -193,7 +198,7 @@ def main():
         def strs(values):
             return "new[] { " + ", ".join('"%s"' % v for v in values) + " }"
 
-        if d.find("recipeMaker") is None:
+        if d.find("recipeMaker") is None and not raw:
             for r in sorted(recipe_research.get(name, set())):
                 if r not in req:
                     req.append(r)
@@ -261,8 +266,6 @@ def main():
         produced = sorted(producers.get(name, set()))
         if produced:
             args.append("producedAt: " + strs(produced))
-        raw = name in RAW_ITEMS or "StoneChunks" in thing_categories or \
-            (kind == "Item" and any(c in RAW_STUFF_CATEGORIES for c in stuff_provides))
         if raw:
             args.append("raw: true")
         lines.append("            new CatalogDef(" + ", ".join(args) + "),")

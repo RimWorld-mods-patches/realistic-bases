@@ -15,11 +15,11 @@ A settlement's furniture, buildings, construction materials, power, weapons, app
 - **Research gates:**
   - ComplexFurniture: Bed, Shelf, DiningChair, ChessTable, OrnateDoor, Vent.
   - Stonecutting: TableStonecutter, which is needed for stone blocks.
-  - Smithing: FueledSmithy, SimpleHelmet, and medieval melee.
+  - Smithing: FueledSmithy and medieval melee. SimpleHelmet also needs Smithing, but its techLevel is Industrial, so the ceiling rule makes it legal only from IndustrialEarly. Medieval front-liners wear PlateArmor without a helmet.
   - ComplexClothing: HandTailoringBench and ordinary clothes.
   - FlakArmor needs Machining. HospitalBed needs MicroelectronicsBasics. VitalsMonitor needs MultiAnalyzer.
   - PrecisionRifling (assault and sniper rifles) needs GasOperation and MicroelectronicsBasics.
-  - The revolver, bolt-action rifle, and pump shotgun need no research; their techLevel is Industrial.
+  - The revolver, bolt-action rifle, and pump shotgun declare no research of their own, but they inherit the recipeMaker prerequisite Gunsmithing from `BaseMakeableGun`. Their techLevel is Industrial. Gunsmithing is in IndustrialEarly.
 - **Generators:**
   - WoodFired: 2×2, 1000 W, 22 wood/day.
   - Chemfuel: 2×2, 1000 W, 4.5 chemfuel/day.
@@ -67,7 +67,7 @@ Each step is validated (Docker Release build with 0 warnings/errors, pure tests,
    - Tests: stable per-faction stage; every band respected; the sets are monotonic.
 2. **Catalog and legality.** Add `CatalogDef` and `TechCatalog`. `IsLegal` checks research ⊆ set and techLevel ≤ ceiling, after the prohibited-content filter. Generate a synthetic Core catalog fixture from the extracted def data for the pure tests.
    - Tests: golden legal and illegal lists per stage (tribal: Bedroll yes, Bed no, FueledSmithy no, Revolver no); no trap or IED at any stage.
-3. **Role table.** Ordered preferences for sleep, medical bed and monitor, seat, table, light, heat, cool, cooking, crafting benches (smithy, tailoring, stonecutter, machining, fabrication), storage, recreation, door, defense, and utility belts. Unresolved roles become diagnostics, and an essential unresolved role steps the stage down one level.
+3. **Role table.** Ordered preferences for sleep, medical bed and monitor, seat, table, light, heat, cool, cooking, crafting benches (smithy, tailoring, stonecutter, machining, fabrication), storage, recreation, door, defense, and utility belts. Unresolved roles become diagnostics. Legality is monotone in the stage, so a plain legality filter can never make step-down help. Primitive fallbacks therefore carry a `MaxStage` cap (for example Bedroll up to Medieval). An essential role with no legal, tier-acceptable option means the settlement cannot equip its tier: the stage steps down one level, keeping adaptations, the reason is logged, and the whole kit is re-resolved at the lower tier. An essential role that is still unresolved at Neolithic rejects with `essential_role_unresolved:<role>`.
    - Tests: resolution per stage; step-down behaviour.
 4. **Planner integration (pure).** Furnishing asks for roles; footprints, blocking, interaction offsets, and power come from `CatalogDef`. Spots are 1×1 and non-blocking. Materials are chosen per stage from local stuff, with import accounting. The Stonecutting adaptation uses the new snapshot inputs `LocalWoodYield` and `LocalStoneStuffs`. The workshop gains a stonecutter under the adaptation.
    - Tests: tribal layout contains no ComplexFurniture items; wood-poor stony map → stone walls and imported fuel wood; wood- and stone-poor map → budget rejection.
