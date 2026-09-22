@@ -67,6 +67,19 @@ namespace RealisticBases.Planning
             List<LayoutFixture> fixtures = layout.AllFixtures.ToList();
             if (fixtures.Any(f => f.DefName.IndexOf("Trap", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 f.DefName.IndexOf("IED", StringComparison.OrdinalIgnoreCase) >= 0)) errors.Add("prohibited_defense");
+            LayoutEquipment equipment = input.Equipment;
+            LayoutKit kit = equipment.Kit;
+            foreach (LayoutFixture fixture in fixtures)
+            {
+                CatalogDef def;
+                if (!input.Catalog.TryGet(fixture.DefName, out def)) continue;
+                if (ProhibitedContent.IsProhibited(def)) errors.Add("prohibited_defense");
+                else if (!input.Catalog.Evaluate(def, kit.Stage).Legal) errors.Add("illegal_for_stage_" + fixture.DefName);
+            }
+            if (layout.TechStage == null || layout.TechStage.Digest != kit.Stage.Digest || layout.RolesDigest != kit.Roles.Digest) errors.Add("equipment_mismatch");
+            LayoutMaterialLedger materials = equipment.Count(layout.Rooms, layout.BuiltWalls, layout.Gates.Count);
+            if (layout.Materials == null || layout.Materials.ToString() != materials.ToString()) errors.Add("materials_ledger_mismatch");
+            if (materials.ImportValue > requirements.ImportValueLimit) errors.Add(LayoutEquipment.MaterialBudgetExceeded);
 
             foreach (LayoutRoom room in layout.Rooms) ValidateRoom(room, requirements, grid, excavation, retained, extra, reach, errors);
 
@@ -117,7 +130,7 @@ namespace RealisticBases.Planning
             }
 
             // Capacity versus demand and power budget.
-            LayoutDemandSet demand = LayoutDemandModel.Derive(requirements, LayoutSeed.Sub(input.Seed, "rooms"));
+            LayoutDemandSet demand = equipment.Demand;
             foreach (LayoutRoomDemand room in demand.Rooms)
             {
                 LayoutRoom realized = layout.Rooms.FirstOrDefault(r => r.Id == room.Id);
@@ -126,15 +139,14 @@ namespace RealisticBases.Planning
             if (layout.Rooms.Count != demand.Rooms.Count) errors.Add("room_count");
             int beds = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Barracks || r.Kind == LayoutRoomKind.Bedroom).Sum(r => r.Capacity);
             if (beds < requirements.Residents) errors.Add("housing_beds");
-            if (requirements.Electric)
+            if (kit.Powered)
             {
                 int generators = fixtures.Count(f => f.Kind == LayoutFixtureKind.Generator);
-                if (generators * LayoutDemandModel.GeneratorWatts < fixtures.Sum(f => f.Watts)) errors.Add("power_generation_below_load");
+                if (generators * kit.GeneratorWatts < fixtures.Sum(f => f.Watts)) errors.Add("power_generation_below_load");
                 if (!fixtures.Any(f => f.Kind == LayoutFixtureKind.Battery)) errors.Add("power_battery");
             }
-            else if (fixtures.Any(f => f.Watts > 0 || f.Kind == LayoutFixtureKind.Generator || f.Kind == LayoutFixtureKind.Battery ||
-                f.Kind == LayoutFixtureKind.WallCooler || f.Kind == LayoutFixtureKind.Heater || f.Kind == LayoutFixtureKind.Lamp))
-                errors.Add("tribal_electric_content");
+            else if (fixtures.Any(f => f.Watts > 0 || f.Kind == LayoutFixtureKind.Generator || f.Kind == LayoutFixtureKind.Battery))
+                errors.Add("unpowered_electric_content");
             return new ReadOnlyCollection<string>(errors.Distinct().ToList());
         }
 
@@ -185,15 +197,13 @@ namespace RealisticBases.Planning
                 if ((fixture.Kind == LayoutFixtureKind.Stove || fixture.Kind == LayoutFixtureKind.Workbench) && !BackToWall(room, fixture))
                     errors.Add("workbench_not_against_wall_" + label);
             }
-            bool electric = requirements.Electric;
-            if (!room.Fixtures.Any(f => f.Kind == (electric ? LayoutFixtureKind.Lamp : LayoutFixtureKind.Torch))) errors.Add("lighting_" + id);
+            if (!room.Fixtures.Any(f => f.Role == SettlementRole.Light)) errors.Add("lighting_" + id);
             if (room.Kind == LayoutRoomKind.Freezer && !room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.WallCooler)) errors.Add("freezer_cooling_" + id);
             if (LayoutDemandModel.IsLiving(room.Kind))
             {
-                if (requirements.Climate.HeatingRequired && !room.Fixtures.Any(f => f.Kind == (electric ? LayoutFixtureKind.Heater : LayoutFixtureKind.Campfire)))
+                if (requirements.Climate.HeatingRequired && !room.Fixtures.Any(f => f.Role == SettlementRole.Heat))
                     errors.Add("heating_" + id);
-                if (requirements.Climate.CoolingRequired && !room.ProtectedByRock &&
-                    !room.Fixtures.Any(f => f.Kind == (electric ? LayoutFixtureKind.WallCooler : LayoutFixtureKind.PassiveCooler)))
+                if (requirements.Climate.CoolingRequired && !room.ProtectedByRock && !room.Fixtures.Any(f => f.Role == SettlementRole.Cool))
                     errors.Add("cooling_" + id);
             }
             if (room.Kind != LayoutRoomKind.Power && room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Battery || f.Kind == LayoutFixtureKind.Generator))
@@ -386,6 +396,7 @@ namespace RealisticBases.Planning
                 case LayoutFixtureKind.Generator: return PhysicalPlacementKind.Generator;
                 case LayoutFixtureKind.Battery: return PhysicalPlacementKind.Battery;
                 case LayoutFixtureKind.WallCooler: return PhysicalPlacementKind.Cooler;
+                case LayoutFixtureKind.Shelf: return PhysicalPlacementKind.StorageMarker;
                 default: return PhysicalPlacementKind.Workbench;
             }
         }
@@ -397,7 +408,7 @@ namespace RealisticBases.Planning
         public const string Legend =
             "legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access\n" +
             "        B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater\n" +
-            "        f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court\n" +
+            "        f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf\n" +
             "        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle\n" +
             "        outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable\n" +
             "roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  ' ' open sky";
@@ -521,6 +532,8 @@ namespace RealisticBases.Planning
                 case LayoutFixtureKind.Torch: return 't';
                 case LayoutFixtureKind.Generator: return 'E';
                 case LayoutFixtureKind.Battery: return 'A';
+                case LayoutFixtureKind.MedicalMonitor: return 'V';
+                case LayoutFixtureKind.Shelf: return 'k';
                 default: return 'M';
             }
         }

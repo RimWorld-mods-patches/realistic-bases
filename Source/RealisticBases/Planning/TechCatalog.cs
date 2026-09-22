@@ -291,6 +291,7 @@ namespace RealisticBases.Planning
         }
 
         public bool IsLegal(string defName, SettlementTechStage stage) => Evaluate(defName, stage).Legal;
+        public bool IsLegal(CatalogDef def, SettlementTechStage stage) => Evaluate(def, stage).Legal;
 
         public CatalogLegality Evaluate(string defName, SettlementTechStage stage)
         {

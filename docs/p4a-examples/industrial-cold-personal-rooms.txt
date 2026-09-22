@@ -1,66 +1,62 @@
 # industrial-cold-personal-rooms (synthetic terrain; planner evidence only, not a live map)
 legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access
         B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
-        f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court
+        f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
         g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
 roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  ' ' open sky
 
-digest=884D5455C33C3468 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=807
+digest=C760EE77D30E2064 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=795
   bedroom-1   bounds=70,66,5x5    door=72,66   1/1 beds
-  bedroom-2   bounds=54,66,5x5    door=56,66   1/1 beds
-  bedroom-3   bounds=49,58,5x5    door=53,60   1/1 beds
-  bedroom-4   bounds=55,51,5x6    door=57,56   1/1 beds
-  bedroom-5   bounds=60,53,5x6    door=60,57   1/1 beds
+  bedroom-2   bounds=71,58,5x6    door=72,63   1/1 beds
+  bedroom-3   bounds=55,51,5x6    door=57,56   1/1 beds
+  bedroom-4   bounds=60,53,5x6    door=60,57   1/1 beds
+  bedroom-5   bounds=54,66,5x5    door=56,66   1/1 beds
   dining      bounds=65,55,6x9    door=66,63   8/5 seats
   freezer     bounds=59,66,11x6   door=61,66   32/30 stockpile-cells
-  jail        bounds=40,58,5x6    door=42,58   1/1 beds
+  jail        bounds=42,58,5x6    door=44,58   1/1 beds
   kitchen     bounds=59,59,6x5    door=62,63   1/1 stoves
-  medical     bounds=49,52,5x5    door=52,56   1/1 beds
-  power       bounds=71,42,5x12   door=73,53   3/3 generators
-  storage     bounds=39,51,10x6   door=44,56   30/30 stockpile-cells
-  workshop    bounds=74,54,5x6    door=74,57   1/1 benches
+  medical     bounds=49,58,5x5    door=53,60   1/1 beds
+  power       bounds=32,56,10x7   door=41,57   4/4 generators
+  storage     bounds=48,47,6x10   door=53,52   30/30 stockpile-cells
+  workshop    bounds=43,48,5x9    door=45,56   4/4 benches
   note: excavated=0/410 retainedThickRoof=0
   note: gates=2 desired=2
-                                                  
-                                                  
-                                                  
-                       ###############            
-                  ######,,,,,,,,,,,,,######       
-                  #,,,,,,###########,,,,,,#       
-                  #,######L________######,#       
-                  #,#BhL##_________##BhL#,#       
-                ###,#B..##_________##B..#,###     
-                #,,,#...##i._i_____##...#,,,#     
-**************  #,,,##D###CD#C########D##,,,#     
-    #########**sG,,,=====================,,,#     
-    #,,,,,,,#####,,,==================i==,,,#     
-    #,#####,##,,,,,,=,,,,###D###D####MM=,,,,#     
-    #,#PhL#,##,#####=,,,,#....##.c..#MM=,,,,Gs****
-    #,#P..#,##,#L..#=,,,,#..i.##.TTc#,,=,######   
-    #,#...#,##,#h..D=,,,,#LSSS##cTTL#,,=,,,,,,#   
-    #,#...#,##,#BB.#=,,,,#######.cc.#,,=#####,#   
-   ##,##D##,,,,#####=,,,,,######.TTc#,,=#..W#,#   
-   #,,,,==================D.BB##cTTh#,,=D.iW#,#   
-   #,#####D#######D#,##D###..h##..cR#,,=#..W#,#   
-   #,#____.___##...#,#...##..L#######,,=#..L#,#   
-   #,#________##..H#,#...##...#,,,,,,,,=#####,#   
-   #,#________##LhH#,#..B######,####,##D##,,,,#   
-   #,#_______L######,#LhB#,,,,,,#  #,#...#,####   
-   #,##########,,,,,,#####,######  #,#.AA#,#      
-   #,,,,,,,,,,,,####,,,,,,,#       #,#.AA#,#      
-   ##############  #########       #,#.AA#,#      
-                                   #,#.EE#,#      
-                                   #,#.EE#,#      
-                                   #,#.EE#,#      
-                                   #,#.EE#,#      
-                                   #,#.EE#,#      
-                                   #,#LEE#,#      
-                                   #,#####,#      
-                                   #,,,,,,,#      
-                                   #########      
-                                                  
-                                                  
-                                                  
+  note: materials walls=415 doors=15 stuff=WoodLog:3565 constructionWood=3565 fuelWood=0 localWood=3565 importedWood=0 importValue=0
 
-search: sites=1 attempts=1 evaluations=6567 repairs=2 routeNodes=22548 budgetExhausted=False
+
+
+                              ###############
+                         ######,,,,,,,,,,,,,######
+                         #,,,,,,###########,,,,,,#
+                         #,######Lkkkkkk__######,#
+                         #,#BhL##_________##BhL#,#
+                       ###,#B..##_________##B..#,####
+**********************sG,,,#...##i._i_____##...#,,,,#
+                       #,,,##D###CD#C########D##,,,,#
+             ######### #,,,======================,,,#
+   ###########,,,,,,,###,,,===i==================,,,Gs***
+   #,,,,,,,,,,,#####,,,,,,,=,MM,###D###D#####D###,,,#
+   #,###########PhL#,,#####=,MM,#....##.c..##...#,,,#
+   #,#AA.AAAL.##P..#,,#L..#=,,,,#..i.##.TTc##...#,###
+   #,#EE.AAA..##...#,,#h..D=,,,,#LSSS##cTTL##..B#,#
+   #,#EE......##...#,,#HH.#=,,,,#######.cc.##LhB#,#
+   #,#EE.EEEE.###D##,,#####=,,,,,######.TTc######,#
+   #,#EELEEEE.D==================D.BB##cTTh#,,,,,,#
+   #,##########,##D########=##D###..h##..cR#,######
+   #,,,,,,,,,,,,#..W##____#=#...##..L#######,#
+   ############,#.iW##k___#=#...##...#,,,,,,,#
+              #,#L.W##k___#=#..B######,#######
+              #,#W.W##k__.D=#LhB#,,,,,,#
+              #,#WiW##k___#,#####,######
+              #,#WiW##k___#,,,,,,,#
+              #,#WWW##k___#,#######
+              #,######L___#,#
+              #,,,,,,######,#
+              ######,,,,,,,,#
+                   ##########
+
+
+
+
+search: sites=1 attempts=1 evaluations=6066 repairs=0 routeNodes=22580 budgetExhausted=False

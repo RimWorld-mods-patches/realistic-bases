@@ -53,7 +53,9 @@ namespace RealisticBases.Planning
         Torch,
         Generator,
         Battery,
-        MortarCourt
+        MortarCourt,
+        MedicalMonitor,
+        Shelf
     }
 
     public enum LayoutDoctrine
@@ -130,9 +132,13 @@ namespace RealisticBases.Planning
 
     public sealed class LayoutRequirements
     {
+        // Provisional import limits for FromPopulation, equal to the P2 temperate profiles.
+        public const int DefaultImportValueLimitElectric = 5500;
+        public const int DefaultImportValueLimitNonElectric = 1400;
+
         public LayoutRequirements(int residents, SettlementCapability capabilities, HousingStandard housing,
             LayoutClimate climate, int mortarBiasPercent, int excavationBudgetCells, int fieldCells,
-            IEnumerable<KeyValuePair<LayoutRoomKind, int>> capacityFloors = null)
+            IEnumerable<KeyValuePair<LayoutRoomKind, int>> capacityFloors = null, SettlementTechStage stage = null, int importValueLimit = -1)
         {
             if (residents <= 0) throw new ArgumentOutOfRangeException(nameof(residents));
             if (mortarBiasPercent < 0 || mortarBiasPercent > 100) throw new ArgumentOutOfRangeException(nameof(mortarBiasPercent));
@@ -153,8 +159,18 @@ namespace RealisticBases.Planning
                 floors[floor.Key] = floors.TryGetValue(floor.Key, out existing) ? Math.Max(existing, floor.Value) : floor.Value;
             }
             CapacityFloors = new ReadOnlyDictionary<LayoutRoomKind, int>(floors);
+            Stage = stage ?? DefaultStage(capabilities);
+            ImportValueLimit = importValueLimit >= 0 ? importValueLimit : DefaultImportValueLimit(capabilities);
             Digest = ComputeDigest();
         }
+
+        // Capability-derived default: Electricity -> IndustrialEarly, otherwise Neolithic.
+        public static SettlementTechStage DefaultStage(SettlementCapability capabilities) =>
+            TechStageModel.Create((capabilities & SettlementCapability.Electricity) != 0
+                ? SettlementTechStageLevel.IndustrialEarly : SettlementTechStageLevel.Neolithic);
+
+        public static int DefaultImportValueLimit(SettlementCapability capabilities) =>
+            (capabilities & SettlementCapability.Electricity) != 0 ? DefaultImportValueLimitElectric : DefaultImportValueLimitNonElectric;
 
         public int Residents { get; }
         public SettlementCapability Capabilities { get; }
@@ -164,10 +180,14 @@ namespace RealisticBases.Planning
         public int ExcavationBudgetCells { get; }
         public int FieldCells { get; }
         public IReadOnlyDictionary<LayoutRoomKind, int> CapacityFloors { get; }
+        // Requested tech stage (before step-downs and adaptations).
+        public SettlementTechStage Stage { get; }
+        // Wood imports beyond this market value reject with material_budget_exceeded.
+        public int ImportValueLimit { get; }
         public string Digest { get; }
         public bool Electric => Has(SettlementCapability.Electricity);
         public bool Refrigerated => Has(SettlementCapability.Refrigeration);
-        // Matches P3: only the electric (industrial) encounter profile is mortar capable.
+        // Capability wish only; the layout uses LayoutKit.MortarCapable (Electric and Turret_Mortar legal).
         public bool MortarCapable => Electric;
         public bool Has(SettlementCapability capability) => (Capabilities & capability) == capability;
 
@@ -178,16 +198,17 @@ namespace RealisticBases.Planning
         }
 
         public static LayoutRequirements FromPopulation(int residents, SettlementCapability capabilities, LayoutClimate climate,
-            HousingStandard housing = HousingStandard.Barracks, IEnumerable<KeyValuePair<LayoutRoomKind, int>> floors = null)
+            HousingStandard housing = HousingStandard.Barracks, IEnumerable<KeyValuePair<LayoutRoomKind, int>> floors = null,
+            SettlementTechStage stage = null, int importValueLimit = -1)
         {
             bool electric = (capabilities & SettlementCapability.Electricity) != 0;
             return new LayoutRequirements(residents, capabilities, housing, climate,
-                electric ? 50 : 0, 60 + residents * (electric ? 70 : 35), residents * 31, floors);
+                electric ? 50 : 0, 60 + residents * (electric ? 70 : 35), residents * 31, floors, stage, importValueLimit);
         }
 
         // P2 profile capacities act as floors; population rules may raise them.
         public static LayoutRequirements FromProfile(PhysicalSettlementProfile profile, LayoutClimate climate,
-            HousingStandard housing = HousingStandard.Barracks)
+            HousingStandard housing = HousingStandard.Barracks, SettlementTechStage stage = null)
         {
             if (profile == null) throw new ArgumentNullException(nameof(profile));
             List<KeyValuePair<LayoutRoomKind, int>> floors = new List<KeyValuePair<LayoutRoomKind, int>>();
@@ -198,7 +219,8 @@ namespace RealisticBases.Planning
             }
             bool electric = profile.Has(SettlementCapability.Electricity);
             return new LayoutRequirements(profile.Residents, profile.Capabilities, housing, climate,
-                electric ? 50 : 0, 60 + profile.Residents * (electric ? 70 : 35), profile.RequiredCropCells, floors);
+                electric ? 50 : 0, 60 + profile.Residents * (electric ? 70 : 35), profile.RequiredCropCells, floors, stage,
+                profile.Budget.ImportValueLimit);
         }
 
         private static bool TryMap(FacilityKind kind, out LayoutRoomKind result)
@@ -234,6 +256,8 @@ namespace RealisticBases.Planning
                 hash = StableHash.Add(hash, (int)floor.Key);
                 hash = StableHash.Add(hash, floor.Value);
             }
+            hash = StableHash.Add(hash, Stage.Digest);
+            hash = StableHash.Add(hash, ImportValueLimit);
             return StableHash.Hex(hash);
         }
     }
@@ -292,23 +316,31 @@ namespace RealisticBases.Planning
 
     public sealed class ProceduralLayoutInput
     {
-        public ProceduralLayoutInput(LayoutRequirements requirements, TerrainSnapshot terrain, ulong seed,
-            LayoutFortificationReservation fortification = null, LayoutSearchBudget budget = null)
+        private LayoutEquipment equipment;
+
+        public ProceduralLayoutInput(LayoutRequirements requirements, TerrainSnapshot terrain, ulong seed, TechCatalog catalog,
+            LayoutFortificationReservation fortification = null, LayoutSearchBudget budget = null, LayoutLocalResources resources = null)
         {
             Requirements = requirements ?? throw new ArgumentNullException(nameof(requirements));
             Terrain = terrain ?? throw new ArgumentNullException(nameof(terrain));
+            Catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             Seed = seed;
             Fortification = fortification ?? new LayoutFortificationReservation();
             Budget = budget ?? new LayoutSearchBudget();
+            Resources = resources ?? LayoutLocalResources.Default;
             Digest = ComputeDigest();
         }
 
         public LayoutRequirements Requirements { get; }
         public TerrainSnapshot Terrain { get; }
+        public TechCatalog Catalog { get; }
         public ulong Seed { get; }
         public LayoutFortificationReservation Fortification { get; }
         public LayoutSearchBudget Budget { get; }
+        public LayoutLocalResources Resources { get; }
         public string Digest { get; }
+        // Deterministic from the other inputs; computed once and shared by planner and validator.
+        public LayoutEquipment Equipment => equipment ?? (equipment = LayoutEquipment.Resolve(this));
 
         private string ComputeDigest()
         {
@@ -316,6 +348,8 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, ProceduralLayoutVersions.Planner);
             hash = StableHash.Add(hash, Requirements.Digest);
             hash = StableHash.Add(hash, Terrain.Digest);
+            hash = StableHash.Add(hash, Catalog.Digest);
+            hash = StableHash.Add(hash, Resources.Digest);
             hash = StableHash.Add(hash, Seed);
             LayoutFortificationReservation f = Fortification;
             foreach (int value in new[] { f.WallLayers, f.Setback, f.OuterClearance, f.VestibuleDepth, f.DesiredGates, f.MinimumGates })
@@ -403,7 +437,6 @@ namespace RealisticBases.Planning
         public const int MaxSplit = 8;
         public const int MaxSizesPerRoom = 6;
         public const double NearMinimalAreaFactor = 1.35;
-        public const int GeneratorWatts = 1000;
         public const int KitchenFoodHardDistance = 24;
 
         public static bool IsLiving(LayoutRoomKind kind) => kind == LayoutRoomKind.Barracks || kind == LayoutRoomKind.Bedroom ||
@@ -411,9 +444,10 @@ namespace RealisticBases.Planning
 
         public static bool IsStockpile(LayoutRoomKind kind) => kind == LayoutRoomKind.Storage || kind == LayoutRoomKind.Freezer || kind == LayoutRoomKind.Pantry;
 
-        public static LayoutDemandSet Derive(LayoutRequirements requirements, ulong roomSeed)
+        public static LayoutDemandSet Derive(LayoutRequirements requirements, LayoutKit kit, ulong roomSeed)
         {
             if (requirements == null) throw new ArgumentNullException(nameof(requirements));
+            if (kit == null) throw new ArgumentNullException(nameof(kit));
             int r = requirements.Residents;
             List<KeyValuePair<LayoutRoomKind, int>> wanted = new List<KeyValuePair<LayoutRoomKind, int>>();
             if (requirements.Housing == HousingStandard.PersonalRooms)
@@ -427,9 +461,10 @@ namespace RealisticBases.Planning
             Add(wanted, requirements, LayoutRoomKind.Jail, Math.Max(1, Ceil(r, 8)));
             Add(wanted, requirements, LayoutRoomKind.Medical, Math.Max(1, Ceil(r, 6)));
             Add(wanted, requirements, LayoutRoomKind.Kitchen, Ceil(r, 8));
-            Add(wanted, requirements, requirements.Refrigerated ? LayoutRoomKind.Freezer : LayoutRoomKind.Pantry, Math.Max(12, 6 * r));
+            Add(wanted, requirements, kit.Refrigerated ? LayoutRoomKind.Freezer : LayoutRoomKind.Pantry, Math.Max(12, 6 * r));
             Add(wanted, requirements, LayoutRoomKind.Dining, r);
-            Add(wanted, requirements, LayoutRoomKind.Workshop, Math.Max(1, Ceil(r, 6)));
+            // Every distinct craft bench once, then more benches up to the population target.
+            Add(wanted, requirements, LayoutRoomKind.Workshop, Math.Max(Math.Max(1, Ceil(r, 6)), kit.WorkshopDefs.Count));
             Add(wanted, requirements, LayoutRoomKind.Storage, Math.Max(12, 6 * r));
 
             List<string> rejections = new List<string>();
@@ -438,25 +473,25 @@ namespace RealisticBases.Planning
             foreach (IGrouping<LayoutRoomKind, KeyValuePair<LayoutRoomKind, int>> group in wanted.GroupBy(w => w.Key))
             {
                 List<LayoutRoomDemand> built = group.Key == LayoutRoomKind.Barracks || group.Key == LayoutRoomKind.Bedroom
-                    ? group.Select((item, i) => Build(group.Key, item.Value, Id(group.Key, i + 1, true), requirements, roomSeed)).ToList()
-                    : Split(group.Key, group.Sum(item => item.Value), requirements, roomSeed);
+                    ? group.Select((item, i) => Build(group.Key, item.Value, Id(group.Key, i + 1, true), requirements, kit, roomSeed)).ToList()
+                    : Split(group.Key, group.Sum(item => item.Value), requirements, kit, roomSeed);
                 if (built.Any(d => d == null) || built.Count == 0)
                 {
                     rejections.Add("room_demand_exceeds_legal_dimensions:" + group.Key + ":" + group.Sum(item => item.Value));
                     continue;
                 }
                 rooms.AddRange(built);
-                load += built.Sum(d => MaxLoad(d, requirements));
+                load += built.Sum(d => MaxLoad(d, requirements, kit));
             }
-            if (requirements.Electric && rejections.Count == 0)
+            if (kit.Powered && kit.GeneratorWatts > 0 && rejections.Count == 0)
             {
                 // The power room's own lamp/heater draw is part of the load it must cover.
-                for (int generators = Math.Max(1, Ceil(load, GeneratorWatts)); generators <= MaxSplit; generators++)
+                for (int generators = Math.Max(1, Ceil(load, kit.GeneratorWatts)); generators <= MaxSplit; generators++)
                 {
-                    LayoutRoomDemand power = Build(LayoutRoomKind.Power, generators, "power", requirements, roomSeed);
+                    LayoutRoomDemand power = Build(LayoutRoomKind.Power, generators, "power", requirements, kit, roomSeed);
                     if (power == null) { rejections.Add("room_demand_exceeds_legal_dimensions:Power:" + generators); break; }
-                    int total = load + MaxLoad(power, requirements);
-                    if (generators * GeneratorWatts < total) continue;
+                    int total = load + MaxLoad(power, requirements, kit);
+                    if (generators * kit.GeneratorWatts < total) continue;
                     rooms.Add(power);
                     load = total;
                     break;
@@ -471,14 +506,14 @@ namespace RealisticBases.Planning
         private static int Ceil(int value, int divisor) => (value + divisor - 1) / divisor;
 
         // A demand too large for one legal room splits into up to MaxSplit rooms of that kind.
-        private static List<LayoutRoomDemand> Split(LayoutRoomKind kind, int capacity, LayoutRequirements requirements, ulong roomSeed)
+        private static List<LayoutRoomDemand> Split(LayoutRoomKind kind, int capacity, LayoutRequirements requirements, LayoutKit kit, ulong roomSeed)
         {
             for (int count = 1; count <= MaxSplit && count <= capacity; count++)
             {
                 List<LayoutRoomDemand> result = new List<LayoutRoomDemand>();
                 for (int i = 0; i < count; i++)
                 {
-                    LayoutRoomDemand room = Build(kind, capacity / count + (i < capacity % count ? 1 : 0), Id(kind, i + 1, count > 1), requirements, roomSeed);
+                    LayoutRoomDemand room = Build(kind, capacity / count + (i < capacity % count ? 1 : 0), Id(kind, i + 1, count > 1), requirements, kit, roomSeed);
                     if (room == null) break;
                     result.Add(room);
                 }
@@ -489,13 +524,13 @@ namespace RealisticBases.Planning
 
         private static string Id(LayoutRoomKind kind, int index, bool numbered) => kind.ToString().ToLowerInvariant() + (numbered ? "-" + index : string.Empty);
 
-        private static LayoutRoomDemand Build(LayoutRoomKind kind, int capacity, string id, LayoutRequirements requirements, ulong roomSeed)
+        private static LayoutRoomDemand Build(LayoutRoomKind kind, int capacity, string id, LayoutRequirements requirements, LayoutKit kit, ulong roomSeed)
         {
             List<GridRect> legal = new List<GridRect>();
             for (int w = MinInterior; w <= MaxInterior; w++)
                 for (int h = MinInterior; h <= MaxInterior; h++)
                 {
-                    LayoutFurnishResult result = LayoutFurnishing.Furnish(kind, w, h, (w + 1) / 2, capacity, FurnishContext(requirements, false, null));
+                    LayoutFurnishResult result = LayoutFurnishing.Furnish(kind, w, h, (w + 1) / 2, capacity, FurnishContext(kit, requirements, false, null));
                     if (result.Success) legal.Add(new GridRect(0, 0, w, h));
                 }
             if (legal.Count == 0) return null;
@@ -506,19 +541,18 @@ namespace RealisticBases.Planning
             return new LayoutRoomDemand(id, kind, capacity, Unit(kind), sizes);
         }
 
-        internal static LayoutFurnishContext FurnishContext(LayoutRequirements requirements, bool thickRoofed, Func<int, bool> exhaustAllowed) =>
-            new LayoutFurnishContext(requirements.Electric, requirements.Climate.HeatingRequired,
-                requirements.Climate.CoolingRequired && !thickRoofed, exhaustAllowed);
+        internal static LayoutFurnishContext FurnishContext(LayoutKit kit, LayoutRequirements requirements, bool thickRoofed, Func<int, bool> exhaustAllowed) =>
+            new LayoutFurnishContext(kit, requirements.Climate.HeatingRequired, requirements.Climate.CoolingRequired && !thickRoofed, exhaustAllowed);
 
         // Upper bound on the powered load: the largest candidate size and worst-case climate.
-        private static int MaxLoad(LayoutRoomDemand demand, LayoutRequirements requirements)
+        private static int MaxLoad(LayoutRoomDemand demand, LayoutRequirements requirements, LayoutKit kit)
         {
-            if (!requirements.Electric) return 0;
+            if (!kit.Powered) return 0;
             int max = 0;
             foreach (GridRect size in demand.CandidateSizes)
             {
                 LayoutFurnishResult result = LayoutFurnishing.Furnish(demand.Kind, size.Width, size.Height, (size.Width + 1) / 2,
-                    demand.Capacity, FurnishContext(requirements, false, null));
+                    demand.Capacity, FurnishContext(kit, requirements, false, null));
                 if (result.Success) max = Math.Max(max, result.Watts);
             }
             return max;
@@ -579,15 +613,16 @@ namespace RealisticBases.Planning
 
     public sealed class LayoutFurnishContext
     {
-        public LayoutFurnishContext(bool electric, bool heating, bool cooling, Func<int, bool> exhaustAllowed)
+        public LayoutFurnishContext(LayoutKit kit, bool heating, bool cooling, Func<int, bool> exhaustAllowed)
         {
-            Electric = electric;
+            Kit = kit ?? throw new ArgumentNullException(nameof(kit));
             Heating = heating;
             Cooling = cooling;
             ExhaustAllowed = exhaustAllowed;
         }
 
-        public bool Electric { get; }
+        public LayoutKit Kit { get; }
+        public bool Electric => Kit.Powered;
         public bool Heating { get; }
         public bool Cooling { get; }
         // Local x on the door wall whose outside cell may take a cooler exhaust; null = any.
@@ -599,8 +634,9 @@ namespace RealisticBases.Planning
     public sealed class LayoutLocalFixture
     {
         internal LayoutLocalFixture(LayoutFixtureKind kind, string defName, IEnumerable<GridPoint> cells, IEnumerable<GridPoint> access,
-            GridPoint facing, bool blocking, int watts, bool needsFuel)
+            GridPoint facing, bool blocking, int watts, bool needsFuel, SettlementRole? role)
         {
+            Role = role;
             Kind = kind;
             DefName = defName;
             Cells = new ReadOnlyCollection<GridPoint>(cells.ToList());
@@ -623,6 +659,8 @@ namespace RealisticBases.Planning
         public bool Blocking { get; }
         public int Watts { get; }
         public bool NeedsFuel { get; }
+        // The equipment role the fixture fills; null for generators, batteries and the court.
+        public SettlementRole? Role { get; }
     }
 
     public sealed class LayoutFurnishResult
@@ -642,33 +680,47 @@ namespace RealisticBases.Planning
         public bool Success => Failure == null;
     }
 
-    // Reusable furnishing rules. Wall fixtures stand with their back to a wall and
-    // their working side toward the room; every placement is kept only when a
-    // flood from the entry cell still reaches all access cells.
+    // Reusable furnishing rules. Rooms request roles; footprints, passability,
+    // interaction cells, power and fuel come from the resolved catalog defs. Wall
+    // fixtures stand with their back to a wall and their working side toward the
+    // room; every placement is kept only when a flood from the entry cell still
+    // reaches all access cells and every placed fixture keeps a reachable neighbour.
     public static class LayoutFurnishing
     {
         private const byte Free = 0;
         private const byte Blocked = 1;
         private const byte KeepFree = 2;
+        // One shelf per this many storage-room cells. PROVISIONAL.
+        public const int CellsPerShelf = 12;
 
         public static LayoutFurnishResult Furnish(LayoutRoomKind kind, int w, int h, int doorX, int capacityTarget, LayoutFurnishContext context)
         {
+            if (context == null) throw new ArgumentNullException(nameof(context));
             if (w < 1 || h < 1 || doorX < 1 || doorX > w) return new LayoutFurnishResult(new List<LayoutLocalFixture>(), 0, "illegal_room_size");
             Room room = new Room(w, h, doorX);
+            LayoutKit kit = context.Kit;
             int area = w * h;
-            bool electric = context.Electric;
             int capacity = 0;
             string failure = null;
+            Template light = Light(kit);
             if (LayoutDemandModel.IsStockpile(kind))
             {
-                if (kind == LayoutRoomKind.Freezer && !room.PlaceWallCoolers(Ceil(area, 30), context.ExhaustAllowed)) failure = "freezer_cooler_exhaust";
-                if (failure == null && !room.Place(Light(electric), (area + 35) / 36)) failure = "lights";
+                if (kind == LayoutRoomKind.Freezer)
+                {
+                    Template cooler = Cool(kit);
+                    if (cooler == null || !cooler.WallMounted || !room.PlaceWallCoolers(cooler, Ceil(area, 30), context.ExhaustAllowed)) failure = "freezer_cooler_exhaust";
+                }
+                if (failure == null && (light == null || !room.Place(light, (area + 35) / 36))) failure = "lights";
+                int shelfCells = 0;
+                Template shelf = From(kit.DefFor(SettlementRole.Storage), LayoutFixtureKind.Shelf, SettlementRole.Storage);
+                if (failure == null && shelf != null) shelfCells = room.PlaceUpTo(shelf, Ceil(area, CellsPerShelf)) * shelf.Length * shelf.Depth;
                 if (failure == null)
                 {
                     List<GridPoint> stock = room.ReachableFree().Where(c => !room.IsKeepFree(c)).ToList();
-                    capacity = stock.Count;
+                    capacity = stock.Count + shelfCells;
                     if (stock.Count > 0)
-                        room.Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Stockpile, "Stockpile", stock, null, new GridPoint(0, 1), false, 0, false));
+                        room.Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Stockpile, "Stockpile", stock, null, new GridPoint(0, 1), false, 0, false,
+                            SettlementRole.Storage));
                 }
             }
             else
@@ -677,75 +729,130 @@ namespace RealisticBases.Planning
                 {
                     case LayoutRoomKind.Barracks:
                     case LayoutRoomKind.Bedroom:
-                        capacity = room.Place(Bed(LayoutFixtureKind.Bed), capacityTarget) ? capacityTarget : 0;
+                        capacity = PlaceAll(room, From(kit.DefFor(SettlementRole.Sleep), LayoutFixtureKind.Bed, SettlementRole.Sleep), capacityTarget);
                         break;
                     case LayoutRoomKind.Jail:
-                        capacity = room.Place(Bed(LayoutFixtureKind.PrisonBed), capacityTarget) ? capacityTarget : 0;
+                        capacity = PlaceAll(room, From(kit.DefFor(SettlementRole.Sleep), LayoutFixtureKind.PrisonBed, SettlementRole.Sleep), capacityTarget);
                         break;
                     case LayoutRoomKind.Medical:
-                        capacity = room.Place(Bed(LayoutFixtureKind.MedicalBed), capacityTarget) ? capacityTarget : 0;
+                        capacity = PlaceAll(room, From(kit.DefFor(SettlementRole.MedicalBed), LayoutFixtureKind.MedicalBed, SettlementRole.MedicalBed), capacityTarget);
+                        Template monitor = From(kit.DefFor(SettlementRole.MedicalMonitor), LayoutFixtureKind.MedicalMonitor, SettlementRole.MedicalMonitor);
+                        if (capacity >= capacityTarget && monitor != null && !room.Place(monitor, 1)) failure = "medical_monitor";
                         break;
                     case LayoutRoomKind.Kitchen:
-                        capacity = room.Place(Bench(LayoutFixtureKind.Stove, electric ? "ElectricStove" : "FueledStove", electric ? 350 : 0, !electric), capacityTarget) ? capacityTarget : 0;
+                        capacity = PlaceAll(room, From(kit.DefFor(SettlementRole.Cooking), LayoutFixtureKind.Stove, SettlementRole.Cooking), capacityTarget);
                         break;
                     case LayoutRoomKind.Workshop:
-                        for (int i = 0; i < capacityTarget; i++)
+                        for (int i = 0; kit.WorkshopDefs.Count > 0 && i < capacityTarget; i++)
                         {
-                            bool smithy = i % 2 == 0;
-                            string def = electric ? (smithy ? "ElectricSmithy" : "ElectricTailoringBench") : (smithy ? "FueledSmithy" : "HandTailoringBench");
-                            if (!room.Place(Bench(LayoutFixtureKind.Workbench, def, electric ? (smithy ? 210 : 120) : 0, !electric && smithy), 1)) break;
+                            CatalogDef bench = kit.WorkshopDefs[i % kit.WorkshopDefs.Count];
+                            if (!room.Place(From(bench, LayoutFixtureKind.Workbench, CraftRoleOf(kit, bench)), 1)) break;
                             capacity++;
                         }
                         break;
                     case LayoutRoomKind.Dining:
-                        capacity = 4 * room.PlaceTables(Ceil(capacityTarget, 4));
-                        if (capacity >= capacityTarget && !room.Place(Single(LayoutFixtureKind.Recreation, electric ? "ChessTable" : "HorseshoesPin", 0, false), 1)) failure = "recreation";
+                        capacity = 4 * room.PlaceTables(kit, Ceil(capacityTarget, 4));
+                        Template recreation = From(kit.DefFor(SettlementRole.Recreation), LayoutFixtureKind.Recreation, SettlementRole.Recreation);
+                        if (capacity >= capacityTarget && recreation != null && !room.Place(recreation, 1)) failure = "recreation";
                         break;
                     case LayoutRoomKind.Power:
-                        capacity = room.Place(Wall(LayoutFixtureKind.Generator, "WoodFiredGenerator", 2, 2, 0, true), capacityTarget) ? capacityTarget : 0;
-                        if (capacity >= capacityTarget && !room.Place(Wall(LayoutFixtureKind.Battery, "Battery", 1, 2, 0, false), capacityTarget)) failure = "batteries";
+                        capacity = PlaceAll(room, From(kit.Generator, LayoutFixtureKind.Generator, null, true), capacityTarget);
+                        Template battery = From(kit.Battery, LayoutFixtureKind.Battery, null, true);
+                        if (capacity >= capacityTarget && (battery == null || !room.Place(battery, capacityTarget))) failure = "batteries";
                         break;
                 }
                 if (failure == null && capacity < capacityTarget) failure = "capacity";
-                if (failure == null && IsLivingForClimate(kind))
+                if (failure == null && LayoutDemandModel.IsLiving(kind))
                 {
-                    if (context.Heating && !(electric
-                        ? room.Place(Single(LayoutFixtureKind.Heater, "Heater", 175, false), Ceil(area, 40))
-                        : room.Place(Bench(LayoutFixtureKind.Campfire, "Campfire", 0, true, 1), 1))) failure = "heating";
-                    if (failure == null && context.Cooling && !(electric
-                        ? room.PlaceWallCoolers(Ceil(area, 40), context.ExhaustAllowed)
-                        : room.Place(Single(LayoutFixtureKind.PassiveCooler, "PassiveCooler", 0, true), Ceil(area, 25)))) failure = "cooling";
+                    if (context.Heating)
+                    {
+                        Template heat = Heat(kit);
+                        if (heat == null || !room.Place(heat, heat.Interaction ? 1 : Ceil(area, 40))) failure = "heating";
+                    }
+                    if (failure == null && context.Cooling)
+                    {
+                        Template cool = Cool(kit);
+                        bool placed = cool != null && (cool.WallMounted
+                            ? room.PlaceWallCoolers(cool, Ceil(area, 40), context.ExhaustAllowed)
+                            : room.Place(cool, Ceil(area, 25)));
+                        if (!placed) failure = "cooling";
+                    }
                 }
-                if (failure == null && !room.Place(Light(electric), (area + 35) / 36)) failure = "lights";
+                if (failure == null && (light == null || !room.Place(light, (area + 35) / 36))) failure = "lights";
             }
             if (failure == null && capacity < capacityTarget) failure = "capacity";
             return new LayoutFurnishResult(room.Fixtures, capacity, failure);
         }
 
-        private static bool IsLivingForClimate(LayoutRoomKind kind) => LayoutDemandModel.IsLiving(kind);
+        private static int PlaceAll(Room room, Template template, int count) => template != null && room.Place(template, count) ? count : 0;
         private static int Ceil(int value, int divisor) => (value + divisor - 1) / divisor;
+
+        private static SettlementRole? CraftRoleOf(LayoutKit kit, CatalogDef bench)
+        {
+            foreach (SettlementRole role in LayoutKit.CraftRoles)
+            {
+                CatalogDef def = kit.DefFor(role);
+                if (def != null && def.DefName == bench.DefName) return role;
+            }
+            return null;
+        }
 
         private sealed class Template
         {
             public LayoutFixtureKind Kind;
+            public SettlementRole? Role;
             public string Def;
             public int Length;
             public int Depth;
             public int Watts;
             public bool Fuel;
+            public bool Blocking;
             public bool Interaction;
+            // Steps from the front row to the interaction cell (vanilla offset (0,0,-z)).
+            public int Forward;
+            public bool WallMounted;
         }
 
-        private static Template Bed(LayoutFixtureKind kind) => new Template { Kind = kind, Def = "Bed", Length = 1, Depth = 2 };
-        private static Template Bench(LayoutFixtureKind kind, string def, int watts, bool fuel, int length = 3) =>
-            new Template { Kind = kind, Def = def, Length = length, Depth = 1, Watts = watts, Fuel = fuel, Interaction = true };
-        private static Template Single(LayoutFixtureKind kind, string def, int watts, bool fuel) =>
-            new Template { Kind = kind, Def = def, Length = 1, Depth = 1, Watts = watts, Fuel = fuel };
-        private static Template Wall(LayoutFixtureKind kind, string def, int length, int depth, int watts, bool fuel) =>
-            new Template { Kind = kind, Def = def, Length = length, Depth = depth, Watts = watts, Fuel = fuel };
-        private static Template Light(bool electric) => electric
-            ? Single(LayoutFixtureKind.Lamp, "StandingLamp", 30, false)
-            : Single(LayoutFixtureKind.Torch, "TorchLamp", 0, true);
+        // Footprint along the wall (SizeX) and into the room (SizeZ), vanilla north rotation.
+        private static Template From(CatalogDef def, LayoutFixtureKind kind, SettlementRole? role, bool blocking = false)
+        {
+            if (def == null) return null;
+            // Only straight-ahead interaction offsets are modelled (every Core bench uses (0,0,-1)).
+            if (def.HasInteractionCell && (def.InteractionOffset.X != 0 || def.InteractionOffset.Z >= 0)) return null;
+            return new Template
+            {
+                Kind = kind,
+                Role = role,
+                Def = def.DefName,
+                Length = def.SizeX,
+                Depth = def.SizeZ,
+                Watts = Math.Max(0, def.BasePowerConsumption),
+                Fuel = def.Fuel.Count > 0,
+                Blocking = blocking || def.Passability != CatalogPassability.Standable,
+                Interaction = def.HasInteractionCell,
+                Forward = def.HasInteractionCell ? Math.Max(1, -def.InteractionOffset.Z - (def.SizeZ - 1) / 2) : 0,
+                WallMounted = def.ThingClass == LayoutKit.CoolerThingClass
+            };
+        }
+
+        private static Template Light(LayoutKit kit)
+        {
+            CatalogDef def = kit.DefFor(SettlementRole.Light);
+            return From(def, def != null && def.BasePowerConsumption > 0 ? LayoutFixtureKind.Lamp : LayoutFixtureKind.Torch, SettlementRole.Light);
+        }
+
+        private static Template Heat(LayoutKit kit)
+        {
+            CatalogDef def = kit.DefFor(SettlementRole.Heat);
+            return From(def, def != null && def.BasePowerConsumption > 0 ? LayoutFixtureKind.Heater : LayoutFixtureKind.Campfire, SettlementRole.Heat);
+        }
+
+        private static Template Cool(LayoutKit kit)
+        {
+            CatalogDef def = kit.DefFor(SettlementRole.Cool);
+            return From(def, def != null && def.ThingClass == LayoutKit.CoolerThingClass ? LayoutFixtureKind.WallCooler : LayoutFixtureKind.PassiveCooler,
+                SettlementRole.Cool);
+        }
 
         private sealed class Room
         {
@@ -815,15 +922,17 @@ namespace RealisticBases.Planning
                         List<GridPoint> access = new List<GridPoint>();
                         if (template.Interaction)
                         {
-                            // Centre of the front face, one step toward the room.
+                            // Centre of the front face, the catalog's forward steps toward the room.
                             GridPoint middle = cells[(template.Length / 2) * template.Depth + template.Depth - 1];
-                            GridPoint front = new GridPoint(middle.X + inward.X, middle.Z + inward.Z);
+                            GridPoint front = new GridPoint(middle.X + inward.X * template.Forward, middle.Z + inward.Z * template.Forward);
                             if (!Interior(front) || state[Index(front.X, front.Z)] == Blocked) continue;
                             access.Add(front);
                         }
                         if (TryCommit(cells, access))
                         {
-                            Fixtures.Add(new LayoutLocalFixture(template.Kind, template.Def, cells, access, inward, true, template.Watts, template.Fuel));
+                            // Cells are reserved in the local plan either way; Blocking reports vanilla passability.
+                            Fixtures.Add(new LayoutLocalFixture(template.Kind, template.Def, cells, access, inward, template.Blocking, template.Watts,
+                                template.Fuel, template.Role));
                             done = true;
                             break;
                         }
@@ -833,8 +942,21 @@ namespace RealisticBases.Planning
                 return true;
             }
 
-            public int PlaceTables(int count)
+            // Places up to count; returns how many fit.
+            public int PlaceUpTo(Template template, int count)
             {
+                int placed = 0;
+                while (placed < count && Place(template, 1)) placed++;
+                return placed;
+            }
+
+            // 2x2 tables with a seat on each side. The seat cells stay free (they are the
+            // table's access cells); seats are placed only when the Seat role resolves.
+            public int PlaceTables(LayoutKit kit, int count)
+            {
+                CatalogDef tableDef = kit.DefFor(SettlementRole.Table);
+                if (tableDef == null || tableDef.SizeX != 2 || tableDef.SizeZ != 2) return 0;
+                CatalogDef seatDef = kit.DefFor(SettlementRole.Seat);
                 int placed = 0;
                 for (int z = h - 2; z >= 2 && placed < count; z--)
                     for (int x = 2; x + 1 <= w - 1 && placed < count; x++)
@@ -844,9 +966,12 @@ namespace RealisticBases.Planning
                         if (!table.All(c => Interior(c) && state[Index(c.X, c.Z)] == Free)) continue;
                         if (!chairs.All(c => Interior(c) && state[Index(c.X, c.Z)] == Free)) continue;
                         if (!TryCommit(table.ToList(), chairs.ToList())) continue;
-                        Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Table, "Table2x2c", table, chairs, new GridPoint(0, -1), true, 0, false));
-                        foreach (GridPoint chair in chairs)
-                            Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Chair, "DiningChair", new[] { chair }, null, new GridPoint(0, 1), false, 0, false));
+                        Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Table, tableDef.DefName, table, chairs, new GridPoint(0, -1),
+                            tableDef.Passability != CatalogPassability.Standable, 0, false, SettlementRole.Table));
+                        if (seatDef != null)
+                            foreach (GridPoint chair in chairs)
+                                Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Chair, seatDef.DefName, new[] { chair }, null, new GridPoint(0, 1),
+                                    false, 0, false, SettlementRole.Seat));
                         placed++;
                     }
                 return placed;
@@ -854,7 +979,7 @@ namespace RealisticBases.Planning
 
             // Wall-mounted coolers sit in the door wall; their cold side faces
             // the room and their exhaust the unroofed public cell outside.
-            public bool PlaceWallCoolers(int count, Func<int, bool> exhaustAllowed)
+            public bool PlaceWallCoolers(Template cooler, int count, Func<int, bool> exhaustAllowed)
             {
                 int placed = 0;
                 IEnumerable<int> order = Enumerable.Range(1, w).OrderBy(x => Math.Abs(Math.Abs(x - doorX) - 2)).ThenBy(x => x);
@@ -865,8 +990,8 @@ namespace RealisticBases.Planning
                     GridPoint cold = new GridPoint(x, 1);
                     if (state[Index(x, 1)] != Free) continue;
                     if (!TryCommit(new List<GridPoint>(), new List<GridPoint> { cold })) continue;
-                    Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.WallCooler, "Cooler", new[] { new GridPoint(x, 0) },
-                        new[] { cold }, new GridPoint(0, 1), true, 200, false));
+                    Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.WallCooler, cooler.Def, new[] { new GridPoint(x, 0) },
+                        new[] { cold }, new GridPoint(0, 1), true, cooler.Watts, cooler.Fuel, cooler.Role));
                     placed++;
                 }
                 return placed >= count;
@@ -889,7 +1014,9 @@ namespace RealisticBases.Planning
                 for (int z = 1; z <= h; z++)
                     for (int x = 1; x <= w; x++)
                         if (state[Index(x, z)] == KeepFree && !reach.Contains(new GridPoint(x, z))) return false;
-                IEnumerable<IEnumerable<GridPoint>> blockers = Fixtures.Where(f => f.Blocking && f.Kind != LayoutFixtureKind.WallCooler)
+                // Every placed fixture, blocking or not, keeps a reachable neighbour (job access).
+                IEnumerable<IEnumerable<GridPoint>> blockers = Fixtures.Where(f => f.Kind != LayoutFixtureKind.WallCooler &&
+                        f.Kind != LayoutFixtureKind.Chair && f.Kind != LayoutFixtureKind.Stockpile)
                     .Select(f => (IEnumerable<GridPoint>)f.Cells);
                 if (newBlocking.Count > 0) blockers = blockers.Concat(new[] { (IEnumerable<GridPoint>)newBlocking });
                 foreach (IEnumerable<GridPoint> cells in blockers)

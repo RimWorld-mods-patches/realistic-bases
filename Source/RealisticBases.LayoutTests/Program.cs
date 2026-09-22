@@ -53,6 +53,14 @@ internal static class Program
         Run("roles resolve per stage from the Core catalog", RoleCoreResolution);
         Run("unequippable tier steps down and re-resolves the kit", RoleStepDown);
         Run("essential role without legal option rejects at Neolithic", RoleRejection);
+        Run("cooking caps: tribal campfire, medieval fueled stove", CookingCaps);
+        Run("tribal layout has no ComplexFurniture items", TribalLayoutKit);
+        Run("medieval and industrial layouts furnish from the catalog", StagedLayoutKits);
+        Run("wood-poor stony map adapts stonecutting and imports fuel", WoodPoorStonyMap);
+        Run("wood- and stone-poor map rejects on the material budget", WoodAndStonePoorMap);
+        Run("default resources never trigger the adaptation", DefaultResourcesNoAdaptation);
+        Run("unresolvable climate control rejects", ClimateControlUnresolved);
+        Run("stage and resources participate in digests", EquipmentDigests);
         Console.WriteLine("P4A layout foundation tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures +
             " elapsedMs=" + watch.ElapsedMilliseconds);
         return failures == 0 ? 0 : 1;
@@ -74,7 +82,7 @@ internal static class Program
         int previousBeds = 0, previousStorage = 0;
         foreach (int residents in new[] { 4, 8, 16 })
         {
-            LayoutDemandSet demand = LayoutDemandModel.Derive(LayoutRequirements.FromPopulation(residents, Industrial, Temperate), 7);
+            LayoutDemandSet demand = Demand(LayoutRequirements.FromPopulation(residents, Industrial, Temperate));
             Equal(0, demand.Rejections.Count, "no rejection");
             int beds = demand.Rooms.Where(r => r.Kind == LayoutRoomKind.Barracks).Sum(r => r.Capacity);
             Equal(residents, beds, "beds cover residents");
@@ -87,10 +95,10 @@ internal static class Program
             previousBeds = beds;
             previousStorage = storage;
         }
-        LayoutDemandSet tribal = LayoutDemandModel.Derive(LayoutRequirements.FromPopulation(6, Tribal, Temperate), 7);
+        LayoutDemandSet tribal = Demand(LayoutRequirements.FromPopulation(6, Tribal, Temperate));
         True(tribal.Rooms.Any(r => r.Kind == LayoutRoomKind.Pantry) && !tribal.Rooms.Any(r => r.Kind == LayoutRoomKind.Freezer || r.Kind == LayoutRoomKind.Power),
             "tribal pantry and no power");
-        LayoutDemandSet fromProfile = LayoutDemandModel.Derive(LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, Temperate), 7);
+        LayoutDemandSet fromProfile = Demand(LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, Temperate));
         True(fromProfile.Rooms.Single(r => r.Kind == LayoutRoomKind.Freezer).Capacity >= 24, "P2 profile capacity is a floor");
     }
 
@@ -306,7 +314,7 @@ internal static class Program
         ProceduralLayoutResult narrow = Plan(NarrowPass(120), LayoutRequirements.FromPopulation(6, Tribal, Temperate), 1);
         Equal("insufficient_usable_area", narrow.RejectionCode, "narrow passages do not merge land");
         foreach (ProceduralLayoutResult r in new[] { huge, crowded, absurd, oversized, small, island, narrow })
-            Console.WriteLine("  reject " + r.RejectionCode + " :: " + string.Join(" | ", r.Diagnostics.Where(d => d.Stage != "demand").Take(3)));
+            Console.WriteLine("  reject " + r.RejectionCode + " :: " + string.Join(" | ", r.Diagnostics.Where(d => d.Stage != "demand" && d.Stage != "equipment").Take(3)));
     }
 
     private static void BoundedAndImmutable()
@@ -315,7 +323,7 @@ internal static class Program
         string terrainDigest = terrain.Digest;
         LayoutRequirements requirements = LayoutRequirements.FromPopulation(6, Industrial, Temperate);
         string requirementsDigest = requirements.Digest;
-        ProceduralLayoutInput tight = new ProceduralLayoutInput(requirements, terrain, 5, null, new LayoutSearchBudget(maxEvaluations: 60));
+        ProceduralLayoutInput tight = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog, null, new LayoutSearchBudget(maxEvaluations: 60));
         string inputDigest = tight.Digest;
         ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(tight);
         Equal("search_budget_exhausted", result.RejectionCode, "budget rejection");
@@ -324,7 +332,7 @@ internal static class Program
         Equal(inputDigest, tight.Digest, "input unchanged");
         Equal(requirementsDigest, requirements.Digest, "requirements unchanged");
 
-        ProceduralLayoutInput normal = new ProceduralLayoutInput(requirements, terrain, 5, null, new LayoutSearchBudget(maxSites: 2, attemptsPerSite: 2));
+        ProceduralLayoutInput normal = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog, null, new LayoutSearchBudget(maxSites: 2, attemptsPerSite: 2));
         ProceduralLayoutResult ok = ProceduralLayoutPlanner.Plan(normal);
         Accepted(ok);
         True(ok.Stats.SitesTriedCount <= 2 && ok.Stats.AttemptCount <= 4 && ok.Stats.EvaluationCount <= 200000, "all counters within budget: " + ok.Stats);
@@ -422,10 +430,185 @@ internal static class Program
         Console.WriteLine("  adapter: " + compatible + "/" + total + " layouts representable by P4 PlannedNavigationGrid; all representable ones passed");
     }
 
+    // ---- tech-stage equipment in the planner (synthetic; Core fixture catalog) ----
+
+    private static ProceduralLayoutResult PlanWith(TerrainSnapshot terrain, LayoutRequirements requirements, ulong seed, LayoutLocalResources resources,
+        TechCatalog catalog = null) => ProceduralLayoutPlanner.Plan(new ProceduralLayoutInput(requirements, terrain, seed, catalog ?? CoreCatalog, null, null, resources));
+
+    private static void CookingCaps()
+    {
+        RoleResolutionSet tribal = RoleResolver.Resolve(CoreCatalog, TechStageModel.Create(SettlementTechStageLevel.Neolithic));
+        Equal("Campfire", tribal.ChosenDefName(SettlementRole.Cooking), "tribal cooks on a campfire");
+        True(tribal.Get(SettlementRole.Cooking).Rejected.Any(r => r.Key == "FueledStove" && r.Value == "below_min_stage:Medieval"), "fueled stove below its min stage");
+        Equal("FueledStove", RoleResolver.Resolve(CoreCatalog, TechStageModel.Create(SettlementTechStageLevel.Medieval)).ChosenDefName(SettlementRole.Cooking), "medieval fueled stove");
+        True(RoleResolver.Resolve(CoreCatalog, TechStageModel.Create(SettlementTechStageLevel.Medieval)).Get(SettlementRole.Cooking).Rejected
+            .Any(r => r.Key == "Campfire" && r.Value == "above_max_stage:Neolithic"), "campfire capped at Neolithic");
+        RoleDefinition cooking;
+        RoleTable.Standard.TryGet(SettlementRole.Cooking, out cooking);
+        List<RoleDefinition> withoutMin = RoleTable.Standard.Definitions.Where(d => d.Role != SettlementRole.Cooking).ToList();
+        withoutMin.Add(new RoleDefinition(SettlementRole.Cooking, true, cooking.Options.Select(o => RoleOption.Def(o.DefName, o.MaxStage))));
+        NotEqual(RoleTable.Standard.Digest, new RoleTable(withoutMin).Digest, "MinStage participates in the table digest");
+
+        ProceduralLayoutResult layout = Plan(Plains(120), LayoutRequirements.FromPopulation(6, Tribal, Temperate), 3);
+        Accepted(layout);
+        List<LayoutFixture> stoves = layout.Layout.AllFixtures.Where(f => f.Role == SettlementRole.Cooking).ToList();
+        True(stoves.Count > 0 && stoves.All(f => f.DefName == "Campfire" && f.Kind == LayoutFixtureKind.Stove && f.Cells.Count == 1 && f.Access.Count == 1),
+            "tribal kitchen has 1x1 campfires with a work cell");
+    }
+
+    private static void TribalLayoutKit()
+    {
+        foreach (LayoutClimate climate in new[] { Temperate, Cold, Hot })
+        {
+            ProceduralLayoutResult result = Plan(Plains(120), LayoutRequirements.FromPopulation(6, Tribal, climate), 5);
+            Accepted(result);
+            SettlementTechStage stage = result.Layout.TechStage;
+            Equal(SettlementTechStageLevel.Neolithic, stage.Level, "tribal stage");
+            string[] forbidden = { "ComplexFurniture", "Smithing", "ComplexClothing", "Stonecutting", "Electricity" };
+            foreach (LayoutFixture fixture in result.Layout.AllFixtures)
+            {
+                CatalogDef def;
+                if (!CoreCatalog.TryGet(fixture.DefName, out def)) continue;
+                True(!def.ResearchPrerequisites.Any(forbidden.Contains), climate + " tribal fixture " + def.DefName + " needs no complex research");
+                True(CoreCatalog.IsLegal(def, stage), climate + " " + def.DefName + " legal");
+            }
+            List<string> defs = result.Layout.AllFixtures.Select(f => f.DefName).Distinct().ToList();
+            True(!defs.Contains("Bed") && !defs.Contains("Shelf") && !defs.Contains("DiningChair") && !defs.Contains("FueledSmithy") &&
+                !defs.Contains("HandTailoringBench") && !defs.Contains("FueledStove"), climate + " no bed, shelf, chair, smithy, tailoring bench or stove");
+            LayoutRoom workshop = result.Layout.Rooms.Single(r => r.Kind == LayoutRoomKind.Workshop);
+            List<LayoutFixture> benches = workshop.Fixtures.Where(f => f.Kind == LayoutFixtureKind.Workbench).ToList();
+            True(benches.Count == 1 && benches[0].DefName == "CraftingSpot" && !benches[0].Blocking && benches[0].Access.Count == 1,
+                climate + " one deduplicated, non-blocking crafting spot with a work cell");
+            True(result.Layout.AllFixtures.Where(f => f.Role == SettlementRole.Sleep).All(f => f.DefName == "Bedroll" && !f.Blocking && f.Cells.Count == 2),
+                climate + " bedrolls are 1x2 and non-blocking");
+            True(result.Layout.AllFixtures.Where(f => f.Kind == LayoutFixtureKind.Chair).All(f => f.DefName == "Stool"), climate + " stools");
+            Equal(LayoutEquipment.Wood, result.Layout.WallStuff, climate + " wooden walls");
+            True(!result.Layout.AllFixtures.Any(f => f.Watts > 0 || f.Kind == LayoutFixtureKind.Generator), climate + " unpowered");
+        }
+    }
+
+    private static void StagedLayoutKits()
+    {
+        SettlementTechStage medieval = TechStageModel.Create(SettlementTechStageLevel.Medieval);
+        ProceduralLayoutResult result = Plan(Plains(130), LayoutRequirements.FromPopulation(6, Tribal, Cold, stage: medieval), 7);
+        Accepted(result);
+        List<string> workshop = result.Layout.Rooms.Single(r => r.Kind == LayoutRoomKind.Workshop).Fixtures
+            .Where(f => f.Kind == LayoutFixtureKind.Workbench).Select(f => f.DefName).ToList();
+        True(workshop.Take(3).SequenceEqual(new[] { "FueledSmithy", "HandTailoringBench", "TableStonecutter" }), "medieval workshop: " + string.Join(",", workshop));
+        True(result.Layout.AllFixtures.Where(f => f.Role == SettlementRole.Cooking).All(f => f.DefName == "FueledStove"), "medieval fueled stove");
+        True(result.Layout.AllFixtures.Any(f => f.Kind == LayoutFixtureKind.Shelf && f.DefName == "Shelf"), "medieval shelves");
+        True(result.Layout.AllFixtures.Where(f => f.Role == SettlementRole.Sleep).All(f => f.DefName == "Bed" && f.Blocking), "medieval beds block");
+        True(result.Layout.AllFixtures.Where(f => f.Kind == LayoutFixtureKind.Heater || f.Kind == LayoutFixtureKind.Campfire).All(f => f.DefName == "Campfire"),
+            "medieval heats with campfires");
+
+        ProceduralLayoutResult industrial = Plan(Plains(130), LayoutRequirements.FromPopulation(8, Industrial, Temperate), 7);
+        Accepted(industrial);
+        List<string> benches = industrial.Layout.Rooms.Single(r => r.Kind == LayoutRoomKind.Workshop).Fixtures
+            .Where(f => f.Kind == LayoutFixtureKind.Workbench).Select(f => f.DefName).ToList();
+        True(benches.Take(4).SequenceEqual(new[] { "ElectricSmithy", "ElectricTailoringBench", "TableMachining", "TableStonecutter" }),
+            "industrial workshop covers every craft role: " + string.Join(",", benches));
+        foreach (LayoutFixture bench in industrial.Layout.AllFixtures.Where(f => f.Kind == LayoutFixtureKind.Workbench || f.Kind == LayoutFixtureKind.Stove))
+        {
+            CatalogDef def;
+            True(CoreCatalog.TryGet(bench.DefName, out def) && bench.Cells.Count == def.SizeX * def.SizeZ, bench.DefName + " catalog footprint");
+            True(bench.Watts == Math.Max(0, def.BasePowerConsumption), bench.DefName + " catalog watts");
+        }
+        LayoutFixture generator = industrial.Layout.AllFixtures.First(f => f.Kind == LayoutFixtureKind.Generator);
+        Equal(4, generator.Cells.Count, "generator 2x2 from catalog");
+        Equal(LayoutEquipment.Wood, industrial.Layout.WallStuff, "no local stone: wooden walls");
+
+        LayoutLocalResources stony = new LayoutLocalResources(100000, new[] { "BlocksGranite" });
+        ProceduralLayoutResult stoneIndustrial = PlanWith(Plains(130), LayoutRequirements.FromPopulation(8, Industrial, Temperate), 7, stony);
+        Accepted(stoneIndustrial);
+        Equal("BlocksGranite", stoneIndustrial.Layout.WallStuff, "industrial builds with local stone blocks");
+        True(stoneIndustrial.Layout.AllFixtures.Where(f => f.DefName == "Table2x2c").All(f => f.Stuff == "BlocksGranite"), "stony furniture uses stone");
+        True(stoneIndustrial.Layout.Materials.Stuff["BlocksGranite"] > 0, "stone charged in the ledger");
+    }
+
+    private static void WoodPoorStonyMap()
+    {
+        LayoutLocalResources resources = new LayoutLocalResources(120, new[] { "BlocksSlate", "BlocksGranite" });
+        LayoutRequirements requirements = LayoutRequirements.FromPopulation(6, Tribal, Temperate);
+        LayoutEquipment equipment = LayoutEquipment.Resolve(requirements, CoreCatalog, resources, 2, 9);
+        True(equipment.StonecuttingAdapted, "stonecutting adaptation granted");
+        TechAdaptation adaptation = equipment.Kit.Stage.Adaptations.Single();
+        True(adaptation.ResearchDefName == "Stonecutting" && adaptation.Reason.StartsWith("wood 120/"), "reason records yield/need: " + adaptation.Reason);
+        ProceduralLayoutResult result = PlanWith(Plains(120), requirements, 9, resources);
+        Accepted(result);
+        True(result.Layout.WallStuff == "BlocksSlate" || result.Layout.WallStuff == "BlocksGranite", "stone walls: " + result.Layout.WallStuff);
+        True(result.Layout.AllFixtures.Any(f => f.DefName == "TableStonecutter"), "workshop gains a stonecutter");
+        True(result.Layout.AllFixtures.Any(f => f.DefName == "CraftingSpot"), "crafting spot stays");
+        LayoutMaterialLedger materials = result.Layout.Materials;
+        True(materials.FuelWood > 0, "fuel wood counted");
+        Equal(materials.FuelWood + Math.Max(0, materials.ConstructionWood - 120), materials.ImportedWood, "all fuel wood imported under the adaptation");
+        Equal((int)Math.Ceiling(materials.ImportedWood * 1.2), materials.ImportValue, "import valued at WoodLog market value");
+        True(materials.ImportValue <= requirements.ImportValueLimit, "within the import limit");
+        True(result.Diagnostics.Any(d => d.Stage == "equipment" && d.Detail.StartsWith("adaptation:Stonecutting:wood 120/")), "adaptation logged");
+    }
+
+    private static void WoodAndStonePoorMap()
+    {
+        LayoutLocalResources barren = new LayoutLocalResources(0);
+        ProceduralLayoutResult result = PlanWith(Plains(120), LayoutRequirements.FromPopulation(6, Tribal, Temperate), 9, barren);
+        True(!result.Success, "rejected");
+        Equal(LayoutEquipment.MaterialBudgetExceeded, result.RejectionCode, "material budget");
+        Equal(0, result.Stats.EvaluationCount, "rejected before search");
+        LayoutEquipment equipment = LayoutEquipment.Resolve(LayoutRequirements.FromPopulation(6, Tribal, Temperate), CoreCatalog, barren, 2, 9);
+        True(!equipment.StonecuttingAdapted && equipment.Estimate.ImportedWood == equipment.Estimate.ConstructionWood + equipment.Estimate.FuelWood,
+            "without stone all wood is imported");
+        ProceduralLayoutResult generous = PlanWith(Plains(120), LayoutRequirements.FromPopulation(6, Tribal, Temperate, importValueLimit: 100000), 9, barren);
+        Accepted(generous);
+        True(generous.Layout.Materials.ImportedWood > 0 && generous.Layout.WallStuff == LayoutEquipment.Wood, "a large enough budget imports all wood");
+    }
+
+    private static void DefaultResourcesNoAdaptation()
+    {
+        LayoutEquipment equipment = LayoutEquipment.Resolve(LayoutRequirements.FromPopulation(6, Tribal, Temperate), CoreCatalog, null, 2, 9);
+        True(!equipment.StonecuttingAdapted && equipment.Kit.Stage.Adaptations.Count == 0, "default resources: no adaptation");
+        Equal(0, equipment.Estimate.ImportedWood, "default resources: nothing imported");
+        LayoutEquipment rich = LayoutEquipment.Resolve(LayoutRequirements.FromPopulation(6, Tribal, Temperate), CoreCatalog,
+            new LayoutLocalResources(100000, new[] { "BlocksGranite" }), 2, 9);
+        True(!rich.StonecuttingAdapted && rich.ConstructionStuff == LayoutEquipment.Wood, "wood-rich tribe keeps wooden construction despite stone");
+    }
+
+    private static void ClimateControlUnresolved()
+    {
+        TechCatalog noHeat = new TechCatalog("core-without-heat", CoreCatalog.Defs.Where(d => d.DefName != "Campfire" && d.DefName != "Heater"), CoreCatalog.Research);
+        SettlementTechStage medieval = TechStageModel.Create(SettlementTechStageLevel.Medieval);
+        ProceduralLayoutResult cold = PlanWith(Plains(120), LayoutRequirements.FromPopulation(6, Tribal, Cold, stage: medieval), 3, null, noHeat);
+        Equal("climate_control_unresolved:Heat", cold.RejectionCode, "cold without heat source");
+        Equal(0, cold.Stats.EvaluationCount, "rejected before search");
+        ProceduralLayoutResult temperate = PlanWith(Plains(120), LayoutRequirements.FromPopulation(6, Tribal, Temperate, stage: medieval), 3, null, noHeat);
+        Accepted(temperate);
+        True(temperate.Diagnostics.Any(d => d.Stage == "equipment" && d.Detail == "role_unresolved:Heat"), "heat only a diagnostic when the climate does not need it");
+        ProceduralLayoutResult tribal = PlanWith(Plains(120), LayoutRequirements.FromPopulation(6, Tribal, Temperate), 3, null, noHeat);
+        Equal("essential_role_unresolved", tribal.RejectionCode, "campfire was also the only tribal cooking option");
+    }
+
+    private static void EquipmentDigests()
+    {
+        TerrainSnapshot terrain = Plains(120);
+        LayoutRequirements neolithic = LayoutRequirements.FromPopulation(6, Tribal, Temperate);
+        LayoutRequirements medieval = LayoutRequirements.FromPopulation(6, Tribal, Temperate, stage: TechStageModel.Create(SettlementTechStageLevel.Medieval));
+        NotEqual(neolithic.Digest, medieval.Digest, "stage in requirements digest");
+        NotEqual(Input(terrain, neolithic, 1).Digest, new ProceduralLayoutInput(neolithic, terrain, 1, CoreCatalog, null, null, new LayoutLocalResources(50)).Digest,
+            "resources in input digest");
+        TechCatalog smaller = new TechCatalog("smaller", CoreCatalog.Defs.Where(d => d.DefName != "Gun_Revolver"), CoreCatalog.Research);
+        NotEqual(Input(terrain, neolithic, 1).Digest, new ProceduralLayoutInput(neolithic, terrain, 1, smaller).Digest, "catalog in input digest");
+        Equal(LayoutRequirements.DefaultImportValueLimitNonElectric, neolithic.ImportValueLimit, "provisional tribal import limit");
+        Equal(P2ProfileCatalog.IndustrialTemperate.Budget.ImportValueLimit, LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, Temperate).ImportValueLimit,
+            "profile import limit");
+        ProceduralLayoutResult result = Plan(terrain, neolithic, 1);
+        Accepted(result);
+        Equal(result.Layout.RolesDigest, Input(terrain, neolithic, 1).Equipment.Kit.Roles.Digest, "role resolution recorded on the layout");
+        True(result.Layout.AllFixtures.Where(f => f.Kind != LayoutFixtureKind.MortarCourt).All(f => f.Role.HasValue || f.Kind == LayoutFixtureKind.Generator ||
+            f.Kind == LayoutFixtureKind.Battery), "every furnishing fixture records its role");
+    }
+
     // ---- helpers ----
 
     private static ProceduralLayoutInput Input(TerrainSnapshot terrain, LayoutRequirements requirements, ulong seed,
-        LayoutFortificationReservation fortification = null) => new ProceduralLayoutInput(requirements, terrain, seed, fortification);
+        LayoutFortificationReservation fortification = null) => new ProceduralLayoutInput(requirements, terrain, seed, CoreCatalog, fortification);
 
     private static ProceduralLayoutResult Plan(TerrainSnapshot terrain, LayoutRequirements requirements, ulong seed) =>
         ProceduralLayoutPlanner.Plan(Input(terrain, requirements, seed));
@@ -511,6 +694,8 @@ internal static class Program
             LayoutAsciiExport.Render(terrain, result.Layout);
         if (roof) text += "\nroof view:\n" + LayoutAsciiExport.RenderRoof(terrain, result.Layout);
         text += "\nsearch: " + result.Stats + "\n";
+        // Trailing blanks (open ground at line ends) are trimmed so the files pass git diff --check.
+        text = string.Join("\n", text.Split('\n').Select(line => line.TrimEnd(' ')));
         File.WriteAllText(Path.Combine(exportDir, name + ".txt"), text);
     }
 
@@ -686,6 +871,9 @@ internal static class Program
     }
 
     // ---- tech catalog (synthetic Core fixture; test data, not live defs) ----
+
+    private static LayoutDemandSet Demand(LayoutRequirements requirements) =>
+        LayoutEquipment.Resolve(requirements, CoreCatalog, null, 2, 7).Demand;
 
     private static TechCatalog coreCatalog;
     private static TechCatalog CoreCatalog => coreCatalog ?? (coreCatalog = CoreCatalogFixture.Build());
@@ -867,7 +1055,7 @@ internal static class Program
     {
         Dictionary<SettlementTechStageLevel, string> expected = new Dictionary<SettlementTechStageLevel, string>
         {
-            { SettlementTechStageLevel.Neolithic, "Sleep=Bedroll Light=TorchLamp Cooking=FueledStove CraftSmithing=CraftingSpot CraftTailoring=CraftingSpot Storage=Stockpile Door=Door Seat=Stool Recreation=HorseshoesPin Heat=Campfire Cool=PassiveCooler MedicalBed=Bedroll" },
+            { SettlementTechStageLevel.Neolithic, "Sleep=Bedroll Light=TorchLamp Cooking=Campfire CraftSmithing=CraftingSpot CraftTailoring=CraftingSpot Storage=Stockpile Door=Door Seat=Stool Recreation=HorseshoesPin Heat=Campfire Cool=PassiveCooler MedicalBed=Bedroll" },
             { SettlementTechStageLevel.Medieval, "Sleep=Bed Light=TorchLamp Cooking=FueledStove CraftSmithing=FueledSmithy CraftTailoring=HandTailoringBench CraftStonecutting=TableStonecutter Storage=Shelf Seat=DiningChair Recreation=ChessTable" },
             { SettlementTechStageLevel.IndustrialEarly, "Sleep=Bed Light=StandingLamp Cooking=ElectricStove CraftSmithing=ElectricSmithy CraftMachining=TableMachining Heat=Heater Cool=Cooler Defense=Sandbags MedicalBed=Bed" },
             { SettlementTechStageLevel.IndustrialMid, "MedicalBed=HospitalBed Defense=Turret_MiniTurret UtilityBelt=Apparel_SmokepopBelt" },

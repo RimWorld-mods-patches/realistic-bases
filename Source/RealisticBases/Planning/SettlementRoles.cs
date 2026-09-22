@@ -32,26 +32,34 @@ namespace RealisticBases.Planning
 
     // One preference. A virtual option (a zone) needs no def and is always legal.
     // MaxStage caps primitive fallbacks: above it the option is not acceptable for
-    // the settlement's tier, even when legal.
+    // the settlement's tier, even when legal. MinStage keeps an option out of
+    // simpler tiers (tribal = simple), even when legal.
     public sealed class RoleOption
     {
-        private RoleOption(string defName, bool isVirtual, SettlementTechStageLevel? maxStage)
+        private RoleOption(string defName, bool isVirtual, SettlementTechStageLevel? maxStage, SettlementTechStageLevel? minStage)
         {
             if (string.IsNullOrEmpty(defName)) throw new ArgumentNullException(nameof(defName));
+            if (maxStage.HasValue && minStage.HasValue && minStage.Value > maxStage.Value) throw new ArgumentOutOfRangeException(nameof(minStage));
             DefName = defName;
             Virtual = isVirtual;
             MaxStage = maxStage;
+            MinStage = minStage;
         }
 
         public string DefName { get; }
         public bool Virtual { get; }
         public SettlementTechStageLevel? MaxStage { get; }
+        public SettlementTechStageLevel? MinStage { get; }
 
-        public static RoleOption Def(string defName, SettlementTechStageLevel? maxStage = null) => new RoleOption(defName, false, maxStage);
-        public static RoleOption Zone(string name, SettlementTechStageLevel? maxStage = null) => new RoleOption(name, true, maxStage);
+        public static RoleOption Def(string defName, SettlementTechStageLevel? maxStage = null, SettlementTechStageLevel? minStage = null) =>
+            new RoleOption(defName, false, maxStage, minStage);
+        public static RoleOption Zone(string name, SettlementTechStageLevel? maxStage = null, SettlementTechStageLevel? minStage = null) =>
+            new RoleOption(name, true, maxStage, minStage);
 
-        public bool AcceptableAt(SettlementTechStageLevel level) => !MaxStage.HasValue || level <= MaxStage.Value;
-        public override string ToString() => (Virtual ? "zone:" : string.Empty) + DefName + (MaxStage.HasValue ? "(<=" + MaxStage.Value + ")" : string.Empty);
+        public bool AcceptableAt(SettlementTechStageLevel level) =>
+            (!MaxStage.HasValue || level <= MaxStage.Value) && (!MinStage.HasValue || level >= MinStage.Value);
+        public override string ToString() => (Virtual ? "zone:" : string.Empty) + DefName +
+            (MinStage.HasValue ? "(>=" + MinStage.Value + ")" : string.Empty) + (MaxStage.HasValue ? "(<=" + MaxStage.Value + ")" : string.Empty);
     }
 
     public sealed class RoleDefinition
@@ -113,7 +121,7 @@ namespace RealisticBases.Planning
                 // Heat and Cool are climate dependent; the planner escalates them when the climate demands it.
                 new RoleDefinition(SettlementRole.Heat, false, new[] { d("Heater"), capped("Campfire", medieval) }),
                 new RoleDefinition(SettlementRole.Cool, false, new[] { d("Cooler"), capped("PassiveCooler", medieval) }),
-                new RoleDefinition(SettlementRole.Cooking, true, new[] { d("ElectricStove"), d("FueledStove"), capped("Campfire", neolithic) }),
+                new RoleDefinition(SettlementRole.Cooking, true, new[] { d("ElectricStove"), RoleOption.Def("FueledStove", minStage: medieval), capped("Campfire", neolithic) }),
                 new RoleDefinition(SettlementRole.CraftSmithing, true, new[] { d("ElectricSmithy"), d("FueledSmithy"), capped("CraftingSpot", neolithic) }),
                 new RoleDefinition(SettlementRole.CraftTailoring, true, new[] { d("ElectricTailoringBench"), d("HandTailoringBench"), capped("CraftingSpot", neolithic) }),
                 new RoleDefinition(SettlementRole.CraftStonecutting, false, new[] { d("TableStonecutter") }),
@@ -146,6 +154,7 @@ namespace RealisticBases.Planning
                     hash = StableHash.Add(hash, option.DefName);
                     hash = StableHash.Add(hash, option.Virtual ? 1 : 0);
                     hash = StableHash.Add(hash, option.MaxStage.HasValue ? (int)option.MaxStage.Value : -1);
+                    hash = StableHash.Add(hash, option.MinStage.HasValue ? (int)option.MinStage.Value : -1);
                 }
             }
             return StableHash.Hex(hash);
@@ -166,7 +175,7 @@ namespace RealisticBases.Planning
         public bool Essential { get; }
         // Legal and tier-acceptable options, best first.
         public IReadOnlyList<RoleOption> Candidates { get; }
-        // Option name -> legality reason, or "above_max_stage:<cap>".
+        // Option name -> legality reason, "above_max_stage:<cap>" or "below_min_stage:<min>".
         public IReadOnlyList<KeyValuePair<string, string>> Rejected { get; }
         public bool Resolved => Candidates.Count > 0;
         public RoleOption Chosen => Resolved ? Candidates[0] : null;
@@ -229,6 +238,7 @@ namespace RealisticBases.Planning
         public const string EssentialUnresolved = "essential_role_unresolved";
         public const string RoleUnresolved = "role_unresolved";
         public const string AboveMaxStage = "above_max_stage";
+        public const string BelowMinStage = "below_min_stage";
 
         // Resolves every role at the stage. When an essential role cannot be
         // resolved, the settlement cannot equip its tier: the stage steps down one
@@ -268,7 +278,8 @@ namespace RealisticBases.Planning
             {
                 if (!option.AcceptableAt(stage.Level))
                 {
-                    rejected.Add(new KeyValuePair<string, string>(option.DefName, AboveMaxStage + ":" + option.MaxStage.Value));
+                    rejected.Add(new KeyValuePair<string, string>(option.DefName, option.MaxStage.HasValue && stage.Level > option.MaxStage.Value
+                        ? AboveMaxStage + ":" + option.MaxStage.Value : BelowMinStage + ":" + option.MinStage.Value));
                     continue;
                 }
                 if (!option.Virtual)

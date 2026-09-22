@@ -42,8 +42,11 @@ namespace RealisticBases.Planning
     public sealed class LayoutFixture
     {
         internal LayoutFixture(LayoutFixtureKind kind, string defName, IEnumerable<GridPoint> cells, IEnumerable<GridPoint> access,
-            GridPoint facing, bool blocking, int watts, bool needsFuel, string roomId, GridPoint? exhaust = null)
+            GridPoint facing, bool blocking, int watts, bool needsFuel, string roomId, GridPoint? exhaust = null,
+            SettlementRole? role = null, string stuff = null)
         {
+            Role = role;
+            Stuff = stuff;
             Kind = kind;
             DefName = defName;
             Cells = new ReadOnlyCollection<GridPoint>(cells.ToList());
@@ -66,6 +69,10 @@ namespace RealisticBases.Planning
         public bool NeedsFuel { get; }
         public string RoomId { get; }
         public GridPoint? Exhaust { get; }
+        // Equipment role, or null (generators, batteries, the court reservation).
+        public SettlementRole? Role { get; }
+        // Chosen stuff for stuffable defs (WoodLog or a stone block def), otherwise null.
+        public string Stuff { get; }
 
         // Vanilla rotation convention. Benches and campfires use interactionCellOffset
         // (0,0,-1): North puts the work cell south. Beds point their head at the wall.
@@ -194,8 +201,14 @@ namespace RealisticBases.Planning
             IEnumerable<GridPoint> enclosure, IEnumerable<GridPoint> builtWalls, IEnumerable<GridPoint> naturalWalls,
             IEnumerable<LayoutGate> gates, IEnumerable<GridPoint> excavation, IEnumerable<GridPoint> retainedRoof,
             IEnumerable<GridPoint> constructedRoof, int wallLayers, int fieldCells, IEnumerable<LayoutRelationship> relationships,
-            IEnumerable<GridPoint> extraObstacles, IEnumerable<string> notes)
+            IEnumerable<GridPoint> extraObstacles, IEnumerable<string> notes, SettlementTechStage techStage, string rolesDigest,
+            string equipmentDigest, string wallStuff, LayoutMaterialLedger materials)
         {
+            TechStage = techStage;
+            RolesDigest = rolesDigest ?? string.Empty;
+            EquipmentDigest = equipmentDigest ?? string.Empty;
+            WallStuff = wallStuff ?? string.Empty;
+            Materials = materials;
             InputDigest = inputDigest;
             Seed = seed;
             Doctrine = doctrine;
@@ -243,6 +256,14 @@ namespace RealisticBases.Planning
         // Test-only planned blockers used to prove the validator sees final obstacles.
         public IReadOnlyList<GridPoint> ExtraObstacles { get; }
         public IReadOnlyList<string> Notes { get; }
+        // Final tech stage the kit was resolved at (after step-downs and adaptations).
+        public SettlementTechStage TechStage { get; }
+        public string RolesDigest { get; }
+        public string EquipmentDigest { get; }
+        // Stuff of room walls, the outline wall and doors.
+        public string WallStuff { get; }
+        // Exact construction and fuel accounting of this layout.
+        public LayoutMaterialLedger Materials { get; }
         public string Digest { get; }
 
         public IEnumerable<LayoutFixture> AllFixtures => Rooms.SelectMany(r => r.Fixtures).Concat(Court == null ? Enumerable.Empty<LayoutFixture>() : new[] { Court });
@@ -264,7 +285,7 @@ namespace RealisticBases.Planning
         public ProceduralLayout WithAddedObstacles(IEnumerable<GridPoint> obstacles) =>
             new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court, Enclosure, BuiltWalls,
                 NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof, WallLayers, FieldCellsRequired, Relationships,
-                ExtraObstacles.Concat(obstacles ?? Enumerable.Empty<GridPoint>()), Notes);
+                ExtraObstacles.Concat(obstacles ?? Enumerable.Empty<GridPoint>()), Notes, TechStage, RolesDigest, EquipmentDigest, WallStuff, Materials);
 
         private static IReadOnlyList<GridPoint> Sorted(IEnumerable<GridPoint> cells) =>
             new ReadOnlyCollection<GridPoint>((cells ?? Enumerable.Empty<GridPoint>()).Distinct().OrderBy(c => c).ToList());
@@ -306,6 +327,11 @@ namespace RealisticBases.Planning
                 foreach (GridPoint c in gate.BandDoors.Concat(gate.BandWalls).Concat(gate.ExteriorRoute)) hash = Point(hash, c);
             }
             hash = StableHash.Add(hash, WallLayers);
+            hash = StableHash.Add(hash, TechStage == null ? string.Empty : TechStage.Digest);
+            hash = StableHash.Add(hash, RolesDigest);
+            hash = StableHash.Add(hash, EquipmentDigest);
+            hash = StableHash.Add(hash, WallStuff);
+            if (Materials != null) hash = Materials.AddTo(hash);
             return StableHash.Hex(hash);
         }
 
@@ -313,6 +339,8 @@ namespace RealisticBases.Planning
         {
             hash = StableHash.Add(hash, (int)fixture.Kind);
             hash = StableHash.Add(hash, fixture.DefName);
+            hash = StableHash.Add(hash, fixture.Role.HasValue ? (int)fixture.Role.Value : -1);
+            hash = StableHash.Add(hash, fixture.Stuff ?? string.Empty);
             foreach (GridPoint c in fixture.Cells) hash = Point(hash, c);
             foreach (GridPoint c in fixture.Access) hash = Point(hash, c);
             return Point(hash, fixture.Facing);
@@ -430,13 +458,21 @@ namespace RealisticBases.Planning
             List<LayoutDiagnostic> diagnostics = new List<LayoutDiagnostic>();
             LayoutSearchStats stats = new LayoutSearchStats();
             LayoutRequirements requirements = input.Requirements;
-            LayoutDemandSet demand = LayoutDemandModel.Derive(requirements, LayoutSeed.Sub(input.Seed, "rooms"));
+            LayoutEquipment equipment = input.Equipment;
+            LayoutKit kit = equipment.Kit;
+            LayoutDemandSet demand = equipment.Demand;
             Func<string, ProceduralLayoutResult> reject = code =>
             {
                 if (input.Terrain.Digest != terrainDigest || input.Digest != inputDigest) throw new InvalidOperationException("P4A planner mutated its input.");
                 diagnostics.Add(new LayoutDiagnostic("result", code, stats.ToString()));
                 return new ProceduralLayoutResult(null, demand, diagnostics, stats);
             };
+            diagnostics.Add(new LayoutDiagnostic("equipment", "stage", requirements.Stage.Level + "->" + kit.Stage + " roles=" + kit.Roles.Digest));
+            foreach (string line in kit.Roles.StepDowns) diagnostics.Add(new LayoutDiagnostic("equipment", "step_down", line));
+            foreach (string line in kit.Roles.Diagnostics) diagnostics.Add(new LayoutDiagnostic("equipment", "roles", line));
+            foreach (string note in equipment.Notes) diagnostics.Add(new LayoutDiagnostic("equipment", "note", note));
+            diagnostics.Add(new LayoutDiagnostic("equipment", "materials_estimate", equipment.Estimate + " limit=" + requirements.ImportValueLimit));
+            if (equipment.Rejection != null) return reject(equipment.Rejection);
             foreach (string rejection in demand.Rejections) diagnostics.Add(new LayoutDiagnostic("demand", "rejected", rejection));
             if (demand.Rejections.Count > 0) return reject("room_demand_exceeds_legal_dimensions");
             diagnostics.Add(new LayoutDiagnostic("demand", "rooms", string.Join(",", demand.Rooms.Select(r => r.Id + "=" + r.Capacity + r.Unit))));
@@ -456,8 +492,8 @@ namespace RealisticBases.Planning
             int protectedCells = components.Sum(c => c.Count(i => grid.ThickCover(new GridPoint(i % grid.Width, i / grid.Width))));
             bool protectionPossible = requirements.ExcavationBudgetCells > 0 && protectedCells >= requiredArea / 2;
             List<KeyValuePair<LayoutDoctrine, bool>> doctrines = new List<KeyValuePair<LayoutDoctrine, bool>>();
-            if (!protectionPossible) doctrines.Add(new KeyValuePair<LayoutDoctrine, bool>(LayoutDoctrine.OpenGround, requirements.MortarCapable));
-            else if (!requirements.MortarCapable)
+            if (!protectionPossible) doctrines.Add(new KeyValuePair<LayoutDoctrine, bool>(LayoutDoctrine.OpenGround, kit.MortarCapable));
+            else if (!kit.MortarCapable)
             {
                 doctrines.Add(new KeyValuePair<LayoutDoctrine, bool>(LayoutDoctrine.RockProtected, false));
                 doctrines.Add(new KeyValuePair<LayoutDoctrine, bool>(LayoutDoctrine.OpenGround, false));
@@ -692,7 +728,7 @@ namespace RealisticBases.Planning
                 }
             }
             if (wantsCourt && !PlaceCourt()) notes.Add("mortar_court_infeasible: capability lost in this layout");
-            if (!wantsCourt && input.Requirements.MortarCapable) notes.Add("mortar_court_dropped_for_rock_protection");
+            if (!wantsCourt && input.Equipment.Kit.MortarCapable) notes.Add("mortar_court_dropped_for_rock_protection");
             Trim();
             return Enclose();
         }
@@ -915,7 +951,7 @@ namespace RealisticBases.Planning
             if (!furnishCache.TryGetValue(key, out furnish))
             {
                 furnish = LayoutFurnishing.Furnish(room.Kind, w, h, doorX, room.Capacity,
-                    LayoutDemandModel.FurnishContext(input.Requirements, thick, x => (exhaustMask & (1 << x)) != 0));
+                    LayoutDemandModel.FurnishContext(input.Equipment.Kit, input.Requirements, thick, x => (exhaustMask & (1 << x)) != 0));
                 furnishCache[key] = furnish;
             }
             if (!furnish.Success) return null;
@@ -950,9 +986,11 @@ namespace RealisticBases.Planning
                 GridPoint? exhaust = null;
                 if (f.Kind == LayoutFixtureKind.WallCooler)
                     exhaust = ToWorld(c.Door, c.Facing, c.DoorX, new GridPoint(f.Cells[0].X, -1));
+                CatalogDef def;
+                string stuff = input.Catalog.TryGet(f.DefName, out def) ? input.Equipment.StuffFor(def) : null;
                 fixtures.Add(new LayoutFixture(f.Kind, f.DefName, f.Cells.Select(p => ToWorld(c.Door, c.Facing, c.DoorX, p)),
                     f.Access.Select(p => ToWorld(c.Door, c.Facing, c.DoorX, p)), DirToWorld(c.Facing, f.Facing), f.Blocking, f.Watts,
-                    f.NeedsFuel, room.Id, exhaust));
+                    f.NeedsFuel, room.Id, exhaust, f.Role, stuff));
             }
             HashSet<GridPoint> digSet = new HashSet<GridPoint>(c.Dig);
             List<GridPoint> naturalWalls = c.Bounds.Points().Where(p => grid.At(p) == LayoutCellClass.Rock && !digSet.Contains(p)).ToList();
@@ -1105,10 +1143,20 @@ namespace RealisticBases.Planning
             List<string> layoutNotes = new List<string>(notes);
             layoutNotes.Add("excavated=" + dug.Count + "/" + Budget + " retainedThickRoof=" + retained.Count);
             layoutNotes.Add("gates=" + gates.Count + " desired=" + input.Fortification.DesiredGates);
-            return new ProceduralLayout(input.Digest, input.Seed, doctrine, input.Requirements.MortarCapable, anchor, rooms,
+            LayoutEquipment equipment = input.Equipment;
+            LayoutMaterialLedger materials = equipment.Count(rooms, built, gates.Count);
+            layoutNotes.Add("materials " + materials);
+            // Exact accounting is enforced per attempt; the search continues on overrun.
+            if (materials.ImportValue > input.Requirements.ImportValueLimit)
+            {
+                Fail(LayoutEquipment.MaterialBudgetExceeded, materials.ImportValue + ">" + input.Requirements.ImportValueLimit);
+                return null;
+            }
+            return new ProceduralLayout(input.Digest, input.Seed, doctrine, equipment.Kit.MortarCapable, anchor, rooms,
                 segments.Select(x => new LayoutCorridor(x.Id, x.Main, x.Cells)), court, enclosure, built, natural, gates, dug,
                 retained, constructed, input.Fortification.WallLayers, input.Requirements.FieldCells, demand.Relationships,
-                Enumerable.Empty<GridPoint>(), layoutNotes);
+                Enumerable.Empty<GridPoint>(), layoutNotes, equipment.Kit.Stage, equipment.Kit.Roles.Digest, equipment.Digest,
+                equipment.ConstructionStuff, materials);
         }
 
         private List<LayoutGate> ChooseGates(bool[] inE, HashSet<GridPoint> built, HashSet<GridPoint> natural,
