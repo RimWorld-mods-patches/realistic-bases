@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../RealisticBases/Planning/P1Model.cs" Link="Planning/P1Model.cs" />
+    <Compile Include="../RealisticBases/Planning/P1Planner.cs" Link="Planning/P1Planner.cs" />
+    <Compile Include="../RealisticBases/Planning/P2Profiles.cs" Link="Planning/P2Profiles.cs" />
+    <Compile Include="../RealisticBases/Planning/P2Layout.cs" Link="Planning/P2Layout.cs" />
+    <Compile Include="../RealisticBases/Planning/P4Terrain.cs" Link="Planning/P4Terrain.cs" />
+    <Compile Include="../RealisticBases/Planning/P4TerrainMutation.cs" Link="Planning/P4TerrainMutation.cs" />
+    <Compile Include="../RealisticBases/Planning/P4Connectivity.cs" Link="Planning/P4Connectivity.cs" />
+    <Compile Include="../RealisticBases/Planning/ProceduralLayoutModel.cs" Link="Planning/ProceduralLayoutModel.cs" />
+    <Compile Include="../RealisticBases/Planning/ProceduralLayoutPlanner.cs" Link="Planning/ProceduralLayoutPlanner.cs" />
+    <Compile Include="../RealisticBases/Planning/ProceduralLayoutValidator.cs" Link="Planning/ProceduralLayoutValidator.cs" />
+  </ItemGroup>
+</Project>

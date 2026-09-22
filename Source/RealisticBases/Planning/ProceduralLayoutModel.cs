@@ -1,0 +1,920 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+
+namespace RealisticBases.Planning
+{
+    // P4A foundation prototype (pure, engine independent). Nothing in the live
+    // generator references these types yet; see docs/p4a-foundations.md.
+    public static class ProceduralLayoutVersions
+    {
+        public const string Planner = "p4a-foundation.1";
+        public const int Schema = 1;
+    }
+
+    public enum HousingStandard
+    {
+        Barracks,
+        PersonalRooms
+    }
+
+    public enum LayoutRoomKind
+    {
+        Barracks,
+        Bedroom,
+        Jail,
+        Medical,
+        Kitchen,
+        Freezer,
+        Pantry,
+        Dining,
+        Workshop,
+        Storage,
+        Power
+    }
+
+    public enum LayoutFixtureKind
+    {
+        Bed,
+        PrisonBed,
+        MedicalBed,
+        Stove,
+        Workbench,
+        Table,
+        Chair,
+        Recreation,
+        Stockpile,
+        Heater,
+        Campfire,
+        WallCooler,
+        PassiveCooler,
+        Lamp,
+        Torch,
+        Generator,
+        Battery,
+        MortarCourt
+    }
+
+    public enum LayoutDoctrine
+    {
+        OpenGround,
+        RockProtected
+    }
+
+    // Outdoor temperature range of the tile. The snapshot carries no climate,
+    // so it is an explicit input. Thresholds are provisional planning values.
+    public sealed class LayoutClimate
+    {
+        public const int HeatingBelowC = 10;
+        public const int CoolingAboveC = 30;
+        // RoomTempTracker equalizes thick-roofed rooms toward 15C.
+        public const int ThickRoofEquilibriumC = 15;
+
+        public LayoutClimate(int minOutdoorC, int maxOutdoorC)
+        {
+            if (maxOutdoorC < minOutdoorC) throw new ArgumentOutOfRangeException(nameof(maxOutdoorC));
+            MinOutdoorC = minOutdoorC;
+            MaxOutdoorC = maxOutdoorC;
+        }
+
+        public int MinOutdoorC { get; }
+        public int MaxOutdoorC { get; }
+        public bool HeatingRequired => MinOutdoorC < HeatingBelowC;
+        public bool CoolingRequired => MaxOutdoorC > CoolingAboveC;
+        public override string ToString() => MinOutdoorC + ".." + MaxOutdoorC + "C";
+    }
+
+    public static class LayoutSeed
+    {
+        // World seed, tile, faction and profile identity plus the planner version.
+        // No compound dimensions participate. The integration must persist the
+        // derived value with the settlement so revisits never reroll.
+        public static ulong Derive(string worldSeed, int tile, string factionId, string profileId, int profileVersion)
+        {
+            ulong hash = StableHash.Start;
+            hash = StableHash.Add(hash, "p4a-layout-seed");
+            hash = StableHash.Add(hash, ProceduralLayoutVersions.Planner);
+            hash = StableHash.Add(hash, worldSeed ?? string.Empty);
+            hash = StableHash.Add(hash, tile);
+            hash = StableHash.Add(hash, factionId ?? string.Empty);
+            hash = StableHash.Add(hash, profileId ?? string.Empty);
+            return StableHash.Add(hash, profileVersion);
+        }
+
+        // Independent purpose streams, so a rule change in one does not reshuffle the others.
+        public static ulong Sub(ulong seed, string purpose) => StableHash.Add(StableHash.Add(StableHash.Start, seed), purpose ?? string.Empty);
+
+        internal static ulong Key(ulong seed, int a, int b = 0, int c = 0)
+        {
+            ulong hash = StableHash.Add(seed, a);
+            hash = StableHash.Add(hash, b);
+            return StableHash.Add(hash, c);
+        }
+
+        internal static int Roll(ulong seed, string purpose, int modulo) =>
+            modulo <= 0 ? 0 : (int)(Sub(seed, purpose) % (ulong)modulo);
+    }
+
+    public sealed class LayoutRequirements
+    {
+        public LayoutRequirements(int residents, SettlementCapability capabilities, HousingStandard housing,
+            LayoutClimate climate, int mortarBiasPercent, int excavationBudgetCells, int fieldCells,
+            IEnumerable<KeyValuePair<LayoutRoomKind, int>> capacityFloors = null)
+        {
+            if (residents <= 0) throw new ArgumentOutOfRangeException(nameof(residents));
+            if (mortarBiasPercent < 0 || mortarBiasPercent > 100) throw new ArgumentOutOfRangeException(nameof(mortarBiasPercent));
+            if (excavationBudgetCells < 0) throw new ArgumentOutOfRangeException(nameof(excavationBudgetCells));
+            if (fieldCells < 0) throw new ArgumentOutOfRangeException(nameof(fieldCells));
+            Residents = residents;
+            Capabilities = capabilities;
+            Housing = housing;
+            Climate = climate ?? throw new ArgumentNullException(nameof(climate));
+            MortarBiasPercent = mortarBiasPercent;
+            ExcavationBudgetCells = excavationBudgetCells;
+            FieldCells = fieldCells;
+            Dictionary<LayoutRoomKind, int> floors = new Dictionary<LayoutRoomKind, int>();
+            foreach (KeyValuePair<LayoutRoomKind, int> floor in capacityFloors ?? Enumerable.Empty<KeyValuePair<LayoutRoomKind, int>>())
+            {
+                if (floor.Value <= 0) throw new ArgumentOutOfRangeException(nameof(capacityFloors));
+                int existing;
+                floors[floor.Key] = floors.TryGetValue(floor.Key, out existing) ? Math.Max(existing, floor.Value) : floor.Value;
+            }
+            CapacityFloors = new ReadOnlyDictionary<LayoutRoomKind, int>(floors);
+            Digest = ComputeDigest();
+        }
+
+        public int Residents { get; }
+        public SettlementCapability Capabilities { get; }
+        public HousingStandard Housing { get; }
+        public LayoutClimate Climate { get; }
+        public int MortarBiasPercent { get; }
+        public int ExcavationBudgetCells { get; }
+        public int FieldCells { get; }
+        public IReadOnlyDictionary<LayoutRoomKind, int> CapacityFloors { get; }
+        public string Digest { get; }
+        public bool Electric => Has(SettlementCapability.Electricity);
+        public bool Refrigerated => Has(SettlementCapability.Refrigeration);
+        // Matches P3: only the electric (industrial) encounter profile is mortar capable.
+        public bool MortarCapable => Electric;
+        public bool Has(SettlementCapability capability) => (Capabilities & capability) == capability;
+
+        public int Floor(LayoutRoomKind kind)
+        {
+            int value;
+            return CapacityFloors.TryGetValue(kind, out value) ? value : 0;
+        }
+
+        public static LayoutRequirements FromPopulation(int residents, SettlementCapability capabilities, LayoutClimate climate,
+            HousingStandard housing = HousingStandard.Barracks, IEnumerable<KeyValuePair<LayoutRoomKind, int>> floors = null)
+        {
+            bool electric = (capabilities & SettlementCapability.Electricity) != 0;
+            return new LayoutRequirements(residents, capabilities, housing, climate,
+                electric ? 50 : 0, 60 + residents * (electric ? 70 : 35), residents * 31, floors);
+        }
+
+        // P2 profile capacities act as floors; population rules may raise them.
+        public static LayoutRequirements FromProfile(PhysicalSettlementProfile profile, LayoutClimate climate,
+            HousingStandard housing = HousingStandard.Barracks)
+        {
+            if (profile == null) throw new ArgumentNullException(nameof(profile));
+            List<KeyValuePair<LayoutRoomKind, int>> floors = new List<KeyValuePair<LayoutRoomKind, int>>();
+            foreach (FacilityDemand demand in profile.Facilities)
+            {
+                LayoutRoomKind kind;
+                if (TryMap(demand.Kind, out kind)) floors.Add(new KeyValuePair<LayoutRoomKind, int>(kind, demand.Capacity));
+            }
+            bool electric = profile.Has(SettlementCapability.Electricity);
+            return new LayoutRequirements(profile.Residents, profile.Capabilities, housing, climate,
+                electric ? 50 : 0, 60 + profile.Residents * (electric ? 70 : 35), profile.RequiredCropCells, floors);
+        }
+
+        private static bool TryMap(FacilityKind kind, out LayoutRoomKind result)
+        {
+            switch (kind)
+            {
+                case FacilityKind.Jail: result = LayoutRoomKind.Jail; return true;
+                case FacilityKind.Medical: result = LayoutRoomKind.Medical; return true;
+                case FacilityKind.Kitchen: result = LayoutRoomKind.Kitchen; return true;
+                case FacilityKind.Freezer: result = LayoutRoomKind.Freezer; return true;
+                case FacilityKind.Pantry: result = LayoutRoomKind.Pantry; return true;
+                case FacilityKind.DiningRecreation: result = LayoutRoomKind.Dining; return true;
+                case FacilityKind.Workshop: result = LayoutRoomKind.Workshop; return true;
+                case FacilityKind.BulkStorage: result = LayoutRoomKind.Storage; return true;
+                default: result = LayoutRoomKind.Barracks; return false;
+            }
+        }
+
+        private string ComputeDigest()
+        {
+            ulong hash = StableHash.Start;
+            hash = StableHash.Add(hash, "p4a-requirements");
+            hash = StableHash.Add(hash, Residents);
+            hash = StableHash.Add(hash, (int)Capabilities);
+            hash = StableHash.Add(hash, (int)Housing);
+            hash = StableHash.Add(hash, Climate.MinOutdoorC);
+            hash = StableHash.Add(hash, Climate.MaxOutdoorC);
+            hash = StableHash.Add(hash, MortarBiasPercent);
+            hash = StableHash.Add(hash, ExcavationBudgetCells);
+            hash = StableHash.Add(hash, FieldCells);
+            foreach (KeyValuePair<LayoutRoomKind, int> floor in CapacityFloors.OrderBy(f => f.Key))
+            {
+                hash = StableHash.Add(hash, (int)floor.Key);
+                hash = StableHash.Add(hash, floor.Value);
+            }
+            return StableHash.Hex(hash);
+        }
+    }
+
+    // Space reserved for P4 fortification. P4A never builds these structures;
+    // it keeps the terrain they need legal and free.
+    public sealed class LayoutFortificationReservation
+    {
+        public LayoutFortificationReservation(int wallLayers = 1, int setback = 1, int outerClearance = 1,
+            int vestibuleDepth = 2, int desiredGates = 2, int minimumGates = 1)
+        {
+            if (wallLayers < 1 || wallLayers > 3) throw new ArgumentOutOfRangeException(nameof(wallLayers));
+            if (setback < 0 || setback > 2) throw new ArgumentOutOfRangeException(nameof(setback));
+            if (outerClearance < 0 || outerClearance > 3) throw new ArgumentOutOfRangeException(nameof(outerClearance));
+            if (vestibuleDepth < 1 || vestibuleDepth > 4) throw new ArgumentOutOfRangeException(nameof(vestibuleDepth));
+            if (minimumGates < 1 || desiredGates < minimumGates || desiredGates > 4) throw new ArgumentOutOfRangeException(nameof(desiredGates));
+            WallLayers = wallLayers;
+            Setback = setback;
+            OuterClearance = outerClearance;
+            VestibuleDepth = vestibuleDepth;
+            DesiredGates = desiredGates;
+            MinimumGates = minimumGates;
+        }
+
+        public int WallLayers { get; }
+        public int Setback { get; }
+        public int OuterClearance { get; }
+        public int VestibuleDepth { get; }
+        public int DesiredGates { get; }
+        public int MinimumGates { get; }
+        public int PlacementMargin => Setback + 1 + OuterClearance;
+    }
+
+    public sealed class LayoutSearchBudget
+    {
+        public LayoutSearchBudget(int maxSites = 10, int attemptsPerSite = 3, int maxEvaluations = 200000,
+            int maxCandidatesPerRoom = 3000, int maxRepairsPerAttempt = 8, int maxRouteNodes = 40000)
+        {
+            if (maxSites <= 0 || attemptsPerSite <= 0 || maxEvaluations <= 0 || maxCandidatesPerRoom <= 0 ||
+                maxRepairsPerAttempt < 0 || maxRouteNodes <= 0) throw new ArgumentOutOfRangeException("Search budget values must be positive.");
+            MaxSites = maxSites;
+            AttemptsPerSite = attemptsPerSite;
+            MaxEvaluations = maxEvaluations;
+            MaxCandidatesPerRoom = maxCandidatesPerRoom;
+            MaxRepairsPerAttempt = maxRepairsPerAttempt;
+            MaxRouteNodes = maxRouteNodes;
+        }
+
+        public int MaxSites { get; }
+        public int AttemptsPerSite { get; }
+        public int MaxEvaluations { get; }
+        public int MaxCandidatesPerRoom { get; }
+        public int MaxRepairsPerAttempt { get; }
+        public int MaxRouteNodes { get; }
+    }
+
+    public sealed class ProceduralLayoutInput
+    {
+        public ProceduralLayoutInput(LayoutRequirements requirements, TerrainSnapshot terrain, ulong seed,
+            LayoutFortificationReservation fortification = null, LayoutSearchBudget budget = null)
+        {
+            Requirements = requirements ?? throw new ArgumentNullException(nameof(requirements));
+            Terrain = terrain ?? throw new ArgumentNullException(nameof(terrain));
+            Seed = seed;
+            Fortification = fortification ?? new LayoutFortificationReservation();
+            Budget = budget ?? new LayoutSearchBudget();
+            Digest = ComputeDigest();
+        }
+
+        public LayoutRequirements Requirements { get; }
+        public TerrainSnapshot Terrain { get; }
+        public ulong Seed { get; }
+        public LayoutFortificationReservation Fortification { get; }
+        public LayoutSearchBudget Budget { get; }
+        public string Digest { get; }
+
+        private string ComputeDigest()
+        {
+            ulong hash = StableHash.Start;
+            hash = StableHash.Add(hash, ProceduralLayoutVersions.Planner);
+            hash = StableHash.Add(hash, Requirements.Digest);
+            hash = StableHash.Add(hash, Terrain.Digest);
+            hash = StableHash.Add(hash, Seed);
+            LayoutFortificationReservation f = Fortification;
+            foreach (int value in new[] { f.WallLayers, f.Setback, f.OuterClearance, f.VestibuleDepth, f.DesiredGates, f.MinimumGates })
+                hash = StableHash.Add(hash, value);
+            LayoutSearchBudget b = Budget;
+            foreach (int value in new[] { b.MaxSites, b.AttemptsPerSite, b.MaxEvaluations, b.MaxCandidatesPerRoom, b.MaxRepairsPerAttempt, b.MaxRouteNodes })
+                hash = StableHash.Add(hash, value);
+            return StableHash.Hex(hash);
+        }
+    }
+
+    // One room to realize. Candidate sizes are interior dimensions; Width runs
+    // along the door wall. Each candidate was proven by running the furnishing rule.
+    public sealed class LayoutRoomDemand
+    {
+        internal LayoutRoomDemand(string id, LayoutRoomKind kind, int capacity, string unit, IList<GridRect> sizes)
+        {
+            Id = id;
+            Kind = kind;
+            Capacity = capacity;
+            Unit = unit;
+            CandidateSizes = new ReadOnlyCollection<GridRect>(sizes);
+        }
+
+        public string Id { get; }
+        public LayoutRoomKind Kind { get; }
+        public int Capacity { get; }
+        public string Unit { get; }
+        public IReadOnlyList<GridRect> CandidateSizes { get; }
+        public bool Living => LayoutDemandModel.IsLiving(Kind);
+        public int MinimumBoundsArea => CandidateSizes.Count == 0 ? 0 : CandidateSizes.Min(s => (s.Width + 2) * (s.Height + 2));
+    }
+
+    public enum LayoutRelationKind
+    {
+        Near,
+        Far
+    }
+
+    public sealed class LayoutRelationship
+    {
+        public LayoutRelationship(string a, string b, LayoutRelationKind kind, int weight, bool hard, int maxDistance)
+        {
+            A = a;
+            B = b;
+            Kind = kind;
+            Weight = weight;
+            Hard = hard;
+            MaxDistance = maxDistance;
+        }
+
+        public string A { get; }
+        public string B { get; }
+        public LayoutRelationKind Kind { get; }
+        public int Weight { get; }
+        // Hard relations are rejected when their public walking distance between
+        // door outer cells exceeds MaxDistance; soft ones only shape the score.
+        public bool Hard { get; }
+        public int MaxDistance { get; }
+        public override string ToString() => A + (Kind == LayoutRelationKind.Near ? "~" : "!~") + B + ":" + Weight + (Hard ? "/hard<=" + MaxDistance : string.Empty);
+    }
+
+    public sealed class LayoutDemandSet
+    {
+        internal LayoutDemandSet(IList<LayoutRoomDemand> rooms, IList<LayoutRelationship> relations, IList<string> rejections, int estimatedLoadWatts)
+        {
+            Rooms = new ReadOnlyCollection<LayoutRoomDemand>(rooms);
+            Relationships = new ReadOnlyCollection<LayoutRelationship>(relations);
+            Rejections = new ReadOnlyCollection<string>(rejections);
+            EstimatedLoadWatts = estimatedLoadWatts;
+        }
+
+        public IReadOnlyList<LayoutRoomDemand> Rooms { get; }
+        public IReadOnlyList<LayoutRelationship> Relationships { get; }
+        public IReadOnlyList<string> Rejections { get; }
+        public int EstimatedLoadWatts { get; }
+        public int MinimumRoomArea => Rooms.Sum(r => r.MinimumBoundsArea);
+    }
+
+    public static class LayoutDemandModel
+    {
+        public const int MinInterior = 3;
+        public const int MaxInterior = 12;
+        public const int MaxBarracksBeds = 8;
+        public const int MaxSplit = 8;
+        public const int MaxSizesPerRoom = 6;
+        public const double NearMinimalAreaFactor = 1.35;
+        public const int GeneratorWatts = 1000;
+        public const int KitchenFoodHardDistance = 24;
+
+        public static bool IsLiving(LayoutRoomKind kind) => kind == LayoutRoomKind.Barracks || kind == LayoutRoomKind.Bedroom ||
+            kind == LayoutRoomKind.Jail || kind == LayoutRoomKind.Medical || kind == LayoutRoomKind.Dining;
+
+        public static bool IsStockpile(LayoutRoomKind kind) => kind == LayoutRoomKind.Storage || kind == LayoutRoomKind.Freezer || kind == LayoutRoomKind.Pantry;
+
+        public static LayoutDemandSet Derive(LayoutRequirements requirements, ulong roomSeed)
+        {
+            if (requirements == null) throw new ArgumentNullException(nameof(requirements));
+            int r = requirements.Residents;
+            List<KeyValuePair<LayoutRoomKind, int>> wanted = new List<KeyValuePair<LayoutRoomKind, int>>();
+            if (requirements.Housing == HousingStandard.PersonalRooms)
+                for (int i = 0; i < r; i++) wanted.Add(new KeyValuePair<LayoutRoomKind, int>(LayoutRoomKind.Bedroom, 1));
+            else
+            {
+                int barracks = (r + MaxBarracksBeds - 1) / MaxBarracksBeds;
+                for (int i = 0; i < barracks; i++)
+                    wanted.Add(new KeyValuePair<LayoutRoomKind, int>(LayoutRoomKind.Barracks, r / barracks + (i < r % barracks ? 1 : 0)));
+            }
+            Add(wanted, requirements, LayoutRoomKind.Jail, Math.Max(1, Ceil(r, 8)));
+            Add(wanted, requirements, LayoutRoomKind.Medical, Math.Max(1, Ceil(r, 6)));
+            Add(wanted, requirements, LayoutRoomKind.Kitchen, Ceil(r, 8));
+            Add(wanted, requirements, requirements.Refrigerated ? LayoutRoomKind.Freezer : LayoutRoomKind.Pantry, Math.Max(12, 6 * r));
+            Add(wanted, requirements, LayoutRoomKind.Dining, r);
+            Add(wanted, requirements, LayoutRoomKind.Workshop, Math.Max(1, Ceil(r, 6)));
+            Add(wanted, requirements, LayoutRoomKind.Storage, Math.Max(12, 6 * r));
+
+            List<string> rejections = new List<string>();
+            List<LayoutRoomDemand> rooms = new List<LayoutRoomDemand>();
+            int load = 0;
+            foreach (IGrouping<LayoutRoomKind, KeyValuePair<LayoutRoomKind, int>> group in wanted.GroupBy(w => w.Key))
+            {
+                List<LayoutRoomDemand> built = group.Key == LayoutRoomKind.Barracks || group.Key == LayoutRoomKind.Bedroom
+                    ? group.Select((item, i) => Build(group.Key, item.Value, Id(group.Key, i + 1, true), requirements, roomSeed)).ToList()
+                    : Split(group.Key, group.Sum(item => item.Value), requirements, roomSeed);
+                if (built.Any(d => d == null) || built.Count == 0)
+                {
+                    rejections.Add("room_demand_exceeds_legal_dimensions:" + group.Key + ":" + group.Sum(item => item.Value));
+                    continue;
+                }
+                rooms.AddRange(built);
+                load += built.Sum(d => MaxLoad(d, requirements));
+            }
+            if (requirements.Electric && rejections.Count == 0)
+            {
+                // The power room's own lamp/heater draw is part of the load it must cover.
+                for (int generators = Math.Max(1, Ceil(load, GeneratorWatts)); generators <= MaxSplit; generators++)
+                {
+                    LayoutRoomDemand power = Build(LayoutRoomKind.Power, generators, "power", requirements, roomSeed);
+                    if (power == null) { rejections.Add("room_demand_exceeds_legal_dimensions:Power:" + generators); break; }
+                    int total = load + MaxLoad(power, requirements);
+                    if (generators * GeneratorWatts < total) continue;
+                    rooms.Add(power);
+                    load = total;
+                    break;
+                }
+            }
+            return new LayoutDemandSet(rooms, Relationships(rooms, roomSeed), rejections, load);
+        }
+
+        private static void Add(List<KeyValuePair<LayoutRoomKind, int>> wanted, LayoutRequirements requirements, LayoutRoomKind kind, int derived) =>
+            wanted.Add(new KeyValuePair<LayoutRoomKind, int>(kind, Math.Max(derived, requirements.Floor(kind))));
+
+        private static int Ceil(int value, int divisor) => (value + divisor - 1) / divisor;
+
+        // A demand too large for one legal room splits into up to MaxSplit rooms of that kind.
+        private static List<LayoutRoomDemand> Split(LayoutRoomKind kind, int capacity, LayoutRequirements requirements, ulong roomSeed)
+        {
+            for (int count = 1; count <= MaxSplit && count <= capacity; count++)
+            {
+                List<LayoutRoomDemand> result = new List<LayoutRoomDemand>();
+                for (int i = 0; i < count; i++)
+                {
+                    LayoutRoomDemand room = Build(kind, capacity / count + (i < capacity % count ? 1 : 0), Id(kind, i + 1, count > 1), requirements, roomSeed);
+                    if (room == null) break;
+                    result.Add(room);
+                }
+                if (result.Count == count) return result;
+            }
+            return new List<LayoutRoomDemand> { null };
+        }
+
+        private static string Id(LayoutRoomKind kind, int index, bool numbered) => kind.ToString().ToLowerInvariant() + (numbered ? "-" + index : string.Empty);
+
+        private static LayoutRoomDemand Build(LayoutRoomKind kind, int capacity, string id, LayoutRequirements requirements, ulong roomSeed)
+        {
+            List<GridRect> legal = new List<GridRect>();
+            for (int w = MinInterior; w <= MaxInterior; w++)
+                for (int h = MinInterior; h <= MaxInterior; h++)
+                {
+                    LayoutFurnishResult result = LayoutFurnishing.Furnish(kind, w, h, (w + 1) / 2, capacity, FurnishContext(requirements, false, null));
+                    if (result.Success) legal.Add(new GridRect(0, 0, w, h));
+                }
+            if (legal.Count == 0) return null;
+            int minimum = legal.Min(s => s.Area);
+            List<GridRect> sizes = legal.Where(s => s.Area <= minimum * NearMinimalAreaFactor)
+                .OrderBy(s => s.Area).ThenBy(s => Math.Abs(s.Width - s.Height)).ThenBy(s => s.Width).Take(MaxSizesPerRoom)
+                .OrderBy(s => LayoutSeed.Key(LayoutSeed.Sub(roomSeed, id), s.Width, s.Height)).ToList();
+            return new LayoutRoomDemand(id, kind, capacity, Unit(kind), sizes);
+        }
+
+        internal static LayoutFurnishContext FurnishContext(LayoutRequirements requirements, bool thickRoofed, Func<int, bool> exhaustAllowed) =>
+            new LayoutFurnishContext(requirements.Electric, requirements.Climate.HeatingRequired,
+                requirements.Climate.CoolingRequired && !thickRoofed, exhaustAllowed);
+
+        // Upper bound on the powered load: the largest candidate size and worst-case climate.
+        private static int MaxLoad(LayoutRoomDemand demand, LayoutRequirements requirements)
+        {
+            if (!requirements.Electric) return 0;
+            int max = 0;
+            foreach (GridRect size in demand.CandidateSizes)
+            {
+                LayoutFurnishResult result = LayoutFurnishing.Furnish(demand.Kind, size.Width, size.Height, (size.Width + 1) / 2,
+                    demand.Capacity, FurnishContext(requirements, false, null));
+                if (result.Success) max = Math.Max(max, result.Watts);
+            }
+            return max;
+        }
+
+        private static string Unit(LayoutRoomKind kind)
+        {
+            switch (kind)
+            {
+                case LayoutRoomKind.Barracks:
+                case LayoutRoomKind.Bedroom:
+                case LayoutRoomKind.Jail:
+                case LayoutRoomKind.Medical: return "beds";
+                case LayoutRoomKind.Kitchen: return "stoves";
+                case LayoutRoomKind.Workshop: return "benches";
+                case LayoutRoomKind.Dining: return "seats";
+                case LayoutRoomKind.Power: return "generators";
+                default: return "stockpile-cells";
+            }
+        }
+
+        // Desired adjacency graph. Seeded weight perturbation (+-1) varies soft
+        // preferences between settlements; hard relations are never perturbed.
+        private static List<LayoutRelationship> Relationships(List<LayoutRoomDemand> rooms, ulong roomSeed)
+        {
+            List<LayoutRelationship> result = new List<LayoutRelationship>();
+            Func<LayoutRoomKind, IEnumerable<LayoutRoomDemand>> of = kind => rooms.Where(r => r.Kind == kind);
+            IEnumerable<LayoutRoomDemand> housing = rooms.Where(r => r.Kind == LayoutRoomKind.Barracks || r.Kind == LayoutRoomKind.Bedroom);
+            IEnumerable<LayoutRoomDemand> food = rooms.Where(r => r.Kind == LayoutRoomKind.Freezer || r.Kind == LayoutRoomKind.Pantry);
+            foreach (LayoutRoomDemand kitchen in of(LayoutRoomKind.Kitchen))
+            {
+                foreach (LayoutRoomDemand store in food)
+                {
+                    result.Add(new LayoutRelationship(kitchen.Id, store.Id, LayoutRelationKind.Near, 5, true, KitchenFoodHardDistance));
+                }
+                foreach (LayoutRoomDemand dining in of(LayoutRoomKind.Dining)) Soft(result, roomSeed, kitchen, dining, LayoutRelationKind.Near, 4);
+            }
+            foreach (LayoutRoomDemand home in housing)
+            {
+                foreach (LayoutRoomDemand dining in of(LayoutRoomKind.Dining)) Soft(result, roomSeed, home, dining, LayoutRelationKind.Near, 2);
+                foreach (LayoutRoomDemand jail in of(LayoutRoomKind.Jail)) Soft(result, roomSeed, home, jail, LayoutRelationKind.Far, 2);
+                foreach (LayoutRoomDemand medical in of(LayoutRoomKind.Medical)) Soft(result, roomSeed, home, medical, LayoutRelationKind.Near, 1);
+            }
+            foreach (LayoutRoomDemand workshop in of(LayoutRoomKind.Workshop))
+            {
+                foreach (LayoutRoomDemand storage in of(LayoutRoomKind.Storage)) Soft(result, roomSeed, workshop, storage, LayoutRelationKind.Near, 3);
+                foreach (LayoutRoomDemand power in of(LayoutRoomKind.Power)) Soft(result, roomSeed, workshop, power, LayoutRelationKind.Near, 1);
+            }
+            return result;
+        }
+
+        private static void Soft(List<LayoutRelationship> result, ulong seed, LayoutRoomDemand a, LayoutRoomDemand b, LayoutRelationKind kind, int weight)
+        {
+            int perturbed = Math.Max(0, weight + LayoutSeed.Roll(LayoutSeed.Sub(seed, a.Id + "|" + b.Id), "weight", 3) - 1);
+            if (perturbed > 0) result.Add(new LayoutRelationship(a.Id, b.Id, kind, perturbed, false, int.MaxValue));
+        }
+    }
+
+    public sealed class LayoutFurnishContext
+    {
+        public LayoutFurnishContext(bool electric, bool heating, bool cooling, Func<int, bool> exhaustAllowed)
+        {
+            Electric = electric;
+            Heating = heating;
+            Cooling = cooling;
+            ExhaustAllowed = exhaustAllowed;
+        }
+
+        public bool Electric { get; }
+        public bool Heating { get; }
+        public bool Cooling { get; }
+        // Local x on the door wall whose outside cell may take a cooler exhaust; null = any.
+        public Func<int, bool> ExhaustAllowed { get; }
+    }
+
+    // A fixture in room-local coordinates: interior x 1..W, z 1..H, walls at 0
+    // and W+1/H+1, the door at (DoorX, 0) and the interior entry cell at (DoorX, 1).
+    public sealed class LayoutLocalFixture
+    {
+        internal LayoutLocalFixture(LayoutFixtureKind kind, string defName, IEnumerable<GridPoint> cells, IEnumerable<GridPoint> access,
+            GridPoint facing, bool blocking, int watts, bool needsFuel)
+        {
+            Kind = kind;
+            DefName = defName;
+            Cells = new ReadOnlyCollection<GridPoint>(cells.ToList());
+            Access = new ReadOnlyCollection<GridPoint>((access ?? Enumerable.Empty<GridPoint>()).ToList());
+            Facing = facing;
+            Blocking = blocking;
+            Watts = watts;
+            NeedsFuel = needsFuel;
+        }
+
+        public LayoutFixtureKind Kind { get; }
+        public string DefName { get; }
+        public IReadOnlyList<GridPoint> Cells { get; }
+        // Interaction cells that must stay free and reachable. Blocking fixtures
+        // without one need any adjacent reachable cell (job access).
+        public IReadOnlyList<GridPoint> Access { get; }
+        // Unit vector from the fixture toward its working side (benches, campfires),
+        // into the room (wall coolers), or away from the wall (beds, other fixtures).
+        public GridPoint Facing { get; }
+        public bool Blocking { get; }
+        public int Watts { get; }
+        public bool NeedsFuel { get; }
+    }
+
+    public sealed class LayoutFurnishResult
+    {
+        internal LayoutFurnishResult(List<LayoutLocalFixture> fixtures, int capacity, string failure)
+        {
+            Fixtures = new ReadOnlyCollection<LayoutLocalFixture>(fixtures);
+            Capacity = capacity;
+            Failure = failure;
+            Watts = fixtures.Sum(f => f.Watts);
+        }
+
+        public IReadOnlyList<LayoutLocalFixture> Fixtures { get; }
+        public int Capacity { get; }
+        public string Failure { get; }
+        public int Watts { get; }
+        public bool Success => Failure == null;
+    }
+
+    // Reusable furnishing rules. Wall fixtures stand with their back to a wall and
+    // their working side toward the room; every placement is kept only when a
+    // flood from the entry cell still reaches all access cells.
+    public static class LayoutFurnishing
+    {
+        private const byte Free = 0;
+        private const byte Blocked = 1;
+        private const byte KeepFree = 2;
+
+        public static LayoutFurnishResult Furnish(LayoutRoomKind kind, int w, int h, int doorX, int capacityTarget, LayoutFurnishContext context)
+        {
+            if (w < 1 || h < 1 || doorX < 1 || doorX > w) return new LayoutFurnishResult(new List<LayoutLocalFixture>(), 0, "illegal_room_size");
+            Room room = new Room(w, h, doorX);
+            int area = w * h;
+            bool electric = context.Electric;
+            int capacity = 0;
+            string failure = null;
+            if (LayoutDemandModel.IsStockpile(kind))
+            {
+                if (kind == LayoutRoomKind.Freezer && !room.PlaceWallCoolers(Ceil(area, 30), context.ExhaustAllowed)) failure = "freezer_cooler_exhaust";
+                if (failure == null && !room.Place(Light(electric), (area + 35) / 36)) failure = "lights";
+                if (failure == null)
+                {
+                    List<GridPoint> stock = room.ReachableFree().Where(c => !room.IsKeepFree(c)).ToList();
+                    capacity = stock.Count;
+                    if (stock.Count > 0)
+                        room.Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Stockpile, "Stockpile", stock, null, new GridPoint(0, 1), false, 0, false));
+                }
+            }
+            else
+            {
+                switch (kind)
+                {
+                    case LayoutRoomKind.Barracks:
+                    case LayoutRoomKind.Bedroom:
+                        capacity = room.Place(Bed(LayoutFixtureKind.Bed), capacityTarget) ? capacityTarget : 0;
+                        break;
+                    case LayoutRoomKind.Jail:
+                        capacity = room.Place(Bed(LayoutFixtureKind.PrisonBed), capacityTarget) ? capacityTarget : 0;
+                        break;
+                    case LayoutRoomKind.Medical:
+                        capacity = room.Place(Bed(LayoutFixtureKind.MedicalBed), capacityTarget) ? capacityTarget : 0;
+                        break;
+                    case LayoutRoomKind.Kitchen:
+                        capacity = room.Place(Bench(LayoutFixtureKind.Stove, electric ? "ElectricStove" : "FueledStove", electric ? 350 : 0, !electric), capacityTarget) ? capacityTarget : 0;
+                        break;
+                    case LayoutRoomKind.Workshop:
+                        for (int i = 0; i < capacityTarget; i++)
+                        {
+                            bool smithy = i % 2 == 0;
+                            string def = electric ? (smithy ? "ElectricSmithy" : "ElectricTailoringBench") : (smithy ? "FueledSmithy" : "HandTailoringBench");
+                            if (!room.Place(Bench(LayoutFixtureKind.Workbench, def, electric ? (smithy ? 210 : 120) : 0, !electric && smithy), 1)) break;
+                            capacity++;
+                        }
+                        break;
+                    case LayoutRoomKind.Dining:
+                        capacity = 4 * room.PlaceTables(Ceil(capacityTarget, 4));
+                        if (capacity >= capacityTarget && !room.Place(Single(LayoutFixtureKind.Recreation, electric ? "ChessTable" : "HorseshoesPin", 0, false), 1)) failure = "recreation";
+                        break;
+                    case LayoutRoomKind.Power:
+                        capacity = room.Place(Wall(LayoutFixtureKind.Generator, "WoodFiredGenerator", 2, 2, 0, true), capacityTarget) ? capacityTarget : 0;
+                        if (capacity >= capacityTarget && !room.Place(Wall(LayoutFixtureKind.Battery, "Battery", 1, 2, 0, false), capacityTarget)) failure = "batteries";
+                        break;
+                }
+                if (failure == null && capacity < capacityTarget) failure = "capacity";
+                if (failure == null && IsLivingForClimate(kind))
+                {
+                    if (context.Heating && !(electric
+                        ? room.Place(Single(LayoutFixtureKind.Heater, "Heater", 175, false), Ceil(area, 40))
+                        : room.Place(Bench(LayoutFixtureKind.Campfire, "Campfire", 0, true, 1), 1))) failure = "heating";
+                    if (failure == null && context.Cooling && !(electric
+                        ? room.PlaceWallCoolers(Ceil(area, 40), context.ExhaustAllowed)
+                        : room.Place(Single(LayoutFixtureKind.PassiveCooler, "PassiveCooler", 0, true), Ceil(area, 25)))) failure = "cooling";
+                }
+                if (failure == null && !room.Place(Light(electric), (area + 35) / 36)) failure = "lights";
+            }
+            if (failure == null && capacity < capacityTarget) failure = "capacity";
+            return new LayoutFurnishResult(room.Fixtures, capacity, failure);
+        }
+
+        private static bool IsLivingForClimate(LayoutRoomKind kind) => LayoutDemandModel.IsLiving(kind);
+        private static int Ceil(int value, int divisor) => (value + divisor - 1) / divisor;
+
+        private sealed class Template
+        {
+            public LayoutFixtureKind Kind;
+            public string Def;
+            public int Length;
+            public int Depth;
+            public int Watts;
+            public bool Fuel;
+            public bool Interaction;
+        }
+
+        private static Template Bed(LayoutFixtureKind kind) => new Template { Kind = kind, Def = "Bed", Length = 1, Depth = 2 };
+        private static Template Bench(LayoutFixtureKind kind, string def, int watts, bool fuel, int length = 3) =>
+            new Template { Kind = kind, Def = def, Length = length, Depth = 1, Watts = watts, Fuel = fuel, Interaction = true };
+        private static Template Single(LayoutFixtureKind kind, string def, int watts, bool fuel) =>
+            new Template { Kind = kind, Def = def, Length = 1, Depth = 1, Watts = watts, Fuel = fuel };
+        private static Template Wall(LayoutFixtureKind kind, string def, int length, int depth, int watts, bool fuel) =>
+            new Template { Kind = kind, Def = def, Length = length, Depth = depth, Watts = watts, Fuel = fuel };
+        private static Template Light(bool electric) => electric
+            ? Single(LayoutFixtureKind.Lamp, "StandingLamp", 30, false)
+            : Single(LayoutFixtureKind.Torch, "TorchLamp", 0, true);
+
+        private sealed class Room
+        {
+            private readonly int w;
+            private readonly int h;
+            private readonly int doorX;
+            private readonly byte[] state;
+            public readonly List<LayoutLocalFixture> Fixtures = new List<LayoutLocalFixture>();
+
+            public Room(int w, int h, int doorX)
+            {
+                this.w = w;
+                this.h = h;
+                this.doorX = doorX;
+                state = new byte[(w + 2) * (h + 2)];
+                state[Index(doorX, 1)] = KeepFree;
+            }
+
+            private int Index(int x, int z) => z * (w + 2) + x;
+            private bool Interior(GridPoint c) => c.X >= 1 && c.X <= w && c.Z >= 1 && c.Z <= h;
+            public bool IsKeepFree(GridPoint c) => state[Index(c.X, c.Z)] == KeepFree;
+
+            // Far wall first (opposite the door), then the side walls, then the door wall.
+            private IEnumerable<KeyValuePair<List<GridPoint>, GridPoint>> Slots(int length, int depth)
+            {
+                for (int t = 1; t + length - 1 <= w; t++) yield return Slot(t, length, depth, 0);
+                for (int t = h; t - length + 1 >= 1; t--) yield return Slot(t, length, depth, 1);
+                for (int t = h; t - length + 1 >= 1; t--) yield return Slot(t, length, depth, 2);
+                for (int t = 1; t + length - 1 <= w; t++) yield return Slot(t, length, depth, 3);
+            }
+
+            private KeyValuePair<List<GridPoint>, GridPoint> Slot(int t, int length, int depth, int wall)
+            {
+                List<GridPoint> cells = new List<GridPoint>();
+                GridPoint inward;
+                for (int a = 0; a < length; a++)
+                    for (int d = 0; d < depth; d++)
+                    {
+                        switch (wall)
+                        {
+                            case 0: cells.Add(new GridPoint(t + a, h - d)); break;
+                            case 1: cells.Add(new GridPoint(1 + d, t - a)); break;
+                            case 2: cells.Add(new GridPoint(w - d, t - a)); break;
+                            default: cells.Add(new GridPoint(t + a, 1 + d)); break;
+                        }
+                    }
+                switch (wall)
+                {
+                    case 0: inward = new GridPoint(0, -1); break;
+                    case 1: inward = new GridPoint(1, 0); break;
+                    case 2: inward = new GridPoint(-1, 0); break;
+                    default: inward = new GridPoint(0, 1); break;
+                }
+                return new KeyValuePair<List<GridPoint>, GridPoint>(cells, inward);
+            }
+
+            public bool Place(Template template, int count)
+            {
+                for (int placed = 0; placed < count; placed++)
+                {
+                    bool done = false;
+                    foreach (KeyValuePair<List<GridPoint>, GridPoint> slot in Slots(template.Length, template.Depth))
+                    {
+                        List<GridPoint> cells = slot.Key;
+                        GridPoint inward = slot.Value;
+                        if (!cells.All(c => Interior(c) && state[Index(c.X, c.Z)] == Free)) continue;
+                        List<GridPoint> access = new List<GridPoint>();
+                        if (template.Interaction)
+                        {
+                            // Centre of the front face, one step toward the room.
+                            GridPoint middle = cells[(template.Length / 2) * template.Depth + template.Depth - 1];
+                            GridPoint front = new GridPoint(middle.X + inward.X, middle.Z + inward.Z);
+                            if (!Interior(front) || state[Index(front.X, front.Z)] == Blocked) continue;
+                            access.Add(front);
+                        }
+                        if (TryCommit(cells, access))
+                        {
+                            Fixtures.Add(new LayoutLocalFixture(template.Kind, template.Def, cells, access, inward, true, template.Watts, template.Fuel));
+                            done = true;
+                            break;
+                        }
+                    }
+                    if (!done) return false;
+                }
+                return true;
+            }
+
+            public int PlaceTables(int count)
+            {
+                int placed = 0;
+                for (int z = h - 2; z >= 2 && placed < count; z--)
+                    for (int x = 2; x + 1 <= w - 1 && placed < count; x++)
+                    {
+                        GridPoint[] table = { new GridPoint(x, z), new GridPoint(x + 1, z), new GridPoint(x, z + 1), new GridPoint(x + 1, z + 1) };
+                        GridPoint[] chairs = { new GridPoint(x - 1, z), new GridPoint(x + 2, z + 1), new GridPoint(x, z + 2), new GridPoint(x + 1, z - 1) };
+                        if (!table.All(c => Interior(c) && state[Index(c.X, c.Z)] == Free)) continue;
+                        if (!chairs.All(c => Interior(c) && state[Index(c.X, c.Z)] == Free)) continue;
+                        if (!TryCommit(table.ToList(), chairs.ToList())) continue;
+                        Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Table, "Table2x2c", table, chairs, new GridPoint(0, -1), true, 0, false));
+                        foreach (GridPoint chair in chairs)
+                            Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Chair, "DiningChair", new[] { chair }, null, new GridPoint(0, 1), false, 0, false));
+                        placed++;
+                    }
+                return placed;
+            }
+
+            // Wall-mounted coolers sit in the door wall; their cold side faces
+            // the room and their exhaust the unroofed public cell outside.
+            public bool PlaceWallCoolers(int count, Func<int, bool> exhaustAllowed)
+            {
+                int placed = 0;
+                IEnumerable<int> order = Enumerable.Range(1, w).OrderBy(x => Math.Abs(Math.Abs(x - doorX) - 2)).ThenBy(x => x);
+                foreach (int x in order)
+                {
+                    if (placed >= count) break;
+                    if (x == doorX || (exhaustAllowed != null && !exhaustAllowed(x))) continue;
+                    GridPoint cold = new GridPoint(x, 1);
+                    if (state[Index(x, 1)] != Free) continue;
+                    if (!TryCommit(new List<GridPoint>(), new List<GridPoint> { cold })) continue;
+                    Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.WallCooler, "Cooler", new[] { new GridPoint(x, 0) },
+                        new[] { cold }, new GridPoint(0, 1), true, 200, false));
+                    placed++;
+                }
+                return placed >= count;
+            }
+
+            private bool TryCommit(List<GridPoint> blocking, List<GridPoint> keepFree)
+            {
+                if (keepFree.Any(c => !Interior(c) || state[Index(c.X, c.Z)] == Blocked || blocking.Contains(c))) return false;
+                byte[] backup = (byte[])state.Clone();
+                foreach (GridPoint c in blocking) state[Index(c.X, c.Z)] = Blocked;
+                foreach (GridPoint c in keepFree) state[Index(c.X, c.Z)] = KeepFree;
+                if (Connected(blocking)) return true;
+                Array.Copy(backup, state, state.Length);
+                return false;
+            }
+
+            private bool Connected(List<GridPoint> newBlocking)
+            {
+                HashSet<GridPoint> reach = new HashSet<GridPoint>(ReachableFree());
+                for (int z = 1; z <= h; z++)
+                    for (int x = 1; x <= w; x++)
+                        if (state[Index(x, z)] == KeepFree && !reach.Contains(new GridPoint(x, z))) return false;
+                IEnumerable<IEnumerable<GridPoint>> blockers = Fixtures.Where(f => f.Blocking && f.Kind != LayoutFixtureKind.WallCooler)
+                    .Select(f => (IEnumerable<GridPoint>)f.Cells);
+                if (newBlocking.Count > 0) blockers = blockers.Concat(new[] { (IEnumerable<GridPoint>)newBlocking });
+                foreach (IEnumerable<GridPoint> cells in blockers)
+                    if (!cells.Any(c => Adjacent(c).Any(reach.Contains))) return false;
+                return true;
+            }
+
+            public List<GridPoint> ReachableFree()
+            {
+                List<GridPoint> result = new List<GridPoint>();
+                bool[] seen = new bool[state.Length];
+                Queue<GridPoint> queue = new Queue<GridPoint>();
+                GridPoint entry = new GridPoint(doorX, 1);
+                queue.Enqueue(entry);
+                seen[Index(entry.X, entry.Z)] = true;
+                while (queue.Count > 0)
+                {
+                    GridPoint current = queue.Dequeue();
+                    result.Add(current);
+                    foreach (GridPoint next in Adjacent(current))
+                    {
+                        if (!Interior(next) || seen[Index(next.X, next.Z)] || state[Index(next.X, next.Z)] == Blocked) continue;
+                        seen[Index(next.X, next.Z)] = true;
+                        queue.Enqueue(next);
+                    }
+                }
+                result.Sort();
+                return result;
+            }
+
+            private static IEnumerable<GridPoint> Adjacent(GridPoint c)
+            {
+                yield return new GridPoint(c.X, c.Z - 1);
+                yield return new GridPoint(c.X - 1, c.Z);
+                yield return new GridPoint(c.X + 1, c.Z);
+                yield return new GridPoint(c.X, c.Z + 1);
+            }
+        }
+    }
+}
