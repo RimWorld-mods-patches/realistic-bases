@@ -102,6 +102,7 @@ P0–P3 findings remain historical evidence; no completed checks were rewritten.
 | P4.2 | Foothill/excavated-mountain layouts, roof/support/mutation recovery, and P3 geometry adaptation | 50/50 pure tests/Docker build; accepted Core 160×160 mountain spawn (187 owned rocks, real P3/mortar/gates/routes/arrival) and deep rollback (477 things, 298 roofs, one rock, checksum restored) passed. Foothill case remains. | In progress |
 | P4.3 | Lakeshore/peninsula/supported-island layouts with legal approach, bridge, gate, and circulation constraints | Versioned preserved-water footprint plus dry-route pure case passed; Core water/rejection cases remain. | In progress |
 | P4.4 | Layered fortifications, palettes/budgets/climate alternatives, P3/save-reload regression, Core/GL matrix, and exit | Actual runtime/recovery evidence and closeout commit | Pending |
+| P4.5 | Replace the fixed P2 compound with bounded, seeded demand/terrain-aware district packing, circulation, enclosure, and portals | Deterministic and varied geometry plus runtime/path/defense/recovery matrix; P4 may not close without it | Required |
 
 ## Activity log
 
@@ -134,3 +135,4 @@ P0–P3 findings remain historical evidence; no completed checks were rewritten.
 | 2026-09-21 | Passed the accepted Core mountain and deep recovery P4.2 paths: a 160×160 mountain excavated 187 owned rocks while preserving unowned rock and had valid P3/mortar/gates/routes/arrival; forced failure restored 477 things, 298 roofs, one rock, and the checksum before retry succeeded. |
 | 2026-09-21 | Added generated-foothill and terrain-following P3 harness support. The first Large Hills map was correctly classified as an excavated mountain and passed the accepted runtime path; the harness now targets Small Hills for an honest foothill case. |
 | 2026-09-22 | Added the P4 final planned-occupancy/cell-graph contract and connectivity architecture note. Public circulation now has one resident root, room-local target access is separate, and the former sealed inset-ring layout has a pure regression that fails with `public_root_blocked`. |
+| 2026-09-22 | Corrected P4 scope: P2's fixed 31×25 arrangement remains historical prototype evidence, not a procedural-layout result. Added required P4.5 seeded demand/terrain-aware packing, circulation, enclosure, portal, variation, and fallback-observability criteria before P4 can close. |

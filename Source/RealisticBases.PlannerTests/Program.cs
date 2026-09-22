@@ -46,6 +46,7 @@ internal static class Program
         Run("P4 non-mountain plans have no landform mutation", P4NonMountainPlansHaveNoLandformMutation);
         Run("P4 lakeshore plan preserves water and dry routes", P4LakeshorePlanPreservesWaterAndDryRoutes);
         Run("P4 final navigation rejects an inset wall that blocks the circulation root", P4ConnectivityRejectsBlockedInsetWall);
+        Run("P4 gatehouse layers are serially connected and reject offset or blocked crossings", P4GatehouseLayersValidateConnectivity);
         Run("P3 assignments are deterministic and exclusive", P3AssignmentsAreDeterministicAndExclusive);
         Run("P3 assignment is weapon and post aware", P3AssignmentIsWeaponAndPostAware);
         Run("P3 pursuit validates destination and full route", P3PursuitValidatesDestinationAndFullRoute);
@@ -492,6 +493,40 @@ internal static class Program
             basePlan.Archetype, basePlan.TerrainMutations);
         True(P4Connectivity.Validate(input.Terrain, invalid).Any(e => e == "public_root_blocked"),
             "inset wall is rejected by final resident cell graph");
+    }
+
+    private static void P4GatehouseLayersValidateConnectivity()
+    {
+        for (int layers = 1; layers <= 3; layers++)
+        {
+            PhysicalPlanningInput input = new PhysicalPlanningInput(P2ProfileCatalog.IndustrialTemperate,
+                FertileOpen(100, 100), 91, new[] { "BlocksGranite" }, 6400, TerrainArchetype.Flat, layers);
+            PhysicalPlanningResult result = PhysicalSettlementPlanner.Plan(input);
+            True(result.Success, "wall layer " + layers + " has a legal plan");
+            PhysicalSettlementPlan plan = result.Plan;
+            Equal(2 * (layers - 1), plan.ReinforcementGates.Count, "every added layer has north and south doors");
+            Equal(8 * (layers - 1), plan.ReinforcementPerimeter.Count, "gatehouse bands reserve four walls per crossing");
+            True(P4Connectivity.Validate(input.Terrain, plan).Count == 0, "serial gatehouse crossings reach the rooted public graph");
+            if (layers != 2) continue;
+
+            GridPoint vestibule = new GridPoint(plan.Gates[0].X, plan.Gates[0].Z - 1);
+            PhysicalSettlementPlan blocked = new PhysicalSettlementPlan(plan.InputDigest, plan.ProfileDigest,
+                plan.Compound, plan.Field, plan.Gates, plan.Perimeter, plan.ReinforcementGates,
+                plan.ReinforcementPerimeter.Concat(new[] { vestibule }), plan.WallLayers, plan.Logistics,
+                plan.FieldCells, plan.AttackRoute, plan.RetreatRoute, plan.Facilities, plan.Placements,
+                plan.LocalWallStuff, plan.CandidatesConsidered, plan.CandidateLimit, plan.Archetype, plan.TerrainMutations);
+            True(P4Connectivity.Validate(input.Terrain, blocked).Any(e => e.StartsWith("gatehouse_crossing_disconnected_")),
+                "blocked vestibule rejects a disconnected serial crossing");
+
+            GridPoint shifted = new GridPoint(plan.ReinforcementGates[0].X + 1, plan.ReinforcementGates[0].Z);
+            PhysicalSettlementPlan offset = new PhysicalSettlementPlan(plan.InputDigest, plan.ProfileDigest,
+                plan.Compound, plan.Field, plan.Gates, plan.Perimeter,
+                new[] { shifted, plan.ReinforcementGates[1] }, plan.ReinforcementPerimeter, plan.WallLayers,
+                plan.Logistics, plan.FieldCells, plan.AttackRoute, plan.RetreatRoute, plan.Facilities, plan.Placements,
+                plan.LocalWallStuff, plan.CandidatesConsidered, plan.CandidateLimit, plan.Archetype, plan.TerrainMutations);
+            True(P4Connectivity.Validate(input.Terrain, offset).Any(e => e.StartsWith("gatehouse_crossing_disconnected_")),
+                "offset gate is not accepted as a crossing");
+        }
     }
 
     private static PhysicalPlanningInput P2Input(PhysicalSettlementProfile profile) =>

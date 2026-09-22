@@ -57,7 +57,8 @@ namespace RealisticBases.Integration
             int prisonBeds = beds.Count(b => b.ForPrisoners);
             int medicalBeds = beds.Count(b => b.Medical);
             int wrongFactionBuildings = things.OfType<Building>().Count(b => b.def.CanHaveFaction && b.Faction != faction);
-            int gateDoors = plan.Gates.Count(g =>
+            List<GridPoint> allGates = plan.Gates.Concat(plan.ReinforcementGates).ToList();
+            int gateDoors = allGates.Count(g =>
             {
                 Building_Door door = ToCell(g).GetEdifice(map) as Building_Door;
                 return door != null && door.Faction == faction;
@@ -125,7 +126,7 @@ namespace RealisticBases.Integration
                 " hour=" + GenLocalDate.HourOfDay(map) + " ticks=" + GenTicks.TicksGame +
                 " facilitiesReachable=" + reachableFacilities + "/" + plan.Facilities.Count +
                 " ordinaryBeds=" + ordinaryBeds + "/" + profile.Residents + " prisonBeds=" + prisonBeds +
-                " medicalBeds=" + medicalBeds + " gateFactionDoors=" + gateDoors + "/" + plan.Gates.Count +
+                " medicalBeds=" + medicalBeds + " gateFactionDoors=" + gateDoors + "/" + allGates.Count +
                 " attackTopology=" + attackTopology + " retreatTopology=" + retreatTopology +
                 " interactionsUsable=" + usableInteractions + "/" + interactionBuildings +
                 " roofedCells=" + roofedFacilityCells + "/" + requiredRoofedCells +

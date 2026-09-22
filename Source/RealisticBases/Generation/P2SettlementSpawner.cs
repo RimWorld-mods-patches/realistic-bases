@@ -82,6 +82,10 @@ namespace RealisticBases.Generation
                     spawned.Add(SpawnBuilding(ThingDefOf.Wall, wallStuff, ToCell(cell), map, settlement.Faction, Rot4.North));
                 foreach (GridPoint gate in plan.Gates)
                     spawned.Add(SpawnBuilding(ThingDefOf.Door, wallStuff, ToCell(gate), map, settlement.Faction, Rot4.North));
+                foreach (GridPoint cell in plan.ReinforcementPerimeter)
+                    spawned.Add(SpawnBuilding(ThingDefOf.Wall, wallStuff, ToCell(cell), map, settlement.Faction, Rot4.North));
+                foreach (GridPoint gate in plan.ReinforcementGates)
+                    spawned.Add(SpawnBuilding(ThingDefOf.Door, wallStuff, ToCell(gate), map, settlement.Faction, Rot4.North));
 
                 foreach (PhysicalFacility facility in plan.Facilities.Where(f => f.Roofed))
                 {

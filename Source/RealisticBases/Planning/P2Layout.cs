@@ -293,8 +293,9 @@ namespace RealisticBases.Planning
         {
             TerrainSnapshot terrain = input.Terrain;
             int totalWidth = CompoundWidth + 1 + FieldWidth;
+            int exteriorDepth = 2 * input.WallLayers - 1;
             List<GridPoint> origins = new List<GridPoint>();
-            for (int z = 1; z + CompoundHeight < terrain.Height; z++)
+            for (int z = exteriorDepth; z + CompoundHeight + exteriorDepth - 1 < terrain.Height; z++)
                 for (int x = 1; x + totalWidth < terrain.Width; x++) origins.Add(new GridPoint(x, z));
             int centerX = terrain.Width / 2;
             int centerZ = terrain.Height / 2;
@@ -321,7 +322,7 @@ namespace RealisticBases.Planning
                 }
             }
             GridRect field;
-            if (!TryFindField(input.Terrain, compound, out field))
+            if (!TryFindField(input.Terrain, compound, input.WallLayers, out field))
             {
                 plan = null;
                 rejection = "field_cell_illegal";
@@ -336,8 +337,9 @@ namespace RealisticBases.Planning
             List<GridPoint> attackRoute;
             List<GridPoint> retreatRoute;
             int routeLimit = Math.Min(input.Terrain.Width * input.Terrain.Height, 10000);
-            if (!TryRouteToEdge(input.Terrain, new GridPoint(gates[0].X, gates[0].Z - 1), routeLimit, out attackRoute) ||
-                !TryRouteToEdge(input.Terrain, new GridPoint(gates[1].X, gates[1].Z + 1), routeLimit, out retreatRoute))
+            int outerDistance = 2 * input.WallLayers - 1;
+            if (!TryRouteToEdge(input.Terrain, new GridPoint(gates[0].X, gates[0].Z - outerDistance), routeLimit, out attackRoute) ||
+                !TryRouteToEdge(input.Terrain, new GridPoint(gates[1].X, gates[1].Z + outerDistance), routeLimit, out retreatRoute))
             {
                 plan = null;
                 rejection = "gate_edge_route";
@@ -360,15 +362,12 @@ namespace RealisticBases.Planning
             List<GridPoint> perimeter = compound.Points().Where(p =>
                 (p.X == compound.MinX || p.X == compound.MaxX || p.Z == compound.MinZ || p.Z == compound.MaxZ) &&
                 !gates.Contains(p)).ToList();
-            // Additional bands are deliberately not inferred by inserting an
-            // inset ring. P4Connectivity must reserve a complete gatehouse
-            // crossing and prove all resident paths before any band is added.
-            List<GridPoint> reinforcementGates = new List<GridPoint>();
-            List<GridPoint> reinforcementPerimeter = new List<GridPoint>();
-            if (input.WallLayers != 1)
+            List<GridPoint> reinforcementGates;
+            List<GridPoint> reinforcementPerimeter;
+            if (!TryBuildGatehouseBands(input.Terrain, compound, input.WallLayers, out reinforcementGates, out reinforcementPerimeter))
             {
                 plan = null;
-                rejection = "wall_layers_require_connectivity_layout";
+                rejection = "gatehouse_band_terrain";
                 return false;
             }
             HashSet<GridPoint> roomCells = new HashSet<GridPoint>(facilities.Where(f => f.Roofed).SelectMany(f => f.Bounds.Points()));
@@ -380,7 +379,8 @@ namespace RealisticBases.Planning
                 logistics, field.Points(), attackRoute, retreatRoute, facilities, placements,
                 input.LocalStuffDefs[0], considered, input.MaxCandidates, input.Archetype, mutations);
             // Persist only final, proven public circulation; it is not a room-complement label.
-            IReadOnlyCollection<GridPoint> publicReachable = PlannedNavigationGrid.Build(input.Terrain, plan).PublicReachable;
+            IReadOnlyCollection<GridPoint> publicReachable = PlannedNavigationGrid.Build(input.Terrain, plan).PublicReachable
+                .Where(compound.Contains).ToList();
             plan = new PhysicalSettlementPlan(input.Digest, input.Profile.Digest, compound, field, gates, perimeter,
                 reinforcementGates, reinforcementPerimeter, input.WallLayers,
                 publicReachable, field.Points(), attackRoute, retreatRoute, facilities, placements,
@@ -417,7 +417,7 @@ namespace RealisticBases.Planning
                 : Enumerable.Empty<PhysicalFacility>()).ToList();
         }
 
-        private static bool TryFindField(TerrainSnapshot terrain, GridRect compound, out GridRect field)
+        private static bool TryFindField(TerrainSnapshot terrain, GridRect compound, int wallLayers, out GridRect field)
         {
             GridRect[] candidates =
             {
@@ -426,9 +426,11 @@ namespace RealisticBases.Planning
                 new GridRect(compound.MinX + 10, compound.MinZ - FieldHeight - 1, FieldWidth, FieldHeight),
                 new GridRect(compound.MinX + 10, compound.MaxZ + 2, FieldWidth, FieldHeight)
             };
+            HashSet<GridPoint> gatehouseFootprint = GatehouseFootprint(compound, wallLayers);
             foreach (GridRect candidate in candidates)
             {
                 if (candidate.MinX < 0 || candidate.MinZ < 0 || candidate.MaxX >= terrain.Width || candidate.MaxZ >= terrain.Height) continue;
+                if (candidate.Points().Any(gatehouseFootprint.Contains)) continue;
                 if (candidate.Points().All(cell => terrain[cell].Has(TerrainTraits.Standable | TerrainTraits.Fertile) &&
                     !terrain[cell].HasAny(TerrainTraits.Water | TerrainTraits.Roofed | TerrainTraits.Occupied)))
                 {
@@ -438,6 +440,56 @@ namespace RealisticBases.Planning
             }
             field = default(GridRect);
             return false;
+        }
+
+        // Each additional layer is an external five-cell gatehouse band.  The
+        // one-cell vestibule between bands is deliberately left empty, so a
+        // pawn crosses every door in serial order instead of finding a side gap.
+        private static bool TryBuildGatehouseBands(TerrainSnapshot terrain, GridRect compound, int wallLayers,
+            out List<GridPoint> gates, out List<GridPoint> walls)
+        {
+            gates = new List<GridPoint>();
+            walls = new List<GridPoint>();
+            if (wallLayers == 1) return true;
+            foreach (int direction in new[] { -1, 1 })
+            {
+                for (int layer = 1; layer < wallLayers; layer++)
+                {
+                    int z = direction < 0 ? compound.MinZ - 2 * layer : compound.MaxZ + 2 * layer;
+                    for (int x = compound.MinX + 13; x <= compound.MinX + 17; x++)
+                    {
+                        GridPoint point = new GridPoint(x, z);
+                        if (!GatehouseCellUsable(terrain, point)) return false;
+                        if (x == compound.MinX + 15) gates.Add(point); else walls.Add(point);
+                    }
+                }
+                for (int offset = 1; offset < 2 * wallLayers - 1; offset++)
+                {
+                    int z = direction < 0 ? compound.MinZ - offset : compound.MaxZ + offset;
+                    if (!GatehouseCellUsable(terrain, new GridPoint(compound.MinX + 15, z))) return false;
+                }
+            }
+            return true;
+        }
+
+        private static bool GatehouseCellUsable(TerrainSnapshot terrain, GridPoint point) =>
+            terrain.InBounds(point) && terrain[point].Has(TerrainTraits.Standable | TerrainTraits.Buildable) &&
+            !terrain[point].HasAny(TerrainTraits.Water | TerrainTraits.Roofed | TerrainTraits.Occupied);
+
+        private static HashSet<GridPoint> GatehouseFootprint(GridRect compound, int wallLayers)
+        {
+            HashSet<GridPoint> result = new HashSet<GridPoint>();
+            foreach (int direction in new[] { -1, 1 })
+                for (int offset = 1; offset < 2 * wallLayers - 1; offset++)
+                    result.Add(new GridPoint(compound.MinX + 15,
+                        direction < 0 ? compound.MinZ - offset : compound.MaxZ + offset));
+            foreach (int direction in new[] { -1, 1 })
+                for (int layer = 1; layer < wallLayers; layer++)
+                {
+                    int z = direction < 0 ? compound.MinZ - 2 * layer : compound.MaxZ + 2 * layer;
+                    for (int x = compound.MinX + 13; x <= compound.MinX + 17; x++) result.Add(new GridPoint(x, z));
+                }
+            return result;
         }
 
         private static PhysicalFacility Facility(string id, FacilityKind kind, GridRect compound,
@@ -628,7 +680,9 @@ namespace RealisticBases.Planning
             if (plan.Gates.Count != 2 || plan.Gates.Any(g => !IsPerimeter(g, plan.Compound))) errors.Add("gates");
             if (plan.WallLayers != input.WallLayers || plan.WallLayers < 1 || plan.WallLayers > 3 ||
                 (plan.WallLayers == 1 && (plan.ReinforcementGates.Any() || plan.ReinforcementPerimeter.Any())) ||
-                plan.ReinforcementPerimeter.Intersect(plan.ReinforcementGates).Any()) errors.Add("wall_layers");
+                (plan.WallLayers > 1 && plan.ReinforcementGates.Count != 2 * (plan.WallLayers - 1)) ||
+                plan.ReinforcementPerimeter.Intersect(plan.ReinforcementGates).Any() ||
+                !GatehouseGeometryMatches(plan)) errors.Add("wall_layers");
             ValidateEdgeRoute(input.Terrain, plan.AttackRoute, errors, "attack_route");
             ValidateEdgeRoute(input.Terrain, plan.RetreatRoute, errors, "retreat_route");
             List<PhysicalFacility> roofedFacilities = plan.Facilities.Where(f => f.Roofed).ToList();
@@ -711,6 +765,23 @@ namespace RealisticBases.Planning
             yield return new GridPoint(point.X - 1, point.Z);
             yield return new GridPoint(point.X + 1, point.Z);
             yield return new GridPoint(point.X, point.Z + 1);
+        }
+
+        private static bool GatehouseGeometryMatches(PhysicalSettlementPlan plan)
+        {
+            HashSet<GridPoint> expectedGates = new HashSet<GridPoint>();
+            HashSet<GridPoint> expectedWalls = new HashSet<GridPoint>();
+            foreach (int direction in new[] { -1, 1 })
+                for (int layer = 1; layer < plan.WallLayers; layer++)
+                {
+                    int z = direction < 0 ? plan.Compound.MinZ - 2 * layer : plan.Compound.MaxZ + 2 * layer;
+                    for (int x = plan.Compound.MinX + 13; x <= plan.Compound.MinX + 17; x++)
+                    {
+                        GridPoint cell = new GridPoint(x, z);
+                        if (x == plan.Compound.MinX + 15) expectedGates.Add(cell); else expectedWalls.Add(cell);
+                    }
+                }
+            return expectedGates.SetEquals(plan.ReinforcementGates) && expectedWalls.SetEquals(plan.ReinforcementPerimeter);
         }
     }
 }

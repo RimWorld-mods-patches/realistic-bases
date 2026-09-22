@@ -48,12 +48,16 @@ namespace RealisticBases.Integration
             TerrainArchetypeResult terrainResult = TerrainArchetypePlanner.Plan(
                 new TerrainArchetypeInput(profile, snapshot, seed, ProductionCandidateLimit));
             TerrainArchetype archetype = terrainResult.Success ? terrainResult.Candidate.Archetype : TerrainArchetype.Flat;
-            PhysicalPlanningInput input = new PhysicalPlanningInput(profile, snapshot, seed, localMaterials, ProductionCandidateLimit, archetype);
+            int wallLayers = RealisticBasesMod.Settings.forceP4WallLayersNext;
+            if (wallLayers < 1 || wallLayers > 3) wallLayers = 1;
+            RealisticBasesMod.Settings.forceP4WallLayersNext = 0;
+            PhysicalPlanningInput input = new PhysicalPlanningInput(profile, snapshot, seed, localMaterials, ProductionCandidateLimit, archetype, wallLayers);
             Stopwatch planningWatch = Stopwatch.StartNew();
             PhysicalPlanningResult result = PhysicalSettlementPlanner.Plan(input);
             planningWatch.Stop();
             P2Log.Message("PLAN", "phase=" + phase + " profile=" + profile.Id + "/" + profile.Version +
                 " rules=" + P2Versions.Rules + " terrainRules=" + P4Versions.Rules + " archetype=" + archetype +
+                " wallLayers=" + wallLayers +
                 " terrainCandidates=" + terrainResult.CandidatesConsidered + "/" + ProductionCandidateLimit +
                 " inputDigest=" + input.Digest +
                 " snapshotDigest=" + snapshot.Digest + " localMaterials=" + string.Join(",", localMaterials.ToArray()) +

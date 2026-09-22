@@ -37,8 +37,9 @@ namespace RealisticBases.Planning
             foreach (GridPoint door in doors) blocked.Remove(door);
             HashSet<GridPoint> roomCells = new HashSet<GridPoint>(plan.Facilities.Where(f => f.Roofed).SelectMany(f => f.Bounds.Points()));
             HashSet<GridPoint> publicCells = new HashSet<GridPoint>(plan.Compound.Points().Where(c => !roomCells.Contains(c) || doors.Contains(c)));
+            publicCells.UnionWith(GatehousePassages(plan));
             publicCells.ExceptWith(blocked);
-            publicCells.UnionWith(doors.Where(c => plan.Compound.Contains(c) && !blocked.Contains(c)));
+            publicCells.UnionWith(doors.Where(c => !blocked.Contains(c) && (plan.Compound.Contains(c) || GatehousePassages(plan).Contains(c))));
             GridPoint root = InsideGate(plan.Gates[0], plan.Compound);
             return new PlannedNavigationGrid(terrain, plan, blocked, Flood(terrain, root, publicCells.Contains), doors);
         }
@@ -50,6 +51,8 @@ namespace RealisticBases.Planning
             GridPoint root = InsideGate(plan.Gates[0], plan.Compound);
             if (!reachable.Contains(root)) errors.Add("public_root_blocked");
             foreach (GridPoint gate in plan.Gates) if (!reachable.Contains(InsideGate(gate, plan.Compound))) errors.Add("gate_disconnected_" + gate);
+            foreach (GridPoint gate in plan.ReinforcementGates)
+                if (!reachable.Contains(gate)) errors.Add("gatehouse_crossing_disconnected_" + gate);
             foreach (PhysicalFacility facility in plan.Facilities.Where(f => f.Roofed)) ValidateFacility(facility, errors);
             return new ReadOnlyCollection<string>(errors.Distinct().ToList());
         }
@@ -66,6 +69,22 @@ namespace RealisticBases.Planning
         }
 
         private static bool BlocksMovement(PhysicalPlacement placement) => placement.Kind != PhysicalPlacementKind.Conduit && placement.Kind != PhysicalPlacementKind.FoodStock && placement.Kind != PhysicalPlacementKind.FuelStock;
+        private static HashSet<GridPoint> GatehousePassages(PhysicalSettlementPlan plan)
+        {
+            HashSet<GridPoint> result = new HashSet<GridPoint>();
+            foreach (GridPoint primary in plan.Gates)
+            {
+                bool north = primary.Z == plan.Compound.MinZ;
+                IEnumerable<GridPoint> matching = plan.ReinforcementGates.Where(g => g.X == primary.X &&
+                    (north ? g.Z < primary.Z : g.Z > primary.Z));
+                int outside = north
+                    ? matching.Select(g => g.Z).DefaultIfEmpty(primary.Z).Min()
+                    : matching.Select(g => g.Z).DefaultIfEmpty(primary.Z).Max();
+                int step = north ? -1 : 1;
+                for (int z = primary.Z; z != outside + step; z += step) result.Add(new GridPoint(primary.X, z));
+            }
+            return result;
+        }
         private static HashSet<GridPoint> Flood(TerrainSnapshot terrain, GridPoint start, Func<GridPoint, bool> allowed)
         {
             HashSet<GridPoint> result = new HashSet<GridPoint>(); if (!allowed(start)) return result;

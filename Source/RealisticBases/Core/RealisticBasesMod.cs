@@ -13,6 +13,7 @@ namespace RealisticBases.Core
         public bool forceRejectNext;
         public bool forcePartialFailureNext;
         public string forceP2ProfileNext;
+        public int forceP4WallLayersNext;
 
         public override void ExposeData()
         {
@@ -20,6 +21,7 @@ namespace RealisticBases.Core
             Scribe_Values.Look(ref forceRejectNext, "forceRejectNext", false);
             Scribe_Values.Look(ref forcePartialFailureNext, "forcePartialFailureNext", false);
             Scribe_Values.Look(ref forceP2ProfileNext, "forceP2ProfileNext", string.Empty);
+            Scribe_Values.Look(ref forceP4WallLayersNext, "forceP4WallLayersNext", 0);
         }
     }
 
@@ -56,7 +58,8 @@ namespace RealisticBases.Core
             P0Log.Message("SETTINGS", "generator=" + Settings.enableP0Generator +
                 " forceRejectNext=" + Settings.forceRejectNext +
                 " forcePartialFailureNext=" + Settings.forcePartialFailureNext +
-                " forceP2ProfileNext=" + Settings.forceP2ProfileNext);
+                " forceP2ProfileNext=" + Settings.forceP2ProfileNext +
+                " forceP4WallLayersNext=" + Settings.forceP4WallLayersNext);
         }
     }
 

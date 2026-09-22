@@ -5,7 +5,7 @@
 ## Scope and boundaries
 
 P4 extends the completed P0–P3 supplied encounter with terrain-adapted settlement
-archetypes and one-to-three physical wall layers. It must use generated terrain as
+archetypes, genuinely procedural settlement geometry, and one-to-three physical wall layers. It must use generated terrain as
 the authority: foothills, excavated mountain footholds, lakeshores, peninsulas, and
 viable islands are candidates only when their actual terrain, roof, support,
 approach, and capability constraints pass. It must not fabricate water, flatten a
@@ -39,7 +39,7 @@ scope.
   incompatible tiny, inaccessible, or narrow-pass candidates reject or use a
   terrain-preserving valid fallback. Bridges are constructed only where the actual
   terrain and RimWorld placement rules permit them.
-- Fortification layers are one through three physical wall rings, with coherent
+- Fortification layers are one through three physical wall rings or gatehouse bands, with coherent
   faction/local-material palettes, bounded imports/reinforcement budgets, and
   multiple functioning gates where the archetype supports them. No traps or IEDs.
 - Climate alternatives must be profile-capability legal and backed by real P2/P3
@@ -57,6 +57,7 @@ scope.
 | P4.2 | Foothill and excavated-mountain physical plans/spawning with explicit mutation footprints, roof support, natural-boundary preservation, and P3 geometry adapters | 50/50 combined pure tests and Docker Release build 0 warnings/errors. Core 160×160 excavated-mountain spawn passed: 187 owned rocks, unowned-rock preservation, routes/gates/utilities/P3/mortar/player arrival all passed. A forced partial mountain spawn restored 477 things, 298 roofs, one owned rock, and the terrain/roof checksum before successful retry. Foothill case remains. | In progress |
 | P4.3 | Lakeshore, peninsula, and supported-island plans with legal approach/bridge/gate/circulation validation | Versioned water-preservation footprint and dry-route pure case added (50/50). Core water and rejected inaccessible/tiny/narrow cases remain required. | In progress |
 | P4.4 | Layered fortifications, palettes/import budgets, climate alternatives, P3/save-reload regression, Core + Geological Landforms matrix, visual review, and exit decision | Actual final-map/path/roof/utility/combat/recovery observations, separate from estimates/screenshots | Pending |
+| P4.5 | Procedural settlement layout: derive demand-driven districts, room envelopes/portals, circulation, enclosure and gatehouse crossings through a bounded seeded packing search | Same-input replay; materially different valid layouts across fixed-terrain seeds, demand changes, and terrain constraints; connected room/job access for one to three wall layers; live path/defense/recovery evidence | Required before P4 can close |
 
 Source analysis, pure tests, build/static checks, and in-game observations remain
 separate evidence. A candidate label, screenshot, checksum, or optional-mod load
@@ -64,6 +65,31 @@ line is never proof of traversal, roof support, a functioning gate, or safe P3
 combat behavior.
 
 The resident-circulation correction is specified in [P4 connectivity](p4-connectivity.md).
+
+## P4.5 procedural-layout scope correction
+
+The completed P2 layout is a fixed 31×25 prototype: its room offsets, dimensions,
+and gate positions are hardcoded. Its prior runtime evidence remains valid evidence
+for spawning, supplies, rollback, power, and defensive behavior, but it is not
+evidence of a procedural settlement generator. P4 cannot close by translating,
+rotating, recoloring, or choosing among fixed compound templates.
+
+P4.5 will derive facility demand and capacity from the population and capability
+profile, generate a seeded adjacency/circulation graph, and use a bounded packing
+search over usable terrain. The room envelopes may remain rectangular and reuse
+small furnishing patterns, but their positions and dimensions, district/corridor
+arrangement, enclosing wall, gate positions, and each room portal must be planner
+outputs. Packing, circulation, enclosure, and one-to-three-layer gatehouse
+crossings are solved and repaired or rejected together. A fixed compact prototype
+may remain only as an explicit exceptional fallback; its use is logged so it cannot
+mask the normal generator.
+
+Required proof before P4 exit: deterministic replay; several fixed-terrain seeds
+whose internal layouts differ beyond translation/rotation; changed population or
+facility demand that coherently changes capacities and geometry; terrain that
+changes the selected layout rather than only relocating/rejecting the same
+rectangle; all room/job access connected through each supported wall thickness;
+and representative in-game visual, pathing, defense, and recovery regressions.
 
 ## Required live matrix
 
@@ -116,6 +142,17 @@ classification; inaccessible-island rejection without an assumed bridge; and
 bounded insufficient-land rejection. The Docker Release build passed with zero
 warnings/errors.
 
+## Gatehouse connectivity checkpoint
+
+`WallLayers` now reserves only five-cell external gatehouse bands rather than a
+sealed inset ring. Each additional north/south band has four walls, one faction
+door, and a one-cell vestibule; the finished public graph must cross every door in
+serial order to reach its one interior root. The plan validator requires the exact
+gatehouse geometry, and the spawner/audit treat all primary and reinforced doors as
+real structures. Pure tests cover one, two, and three layers plus a blocked
+vestibule and offset-door rejection. This does not yet prove an in-game multilayer
+run.
+
 ## Next action
 
 P4.2 now has a versioned `TerrainMutationFootprint`: each excavation is captured
@@ -158,5 +195,6 @@ to the edge is captured; P4 does not fabricate one.
 
 ## Next action
 
-Find and validate a real Core foothill map, then continue the independent lakeshore
-and P4.4 matrix. No P5/P6 work enters this step.
+Implement P4.5's bounded procedural layout solver after the gatehouse runtime
+smoke test, then validate the remaining real Core foothill, lakeshore, and P4 matrix
+cases. No P5/P6 work enters this step.

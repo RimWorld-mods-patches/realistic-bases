@@ -294,6 +294,22 @@ namespace RealisticBases.Diagnostics
             P2Log.Message("DEBUG_ARM", "forceP2ProfileNext=tribal");
         }
 
+        [DebugAction(Category, "Use two P4 wall layers for next generation", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void ForceTwoP4WallLayers()
+        {
+            RealisticBasesMod.Settings.forceP4WallLayersNext = 2;
+            P2Log.Message("DEBUG_ARM", "forceP4WallLayersNext=2");
+        }
+
+        [DebugAction(Category, "Use three P4 wall layers for next generation", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void ForceThreeP4WallLayers()
+        {
+            RealisticBasesMod.Settings.forceP4WallLayersNext = 3;
+            P2Log.Message("DEBUG_ARM", "forceP4WallLayersNext=3");
+        }
+
         [DebugAction(Category, "Log current map generation audit", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
         private static void LogMapAudit()
