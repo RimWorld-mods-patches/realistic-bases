@@ -5,7 +5,7 @@
 ## Scope and boundaries
 
 P4 extends the completed P0–P3 supplied encounter with terrain-adapted settlement
-archetypes, genuinely procedural settlement geometry, and one-to-three physical wall layers. It must use generated terrain as
+archetypes and one-to-three physical wall layers. It must use generated terrain as
 the authority: foothills, excavated mountain footholds, lakeshores, peninsulas, and
 viable islands are candidates only when their actual terrain, roof, support,
 approach, and capability constraints pass. It must not fabricate water, flatten a
@@ -57,7 +57,6 @@ scope.
 | P4.2 | Foothill and excavated-mountain physical plans/spawning with explicit mutation footprints, roof support, natural-boundary preservation, and P3 geometry adapters | 50/50 combined pure tests and Docker Release build 0 warnings/errors. Core 160×160 excavated-mountain spawn passed: 187 owned rocks, unowned-rock preservation, routes/gates/utilities/P3/mortar/player arrival all passed. A forced partial mountain spawn restored 477 things, 298 roofs, one owned rock, and the terrain/roof checksum before successful retry. Foothill case remains. | In progress |
 | P4.3 | Lakeshore, peninsula, and supported-island plans with legal approach/bridge/gate/circulation validation | Versioned water-preservation footprint and dry-route pure case added (50/50). Core water and rejected inaccessible/tiny/narrow cases remain required. | In progress |
 | P4.4 | Layered fortifications, palettes/import budgets, climate alternatives, P3/save-reload regression, Core + Geological Landforms matrix, visual review, and exit decision | Actual final-map/path/roof/utility/combat/recovery observations, separate from estimates/screenshots | Pending |
-| P4.5 | Procedural settlement layout: derive demand-driven districts, room envelopes/portals, circulation, enclosure and gatehouse crossings through a bounded seeded packing search | Same-input replay; materially different valid layouts across fixed-terrain seeds, demand changes, and terrain constraints; connected room/job access for one to three wall layers; live path/defense/recovery evidence | Required before P4 can close |
 
 Source analysis, pure tests, build/static checks, and in-game observations remain
 separate evidence. A candidate label, screenshot, checksum, or optional-mod load
@@ -66,7 +65,7 @@ combat behavior.
 
 The resident-circulation correction is specified in [P4 connectivity](p4-connectivity.md).
 
-## P4.5 procedural-layout scope correction
+## Deferred P4A — procedural settlement layouts
 
 The completed P2 layout is a fixed 31×25 prototype: its room offsets, dimensions,
 and gate positions are hardcoded. Its prior runtime evidence remains valid evidence
@@ -74,7 +73,7 @@ for spawning, supplies, rollback, power, and defensive behavior, but it is not
 evidence of a procedural settlement generator. P4 cannot close by translating,
 rotating, recoloring, or choosing among fixed compound templates.
 
-P4.5 will derive facility demand and capacity from the population and capability
+P4A will derive facility demand and capacity from the population and capability
 profile, generate a seeded adjacency/circulation graph, and use a bounded packing
 search over usable terrain. The room envelopes may remain rectangular and reuse
 small furnishing patterns, but their positions and dimensions, district/corridor
@@ -84,7 +83,9 @@ crossings are solved and repaired or rejected together. A fixed compact prototyp
 may remain only as an explicit exceptional fallback; its use is logged so it cannot
 mask the normal generator.
 
-Required proof before P4 exit: deterministic replay; several fixed-terrain seeds
+P4 therefore remains a terrain/fortification milestone and may retain its fixed
+internal prototype until P4A begins under separate authorization. P4A proof will
+require deterministic replay; several fixed-terrain seeds
 whose internal layouts differ beyond translation/rotation; changed population or
 facility demand that coherently changes capacities and geometry; terrain that
 changes the selected layout rather than only relocating/rejecting the same
@@ -195,6 +196,6 @@ to the edge is captured; P4 does not fabricate one.
 
 ## Next action
 
-Implement P4.5's bounded procedural layout solver after the gatehouse runtime
-smoke test, then validate the remaining real Core foothill, lakeshore, and P4 matrix
-cases. No P5/P6 work enters this step.
+Validate the remaining real Core foothill, lakeshore, and P4 matrix cases. P4A's
+bounded procedural-layout solver is explicitly deferred until separately authorized;
+P5/P6 remain unstarted.

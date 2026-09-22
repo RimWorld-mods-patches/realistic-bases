@@ -30,6 +30,6 @@ resident `TraverseParms`/job semantics and must exercise gate-to-room service pa
 The current checkpoint represents extra thickness as external gatehouse bands:
 four walls and one aligned door per added north/south barrier, separated by a
 single-cell vestibule. This is intentionally not a claim that the fixed prototype
-already has a procedural multilayer perimeter. P4.5 must derive the enclosure and
+already has a procedural multilayer perimeter. P4A must derive the enclosure and
 gate locations from its generated packing/circulation solution and preserve this
 same crossing contract.
