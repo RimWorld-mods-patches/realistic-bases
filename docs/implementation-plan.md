@@ -105,9 +105,36 @@ Integrate Geological Landforms through generated terrain first; add metadata/per
 
 **Exit:** accepted plans survive final-map validation across the terrain matrix. Unsupported island/mountain candidates fall back without damaging the landform. Outer appearance, arrival access, and circulation receive visual review; screenshots alone do not establish pathing or roof safety.
 
+### P4.5 — Procedural settlement layout
+
+**Depends on:** P4 connectivity and terrain contracts.
+
+Replace the fixed whole-settlement compound with a bounded, seeded planner that
+derives facility capacities from the profile/population, packs terrain-legal room
+envelopes and districts, generates their shared circulation and portals, and then
+derives the enclosure, gates, and one-to-three-layer gatehouse crossings from that
+same solution. Reusable small room-furnishing patterns remain allowed. A compact
+fixed arrangement may exist only as an explicitly labelled exceptional fallback;
+its selection frequency and reason must be reported.
+
+Translation, rotation, material variation, site selection, or choosing between
+fixed templates alone does not satisfy this milestone. Packing, circulation,
+perimeter, portals, and terrain constraints must repair or reject together while
+preserving the established facility, job-access, roof, defense, recovery, and
+bounded-deterministic-search contracts.
+
+**Exit:** fixed input replays identically; several seeds on fixed terrain yield
+meaningfully different internal layouts beyond translation/rotation; population or
+facility demand changes capacity and geometry coherently; terrain changes selected
+layout rather than merely relocating/rejecting the same rectangle; all room/job
+access remains connected for each supported wall thickness; and representative
+live pathing, defense, visual, and rollback cases pass. This step requires separate
+implementation work; it is recorded here before P5 rather than implied by P2's
+fixed-layout prototype.
+
 ### P5 — Encounter supplies, trade stock, and persistent consequences
 
-**Depends on:** P3; apply P4 archetypes as they become valid. Revised by the user on 2026-09-20; [supply and MVP scope](supply-and-mvp-scope.md) defines the detailed contract.
+**Depends on:** P3, P4, and P4.5. Revised by the user on 2026-09-20; [supply and MVP scope](supply-and-mvp-scope.md) defines the detailed contract.
 
 Use three in-game days as a provisional routine-supply horizon and a separately stated combat duty budget (initial target: six hours of engagement at declared equipment-specific firing duty within that visit). These are tunable planning defaults, not evidence of how long players stay. Back routine needs and defense with finite actual stocks, account for food spoilage and actual connected power loads, and maintain essential needs/refueling/reload/hauling/tending support. Production is best effort; no unobserved harvest or manufacture may fund the guaranteed encounter budget. Existing larger P2 reserves need not be reduced.
 
