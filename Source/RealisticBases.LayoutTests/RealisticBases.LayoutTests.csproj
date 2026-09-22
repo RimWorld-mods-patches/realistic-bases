@@ -16,5 +16,6 @@
     <Compile Include="../RealisticBases/Planning/ProceduralLayoutModel.cs" Link="Planning/ProceduralLayoutModel.cs" />
     <Compile Include="../RealisticBases/Planning/ProceduralLayoutPlanner.cs" Link="Planning/ProceduralLayoutPlanner.cs" />
     <Compile Include="../RealisticBases/Planning/ProceduralLayoutValidator.cs" Link="Planning/ProceduralLayoutValidator.cs" />
+    <Compile Include="../RealisticBases/Planning/SettlementTechStage.cs" Link="Planning/SettlementTechStage.cs" />
   </ItemGroup>
 </Project>

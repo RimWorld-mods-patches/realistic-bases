@@ -102,6 +102,18 @@ namespace RealisticBases.Planning
             return StableHash.Add(hash, profileVersion);
         }
 
+        // Faction-wide seed: world and faction only, so every settlement of the
+        // faction shares it. The planner version is deliberately excluded, so a
+        // planner bump never re-rolls faction-wide choices such as the tech stage.
+        // Integration must still persist the resolved stage per faction.
+        public static ulong DeriveFaction(string worldSeed, string factionId)
+        {
+            ulong hash = StableHash.Start;
+            hash = StableHash.Add(hash, "p4a-faction-seed");
+            hash = StableHash.Add(hash, worldSeed ?? string.Empty);
+            return StableHash.Add(hash, factionId ?? string.Empty);
+        }
+
         // Independent purpose streams, so a rule change in one does not reshuffle the others.
         public static ulong Sub(ulong seed, string purpose) => StableHash.Add(StableHash.Add(StableHash.Start, seed), purpose ?? string.Empty);
 

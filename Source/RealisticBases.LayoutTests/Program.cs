@@ -40,6 +40,10 @@ internal static class Program
         Run("roof support ignores built walls and rejects wide halls", RoofSupportRule);
         Run("gatehouse crossings reserve one to three layers", WallLayers);
         Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck);
+        Run("tech stage is stable per faction", TechStageStablePerFaction);
+        Run("tech stage respects every faction band", TechStageBands);
+        Run("tech stage research sets are monotonic", TechStageMonotonic);
+        Run("tech stage adaptations and step-down", TechStageAdaptations);
         Console.WriteLine("P4A layout foundation tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures +
             " elapsedMs=" + watch.ElapsedMilliseconds);
         return failures == 0 ? 0 : 1;
@@ -557,6 +561,120 @@ internal static class Program
         bool exit = x >= 0 && x < 25 && z >= 54 && z < 57;
         return west || east || pass || exit ? Ground : TerrainTraits.None;
     });
+
+    // ---- tech stage ----
+
+    private static void TechStageStablePerFaction()
+    {
+        ulong seed = LayoutSeed.DeriveFaction("world", "Faction_12");
+        Equal(seed, LayoutSeed.DeriveFaction("world", "Faction_12"), "faction seed stable");
+        NotEqual(seed, LayoutSeed.DeriveFaction("world", "Faction_13"), "faction participates");
+        NotEqual(seed, LayoutSeed.DeriveFaction("other", "Faction_12"), "world participates");
+        SettlementTechStage first, second;
+        string diagnostic;
+        True(TechStageModel.TryResolve(TechTier.Industrial, seed, out first, out diagnostic) && diagnostic == null, "industrial resolves");
+        True(TechStageModel.TryResolve(TechTier.Industrial, seed, out second, out diagnostic), "industrial resolves again");
+        Equal(first.Level, second.Level, "same faction, same stage");
+        Equal(first.Digest, second.Digest, "same faction, same digest");
+        // Settlement identity (tile, profile) cannot influence the faction stage:
+        // the resolver only sees the faction seed.
+        HashSet<SettlementTechStageLevel> seen = new HashSet<SettlementTechStageLevel>();
+        for (int i = 0; i < 200; i++)
+        {
+            SettlementTechStage stage;
+            TechStageModel.TryResolve(TechTier.Industrial, LayoutSeed.DeriveFaction("world", "Faction_" + i), out stage, out diagnostic);
+            seen.Add(stage.Level);
+        }
+        Equal(3, seen.Count, "different factions spread over the band");
+    }
+
+    private static void TechStageBands()
+    {
+        foreach (TechTier tier in Enum.GetValues(typeof(TechTier)).Cast<TechTier>())
+        {
+            IReadOnlyList<KeyValuePair<SettlementTechStageLevel, int>> band = TechStageModel.Band(tier);
+            SettlementTechStage stage;
+            string diagnostic;
+            if (tier == TechTier.Undefined || tier == TechTier.Animal)
+            {
+                Equal(0, band.Count, tier + " has no band");
+                True(!TechStageModel.TryResolve(tier, 1, out stage, out diagnostic) && stage == null, tier + " unsupported");
+                True(diagnostic.StartsWith(TechStageModel.UnsupportedTechLevel), "unsupported diagnostic");
+                continue;
+            }
+            Equal(100, band.Sum(b => b.Value), tier + " weights sum to 100");
+            Dictionary<SettlementTechStageLevel, int> counts = new Dictionary<SettlementTechStageLevel, int>();
+            const int samples = 4000;
+            for (int i = 0; i < samples; i++)
+            {
+                True(TechStageModel.TryResolve(tier, LayoutSeed.DeriveFaction("world-" + tier, "Faction_" + i), out stage, out diagnostic), tier + " resolves");
+                True(band.Any(b => b.Key == stage.Level), tier + " stage in band: " + stage.Level);
+                int count;
+                counts[stage.Level] = counts.TryGetValue(stage.Level, out count) ? count + 1 : 1;
+            }
+            foreach (KeyValuePair<SettlementTechStageLevel, int> entry in band)
+            {
+                int count;
+                counts.TryGetValue(entry.Key, out count);
+                int percent = count * 100 / samples;
+                True(Math.Abs(percent - entry.Value) <= 3, tier + " " + entry.Key + " frequency " + percent + "% vs weight " + entry.Value);
+            }
+        }
+        Equal(TechStageModel.Band(TechTier.Spacer).Count, TechStageModel.Band(TechTier.Archotech).Count, "archotech clamps to spacer band");
+        True(TechStageModel.Band(TechTier.Ultra).Select(b => b.Key).SequenceEqual(TechStageModel.Band(TechTier.Spacer).Select(b => b.Key)), "ultra clamps to spacer band");
+    }
+
+    private static void TechStageMonotonic()
+    {
+        SettlementTechStage previous = null;
+        foreach (SettlementTechStageLevel level in TechStageModel.Levels)
+        {
+            SettlementTechStage stage = TechStageModel.Create(level);
+            Equal(TechStageVersions.Schema, stage.SchemaVersion, "schema version");
+            True(stage.Research.SequenceEqual(stage.Research.OrderBy(r => r, StringComparer.Ordinal).Distinct()), level + " research sorted and distinct");
+            True(TechStageModel.AddedResearch(level).All(stage.HasResearch), level + " contains its added research");
+            if (previous != null)
+            {
+                True(previous.Research.All(stage.HasResearch), level + " contains every earlier research");
+                True(stage.Research.Count > previous.Research.Count, level + " adds research");
+                True(stage.Ceiling >= previous.Ceiling, level + " ceiling never drops");
+                NotEqual(previous.Digest, stage.Digest, level + " digest differs");
+            }
+            previous = stage;
+        }
+        SettlementTechStage neolithic = TechStageModel.Create(SettlementTechStageLevel.Neolithic);
+        True(!neolithic.HasResearch("ComplexFurniture") && !neolithic.HasResearch("Smithing") && !neolithic.HasResearch("Stonecutting"), "tribal stays tribal");
+        Equal(TechTier.Neolithic, neolithic.Ceiling, "neolithic ceiling");
+        Equal(TechTier.Medieval, TechStageModel.Create(SettlementTechStageLevel.Medieval).Ceiling, "medieval ceiling");
+        Equal(TechTier.Industrial, TechStageModel.Create(SettlementTechStageLevel.IndustrialLate).Ceiling, "industrial ceiling");
+        Equal(TechTier.Spacer, TechStageModel.Create(SettlementTechStageLevel.Spacer).Ceiling, "spacer ceiling");
+        SettlementTechStage early = TechStageModel.Create(SettlementTechStageLevel.IndustrialEarly);
+        True(early.HasResearch("Electricity") && early.HasResearch("Smithing") && !early.HasResearch("FlakArmor"), "early industrial set");
+        True(TechStageModel.Create(SettlementTechStageLevel.IndustrialMid).HasResearch("SterileMaterials"), "HospitalBed prerequisite in mid");
+        True(TechStageModel.Create(SettlementTechStageLevel.IndustrialLate).HasResearch("Prosthetics"), "Bionics prerequisite in late");
+    }
+
+    private static void TechStageAdaptations()
+    {
+        SettlementTechStage tribal = TechStageModel.Create(SettlementTechStageLevel.Neolithic);
+        SettlementTechStage adapted = tribal.WithAdaptation("Stonecutting", "local_wood_scarce");
+        True(!tribal.HasResearch("Stonecutting") && tribal.Adaptations.Count == 0, "original unchanged");
+        True(adapted.HasResearch("Stonecutting") && !adapted.BaseResearch.Contains("Stonecutting"), "adaptation adds research only");
+        Equal("local_wood_scarce", adapted.Adaptations.Single().Reason, "reason recorded");
+        Equal(TechTier.Neolithic, adapted.Ceiling, "adaptation never raises ceiling");
+        NotEqual(tribal.Digest, adapted.Digest, "adaptation participates in digest");
+        True(ReferenceEquals(adapted, adapted.WithAdaptation("Stonecutting", "again")), "duplicate adaptation is a no-op");
+        True(ReferenceEquals(adapted, adapted.WithAdaptation("TreeSowing", "base")), "adaptation of base research is a no-op");
+        Equal(adapted.Digest, tribal.WithAdaptation("Stonecutting", "local_wood_scarce").Digest, "adaptation digest stable");
+
+        SettlementTechStage lower;
+        True(!adapted.TryStepDown(out lower) && lower == null, "neolithic cannot step down");
+        SettlementTechStage mid = TechStageModel.Create(SettlementTechStageLevel.IndustrialMid).WithAdaptation("Fabrication", "test");
+        True(mid.TryStepDown(out lower), "mid steps down");
+        Equal(SettlementTechStageLevel.IndustrialEarly, lower.Level, "one level lower");
+        True(lower.HasResearch("Fabrication") && lower.Adaptations.Count == 1, "step-down keeps adaptations");
+        True(!lower.HasResearch("FlakArmor"), "step-down drops the stage's own research");
+    }
 
     private static void Run(string name, Action test)
     {

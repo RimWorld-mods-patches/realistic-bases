@@ -51,9 +51,11 @@ A settlement's furniture, buildings, construction materials, power, weapons, app
 | Neolithic | TribalStart | Neolithic |
 | Medieval | ComplexFurniture, ComplexClothing, Stonecutting, Smithing, LongBlades, PlateArmor, Greatbow, CarpetMaking | Medieval |
 | IndustrialEarly | ClassicStart, Batteries, Machining, Gunsmithing, Mortars | Industrial |
-| IndustrialMid | BlowbackOperation, GasOperation, FlakArmor, GunTurrets, MicroelectronicsBasics, HospitalBed, PrecisionRifling, DrugProduction, MedicineProduction, SolarPanels, WatermillGenerator, GeothermalPower, BiofuelRefining, SmokepopBelt, Firefoam | Industrial |
-| IndustrialLate | MultiAnalyzer, VitalsMonitor, MultibarrelWeapons, HeavyTurrets, Fabrication | Industrial |
+| IndustrialMid | BlowbackOperation, GasOperation, FlakArmor, GunTurrets, MicroelectronicsBasics, SterileMaterials, HospitalBed, PrecisionRifling, DrugProduction, MedicineProduction, SolarPanels, WatermillGenerator, GeothermalPower, BiofuelRefining, SmokepopBelt, Firefoam | Industrial |
+| IndustrialLate | MultiAnalyzer, VitalsMonitor, MultibarrelWeapons, HeavyTurrets, Fabrication, Prosthetics | Industrial |
 | Spacer | ShieldBelt, ChargedShot, ReconArmor, PoweredArmor, Bionics | Spacer |
+
+The prerequisite-closure check against Core defs found SterileMaterials (needed by HospitalBed) and Prosthetics (needed by Bionics); both were added to the table.
 
 Adaptations (such as Stonecutting) add research per settlement with a recorded reason. The IED research is never used: the prohibited-content classifier removes traps and IEDs before legality is checked.
 
