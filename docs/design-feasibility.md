@@ -27,6 +27,7 @@ This is a source-informed feasibility assessment, not a claim that the design al
 | Turrets, cover, mortars and shell variety | Only equipment the settlement can operate, staff, supply, and afford | Core defenses first; specialized shell tactics later |
 | Energy and shell accumulation | Real stored energy and finite supplies cover the encounter; feasible support jobs consume real inputs | Encounter readiness in MVP; sustained production post-MVP |
 | Settlement trade stock | Trade goods reflect this settlement’s actual offer, separately from operating reserves; one quantity/ownership record | P5, supported ordinary item types first |
+| Settlement specialization | Agriculture/industry first; evaluate mining, ranching, forestry, trade, military, medical and research profiles; verify feasibility of influencing offered products while preserving canonical stock and saved identity | P7, final planned step after MVP |
 | Defenders hold position | Sector defense, limited pursuit, reserves, local fallback, and needs relief | First playable version |
 | No traps or IEDs | Hard content invariant, including inherited generation and fallback paths | Every milestone |
 

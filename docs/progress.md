@@ -1,6 +1,6 @@
 # Realistic Bases: progress tracker
 
-Updated: 2026-09-23
+Updated: 2026-09-24
 
 ## Current state
 
@@ -19,8 +19,9 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 | P3 — Playable defensive encounter | Complete | Bounded local garrison, physical mortar supply, save/reload, full failure matrix, tribal exclusions, and Core/GL regression passed; see [P3 findings](p3-findings.md) |
 | P4 — Terrain variety and stronger fortifications | In progress | Finish terrain and fortifications on the P4A procedural generator; see [P4 findings](p4-findings.md) |
 | P4A — Procedural settlement layouts | In progress | Core flat/mountain/foothill, three wall layers, forced rollback, cooler-room audit, and P3 save/reload pass; lakeshore, climate, tribal, and optional-mod matrix remain |
-| P5 — Encounter supplies, trade stock, and persistent consequences | Not started | Revised scope: bounded routine/combat reserves, trade consistency and no-duplication persistence; full sustainability post-MVP |
-| P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage |
+| P5 — Encounter supplies, trade stock, and persistent consequences | Not started | Bounded reserves, trade consistency, no-duplication persistence, and accessible/separate hazardous stock placement where justified; full sustainability deferred |
+| P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage; add route diagnostics, evidence-driven soft-preference tuning, reproducibility and encounter-quality review |
+| P7 — Settlement specialization | Not started (post-MVP) | Final planned step: agriculture/industry first; evaluate mining, ranching, forestry, trading, military, medical and research profiles; verify trade-product influence feasibility |
 
 ## P0 checklist
 
@@ -107,6 +108,12 @@ P0–P3 findings remain historical evidence; no completed checks were rewritten.
 
 The 2026-09-23 scope change supersedes the earlier ordering that deferred P4A until P4 closeout. Do not count fixed-compound passes as procedural runtime evidence. P4 and P4A exit only after the new path passes their pure, build, Core, GL, and recovery gates.
 
+## Future planning update — 2026-09-24
+
+The user accepted the bounded ideas from the [colleague-design review](colleague-design-review.md) for future milestones. P5 handles justified hazardous-stock separation while preserving reserve/trade ownership. P6 measures important actual routes before changing soft preferences or bounded candidate scoring, and reviews encounter quality with reproducible inputs. Existing connectivity and functional constraints remain mandatory; no global optimizer, new broad room catalog or Multiplayer work is added.
+
+P7 is the final planned milestone, after the P6 MVP release: agriculture/industry first, followed by feasibility-ranked mining/quarrying, ranching, forestry, trading, military, medical and research candidates. Specialization changes facility demand and layout emphasis. Explicitly investigate whether supported hooks can influence actual offered products at initial stock creation/restock; preserve existing offers and document unsupported cases. It retains basic settlement functions, finite encounter supplies, stable saved identity and no-duplication behavior. Full sustainability remains deferred. All added work is planned, not completed; current P4/P4A closeout is unchanged. Commit each validated implementation step separately.
+
 ## Activity log
 
 | Date | Update |
@@ -146,3 +153,4 @@ The 2026-09-23 scope change supersedes the earlier ordering that deferred P4A un
 | 2026-09-23 | Fixed flat-map failures: actionable rejection diagnostics, contiguous-thick-roof doctrine choice, reserved fallback site budget, clearer open-ground anchors, and owned excavation of non-thick natural rock. A scattered-rock pure regression and mod build pass. A clean single-process Core flat run generated nine rooms, two gates, 101 owned rock removals, 124 crops, five live outdoor cooler exhausts, four defenders and a mortar; final checksum and arrival passed. Overlapping-process results were discarded and the run-game skill now requires exact-profile process verification. |
 | 2026-09-23 | A single-process forced-partial run on a Flat world tile restored 334 owned things and the original checksum, then regenerated and passed final checksum/arrival. Its layout was rock-protected; open-ground boulder-clearance rollback remains a distinct untested subpath. |
 | 2026-09-24 | Reproduced a further flat-map planner rejection with a deterministic synthetic 160×160 clustered-rock/sparse-edifice fixture. Fixed over-expansion of fortification setbacks around existing edifices and perimeter collisions with them. Four fixture variants and the full pure layout suite pass, with no built wall on an existing edifice; Release build passes. The exact rejected live tile still needs retest, so P4/P4A remains open. |
+| 2026-09-24 | Added accepted review ideas to future P5/P6 scope and P7 settlement specialization as the final post-MVP milestone, including additional candidate profiles and an explicit trade-product influence feasibility check. Planning only; P4/P4A implementation scope/status unchanged. |

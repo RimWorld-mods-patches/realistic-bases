@@ -1,6 +1,6 @@
 # Realistic Bases: implementation plan
 
-2026-09-14 · Scope revised 2026-09-20 · Implementation status is tracked in [progress](progress.md)
+2026-09-14 · Scope revised 2026-09-24 · Implementation status is tracked in [progress](progress.md)
 
 Read the [design and feasibility assessment](design-feasibility.md) for intended behavior and [research notes](research-notes.md) for evidence. Milestones below are release gates, not claims of completed work.
 
@@ -21,6 +21,8 @@ Read the [design and feasibility assessment](design-feasibility.md) for intended
 | Long-term food/fuel/shell production balance and seasonal survival | Post-MVP; explicitly deferred in [supply scope](supply-and-mvp-scope.md) |
 | Persistent damage, depletion, casualties and revisits | Planned P5; early lifecycle experiment in P0 |
 | Specialized mortar shell selection/targeting | Planned P6; HE/incendiary baseline P3 |
+| Route diagnostics and evidence-driven layout/encounter tuning | P6; reuse existing relationships, occupancy validation and bounded search |
+| Settlement specializations | P7, final planned milestone after MVP; agriculture/industry first, then feasibility-ranked profiles |
 | Modded factions, additional DLC, Combat Extended | Rescheduled to optional adapters after the Core release; separate compatibility workloads |
 | Detailed off-map simulation of every pawn | Declined; unnecessary runtime/save burden for this design |
 | Coarse off-map production, economic simulation and supply convoys | Post-MVP; ordinary trade-stock consistency remains P5 |
@@ -50,6 +52,8 @@ Central records: `SettlementProfile`, `TerrainSnapshot`, `SettlementPlan`, `Faci
 Hard invariants live in validators shared by planning, fallback, and final-map checks. Def and template loading should reject unsupported or prohibited content before generation. Only approved defensive defs enter the spawn catalog; include class/component/category checks for traps and deny unknown modded defenses until classified.
 
 ## 3. Milestones
+
+**2026-09-24 planning update:** Adopt the bounded recommendations from the [colleague-design review](colleague-design-review.md) in future P5/P6 work and add P7 specialization as the final planned milestone. This does not expand current P4/P4A closeout. Keep the existing planner; the large room catalog, simulated annealing, general clustering/room-merging frameworks, friendly visits and Multiplayer integration remain deferred or outside the initial release.
 
 ### P0 — Resolve the technical risks
 
@@ -150,6 +154,8 @@ Divide inventory into operating reserves and sale goods without double counting.
 
 Keep trade goods within storage and loot/value constraints by changing capacity or the authoritative offer coherently before publishing it; never silently truncate already offered stock or duplicate it. Persist/log unsupported item categories; live trade pawns/animals and exotic mod containers need separate adapters and are not materialized in the first MVP trade adapter. They must not be cloned or silently destroyed. Unknown trader behavior is reported as unsupported rather than claimed consistent. Hostility may block trading but must not reroll previously existing goods.
 
+Review physical stock placement alongside reserve/trade ownership. Check the actual fuel and shell definitions for hazardous behavior; where needed, reserve a small separate accessible stock area away from beds, food and the sole evacuation route. Preserve finite quantities, capacity, hauling/reload access and the single trade-stock authority. Do not require a new building type for every stock category or implement a general blast simulator. Validate realized placement and resupply, with a representative hazard case for any supported explosive stock.
+
 Retain loaded-map serialization and unloaded damage/depletion/casualty reconciliation. Shortening the food horizon does not defer no-duplication correctness: bought or looted goods stay gone, killed/captured residents do not respawn, power/fuel state survives, and claimed assets stop obeying the NPC controller. P0's coarse regenerated defenders remain a prototype limitation to resolve here.
 
 **Exit: MVP encounter-readiness milestone.** Supported profiles have quantified routine/combat coverage, essential support actually works without player orders, stocks deplete honestly, and declared loads/horizons are observed in representative encounter tests. Supported trade items match the canonical offer/transactions and never count twice or regenerate on empty reads, reload or re-entry. Negative tests include exhausted fuel/ammo, loss of a critical worker or generator, buy-then-attack, sell-then-attack, loot-then-revisit, empty stock and a restock boundary. Failure under overwhelming damage is allowed; unexplained refill or fabricated pass evidence is not. Check required state/capture persistence independently of long-term sustainability.
@@ -162,9 +168,50 @@ Retain loaded-map serialization and unloaded damage/depletion/casualty reconcili
 
 Add bounded special-shell selection and targeting, and verify actual EMP/smoke use rather than just stock presence. Keep these disabled for profiles without validated behavior. Calibrate faction capabilities, resident/defense caps, reserve horizons, material imports, loot, threat presentation, and generation/runtime cost. Complete the mod's settings, user documentation, debug reporting, and supported-version matrix.
 
+Add a compact route report over final occupancy for food storage–kitchen, food storage–dining, workshop–materials and defensive post–medical access. Use public circulation plus legal room-local paths to relevant interactions or stocks; no private-room shortcuts or exterior bypasses. Reuse/cache existing distance calculations. Treat distances as quality diagnostics, not daily traffic simulation or new hard rejection rules.
+
+Use that evidence to decide whether missing soft preferences (for example food storage–dining) or route-based scoring of a small fixed number of valid candidates improves layouts. Reuse the existing sparse relationship model; proximity, mandatory access and functional isolation remain distinct. Do not add relationships already implemented. Compare identical seed/terrain sets for route quality, acceptance/fallback rate, diversity and search work. If tuning has no demonstrated benefit, record that result and retain the current behavior; no new optimizer is required.
+
+Preserve deterministic generation while tuning: stable candidate ordering, fixed evaluation budgets, purpose-specific seeded randomness and reproduction diagnostics containing relevant input/settings/catalog versions or digests. Timing is observational, never a search stopping rule. These practices do not establish Multiplayer support.
+
+Judge defenses through representative player settlement raids: usable firing positions, retreat access, breach response and readable tactical choices. Tune within faction, resource and threat budgets rather than maximize defender invulnerability or force every approach into a perfect killbox. This extends the existing encounter review, not the set of simulated raid/DLC systems.
+
 Compare against vanilla and the two reference mods on a declared test set using reproducible seed/settings records; each generator runs separately. Measure operational and encounter outcomes rather than asserting superiority from appearance. Plan any optional faction/DLC/ammunition adapters as separately gated changes.
 
 **Exit: MVP release gate.** Release checklist passes; no unresolved severe/medium correctness defects; known limitations and post-MVP sustainability work are documented; mod removal/migration claims match tested behavior. Revised P5 requires encounter readiness and stock consistency, not long-term self-sufficiency.
+
+### P7 — Settlement specialization (final planned milestone; post-MVP)
+
+**Depends on:** P6 release validation and P5 stock/persistence contracts. **Status:** planned, not started. This is the final step of the current plan; P6 remains the MVP release gate.
+
+Start with two specializations in addition to the existing general-purpose profile:
+
+- **Agricultural:** a larger share of suitable fields or tech-appropriate protected growing space, food handling/preservation and storage, with crops and scale constrained by climate, fertility, labor and resource budgets.
+- **Industrial:** a larger share of faction-appropriate workshops, material/product storage and power capacity, with short workshop–storage routes and supporting inputs. Do not grant equipment or production chains beyond the faction's capability.
+
+Evaluate the following additional specializations, implementing only those that provide a clear difference with supported facilities and bounded effort:
+
+| Candidate | Distinctive facilities/resources | Feasibility boundary |
+|---|---|---|
+| Mining and quarrying | Mineral/stone handling, cutting/smelting where legal, bulk storage, terrain-led work areas | Differentiate a stone quarry from ore extraction through local resources; no fabricated renewable ore or requirement to simulate a regional mine economy. |
+| Ranching and animal products | Pens/shelter, feed storage and climate-appropriate animal support | Requires usable NPC animal care and finite feed; do not add livestock until ownership/lifecycle works. Live trade animals remain outside the ordinary-item adapter; supported animal products can be considered separately. |
+| Forestry and wood processing | Woodland harvesting areas, wood stores and faction-appropriate woodworking | Only where biome/resources support it; no guaranteed tree-regrowth cycle or invented sawmill building. Avoid if it adds only a cosmetic stock difference. |
+| Trading and distribution hub | More trade storage, handling space and accessible internal routes | Depends on canonical stock/storage/value constraints. No friendly-visit UI, convoy simulation or automatic access to all goods. |
+| Military and logistics outpost | Greater barracks, armoury, magazine and defensive/support emphasis | A strategic role rather than a manufacturing economy. Stay within threat/loot budgets and finite supplies; do not automatically make it the richest trader. |
+| Medical supply settlement | Treatment space, herb cultivation where suitable, medicine storage/production where legal | Verify supported recipes and inputs; avoid a mandatory hospital-service or visitor simulation. |
+| Research and technical settlement | Tech-appropriate laboratory/precision workshop emphasis and specialist material storage | Research has no automatic trade output. Include only if it produces a meaningful playable layout; no new research progression, quest or DLC system required. |
+
+These are candidate profiles, not seven mandatory new subsystems. Start with agriculture/industry, then rank the candidates by visible gameplay difference, existing supported defs/jobs, terrain suitability and implementation cost. Shared small facility patterns are allowed; defer candidates that require a new simulation. Keep specialization separate from faction tech, terrain archetype and defensive doctrine: an industrial profile may still be coastal or mountain-based, and higher defense does not imply higher tech.
+
+Implement these as small profile/demand adjustments in the existing procedural planner, not fixed whole-settlement templates or a separate generator. Specialization changes room capacities, facility emphasis, spatial preferences and resource allocation; all settlements retain essential housing, food, medical, recreation, defense and encounter support. Keep resident/wealth/defense limits comparable when demonstrating the differences.
+
+Choose specialization deterministically from faction capabilities and terrain/resource suitability, allow an explicit debug override for testing, and persist its identity/version with the settlement. Use general-purpose generation when a specialization is infeasible, with a recorded reason. Do not force agriculture onto unsuitable terrain or reroll an established settlement after settings change. Apply the feature to newly generated settlements first; existing visited maps and their stocks remain intact unless an explicit migration is designed and tested.
+
+**Trade-stock feasibility check, before promising specialized offers:** inspect the supported settlement trader/stock-generator hooks and determine whether we can influence product categories, weights and quantities at initial stock creation and legitimate restock. Check faction/mod compatibility, saved identity, ownership and offer publication boundaries. Separate the ability to place an existing offer on the map (P5) from the ability to change what products the settlement sells (P7). Record supported hooks and limitations, then run a small controlled initial-stock/restock/transaction/reload experiment. If safe influence is unavailable, retain the authoritative offer unchanged and label trade specialization unsupported; physical specialization can still proceed without invented sale goods.
+
+Use the P5 adapter to align future authoritative trade-stock generation with specialization only where that feasibility check succeeds: agriculture can bias eligible crop/food goods, industry eligible materials/manufactured goods. Existing offers and completed transactions remain authoritative; do not infer new stock quantities from room labels, replace an already published offer, duplicate reserve goods or promise an unsupported trader integration. Specialization is a coherent starting profile and best-effort production emphasis, not a requirement for seasonal self-sufficiency, simulated trade routes or an off-map economy.
+
+**Exit:** each additional candidate has a recorded feasibility decision (implemented, deferred or rejected, with reasons); implemented candidates meet the same validation gates. Controlled same-terrain/tech/population comparisons show meaningful agricultural versus industrial differences in capacities, geometry and supporting resources beyond labels or decoration; repeated fixed inputs reproduce the same result. Representative live cases pass normal facility/route/defense/utility checks. Supported future trade offers and physical stocks agree, and save/reload/revisit preserve specialization, depletion and ownership. Infeasible-profile fallback is observed and reported. No traps/IEDs or new long-term sustainability gate.
 
 ## 4. Validation strategy
 
@@ -174,6 +221,9 @@ Separate pure planning tests from live engine checks. Pure tests cannot prove a 
 |---|---|
 | Determinism | Same plan digest for fixed world/profile/settings/mod versions; isolated random streams; saved bases do not reroll after setting changes |
 | Geometry | No overlaps/out-of-bounds placement; valid foundations/roofs; every required interaction cell and resident route reachable under correct faction rules |
+| Route quality (P6) | Final-occupancy detour fixture; repeatable route report; same-seed comparison of any tuning against validity/fallback rate, diversity and bounded work |
+| Stock placement (P5) | Supported hazardous stocks have justified placement, legal resupply access and unchanged authoritative quantities |
+| Specialization (P7) | Agricultural/industrial capacity and layout differences under controlled inputs; suitability fallback; stable identity and canonical trade-stock consistency |
 | Defenses | Enclosure closes except controlled entrances; attacks can reach a breach/gate; posts have actual firing opportunities; no prohibited defense defs |
 | Power | Runtime traces for representative day/night and combat demand, fuel exhaustion, recharge and disconnected circuits |
 | Food/work | Encounter reserve coverage, spoilage, essential jobs and actual consumed inputs; repeated harvest/seasonal balance deferred |
@@ -193,7 +243,7 @@ For qualitative comparison, score coherent routes, realistic landform preservati
 
 ## 5. Dependencies, estimates, and remaining decisions
 
-The remaining MVP path is **defensive encounter → supported terrain/fortifications → bounded encounter supplies, trade-stock consistency and persistence → release validation**. P0–P2 are recorded complete; the progress tracker is authoritative for status. Full sustainability is a separate post-MVP workstream.
+The remaining MVP path is **P4/P4A procedural terrain and fortifications → P5 bounded supplies, safe stock placement, trade consistency and persistence → P6 route/encounter tuning and release validation**. **P7 settlement specialization is the final planned step after MVP, beginning with agriculture/industry and evaluating the additional candidate profiles.** P0–P3 are recorded complete; the progress tracker is authoritative for status. Full sustainability remains a separate unsequenced post-MVP backlog, not a prerequisite for P7.
 
 The original effort estimate is superseded by completed P0–P2 work and this scope revision. Re-estimate remaining work after the P5 trade ownership/restock spike: shorter sustainability validation removes work, while faithful trade-stock reconciliation adds a distinct integration risk. No replacement schedule is claimed without that evidence.
 
