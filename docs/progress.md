@@ -4,7 +4,7 @@ Updated: 2026-09-24
 
 ## Current state
 
-Design, source review, and P0–P3 are complete. P4 and P4A are active together: the procedural planner is the target for remaining terrain, fortification, equipment, and runtime work. P5 remains unstarted. Earlier fixed-compound P4 observations are historical evidence only.
+Design, source review, and P0–P3 are complete. P4 and P4A are active together: the procedural planner is the target for terrain, facilities, equipment and runtime work. P4B is the next planned defensive-layout milestone; coordinated exterior layers, turrets and cover now belong there. P5 remains unstarted. Earlier fixed-compound P4 observations are historical evidence only.
 
 Specification: [design and feasibility](design-feasibility.md). Delivery gates: [implementation plan](implementation-plan.md). Detailed evidence: [P0 findings](p0-findings.md).
 
@@ -17,8 +17,9 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 | P1 — Planner and validation harness | Complete | Fixed-input determinism, invalid-terrain rejection, bounded termination, required property cases, read-only planning, diagnostics, and Core/GL integration passed; see [P1 findings](p1-findings.md) |
 | P2 — First complete physical settlement | Complete | Industrial/tribal profiles, full plan-driven spawning, real power/freezer/outage behavior, Core recovery, and GL + Map Preview normal/recovery matrices passed; see [P2 findings](p2-findings.md) |
 | P3 — Playable defensive encounter | Complete | Bounded local garrison, physical mortar supply, save/reload, full failure matrix, tribal exclusions, and Core/GL regression passed; see [P3 findings](p3-findings.md) |
-| P4 — Terrain variety and stronger fortifications | In progress | Finish terrain and fortifications on the P4A procedural generator; see [P4 findings](p4-findings.md) |
-| P4A — Procedural settlement layouts | In progress | Core flat/mountain/foothill, three wall layers, forced rollback, cooler-room audit, and P3 save/reload pass; lakeshore, climate, tribal, and optional-mod matrix remain |
+| P4 — Terrain variety and environmental integration | In progress | Finish terrain/environment checks on the P4A procedural generator; defensive layout moves to P4B |
+| P4A — Procedural settlement layouts | In progress | Core flat/mountain/foothill, three-layer gate bands (not complete exterior layers), forced rollback, cooler-room audit, and P3 save/reload pass; lakeshore, climate, tribal, and optional-mod matrix remain |
+| P4B — Defensive layout planner | Not started | Exterior layers/gates, posts, turrets including high-industrial uranium slug turrets, sandbags/barricades, lightweight fortification heuristics; see [P4B plan](p4b-defense-plan.md) |
 | P5 — Encounter supplies, trade stock, and persistent consequences | Not started | Bounded reserves, trade consistency, no-duplication persistence, and accessible/separate hazardous stock placement where justified; full sustainability deferred |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage; add route diagnostics, evidence-driven soft-preference tuning, reproducibility and encounter-quality review |
 | P7 — Settlement specialization | Not started (post-MVP) | Final planned step: agriculture/industry first; evaluate mining, ranching, forestry, trading, military, medical and research profiles; verify trade-product influence feasibility |
@@ -103,10 +104,10 @@ P0–P3 findings remain historical evidence; no completed checks were rewritten.
 | P4.1 | Immutable terrain analysis and deterministic bounded archetype selection/rejection | 47/47 combined pure tests and Docker Release build 0 warnings/errors; standalone feature commit | Complete |
 | P4.2 | Foothill/excavated-mountain layouts, roof/support/mutation recovery, and P3 geometry adaptation | Pure/build suite passed; accepted Core 160×160 mountain and deep rollback passed. A Core foothill generated with 12/12 facilities, two-layer gates, P3/mortar, and player arrival. | Complete |
 | P4.3 | Lakeshore/peninsula/supported-island layouts with legal approach, bridge, gate, and circulation constraints | Versioned preserved-water footprint plus dry-route pure case passed; Core water/rejection cases remain. | In progress |
-| P4.4 | Layered fortifications, palettes/budgets/climate alternatives, P3/save-reload regression, Core/GL matrix, and exit | Actual runtime/recovery evidence and closeout commit | Pending |
-| P4/P4A integration | In progress | ProceduralLayout is the production plan and validator. Build runtime catalog/resources, stable seed/stage, transactional spawn, geometry-based P3, fixtures/utilities/fields, then terrain/fortification and live matrix. Commit each validated checkpoint. |
+| P4.4 | Climate alternatives, baseline enclosure/material legality, P3/save-reload and Core/GL terrain matrix; coordinated layers/defenses moved to P4B | Actual runtime/recovery evidence and closeout commit | Pending |
+| P4/P4A integration | In progress | ProceduralLayout is the production plan and validator. Build runtime catalog/resources, stable seed/stage, transactional spawn, geometry-based P3, fixtures/utilities/fields, terrain/baseline enclosure and live matrix; reserve/expose geometry for P4B. Commit each validated checkpoint. |
 
-The 2026-09-23 scope change supersedes the earlier ordering that deferred P4A until P4 closeout. Do not count fixed-compound passes as procedural runtime evidence. P4 and P4A exit only after the new path passes their pure, build, Core, GL, and recovery gates.
+The 2026-09-23 scope change supersedes the earlier ordering that deferred P4A until P4 closeout. Do not count fixed-compound passes as procedural runtime evidence. P4 and P4A exit only after the new path passes their pure, build, Core, GL, and recovery gates. The later 2026-09-24 P4B split moves coordinated defensive layout out of that closeout without weakening baseline access, terrain or recovery checks.
 
 ## Future planning update — 2026-09-24
 
@@ -154,3 +155,4 @@ P7 is the final planned milestone, after the P6 MVP release: agriculture/industr
 | 2026-09-23 | A single-process forced-partial run on a Flat world tile restored 334 owned things and the original checksum, then regenerated and passed final checksum/arrival. Its layout was rock-protected; open-ground boulder-clearance rollback remains a distinct untested subpath. |
 | 2026-09-24 | Reproduced a further flat-map planner rejection with a deterministic synthetic 160×160 clustered-rock/sparse-edifice fixture. Fixed over-expansion of fortification setbacks around existing edifices and perimeter collisions with them. Four fixture variants and the full pure layout suite pass, with no built wall on an existing edifice; Release build passes. The exact rejected live tile still needs retest, so P4/P4A remains open. |
 | 2026-09-24 | Added accepted review ideas to future P5/P6 scope and P7 settlement specialization as the final post-MVP milestone, including additional candidate profiles and an explicit trade-product influence feasibility check. Planning only; P4/P4A implementation scope/status unchanged. |
+| 2026-09-24 | Added P4B defensive layout before P5; moved coordinated exterior layering/cover/turrets from P4/P4A, specified IndustrialLate uranium slug turret eligibility and finite uranium operation, and bounded fortification-theory inspiration. Planning only. |

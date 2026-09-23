@@ -8,6 +8,10 @@ evidence. The prior instruction to finish a separate fixed-compound P4 matrix an
 defer P4A until P4 closes is superseded. P4 exit requires the procedural path to
 pass its own terrain, fortification, pathing, recovery, and live matrix.
 
+## 2026-09-24 scope split
+
+P4B now owns coordinated defensive layout: additional exterior-wall layers, material/reinforcement allocation for them, firing/cover/turret placement and operational validation. See [P4B plan](p4b-defense-plan.md). P4/P4A retain terrain, environmental adaptation, baseline enclosure/gates, facility circulation, recovery and reservations/interfaces for P4B. Older scope/checklist text below is historical where it assigns these defenses to P4. In particular, gatehouse bands are not proof of complete exterior-wall layering; no prior observation is relabelled as P4B evidence.
+
 ## Scope and boundaries
 
 P4 extends the completed P0–P3 supplied encounter with terrain-adapted settlement

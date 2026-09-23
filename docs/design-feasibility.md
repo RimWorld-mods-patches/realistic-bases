@@ -20,11 +20,11 @@ This is a source-informed feasibility assessment, not a claim that the design al
 | Reflect tile properties | Inspect actual generated terrain, rock, roofs, fertility, water, access, and climate | First playable version |
 | Geological Landforms | Preserve its map output; optional adapter for metadata and per-cell biome information | Compatibility milestone |
 | Mountain and lake bases | Mountain foothold first; excavated mountain and accessible island/lakeshore archetypes later | Terrain milestone |
-| Wall with gates and up to three levels | Interpret “levels” as **one to three physical wall layers**, with materials chosen per layer or coherent section; no vertical floors | One layer first, full range later |
+| Wall with gates and up to three levels | Interpret “levels” as **one to three physical wall layers**, with materials chosen per layer or coherent section; no vertical floors | Baseline enclosure first; full exterior layering in P4B |
 | Appropriate local/imported materials | Local material palette plus a bounded, capability-dependent import budget | First playable version; imports refined later |
 | All usual facilities | Housing, jail, food preparation/preservation, farming, power where applicable, recreation, workshops, storage; add medical space | First playable version |
 | Personal munitions | Faction-appropriate weapons, armor, and selected carried combat equipment; ammunition only for systems that consume it | First playable version; ammo-mod adapter later |
-| Turrets, cover, mortars and shell variety | Only equipment the settlement can operate, staff, supply, and afford | Core defenses first; specialized shell tactics later |
+| Turrets, cover, mortars and shell variety | Only equipment the settlement can operate, staff, supply, and afford; uranium slug turrets eligible from high industrial | P4B coordinated placement; P5 budgets; P6 specialized mortar tactics |
 | Energy and shell accumulation | Real stored energy and finite supplies cover the encounter; feasible support jobs consume real inputs | Encounter readiness in MVP; sustained production post-MVP |
 | Settlement trade stock | Trade goods reflect this settlement’s actual offer, separately from operating reserves; one quantity/ownership record | P5, supported ordinary item types first |
 | Settlement specialization | Agriculture/industry first; evaluate mining, ranching, forestry, trade, military, medical and research profiles; verify feasibility of influencing offered products while preserving canonical stock and saved identity | P7, final planned step after MVP |

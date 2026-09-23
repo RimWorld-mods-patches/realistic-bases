@@ -11,7 +11,7 @@ Read the [design and feasibility assessment](design-feasibility.md) for intended
 | High-level design, feasibility, source review, implementation plan | In scope now; these documents |
 | RimWorld 1.6 mod scaffold and diagnostics | Planned P0–P1 |
 | Terrain analysis, deterministic procedural layout, facility contracts | Planned P1–P2 |
-| Tech/local-material profiles, walls and gates | Planned P2; layered variants P4 |
+| Tech/local-material profiles, walls and gates | Baseline P2/P4A; coordinated exterior layers/gates, turrets and cover in P4B |
 | All requested facility categories | Physical implementation P2; encounter operation P5; full sustained operation post-MVP |
 | Weapons, armor, turrets, barricades, sandbags, mortars and physical stocks | Planned P2–P3 |
 | Defensive NPC behavior and essential resupply | Planned P3 |
@@ -99,13 +99,13 @@ Run battles from multiple approaches, at night, under long-range harassment, aft
 
 **Exit: first playable milestone.** A newly generated base supports an encounter, defenders hold and respond locally, consumables are physically used, reload preserves state, and player pawns are unaffected. Publish this milestone only as a supplied encounter prototype; ongoing colony production and unload/revisit persistence are not yet certified.
 
-### P4 — Terrain variety and stronger fortifications
+### P4 — Terrain variety and environmental integration
 
 **Depends on:** P3, plus P0 terrain evidence.
 
-**2026-09-23 scope update:** Complete the remaining P4 terrain and fortification work on the P4A procedural generator. The fixed P2 compound is historical prototype evidence. Its separate remaining test matrix is superseded by the procedural runtime matrix below.
+**2026-09-24 scope update:** Continue P4 terrain/environment work on the P4A procedural generator. Move coordinated exterior-wall layers, turret/cover placement and their defensive validation into P4B. Existing gate-band and baseline enclosure evidence is retained but does not establish layered exterior walls. The separate fixed-compound matrix remains superseded.
 
-Add foothill/mountain carving, roof support, preservation of natural rock boundaries, outdoor utility/mortar areas, lakeshores, peninsulas, and islands with verified approaches. Add one-to-three wall layers, coherent material palettes and reinforcement budgets, multiple gates when suitable, and climate-driven food/power alternatives.
+Add foothill/mountain carving, roof support, preservation of natural rock boundaries, outdoor utility/mortar areas, lakeshores, peninsulas, and islands with verified approaches. Keep baseline enclosure/gate legality and climate-driven food/power alternatives here; reserve usable terrain and material inputs for P4B fortifications.
 
 Integrate Geological Landforms through generated terrain first; add metadata/per-cell biome access only where needed. Register tested versions. Detect geometry-affecting incompatibilities, including altered water passability and unexpected late terrain changes.
 
@@ -118,8 +118,9 @@ Integrate Geological Landforms through generated terrain first; add metadata/per
 Replace the fixed whole-settlement compound with a bounded, seeded planner that
 derives facility capacities from the profile/population, packs terrain-legal room
 envelopes and districts, generates their shared circulation and portals, and then
-derives the enclosure, gates, and one-to-three-layer gatehouse crossings from that
-same solution. Reusable small room-furnishing patterns remain allowed. A compact
+derives the baseline enclosure, gate endpoints and fortification reservations from
+that same solution. Existing gate-band support remains; complete exterior layering
+and coordinated defensive equipment belong to P4B. Reusable small room-furnishing patterns remain allowed. A compact
 fixed arrangement may exist only as an explicitly labelled exceptional fallback;
 its selection frequency and reason must be reported.
 
@@ -133,7 +134,7 @@ bounded-deterministic-search contracts.
 meaningfully different internal layouts beyond translation/rotation; population or
 facility demand changes capacity and geometry coherently; terrain changes selected
 layout rather than merely relocating/rejecting the same rectangle; all room/job
-access remains connected for each supported wall thickness; and representative
+access remains connected through the baseline enclosure and existing gate bands; and representative
 live pathing, defense, visual, and rollback cases pass. The pure foundation and
 tech-stage steps 1–6 are merged. Runtime integration and remaining P4 terrain work
 share one generation path; neither milestone closes from the fixed-layout prototype.
@@ -141,12 +142,24 @@ share one generation path; neither milestone closes from the fixed-layout protot
 **Implementation order:** runtime catalog and local resources; persisted seed and
 faction stage; plan and final occupancy validation; transactional spawning of
 walls, doors, room fixtures, fields, utilities, equipment, and finite stocks;
-geometry-based P3; terrain and one-to-three-layer gates; Core and Geological
+geometry-based P3; terrain and baseline gates plus P4B reservations; Core and Geological
 Landforms normal/rejection/recovery, save/reload, and visual/path/job evidence.
+
+### P4B — Defensive layout planner
+
+**Depends on:** P4 terrain contracts and P4A procedural layout. **Status:** planned, not started. Detailed steps and evidence: [P4B defensive layout plan](p4b-defense-plan.md).
+
+Add 1–3 physical exterior-wall layers along declared eligible sections, coherent materials/import budgets, connected crossings through every layer, defender firing/retreat positions, sandbags/barricades and powered turrets. Include uranium slug turrets (`Turret_Sniper`, research `SniperTurret`) from IndustrialLate, with prerequisite closure, finite uranium rearming, effective range/line-of-fire, power, service and threat-budget checks. Availability is conditional on resources and viable geometry, not guaranteed for every settlement.
+
+P4A reserves geometry; P4B plans defenses before the shared spawn transaction and revalidates final occupancy, utilities, roofs, terrain, interactions and routes. Feed actual positions into P3. Permit bounded repair/replanning, never disconnected walls or assumed firing through opaque structures. Use small adaptable arrangements rather than another whole-settlement generator.
+
+Borrow only lightweight fortification ideas: coverage of approaches, reduced blind spots and overlapping support where feasible, an inner fallback, and connected service/retreat routes. Validate them against RimWorld behavior; no general tactical optimizer, mandatory star forts, traps or IEDs.
+
+**Exit:** demonstrated layered perimeter geometry and connected gates; usable ranged/turret positions and cover; finite supply/power operation including uranium depletion/rearm; representative raid, breach/fallback, save/reload, terrain/GL and transactional recovery evidence. Gatehouse bands alone do not prove layered outer walls. P5 budgets the resulting defense load; P6 balances it.
 
 ### P5 — Encounter supplies, trade stock, and persistent consequences
 
-**Depends on:** P3, P4, and P4A. Revised by the user on 2026-09-20; [supply and MVP scope](supply-and-mvp-scope.md) defines the detailed contract.
+**Depends on:** P3, P4, P4A and P4B. Revised by the user on 2026-09-20; [supply and MVP scope](supply-and-mvp-scope.md) defines the detailed contract.
 
 Use three in-game days as a provisional routine-supply horizon and a separately stated combat duty budget (initial target: six hours of engagement at declared equipment-specific firing duty within that visit). These are tunable planning defaults, not evidence of how long players stay. Back routine needs and defense with finite actual stocks, account for food spoilage and actual connected power loads, and maintain essential needs/refueling/reload/hauling/tending support. Production is best effort; no unobserved harvest or manufacture may fund the guaranteed encounter budget. Existing larger P2 reserves need not be reduced.
 
@@ -164,7 +177,7 @@ Retain loaded-map serialization and unloaded damage/depletion/casualty reconcili
 
 ### P6 — Balance, specialized tactics, and release
 
-**Depends on:** P5 and supported P4 terrain coverage.
+**Depends on:** P5, P4B defenses and supported P4 terrain coverage.
 
 Add bounded special-shell selection and targeting, and verify actual EMP/smoke use rather than just stock presence. Keep these disabled for profiles without validated behavior. Calibrate faction capabilities, resident/defense caps, reserve horizons, material imports, loot, threat presentation, and generation/runtime cost. Complete the mod's settings, user documentation, debug reporting, and supported-version matrix.
 
@@ -243,7 +256,7 @@ For qualitative comparison, score coherent routes, realistic landform preservati
 
 ## 5. Dependencies, estimates, and remaining decisions
 
-The remaining MVP path is **P4/P4A procedural terrain and fortifications → P5 bounded supplies, safe stock placement, trade consistency and persistence → P6 route/encounter tuning and release validation**. **P7 settlement specialization is the final planned step after MVP, beginning with agriculture/industry and evaluating the additional candidate profiles.** P0–P3 are recorded complete; the progress tracker is authoritative for status. Full sustainability remains a separate unsequenced post-MVP backlog, not a prerequisite for P7.
+The remaining MVP path is **P4/P4A procedural terrain and facilities → P4B defensive layout → P5 bounded supplies, safe stock placement, trade consistency and persistence → P6 route/encounter tuning and release validation**. **P7 settlement specialization is the final planned step after MVP, beginning with agriculture/industry and evaluating the additional candidate profiles.** P0–P3 are recorded complete; the progress tracker is authoritative for status. Full sustainability remains a separate unsequenced post-MVP backlog, not a prerequisite for P7.
 
 The original effort estimate is superseded by completed P0–P2 work and this scope revision. Re-estimate remaining work after the P5 trade ownership/restock spike: shorter sustainability validation removes work, while faithful trade-stock reconciliation adds a distinct integration risk. No replacement schedule is claimed without that evidence.
 
