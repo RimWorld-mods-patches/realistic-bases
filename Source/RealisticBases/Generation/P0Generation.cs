@@ -92,6 +92,20 @@ namespace RealisticBases.Generation
                 return;
             }
 
+            if (RealisticBasesMod.Settings.probeProceduralNext)
+            {
+                RealisticBasesMod.Settings.probeProceduralNext = false;
+                try
+                {
+                    int layers = RealisticBasesMod.Settings.forceP4WallLayersNext;
+                    P4AMapPlanner.Run(map, settlement, layers >= 1 && layers <= 3 ? layers : 1);
+                }
+                catch (Exception ex)
+                {
+                    P2Log.Error("PROCEDURAL_PROBE_FAILED", "map=" + map.uniqueID + " error=" + ex.GetType().Name + ":" + ex.Message);
+                }
+            }
+
             P2PlanningRun primary = P2MapPlanner.Run(map, settlement.Faction, "primary");
             if (!primary.Result.Success)
             {

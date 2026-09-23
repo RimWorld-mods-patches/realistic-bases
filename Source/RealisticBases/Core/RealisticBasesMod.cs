@@ -14,6 +14,7 @@ namespace RealisticBases.Core
         public bool forcePartialFailureNext;
         public string forceP2ProfileNext;
         public int forceP4WallLayersNext;
+        public bool probeProceduralNext;
 
         public override void ExposeData()
         {
@@ -22,6 +23,7 @@ namespace RealisticBases.Core
             Scribe_Values.Look(ref forcePartialFailureNext, "forcePartialFailureNext", false);
             Scribe_Values.Look(ref forceP2ProfileNext, "forceP2ProfileNext", string.Empty);
             Scribe_Values.Look(ref forceP4WallLayersNext, "forceP4WallLayersNext", 0);
+            Scribe_Values.Look(ref probeProceduralNext, "probeProceduralNext", false);
         }
     }
 

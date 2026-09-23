@@ -310,6 +310,14 @@ namespace RealisticBases.Diagnostics
             P2Log.Message("DEBUG_ARM", "forceP4WallLayersNext=3");
         }
 
+        [DebugAction(Category, "Probe procedural plan on next generation", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void ProbeProceduralNext()
+        {
+            RealisticBasesMod.Settings.probeProceduralNext = true;
+            P2Log.Message("DEBUG_ARM", "probeProceduralNext=true");
+        }
+
         [DebugAction(Category, "Log current map generation audit", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
         private static void LogMapAudit()

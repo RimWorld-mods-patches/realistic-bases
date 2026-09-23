@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using RealisticBases.Core;
+using RealisticBases.Planning;
 using RimWorld;
 using RimWorld.Planet;
 using Verse;
@@ -16,6 +17,9 @@ namespace RealisticBases.Persistence
         public bool defeated;
         public string factionDefName;
         public List<int> pawnIds = new List<int>();
+        public string proceduralLayoutSeed;
+        public string proceduralLayoutPlanner;
+        public string proceduralLayoutDigest;
 
         public void ExposeData()
         {
@@ -26,6 +30,9 @@ namespace RealisticBases.Persistence
             Scribe_Values.Look(ref defeated, "defeated", false);
             Scribe_Values.Look(ref factionDefName, "factionDefName");
             Scribe_Collections.Look(ref pawnIds, "pawnIds", LookMode.Value);
+            Scribe_Values.Look(ref proceduralLayoutSeed, "proceduralLayoutSeed");
+            Scribe_Values.Look(ref proceduralLayoutPlanner, "proceduralLayoutPlanner");
+            Scribe_Values.Look(ref proceduralLayoutDigest, "proceduralLayoutDigest");
             if (Scribe.mode == LoadSaveMode.PostLoadInit && pawnIds == null)
             {
                 pawnIds = new List<int>();
@@ -33,9 +40,22 @@ namespace RealisticBases.Persistence
         }
     }
 
+    public sealed class P4AFactionStageState : IExposable
+    {
+        public int factionLoadId = -1;
+        public int level = -1;
+
+        public void ExposeData()
+        {
+            Scribe_Values.Look(ref factionLoadId, "factionLoadId", -1);
+            Scribe_Values.Look(ref level, "stageLevel", -1);
+        }
+    }
+
     public sealed class P0WorldState : GameComponent
     {
         private List<P0SettlementState> settlements = new List<P0SettlementState>();
+        private List<P4AFactionStageState> factionStages = new List<P4AFactionStageState>();
 
         public P0WorldState(Game game)
         {
@@ -56,13 +76,53 @@ namespace RealisticBases.Persistence
             return state;
         }
 
+        public ulong GetOrCreateProceduralSeed(Settlement settlement, string worldSeed, string profileId, int profileVersion)
+        {
+            P0SettlementState state = GetOrCreate(settlement.ID, settlement.Faction);
+            ulong seed;
+            if (!string.IsNullOrEmpty(state.proceduralLayoutSeed) &&
+                ulong.TryParse(state.proceduralLayoutSeed, System.Globalization.NumberStyles.HexNumber,
+                    System.Globalization.CultureInfo.InvariantCulture, out seed)) return seed;
+            seed = LayoutSeed.Derive(worldSeed, settlement.Tile.tileId, settlement.Faction.loadID.ToString(), profileId, profileVersion);
+            state.proceduralLayoutSeed = seed.ToString("X16", System.Globalization.CultureInfo.InvariantCulture);
+            state.proceduralLayoutPlanner = ProceduralLayoutVersions.Planner;
+            return seed;
+        }
+
+        public bool TryGetOrCreateFactionStage(Faction faction, string worldSeed, out SettlementTechStage stage, out string diagnostic)
+        {
+            stage = null;
+            diagnostic = null;
+            if (faction == null || faction.def == null) { diagnostic = "missing_faction"; return false; }
+            P4AFactionStageState saved = factionStages.FirstOrDefault(s => s.factionLoadId == faction.loadID);
+            if (saved != null && saved.level >= (int)SettlementTechStageLevel.Neolithic &&
+                saved.level <= (int)SettlementTechStageLevel.Spacer)
+            {
+                stage = TechStageModel.Create((SettlementTechStageLevel)saved.level);
+                return true;
+            }
+            TechTier tier;
+            if (!System.Enum.TryParse(faction.def.techLevel.ToString(), out tier))
+            {
+                diagnostic = "unsupported_faction_tech_level:" + faction.def.techLevel;
+                return false;
+            }
+            if (!TechStageModel.TryResolve(tier, LayoutSeed.DeriveFaction(worldSeed, faction.loadID.ToString()),
+                out stage, out diagnostic)) return false;
+            factionStages.Add(new P4AFactionStageState { factionLoadId = faction.loadID, level = (int)stage.Level });
+            return true;
+        }
+
         public override void ExposeData()
         {
             Scribe_Collections.Look(ref settlements, "p0SettlementStates", LookMode.Deep);
+            Scribe_Collections.Look(ref factionStages, "p4aFactionStages", LookMode.Deep);
             if (Scribe.mode == LoadSaveMode.PostLoadInit && settlements == null)
             {
                 settlements = new List<P0SettlementState>();
             }
+            if (Scribe.mode == LoadSaveMode.PostLoadInit && factionStages == null)
+                factionStages = new List<P4AFactionStageState>();
         }
 
         public override void LoadedGame()
