@@ -11,14 +11,13 @@
 
   <GenStepDef>
     <defName>RB_P0_Settlement</defName>
-    <order>400</order>
+    <order>1400</order>
     <genStep Class="RealisticBases.Generation.GenStep_P0Settlement" />
   </GenStepDef>
 
   <GenStepDef>
     <defName>RB_P0_SettlementPower</defName>
-    <order>401</order>
+    <order>1401</order>
     <genStep Class="RealisticBases.Generation.GenStep_P0SettlementPower" />
   </GenStepDef>
 </Defs>
-

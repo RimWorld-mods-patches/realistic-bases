@@ -462,7 +462,7 @@ internal static class Program
     {
         TerrainCell[] cells = FertileOpenCells(40, 40);
         GridPoint roofedRock = new GridPoint(20, 20);
-        cells[roofedRock.Z * 40 + roofedRock.X] = Cell(TerrainTraits.NaturalRock | TerrainTraits.Roofed);
+        cells[roofedRock.Z * 40 + roofedRock.X] = Cell(TerrainTraits.NaturalRock | TerrainTraits.Roofed | TerrainTraits.ThickRoof);
         TerrainSnapshot terrain = new TerrainSnapshot(40, 40, cells, "retained-roof-v1");
         TerrainMutationFootprint retained = new TerrainMutationFootprint(new[] { roofedRock }, Enumerable.Empty<GridPoint>(),
             Enumerable.Empty<GridPoint>(), Enumerable.Empty<GridPoint>(), null, new[] { roofedRock });

@@ -36,7 +36,8 @@ namespace RealisticBases.Planning
             if (excavation.Any(c => grid.At(c) != LayoutCellClass.Rock)) errors.Add("excavation_not_natural_rock");
             if (excavation.Count > requirements.ExcavationBudgetCells) errors.Add("excavation_budget");
             if (layout.Doctrine == LayoutDoctrine.OpenGround && excavation.Count > 0) errors.Add("open_ground_excavated");
-            if (retained.Any(c => !excavation.Contains(c) || !grid.Roofed(c)) || excavation.Any(c => grid.Roofed(c) && !retained.Contains(c)))
+            if (retained.Any(c => !excavation.Contains(c) || !grid.ThickCover(c)) ||
+                excavation.Any(c => grid.ThickCover(c) && !retained.Contains(c)))
                 errors.Add("retained_roof_ledger");
             if (LayoutRoofSupport.Unsupported(terrain, excavation, retained).Count > 0) errors.Add("roof_unsupported_without_built_walls");
 

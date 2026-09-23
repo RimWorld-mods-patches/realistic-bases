@@ -1,0 +1,394 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using RealisticBases.AI;
+using RealisticBases.Integration;
+using RealisticBases.Persistence;
+using RealisticBases.Planning;
+using RimWorld;
+using RimWorld.Planet;
+using Verse;
+using Verse.AI.Group;
+using LayoutRoom = RealisticBases.Planning.LayoutRoom;
+
+namespace RealisticBases.Generation
+{
+    // The live P4A path consumes ProceduralLayout directly. The P2 physical
+    // plan and its adapter are deliberately absent from this mutation boundary.
+    public static class P4ProceduralSpawner
+    {
+        public static bool TrySpawn(Map map, Settlement settlement, P4AMapPlanningRun run, out string failure,
+            bool forceFailure = false)
+        {
+            failure = null;
+            if (run?.Result?.Layout == null) { failure = "missing_procedural_layout"; return false; }
+            ProceduralLayoutInput input = run.Input;
+            ProceduralLayout layout = run.Result.Layout;
+            IReadOnlyList<string> errors = ProceduralLayoutValidator.Validate(input, layout);
+            if (errors.Count != 0) { failure = "invalid_layout:" + string.Join(",", errors); return false; }
+            SettlementLoadout loadout = LayoutLoadoutModel.Build(input, layout);
+            errors = ProceduralLayoutValidator.ValidateLoadout(input, layout, loadout);
+            if (!loadout.Success || errors.Count != 0)
+            { failure = "invalid_loadout:" + loadout.Rejection + ":" + string.Join(",", errors); return false; }
+
+            List<GridPoint> roofsToBuild = layout.ConstructedRoof.Except(layout.RetainedThickRoof).ToList();
+            TerrainMutationFootprint footprint = new TerrainMutationFootprint(layout.Excavation,
+                layout.Excavation.Where(c => !layout.RetainedThickRoof.Contains(c) && input.Terrain[c].Has(TerrainTraits.Roofed)),
+                roofsToBuild, layout.NaturalWalls, retainedThickRoofCells: layout.RetainedThickRoof);
+            HashSet<GridPoint> coolers = new HashSet<GridPoint>(layout.AllFixtures
+                .Where(f => f.Kind == LayoutFixtureKind.WallCooler).SelectMany(f => f.Cells));
+            HashSet<GridPoint> natural = new HashSet<GridPoint>(layout.NaturalWalls.Concat(layout.Rooms.SelectMany(r => r.NaturalWalls)));
+            HashSet<GridPoint> walls = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.Gates.SelectMany(g => g.BandWalls)));
+            HashSet<GridPoint> doors = new HashSet<GridPoint>(layout.Gates.Select(g => g.Cell)
+                .Concat(layout.Gates.SelectMany(g => g.BandDoors)).Concat(layout.Rooms.Select(r => r.Door)));
+            foreach (LayoutRoom room in layout.Rooms)
+                foreach (GridPoint c in room.Bounds.Points())
+                    if (room.IsEdge(c) && !natural.Contains(c) && !doors.Contains(c) && !coolers.Contains(c)) walls.Add(c);
+            walls.ExceptWith(doors);
+            walls.ExceptWith(coolers);
+            walls.ExceptWith(natural);
+            HashSet<GridPoint> structures = new HashSet<GridPoint>(walls.Concat(doors).Concat(layout.AllFixtures
+                .Where(f => f.Kind != LayoutFixtureKind.Stockpile && f.Kind != LayoutFixtureKind.MortarCourt)
+                .SelectMany(f => f.Cells)).Concat(layout.PowerYards.SelectMany(y => y.Cells)));
+            if (layout.Court != null) structures.UnionWith(layout.Court.Cells);
+
+            Dictionary<LayoutFixture, GridPoint> fixtureOrigins = new Dictionary<LayoutFixture, GridPoint>();
+            Dictionary<LayoutPowerYard, GridPoint> yardOrigins = new Dictionary<LayoutPowerYard, GridPoint>();
+            try
+            {
+                foreach (LayoutFixture fixture in layout.AllFixtures.Where(f =>
+                    f.Kind != LayoutFixtureKind.Stockpile && f.Kind != LayoutFixtureKind.MortarCourt))
+                    fixtureOrigins[fixture] = FindOrigin(Require(fixture.DefName), Rotation(fixture.Rotation), fixture.Cells);
+                foreach (LayoutPowerYard yard in layout.PowerYards)
+                    yardOrigins[yard] = FindOrigin(Require(yard.DefName), Rotation(yard.Rotation), yard.Cells);
+            }
+            catch (Exception ex) { failure = "spawn_origin_rejected:" + ex.Message; return false; }
+            IReadOnlyList<GridPoint> conduitCells;
+            try { conduitCells = PlanConduits(map, input, layout); }
+            catch (Exception ex) { failure = "power_route_rejected:" + ex.Message; return false; }
+
+            List<GridPoint> fields = SelectFields(map, input, layout);
+            if (fields.Count < layout.FieldCellsRequired)
+            { failure = "insufficient_reachable_fertile_field:" + fields.Count + "/" + layout.FieldCellsRequired; return false; }
+            foreach (GridPoint c in structures.Concat(fields).Distinct())
+            {
+                IntVec3 cell = ToCell(c);
+                if (!cell.InBounds(map)) { failure = "spawn_cell_out_of_bounds:" + c; return false; }
+                Building edifice = cell.GetEdifice(map);
+                if (edifice != null && !(layout.Excavation.Contains(c) && edifice.def?.building?.isNaturalRock == true) &&
+                    !(natural.Contains(c) && edifice.def?.building?.isNaturalRock == true))
+                { failure = "unowned_edifice_on_spawn_cell:" + c + ":" + edifice.def.defName; return false; }
+            }
+            foreach (GridPoint c in conduitCells)
+            {
+                Building edifice = ToCell(c).GetEdifice(map);
+                if (edifice != null && edifice.def?.building?.isNaturalRock == true && !layout.Excavation.Contains(c))
+                { failure = "power_route_crosses_unowned_rock:" + c; return false; }
+            }
+
+            EncounterPlan encounter;
+            try
+            {
+                IReadOnlyCollection<GridPoint> publicCells = ProceduralLayoutValidator.PublicCirculation(input, layout);
+                LayoutRoom storage = layout.Rooms.First(r => r.Kind == LayoutRoomKind.Storage);
+                EncounterProfile profile = layout.Court != null ? P3EncounterProfiles.Industrial :
+                    input.Requirements.Capabilities.HasFlag(SettlementCapability.Electricity)
+                        ? P3EncounterProfiles.IndustrialNoMortar : P3EncounterProfiles.Tribal;
+                encounter = GeometryEncounterPlanner.Plan(new GeometryEncounterInput(layout.Digest, profile,
+                    layout.Enclosure, walls.Concat(natural), layout.Gates.Select(g =>
+                        new KeyValuePair<GridPoint, GridPoint>(g.Cell, g.Inside)), publicCells,
+                    storage.Interior.Points(), layout.Court?.Cells.FirstOrDefault(), layout.Court?.Access.FirstOrDefault()));
+            }
+            catch (Exception ex) { failure = "geometry_encounter_rejected:" + ex.Message; return false; }
+
+            P4SpawnTransaction tx;
+            try { tx = new P4SpawnTransaction(map, footprint); }
+            catch (Exception ex) { failure = "mutation_preflight_rejected:" + ex.Message; return false; }
+            List<Pawn> defenders = new List<Pawn>();
+            List<Thing> combatStocks = new List<Thing>();
+            Thing mortar = null;
+            int crops = 0;
+            try
+            {
+                tx.Excavate();
+                foreach (GridPoint c in structures.Concat(fields).Concat(layout.Gates.SelectMany(g => g.OuterVestibule)).Distinct())
+                    tx.ClearPlant(c);
+                ThingDef wallStuff = Require(layout.WallStuff);
+                foreach (GridPoint c in walls.OrderBy(c => c)) Spawn(tx, ThingDefOf.Wall, wallStuff, c, map, settlement.Faction, Rot4.North);
+                foreach (GridPoint c in doors.OrderBy(c => c)) Spawn(tx, ThingDefOf.Door, wallStuff, c, map, settlement.Faction, Rot4.North);
+                foreach (GridPoint c in roofsToBuild) tx.SetConstructedRoof(c);
+
+                foreach (LayoutFixture fixture in layout.AllFixtures)
+                {
+                    if (fixture.Kind == LayoutFixtureKind.Stockpile || fixture.Kind == LayoutFixtureKind.MortarCourt) continue;
+                    Thing thing = Spawn(tx, Require(fixture.DefName), ResolveStuff(fixture.Stuff), fixtureOrigins[fixture], map,
+                        settlement.Faction, Rotation(fixture.Rotation));
+                    if (!fixture.Cells.All(c => thing.OccupiedRect().Contains(ToCell(c))) || thing.OccupiedRect().Area != fixture.Cells.Count)
+                        throw new InvalidOperationException("Fixture footprint differs from plan: " + fixture.DefName + " at " + fixture.Cells[0]);
+                    Configure(thing, fixture.Kind);
+                }
+                foreach (LayoutPowerYard yard in layout.PowerYards)
+                    Spawn(tx, Require(yard.DefName), null, yardOrigins[yard], map, settlement.Faction, Rotation(yard.Rotation));
+                ThingDef conduitDef = Require("PowerConduit");
+                foreach (GridPoint c in conduitCells)
+                    if (ToCell(c).GetTransmitter(map) == null)
+                        Spawn(tx, conduitDef, null, c, map, settlement.Faction, Rot4.North);
+                if (layout.Court != null)
+                    mortar = Spawn(tx, ThingDefOf.Turret_Mortar, ThingDefOf.Steel, encounter.MortarCell,
+                        map, settlement.Faction, Rot4.North);
+
+                ThingDef crop = DefDatabase<ThingDef>.GetNamedSilentFail(run.ProfileId == "tribal-temperate-v1" ? "Plant_Rice" : "Plant_Rice") ?? Require("Plant_Rice");
+                foreach (GridPoint c in fields)
+                {
+                    Plant plant = (Plant)ThingMaker.MakeThing(crop);
+                    plant.sown = true;
+                    plant.Growth = 0.35f;
+                    tx.Own(GenSpawn.Spawn(plant, ToCell(c), map, Rot4.North, WipeMode.Vanish));
+                    crops++;
+                }
+                if (forceFailure) throw new InvalidOperationException("forced procedural partial-spawn failure");
+
+                LayoutRoom food = layout.Rooms.First(r => r.Kind == LayoutRoomKind.Freezer || r.Kind == LayoutRoomKind.Pantry);
+                LayoutRoom storageRoom = layout.Rooms.First(r => r.Kind == LayoutRoomKind.Storage);
+                LayoutRoom medical = layout.Rooms.First(r => r.Kind == LayoutRoomKind.Medical);
+                SpawnStacks(tx, Require(food.Kind == LayoutRoomKind.Freezer ? "MealSimple" : "Pemmican"),
+                    input.Requirements.Residents * 12, food.Interior.Points(), map);
+                int fuel = layout.Power?.FuelStock ?? 0;
+                int internalFuel = 0;
+                if (layout.Power != null)
+                    foreach (Thing generator in tx.OwnedThings.Where(t => t.def.defName == layout.Power.GeneratorDef))
+                    {
+                        CompRefuelable refuelable = generator.TryGetComp<CompRefuelable>();
+                        if (refuelable == null) continue;
+                        int add = Math.Min(fuel, Math.Min(15, (int)Math.Ceiling(refuelable.Props.fuelCapacity)));
+                        if (add <= 0) continue;
+                        refuelable.Refuel(add);
+                        fuel -= add;
+                        internalFuel += add;
+                    }
+                if (fuel > 0) SpawnStacks(tx, Require(layout.Power.FuelDef), fuel, storageRoom.Interior.Points(), map);
+                foreach (LoadoutItem item in loadout.Medicine) SpawnStacks(tx, Require(item.DefName), item.Count, medical.Interior.Points(), map);
+                foreach (LoadoutItem item in loadout.Components.Concat(loadout.Armoury))
+                    SpawnStacks(tx, Require(item.DefName), item.Count, storageRoom.Interior.Points(), map, item.Stuff, item.Quality);
+                foreach (CombatSupply supply in encounter.Supplies)
+                {
+                    if (supply.DefName == "ReinforcedBarrel" && Find.Storyteller.difficulty.classicMortars) continue;
+                    combatStocks.AddRange(SpawnStacks(tx, Require(supply.DefName), supply.Count, storageRoom.Interior.Points(), map));
+                }
+
+                map.powerNetManager.UpdatePowerNetsAndConnections_First();
+                foreach (Thing battery in tx.OwnedThings.Where(t => t.TryGetComp<CompPowerBattery>() != null))
+                    battery.TryGetComp<CompPowerBattery>().SetStoredEnergyPct(0.5f);
+                PawnKindDef kind = settlement.Faction.def.basicMemberKind ?? PawnKindDefOf.Pirate;
+                List<GridPoint> homes = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Barracks || r.Kind == LayoutRoomKind.Bedroom)
+                    .SelectMany(r => r.Interior.Points()).Where(c => ToCell(c).Standable(map) && ToCell(c).GetEdifice(map) == null).ToList();
+                if (homes.Count < input.Requirements.Residents) throw new InvalidOperationException("No resident spawn cells remain");
+                for (int i = 0; i < input.Requirements.Residents; i++)
+                {
+                    Pawn pawn = PawnGenerator.GeneratePawn(kind, settlement.Faction, map.Tile);
+                    Equip(pawn, loadout.Residents[i]);
+                    tx.Own(GenSpawn.Spawn(pawn, ToCell(homes[i]), map));
+                    defenders.Add(pawn);
+                }
+                if (map.listerThings.AllThings.Any(P0MapAudit.IsProhibitedDefense))
+                    throw new InvalidOperationException("Prohibited trap or IED detected");
+                if (layout.Gates.Any(g => !(ToCell(g.Cell).GetEdifice(map) is Building_Door)))
+                    throw new InvalidOperationException("A procedural gate did not spawn as a door");
+                tx.Commit();
+
+                map.GetComponent<P3GarrisonController>().Initialize(settlement, layout.Gates.Select(g => g.Cell), encounter,
+                    defenders, tx.OwnedThings, mortar, combatStocks);
+                LordMaker.MakeNewLord(settlement.Faction, new LordJob_P3Garrison(settlement.ID), map, defenders);
+                P0SettlementState state = Current.Game.GetComponent<P0WorldState>().GetOrCreate(settlement.ID, settlement.Faction);
+                state.generationCount++;
+                state.pawnIds = defenders.Select(p => p.thingIDNumber).ToList();
+                state.proceduralLayoutDigest = layout.Digest;
+                GridPoint marker = walls.First();
+                Thing woodStock = tx.OwnedThings.FirstOrDefault(t => t.def == ThingDefOf.WoodLog);
+                GridPoint stock = woodStock == null ? storageRoom.Interior.Points().First() :
+                    new GridPoint(woodStock.Position.x, woodStock.Position.z);
+                map.GetComponent<P0MapState>().Initialize(settlement, ToCell(layout.Anchor), ToCell(stock),
+                    ToCell(marker), P0MapAudit.TerrainRoofChecksum(map));
+                P2Log.Message("PROCEDURAL_SPAWN_COMPLETE", "map=" + map.uniqueID + " layout=" + layout.Digest +
+                    " profile=" + run.ProfileId + " rooms=" + layout.Rooms.Count + " gates=" + layout.Gates.Count +
+                    " layers=" + layout.WallLayers + " things=" + tx.OwnedCount + " residents=" + defenders.Count +
+                    " crops=" + crops + " excavated=" + tx.ExcavatedCount + " retainedRoofs=" + layout.RetainedThickRoof.Count +
+                    " conduits=" + conduitCells.Count +
+                    " generatorStartupFuel=" + internalFuel + " storedFuel=" + fuel +
+                    " encounter=" + encounter.Digest + " loadout=" + loadout.Digest);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                bool restored = false;
+                try { restored = tx.Rollback(); } catch (Exception recovery) { P2Log.Error("PROCEDURAL_RECOVERY_ERROR", recovery.ToString()); }
+                failure = ex.GetType().Name + ":" + ex.Message;
+                P2Log.Error("PROCEDURAL_SPAWN_ABORT", "map=" + map.uniqueID + " error=" + failure +
+                    " owned=" + tx.OwnedCount + " recovered=" + restored);
+                return false;
+            }
+        }
+
+        private static List<GridPoint> SelectFields(Map map, ProceduralLayoutInput input, ProceduralLayout layout)
+        {
+            HashSet<GridPoint> reserved = new HashSet<GridPoint>(layout.Enclosure.Concat(layout.BuiltWalls)
+                .Concat(layout.NaturalWalls).Concat(layout.Gates.Select(g => g.Cell)));
+            List<GridPoint> chosen = new List<GridPoint>();
+            foreach (GridPoint c in input.Terrain.Points().Where(c => !reserved.Contains(c) &&
+                input.Terrain[c].Has(TerrainTraits.Fertile) && input.Terrain[c].Has(TerrainTraits.Standable))
+                .OrderBy(c => layout.Gates.Min(g => Math.Abs(c.X - g.Staging.X) + Math.Abs(c.Z - g.Staging.Z))).ThenBy(c => c))
+            {
+                if (ToCell(c).GetEdifice(map) != null) continue;
+                chosen.Add(c);
+                if (chosen.Count == layout.FieldCellsRequired) break;
+            }
+            return chosen;
+        }
+
+        private static GridPoint FindOrigin(ThingDef def, Rot4 rotation, IReadOnlyList<GridPoint> footprint)
+        {
+            if (footprint.Count == 0) throw new InvalidOperationException("Empty footprint for " + def.defName);
+            GridPoint first = footprint[0];
+            for (int x = first.X - 3; x <= first.X + 3; x++)
+                for (int z = first.Z - 3; z <= first.Z + 3; z++)
+                {
+                    CellRect rect = GenAdj.OccupiedRect(new IntVec3(x, 0, z), rotation, def.size);
+                    if (rect.Area == footprint.Count && footprint.All(c => rect.Contains(ToCell(c))))
+                        return new GridPoint(x, z);
+                }
+            throw new InvalidOperationException("No vanilla origin realizes " + def.defName + " " + rotation +
+                " footprint at " + first);
+        }
+
+        private static IReadOnlyList<GridPoint> PlanConduits(Map map, ProceduralLayoutInput input, ProceduralLayout layout)
+        {
+            if (layout.Power == null) return new GridPoint[0];
+            List<GridPoint> terminals = layout.AllFixtures.Where(f => f.Watts != 0 ||
+                f.Kind == LayoutFixtureKind.Generator || f.Kind == LayoutFixtureKind.Battery)
+                .Select(f => f.Cells[0]).Concat(layout.PowerYards.Select(y => y.Cells[0])).Distinct().ToList();
+            if (terminals.Count == 0) throw new InvalidOperationException("Powered layout has no terminals");
+            HashSet<GridPoint> intactRock = new HashSet<GridPoint>(layout.NaturalWalls.Concat(layout.Rooms.SelectMany(r => r.NaturalWalls)));
+            HashSet<GridPoint> enclosed = new HashSet<GridPoint>(layout.Enclosure);
+            Func<GridPoint, bool> legal = c => enclosed.Contains(c) && !intactRock.Contains(c) &&
+                !input.Terrain[c].Has(TerrainTraits.Water) &&
+                (!input.Terrain[c].Has(TerrainTraits.NaturalRock) || layout.Excavation.Contains(c)) &&
+                GenConstruct.CanBuildOnTerrain(ThingDefOf.PowerConduit, ToCell(c), map, Rot4.North);
+            HashSet<GridPoint> tree = new HashSet<GridPoint> { terminals[0] };
+            GridPoint[] deltas = { new GridPoint(0, -1), new GridPoint(-1, 0), new GridPoint(1, 0), new GridPoint(0, 1) };
+            foreach (GridPoint terminal in terminals.Skip(1))
+            {
+                Queue<GridPoint> queue = new Queue<GridPoint>();
+                Dictionary<GridPoint, GridPoint> previous = new Dictionary<GridPoint, GridPoint>();
+                queue.Enqueue(terminal);
+                previous[terminal] = terminal;
+                GridPoint reached = default(GridPoint);
+                bool found = false;
+                while (queue.Count > 0 && !found)
+                {
+                    GridPoint here = queue.Dequeue();
+                    if (tree.Contains(here)) { reached = here; found = true; break; }
+                    foreach (GridPoint d in deltas)
+                    {
+                        GridPoint next = new GridPoint(here.X + d.X, here.Z + d.Z);
+                        if (!legal(next) || previous.ContainsKey(next)) continue;
+                        previous[next] = here;
+                        queue.Enqueue(next);
+                    }
+                }
+                if (!found) throw new InvalidOperationException("Power terminal disconnected at " + terminal);
+                for (GridPoint c = reached; ; c = previous[c])
+                {
+                    tree.Add(c);
+                    if (c.Equals(terminal)) break;
+                }
+            }
+            return tree.OrderBy(c => c).ToList();
+        }
+
+        private static Thing Spawn(P4SpawnTransaction tx, ThingDef def, ThingDef stuff, GridPoint point,
+            Map map, Faction faction, Rot4 rotation)
+        {
+            Thing thing = ThingMaker.MakeThing(def, def.MadeFromStuff ?
+                (stuff != null && GenStuff.AllowedStuffsFor(def).Contains(stuff) ? stuff : GenStuff.DefaultStuffFor(def)) : null);
+            if (thing.def.CanHaveFaction) thing.SetFactionDirect(faction);
+            thing = GenSpawn.Spawn(thing, ToCell(point), map, rotation, WipeMode.Vanish);
+            tx.Own(thing);
+            return thing;
+        }
+
+        private static List<Thing> SpawnStacks(P4SpawnTransaction tx, ThingDef def, int count,
+            IEnumerable<GridPoint> cells, Map map, string stuff = null, LoadoutQuality? quality = null)
+        {
+            List<Thing> result = new List<Thing>();
+            foreach (GridPoint point in cells)
+            {
+                if (count <= 0) break;
+                IntVec3 cell = ToCell(point);
+                if (!cell.Standable(map) || cell.GetEdifice(map) != null ||
+                    cell.GetThingList(map).Any(t => t.def.category == ThingCategory.Item)) continue;
+                Thing thing = ThingMaker.MakeThing(def, def.MadeFromStuff ? ResolveStuff(stuff) ?? GenStuff.DefaultStuffFor(def) : null);
+                ApplyQuality(thing, quality);
+                thing.stackCount = Math.Min(def.stackLimit, count);
+                count -= thing.stackCount;
+                result.Add(GenSpawn.Spawn(thing, cell, map));
+                tx.Own(result[result.Count - 1]);
+            }
+            if (count != 0) throw new InvalidOperationException("Insufficient stock cells for " + def.defName + ":" + count);
+            return result;
+        }
+
+        private static void Configure(Thing thing, LayoutFixtureKind kind)
+        {
+            Building_Bed bed = thing as Building_Bed;
+            if (bed != null)
+            {
+                if (kind == LayoutFixtureKind.PrisonBed) bed.ForPrisoners = true;
+                if (kind == LayoutFixtureKind.MedicalBed) bed.Medical = true;
+            }
+            if (kind == LayoutFixtureKind.WallCooler) thing.TryGetComp<CompTempControl>().TargetTemperature = -5f;
+            if (kind == LayoutFixtureKind.Stove && thing is IBillGiver giver)
+            {
+                RecipeDef recipe = DefDatabase<RecipeDef>.GetNamedSilentFail("CookMealSimple");
+                if (recipe != null) giver.BillStack.AddBill(new Bill_Production(recipe));
+            }
+        }
+
+        private static void Equip(Pawn pawn, ResidentLoadout loadout)
+        {
+            if (loadout.Weapon != null)
+            {
+                ThingDef def = Require(loadout.Weapon.DefName);
+                pawn.equipment.DestroyAllEquipment();
+                ThingWithComps weapon = (ThingWithComps)ThingMaker.MakeThing(def,
+                    def.MadeFromStuff ? ResolveStuff(loadout.Weapon.Stuff) ?? GenStuff.DefaultStuffFor(def) : null);
+                ApplyQuality(weapon, loadout.Weapon.Quality);
+                pawn.equipment.AddEquipment(weapon);
+            }
+            pawn.apparel.DestroyAll();
+            foreach (LoadoutItem item in loadout.Apparel.Concat(loadout.Utility == null ?
+                Enumerable.Empty<LoadoutItem>() : new[] { loadout.Utility }))
+            {
+                ThingDef def = Require(item.DefName);
+                Apparel apparel = (Apparel)ThingMaker.MakeThing(def,
+                    def.MadeFromStuff ? ResolveStuff(item.Stuff) ?? GenStuff.DefaultStuffFor(def) : null);
+                ApplyQuality(apparel, item.Quality);
+                if (apparel.PawnCanWear(pawn, true)) pawn.apparel.Wear(apparel, false);
+                else apparel.Destroy();
+            }
+        }
+
+        private static void ApplyQuality(Thing thing, LoadoutQuality? quality)
+        {
+            if (!quality.HasValue) return;
+            CompQuality comp = thing.TryGetComp<CompQuality>();
+            if (comp == null) throw new InvalidOperationException("Planned quality cannot be applied to " + thing.def.defName);
+            comp.SetQuality((QualityCategory)(int)quality.Value, ArtGenerationContext.Outsider);
+        }
+
+        private static ThingDef Require(string name) => DefDatabase<ThingDef>.GetNamed(name, true);
+        private static ThingDef ResolveStuff(string name) => string.IsNullOrEmpty(name) ? null : DefDatabase<ThingDef>.GetNamedSilentFail(name);
+        private static Rot4 Rotation(string name) => name == "East" ? Rot4.East : name == "South" ? Rot4.South :
+            name == "West" ? Rot4.West : Rot4.North;
+        private static IntVec3 ToCell(GridPoint point) => new IntVec3(point.X, 0, point.Z);
+    }
+}

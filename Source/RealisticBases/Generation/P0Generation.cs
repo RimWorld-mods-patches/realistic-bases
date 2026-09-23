@@ -92,54 +92,42 @@ namespace RealisticBases.Generation
                 return;
             }
 
-            if (RealisticBasesMod.Settings.probeProceduralNext)
+            // P4A is now the ordinary generator. P2's fixed compound remains
+            // available only as historical code and is not a fallback here.
+            try
             {
+                int requestedLayers = RealisticBasesMod.Settings.forceP4WallLayersNext;
+                int layers = requestedLayers >= 1 && requestedLayers <= 3 ? requestedLayers : 1;
                 RealisticBasesMod.Settings.probeProceduralNext = false;
-                try
+                P4AMapPlanningRun run = P4AMapPlanner.Run(map, settlement, layers);
+                if (!run.Result.Success)
                 {
-                    int layers = RealisticBasesMod.Settings.forceP4WallLayersNext;
-                    P4AMapPlanner.Run(map, settlement, layers >= 1 && layers <= 3 ? layers : 1);
+                    P2Log.Error("PROCEDURAL_PLAN_REJECT", "map=" + map.uniqueID + " mutationCount=0 diagnostics=" +
+                        P1MapPlanner.Compact(run.Result.Diagnostics.Select(d => d.ToString())));
+                    return;
                 }
-                catch (Exception ex)
+                if (RealisticBasesMod.Settings.forceRejectNext)
                 {
-                    P2Log.Error("PROCEDURAL_PROBE_FAILED", "map=" + map.uniqueID + " error=" + ex.GetType().Name + ":" + ex.Message);
+                    RealisticBasesMod.Settings.forceRejectNext = false;
+                    P2Log.Message("PROCEDURAL_FORCED_REJECT", "map=" + map.uniqueID + " mutationCount=0 retry=same_validated_layout");
                 }
-            }
-
-            P2PlanningRun primary = P2MapPlanner.Run(map, settlement.Faction, "primary");
-            if (!primary.Result.Success)
-            {
-                P2Log.Error("PLAN_REJECT", "reason=p2_full_contract_rejected mutationCount=0 constraints=" +
-                    P1MapPlanner.Compact(primary.Result.Rejections) + " fallback=none_qualified mapUntouched=true");
-                P2PlanDiagnostics.Record(map, primary, "untouched-map-exit", new[] { "no-qualified-p2-fallback" });
-                return;
-            }
-
-            if (RealisticBasesMod.Settings.forceRejectNext)
-            {
-                RealisticBasesMod.Settings.forceRejectNext = false;
-                P2Log.Message("PLAN_REJECT", "reason=forced_before_spawn mutationCount=0 recovery=full-contract-retry");
-                P2PlanDiagnostics.Record(map, primary, "full-contract-retry", new[] { "forced-primary-rejection" });
+                if (RealisticBasesMod.Settings.forcePartialFailureNext)
+                {
+                    RealisticBasesMod.Settings.forcePartialFailureNext = false;
+                    string forced;
+                    P4ProceduralSpawner.TrySpawn(map, settlement, run, out forced, true);
+                    P2Log.Message("PROCEDURAL_FORCED_RECOVERY", "map=" + map.uniqueID + " forcedFailure=" + forced +
+                        " checksumRestored=" + (before == P0MapAudit.TerrainRoofChecksum(map)));
+                }
                 string failure;
-                P2SettlementSpawner.TrySpawn(map, settlement, primary, before, "forced_rejection_full_contract_retry", false, out failure);
-                return;
+                if (!P4ProceduralSpawner.TrySpawn(map, settlement, run, out failure))
+                    P2Log.Error("PROCEDURAL_SPAWN_REJECT", "map=" + map.uniqueID + " reason=" + failure +
+                        " terrainPreserved=" + (before == P0MapAudit.TerrainRoofChecksum(map)));
             }
-
-            if (RealisticBasesMod.Settings.forcePartialFailureNext)
+            catch (Exception ex)
             {
-                RealisticBasesMod.Settings.forcePartialFailureNext = false;
-                string forcedFailure;
-                P2SettlementSpawner.TrySpawn(map, settlement, primary, before, "forced_partial_failure", true, out forcedFailure);
-                P2PlanDiagnostics.Record(map, primary, "full-contract-retry", new[] { "partial-spawn-rollback", forcedFailure });
-                string retryFailure;
-                P2SettlementSpawner.TrySpawn(map, settlement, primary, before, "partial_failure_full_contract_retry", false, out retryFailure);
-                return;
+                P2Log.Error("PROCEDURAL_GENERATION_ERROR", "map=" + map.uniqueID + " error=" + ex);
             }
-
-            P2PlanDiagnostics.Record(map, primary, "primary", Array.Empty<string>());
-            string spawnFailure;
-            if (!P2SettlementSpawner.TrySpawn(map, settlement, primary, before, "primary", false, out spawnFailure))
-                P2Log.Error("SPAWN_ABORT", "reason=" + spawnFailure + " fallback=none_qualified mapRolledBack=true");
         }
 
         private static void RunControlledFailure(Map map, Settlement settlement, SettlementPlan primaryPlan, string before)
@@ -264,8 +252,13 @@ namespace RealisticBases.Generation
 
         public override void Generate(Map map, GenStepParams parms)
         {
-            P0Log.Message("GEN_STEP", "name=RB_P0_SettlementPower order=" + def.order + " map=" + map.uniqueID);
-            new GenStep_Power().Generate(map, parms);
+            // Vanilla GenStep_Power may add generators, batteries, conduits and
+            // roofs outside our transaction after it has committed. P4A owns
+            // its power layout; only refresh the net graph here.
+            string before = P0MapAudit.TerrainRoofChecksum(map);
+            map.powerNetManager.UpdatePowerNetsAndConnections_First();
+            P0Log.Message("GEN_STEP", "name=RB_P0_SettlementPower order=" + def.order + " map=" + map.uniqueID +
+                " vanillaAutoPower=false terrainRoofPreserved=" + (before == P0MapAudit.TerrainRoofChecksum(map)));
         }
     }
 }

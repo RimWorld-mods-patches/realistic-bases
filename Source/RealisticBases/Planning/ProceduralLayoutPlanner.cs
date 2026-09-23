@@ -443,7 +443,7 @@ namespace RealisticBases.Planning
         public LayoutCellClass At(GridPoint c) => InBounds(c) ? Class[Index(c)] : LayoutCellClass.Bad;
         public bool CanPlace(GridPoint c) => InBounds(c) && Placeable[Index(c)];
         public bool Roofed(GridPoint c) => InBounds(c) && Terrain[c].Has(TerrainTraits.Roofed);
-        public bool ThickCover(GridPoint c) => At(c) == LayoutCellClass.Covered || (At(c) == LayoutCellClass.Rock && Roofed(c));
+        public bool ThickCover(GridPoint c) => Terrain.InBounds(c) && Terrain[c].Has(TerrainTraits.ThickRoof);
 
         // Exterior walking: dry standable unoccupied ground only.
         public bool Passable(GridPoint c)
@@ -1385,7 +1385,7 @@ namespace RealisticBases.Planning
             if (gates == null) return null;
             foreach (LayoutGate gate in gates) built.Remove(gate.Cell);
 
-            List<GridPoint> retained = dug.Where(grid.Roofed).ToList();
+            List<GridPoint> retained = dug.Where(grid.ThickCover).ToList();
             IReadOnlyList<GridPoint> unsupported = LayoutRoofSupport.Unsupported(input.Terrain, dug, retained);
             if (unsupported.Count > 0) { Fail("roof_support_insufficient", unsupported.Count + " cells e.g. " + unsupported[0]); return null; }
             HashSet<GridPoint> retainedSet = new HashSet<GridPoint>(retained);

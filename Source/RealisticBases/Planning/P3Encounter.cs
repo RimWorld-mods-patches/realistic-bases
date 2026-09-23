@@ -82,6 +82,9 @@ namespace RealisticBases.Planning
         public static readonly EncounterProfile Tribal = new EncounterProfile(
             "tribal-encounter-v1", false, 6, 0, 0, 0, 0, 4, 2, 0, 1, 0);
 
+        public static readonly EncounterProfile IndustrialNoMortar = new EncounterProfile(
+            "industrial-no-mortar-v1", false, 6, 0, 0, 0, 0, 4, 2, 0, 1, 0);
+
         public static EncounterProfile For(PhysicalSettlementProfile profile) =>
             profile.Has(SettlementCapability.Electricity) ? Industrial : Tribal;
     }

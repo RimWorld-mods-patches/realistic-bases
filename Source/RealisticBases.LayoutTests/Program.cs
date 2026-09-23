@@ -1167,7 +1167,8 @@ internal static class Program
     // ---- synthetic terrain ----
 
     private const TerrainTraits Ground = TerrainTraits.Standable | TerrainTraits.Buildable | TerrainTraits.SupportsHeavy | TerrainTraits.Fertile;
-    private const TerrainTraits RockRoofed = TerrainTraits.NaturalRock | TerrainTraits.Occupied | TerrainTraits.SupportsHeavy | TerrainTraits.Roofed;
+    private const TerrainTraits RockRoofed = TerrainTraits.NaturalRock | TerrainTraits.Occupied | TerrainTraits.SupportsHeavy |
+        TerrainTraits.Roofed | TerrainTraits.ThickRoof;
     private const TerrainTraits DeepWater = TerrainTraits.Water;
 
     private static TerrainSnapshot Build(int width, int height, Func<int, int, TerrainTraits> traits)

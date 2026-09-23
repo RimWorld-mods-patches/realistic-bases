@@ -75,6 +75,7 @@ namespace RealisticBases.Integration
                     if (GenConstruct.CanBuildOnTerrain(ThingDefOf.Wall, cell, map, Rot4.North, null, ThingDefOf.Steel))
                         traits |= TerrainTraits.Buildable;
                     if (roof != null) traits |= TerrainTraits.Roofed;
+                    if (roof == RoofDefOf.RoofRockThick) traits |= TerrainTraits.ThickRoof;
                     if (terrain.IsWater) traits |= TerrainTraits.Water;
                     if (edifice?.def?.building?.isNaturalRock == true) traits |= TerrainTraits.NaturalRock;
                     if (terrain.fertility >= 0.7f) traits |= TerrainTraits.Fertile;

@@ -110,7 +110,7 @@ namespace RealisticBases.Planning
             }
             if (footprint.RoofClearanceCells.Any(c => !footprint.ExcavationCells.Contains(c) || !terrain[c].Has(TerrainTraits.Roofed)))
                 errors.Add("invalid_roof_clearance");
-            if (footprint.RetainedThickRoofCells.Any(c => !footprint.ExcavationCells.Contains(c) || !terrain[c].Has(TerrainTraits.Roofed)))
+            if (footprint.RetainedThickRoofCells.Any(c => !footprint.ExcavationCells.Contains(c) || !terrain[c].Has(TerrainTraits.ThickRoof)))
                 errors.Add("invalid_retained_thick_roof");
             if (footprint.RoofClearanceCells.Intersect(footprint.RetainedThickRoofCells).Any())
                 errors.Add("roof_ledger_overlap");

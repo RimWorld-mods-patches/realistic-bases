@@ -216,3 +216,35 @@ to the edge is captured; P4 does not fabricate one.
 Validate the remaining real Core foothill, lakeshore, and P4 matrix cases. P4A's
 bounded procedural-layout solver is explicitly deferred until separately authorized;
 P5/P6 remain unstarted.
+
+## 2026-09-23 procedural runtime supersession
+
+The preceding fixed-compound checkpoints remain historical evidence, not acceptance
+evidence for the new P4/P4A generator. The user authorized P4 and P4A together;
+`ProceduralLayout` now drives ordinary settlement generation. The live Core mountain
+run produced nine rooms, two gates, one fortification layer, four residents, 124
+crops, 208 excavated rocks, 117 retained thick-roof cells, and 128 conduits. Its
+terrain/roof checksum at settlement spawn matched final map generation; player
+arrival crossed the doors, and P3 kept four defenders assigned without controlling
+player pawns. Generator startup fuel was capped at 45, leaving 153 in storage.
+
+Conduit routing explicitly excludes intact natural rock and checks vanilla conduit
+terrain buildability. The successful mountain route used the excavated path; it
+did not require polishing rock. This does not establish that a conduit can be
+built through an intact stone wall, nor does it claim to support such a route.
+
+Settlement and power steps moved to orders 1400/1401, after vanilla map contents
+that previously changed the final terrain/roof checksum. The power step refreshes
+networks but no longer calls vanilla automatic power generation, which added
+unowned structures after the transactional spawn.
+
+The new transaction also passed its own forced-partial Core mountain test. It
+removed 329 owned things, reported recovery, restored the pre-spawn terrain/roof
+checksum, and then succeeded on the same map: nine rooms, one gate, four residents,
+276 excavations, 235 retained thick-roof cells, 137 conduits, final checksum
+unchanged, and playable arrival. The old mountain forced-failure recovery above
+tested the fixed-compound path and is separate evidence.
+
+Remaining P4/P4A exit evidence includes procedural flat/foothill/lakeshore and
+three-layer maps, hot/cold and tribal cases, GL plus Map Preview, and save/reload
+on the procedural path. P5/P6 are unstarted.

@@ -47,7 +47,8 @@ namespace RealisticBases.Planning
         Fertile = 1 << 5,
         SupportsHeavy = 1 << 6,
         MapEdge = 1 << 7,
-        Occupied = 1 << 8
+        Occupied = 1 << 8,
+        ThickRoof = 1 << 9
     }
 
     public struct TerrainCell

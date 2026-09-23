@@ -18,7 +18,7 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 | P2 — First complete physical settlement | Complete | Industrial/tribal profiles, full plan-driven spawning, real power/freezer/outage behavior, Core recovery, and GL + Map Preview normal/recovery matrices passed; see [P2 findings](p2-findings.md) |
 | P3 — Playable defensive encounter | Complete | Bounded local garrison, physical mortar supply, save/reload, full failure matrix, tribal exclusions, and Core/GL regression passed; see [P3 findings](p3-findings.md) |
 | P4 — Terrain variety and stronger fortifications | In progress | Finish terrain and fortifications on the P4A procedural generator; see [P4 findings](p4-findings.md) |
-| P4A — Procedural settlement layouts | In progress | Pure foundation and tech-stage steps 1–6 merged; live generation, catalog, equipment, persistence, and evidence remain |
+| P4A — Procedural settlement layouts | In progress | Pure foundation and tech-stage steps 1–6 merged; ordinary live Core mountain generation and forced rollback pass; broader runtime matrix and save/reload remain |
 | P5 — Encounter supplies, trade stock, and persistent consequences | Not started | Revised scope: bounded routine/combat reserves, trade consistency and no-duplication persistence; full sustainability post-MVP |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage |
 
@@ -28,7 +28,7 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 |---|---|---|
 | P0.1 Minimal mod/build setup | Complete | Repository-prescribed Docker Release build: 0 warnings/errors; isolated Core launch and disposable `.rws` save/reload passed |
 | P0.2 Generation hook and guards | Complete | Guarded `Settlement.MapGeneratorDef` postfix selected `RB_P0_Base_Faction` only for eligible ordinary hostile human settlements; default remains off |
-| P0.3 Terrain and optional-mod order | Complete | Settlement/power ran at 400/401 after terrain; Core and GL 1.7.13.1 full generation passed; GL cliff audit reported both GL and Map Preview active |
+| P0.3 Terrain and optional-mod order | Complete | Historical 400/401 Core and GL evidence; P4A runtime moved settlement/power to 1400/1401 for final terrain/roof preservation |
 | P0.4 Hostile garrison behavior | Complete | Two-pawn custom Lord ran; holder remained on its post under real damage; worker picked up and consumed finite fuel |
 | P0.5 Hostile NPC work | Complete | Vanilla refuel, bill, and sow work givers completed generator refuel, stove refuel, a meal, and rice sowing without ownership changes or replenishment |
 | P0.6 Lifecycle | Complete | Active work survived save/load; removal/re-entry preserved wood depletion and marker-wall damage; vanilla defeat ended controller ownership |
@@ -40,12 +40,12 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 | Item | Decision |
 |---|---|
 | Generation integration | Keep the narrowly guarded getter postfix and dedicated generator; do not replace explicitly selected third-party generators |
-| Step order | Preserve `MapCommonBase`; use custom settlement/power steps at 400/401 and audit the final map separately because later vanilla/mod steps may change terrain |
+| Step order | Preserve `MapCommonBase`; P4A settlement/power steps run at 1400/1401 after vanilla contents that changed the final terrain/roof checksum |
 | Worker adapter | Keep the map-scoped adapter over vanilla work givers; finite physical inputs and observed completion are the correctness boundary |
 | Unload/re-entry | Persist coarse settlement deltas by world-object ID; regenerate defenders on re-entry. Individual defender identity is intentionally outside the current contract |
 | Retreat test | Deterministic map removal/reopen replaces a literal caravan retreat for P0 because it exercises the same map-unload/re-entry persistence boundary without adding caravan behavior to the spike |
 | Arrival test | Require a pass-doors route from map edge to the settlement target. Hostile doors may still require normal breaching in actual play |
-| Map Preview | Its preview pipeline stops before order 230, so the order-400 settlement is intentionally excluded from previews; the live compatibility profile validated coexistence during full generation |
+| Map Preview | Its preview pipeline stops before order 230, so the later settlement step is excluded from previews; the prior fixed-compound compatibility run does not establish P4A compatibility |
 | Supported build | Tested executable: RimWorld 1.6.4871 rev597. The installed `Version.txt` rev595 text is treated as stale packaging metadata; compile API remains pinned to 1.6.4871 |
 
 No active P0 blocker remains. Carryover `CLAUDE.md` describes another mod; the Realistic Bases documents remain authoritative.
@@ -140,3 +140,4 @@ The 2026-09-23 scope change supersedes the earlier ordering that deferred P4A un
 | 2026-09-22 | Added the P4 final planned-occupancy/cell-graph contract and connectivity architecture note. Public circulation now has one resident root, room-local target access is separate, and the former sealed inset-ring layout has a pure regression that fails with `public_root_blocked`. |
 | 2026-09-22 | Recorded P4A after P4 and before P5: P2's fixed 31×25 arrangement remains historical prototype evidence, not a procedural-layout result. P4A will add seeded demand/terrain-aware packing, circulation, enclosure, portals, variation, and fallback observability under separate authorization. |
 | 2026-09-23 | Merged the additive P4A pure foundation/tech-stage history into the P4 continuation line; mod build, P1–P4 tests, and 62 P4A layout tests passed. Core disposable runtime then generated a two-layer foothill settlement: 4/4 faction doors, 12/12 reachable facilities, player arrival, P3 active encounter and save/reload restoration passed. |
+| 2026-09-23 | Switched ordinary generation to the P4A procedural layout, added preflight and a rock/roof/plant transaction, and moved steps to 1400/1401. A Core mountain live run passed final terrain/roof checksum, two gates, 208 excavations, 117 retained thick roofs, 128 conduits, four active defenders, finite fuel stock, and playable arrival. A second Core mountain forced-partial run restored 329 owned things and the original checksum, then succeeded on the same map. Current Docker build, 55 planner tests, and 62 layout tests pass. Remaining procedural matrix and save/reload evidence keep P4/P4A open. |
