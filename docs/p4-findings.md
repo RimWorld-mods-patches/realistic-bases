@@ -302,3 +302,10 @@ spawn and player arrival crossed the doors. The pure suite includes a
 scattered-rock regression. Earlier overlapping-process flat results were
 discarded; this run started after verifying exactly one game process used the
 disposable profile.
+
+A separate single-process forced-partial run on a `Hilliness.Flat` world tile
+restored 334 owned things and the original terrain/roof checksum, then succeeded
+on the same map with final checksum and arrival checks. That tile contained a
+contiguous rock mass, and the accepted layout chose `RockProtected` with 196
+retained thick-roof cells. It therefore does **not** yet prove rollback for the
+new open-ground boulder-clearance subpath.
