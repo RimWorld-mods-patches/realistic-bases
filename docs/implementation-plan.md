@@ -147,7 +147,7 @@ Landforms normal/rejection/recovery, save/reload, and visual/path/job evidence.
 
 ### P4B — Defensive layout planner
 
-**Depends on:** P4 terrain contracts and P4A procedural layout. **Status:** planned, not started. Detailed steps and evidence: [P4B defensive layout plan](p4b-defense-plan.md).
+**Depends on:** P4 terrain contracts and P4A procedural layout. **Status:** active; P4B.0 baseline recorded, implementation/live evidence pending. Detailed steps and evidence: [P4B defensive layout plan](p4b-defense-plan.md) and [findings](p4b-findings.md).
 
 Add 1–3 physical exterior-wall layers along declared eligible sections, coherent materials/import budgets, connected crossings through every layer, defender firing/retreat positions, sandbags/barricades and powered turrets. Include uranium slug turrets (`Turret_Sniper`, research `SniperTurret`) from IndustrialLate, with prerequisite closure, finite uranium rearming, effective range/line-of-fire, power, service and threat-budget checks. Availability is conditional on resources and viable geometry, not guaranteed for every settlement.
 

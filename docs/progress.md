@@ -4,7 +4,7 @@ Updated: 2026-09-24
 
 ## Current state
 
-Design, source review, and P0–P3 are complete. P4 and P4A are active together: the procedural planner is the target for terrain, facilities, equipment and runtime work. P4B is the next planned defensive-layout milestone; coordinated exterior layers, turrets and cover now belong there. P5 remains unstarted. Earlier fixed-compound P4 observations are historical evidence only.
+Design, source review, and P0–P3 are complete. P4 and P4A are active together: the procedural planner is the target for terrain, facilities, equipment and runtime work. P4B is active; coordinated exterior layers, turrets and cover belong there. P5 remains unstarted. Earlier fixed-compound P4 observations are historical evidence only.
 
 Specification: [design and feasibility](design-feasibility.md). Delivery gates: [implementation plan](implementation-plan.md). Detailed evidence: [P0 findings](p0-findings.md).
 
@@ -19,7 +19,7 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 | P3 — Playable defensive encounter | Complete | Bounded local garrison, physical mortar supply, save/reload, full failure matrix, tribal exclusions, and Core/GL regression passed; see [P3 findings](p3-findings.md) |
 | P4 — Terrain variety and environmental integration | In progress | Finish terrain/environment checks on the P4A procedural generator; defensive layout moves to P4B |
 | P4A — Procedural settlement layouts | In progress | Core flat/mountain/foothill, three-layer gate bands (not complete exterior layers), forced rollback, cooler-room audit, and P3 save/reload pass; lakeshore, climate, tribal, and optional-mod matrix remain |
-| P4B — Defensive layout planner | Not started | Exterior layers/gates, posts, turrets including high-industrial uranium slug turrets, sandbags/barricades, lightweight fortification heuristics; see [P4B plan](p4b-defense-plan.md) |
+| P4B — Defensive layout planner | In progress | P4B.0 baseline/contracts and validation gates recorded in [P4B findings](p4b-findings.md); physical layers, posts, equipment and live matrix remain unverified |
 | P5 — Encounter supplies, trade stock, and persistent consequences | Not started | Bounded reserves, trade consistency, no-duplication persistence, and accessible/separate hazardous stock placement where justified; full sustainability deferred |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage; add route diagnostics, evidence-driven soft-preference tuning, reproducibility and encounter-quality review |
 | P7 — Settlement specialization | Not started (post-MVP) | Final planned step: agriculture/industry first; evaluate mining, ranching, forestry, trading, military, medical and research profiles; verify trade-product influence feasibility |
@@ -108,6 +108,16 @@ P0–P3 findings remain historical evidence; no completed checks were rewritten.
 | P4/P4A integration | In progress | ProceduralLayout is the production plan and validator. Build runtime catalog/resources, stable seed/stage, transactional spawn, geometry-based P3, fixtures/utilities/fields, terrain/baseline enclosure and live matrix; reserve/expose geometry for P4B. Commit each validated checkpoint. |
 
 The 2026-09-23 scope change supersedes the earlier ordering that deferred P4A until P4 closeout. Do not count fixed-compound passes as procedural runtime evidence. P4 and P4A exit only after the new path passes their pure, build, Core, GL, and recovery gates. The later 2026-09-24 P4B split moves coordinated defensive layout out of that closeout without weakening baseline access, terrain or recovery checks.
+
+## P4B committed checklist
+
+| Step | Scope | Validation gate | Status |
+|---|---|---|---|
+| P4B.0 | Record existing gate-band/defense behavior, ownership, interfaces and evidence policy | Baseline code inspected; separate [findings](p4b-findings.md) established without relabeling historical evidence | Complete |
+| P4B.1 | Physical 1–3-layer eligible exterior sections, material ledger, serial gate crossings and public/service routes | Pure geometry/terrain/occupancy/property matrix plus final-map path and layer audit | Pending |
+| P4B.2 | Geometry-selected ranged posts, sandbags/barricades and turret candidates | Pure range/line-of-fire, cover, access and fallback checks; live firing/cover observations | Pending |
+| P4B.3 | P3 positions, power, finite turret reloads and budget integration | Stage legality; runtime fire, outage, depletion/rearm, breach/fallback and reload evidence | Pending |
+| P4B.4 | Core/GL terrain, player raid and recovery closeout | Representative live matrix, forced rollback, no traps/IEDs, separate remaining P4/P4A gates | Pending |
 
 ## Future planning update — 2026-09-24
 
