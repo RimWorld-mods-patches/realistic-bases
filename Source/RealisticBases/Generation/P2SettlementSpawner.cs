@@ -66,6 +66,12 @@ namespace RealisticBases.Generation
                         map.roofGrid.SetRoof(cell, null);
                     }
                 }
+                foreach (GridPoint point in plan.TerrainMutations.RetainedThickRoofCells)
+                {
+                    IntVec3 cell = ToCell(point);
+                    if (!map.roofGrid.Roofed(cell) || !HasNaturalRockRoofHolder(map, cell))
+                        throw new InvalidOperationException("P4 retained thick roof lost natural-rock support: " + cell);
+                }
                 IEnumerable<GridPoint> encounterMutationCells = EncounterCoverCells(encounter, plan)
                     .Concat(encounter.Profile.MortarCapable ? MortarFootprint(encounter.MortarCell) : Enumerable.Empty<GridPoint>());
                 foreach (GridPoint point in plan.Compound.Points().Concat(plan.FieldCells).Concat(encounterMutationCells).Distinct())
@@ -221,6 +227,7 @@ namespace RealisticBases.Generation
                     " plannedRoofChange=" + (terrainBefore != after) + " roofsAdded=" + changedRoofs.Count +
                     " archetype=" + plan.Archetype + " excavatedRocks=" + removedRocks.Count +
                     " unownedRockPreserved=" + (unownedRockBefore == P0MapAudit.NaturalRockChecksum(map, ownedExcavation)) +
+                    " retainedThickRoofs=" + plan.TerrainMutations.RetainedThickRoofCells.Count +
                     " noTrapsOrIEDs=" + !map.listerThings.AllThings.Any(P0MapAudit.IsProhibitedDefense));
                 failure = null;
                 return true;
@@ -375,5 +382,23 @@ namespace RealisticBases.Generation
         private static ThingDef RequireDef(string name) => DefDatabase<ThingDef>.GetNamed(name, true);
         private static Rot4 ParseRotation(string value) => value == "East" ? Rot4.East : value == "South" ? Rot4.South : value == "West" ? Rot4.West : Rot4.North;
         private static IntVec3 ToCell(GridPoint point) => new IntVec3(point.X, 0, point.Z);
+
+        // Kept thick roofs are safe only when an intact natural rock holder is
+        // within vanilla's 6.9-cell radius. Constructed walls never satisfy this
+        // audit, even if vanilla's broader roof-holder scan would accept them.
+        private static bool HasNaturalRockRoofHolder(Map map, IntVec3 roofedCell)
+        {
+            const float radiusSquared = 6.9f * 6.9f;
+            int radius = 7;
+            for (int dx = -radius; dx <= radius; dx++)
+                for (int dz = -radius; dz <= radius; dz++)
+                {
+                    if (dx * dx + dz * dz > radiusSquared) continue;
+                    IntVec3 candidate = new IntVec3(roofedCell.x + dx, 0, roofedCell.z + dz);
+                    Building edifice = candidate.InBounds(map) ? candidate.GetEdifice(map) : null;
+                    if (edifice?.def?.building?.isNaturalRock == true) return true;
+                }
+            return false;
+        }
     }
 }
