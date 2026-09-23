@@ -33,6 +33,7 @@ internal static partial class Program
         Run("population change alters capacity and geometry coherently", PopulationChangesGeometry);
         Run("obstacles reshape the layout", ObstaclesReshapeLayout);
         Run("scattered rock on open ground does not force mountain doctrine", ScatteredRockUsesOpenGround);
+        Run("flat maps with natural clutter remain placeable", ClutteredFlatMaps);
         Run("final obstacles and access reservations are validated", ConnectivityAfterBlocking);
         Run("rooms are never public transit", RoomsNeverTransit);
         Run("impossible demand and unusable terrain reject predictably", Rejections);
@@ -278,6 +279,31 @@ internal static partial class Program
         Accepted(result);
         Equal(LayoutDoctrine.OpenGround, result.Layout.Doctrine,
             "separate stone outcrops cannot sustain a rock-protected settlement");
+    }
+
+    private static void ClutteredFlatMaps()
+    {
+        for (int sample = 0; sample < 4; sample++)
+        {
+            int salt = sample;
+            TerrainSnapshot terrain = Build(160, 160, (x, z) =>
+            {
+                uint hash = (uint)((x / 5) * 73856093 ^ (z / 5) * 19349663 ^ salt * 83492791);
+                hash ^= hash >> 13;
+                hash *= 1274126177u;
+                int roll = (int)(hash % 1000);
+                if (roll < 65) return RockRoofed;
+                uint edifice = (uint)(x * 19349663 ^ z * 83492791 ^ salt * 73856093);
+                edifice ^= edifice >> 13;
+                if (edifice % 1000 < 10) return TerrainTraits.Occupied;
+                return Ground;
+            });
+            ProceduralLayoutResult result = Plan(terrain, LayoutRequirements.FromPopulation(6, Industrial, Temperate), 8);
+            True(result.Success, "flat clutter sample=" + sample + " rejected=" + result.RejectionCode + " " + result.Stats +
+                " tail=" + string.Join("|", result.Diagnostics.Where(d => d.Stage == "attempt" || d.Stage == "site").TakeLast(4)));
+            True(result.Layout.BuiltWalls.All(c => !terrain[c].Has(TerrainTraits.Occupied)),
+                "perimeter skirts existing edifices sample=" + sample);
+        }
     }
 
     // ---- connectivity ----

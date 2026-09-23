@@ -309,3 +309,23 @@ on the same map with final checksum and arrival checks. That tile contained a
 contiguous rock mass, and the accepted layout chose `RockProtected` with 196
 retained thick-roof cells. It therefore does **not** yet prove rollback for the
 new open-ground boulder-clearance subpath.
+
+## Flat clutter regression (pure planner)
+
+One further single-process flat world still rejected despite ample visible land:
+the planner ended at `room_unplaceable` after 30 attempts, and another sampled
+site failed while closing its perimeter. A new deterministic 160×160 synthetic
+fixture models clustered natural-rock outcrops and sparse non-rock edifices at
+roughly the observed live-map densities. It reproduced the failure without
+launching RimWorld. The cause was twofold: the placement mask expanded every
+occupied cell by the full fortification setback, and enclosure construction
+rejected when its perimeter touched an existing edifice.
+
+The setback now expands from terrain hazards and the map edge, while occupied
+cells remain individually unplaceable. Enclosure construction absorbs nearby
+existing edifices inside the compound so its built perimeter does not collide
+with them. All four synthetic clutter variants now produce accepted layouts,
+and the test asserts no built wall occupies an existing edifice. The full pure
+layout suite and Release build pass. This is planner-level regression evidence;
+the previously failing live tile has not yet been retested, so flat-map runtime
+robustness is not closed by this test alone.

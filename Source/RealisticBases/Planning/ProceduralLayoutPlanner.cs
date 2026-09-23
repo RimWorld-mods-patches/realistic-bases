@@ -450,7 +450,14 @@ namespace RealisticBases.Planning
                     // Listed steam geyser cells count as open ground; the planner reserves them for geothermal only.
                     Class[i] = overrides.Contains(new GridPoint(x, z)) ? LayoutCellClass.Open : Classify(terrain[x, z]);
                     distance[i] = Math.Min(Math.Min(x, z), Math.Min(Width - 1 - x, Height - 1 - z)) + 1;
-                    if (Class[i] == LayoutCellClass.Bad) { distance[i] = 0; queue.Enqueue(i); }
+                    // The fortification setback is from terrain hazards and the map edge,
+                    // not from every tree, ruin, or other occupied cell. Occupied cells
+                    // themselves remain unplaceable; expanding each one by the full
+                    // setback fragments otherwise spacious flat maps into tiny islands.
+                    if (Class[i] == LayoutCellClass.Bad &&
+                        (!terrain[x, z].Has(TerrainTraits.Occupied) ||
+                         terrain[x, z].HasAny(TerrainTraits.MapEdge | TerrainTraits.Water)))
+                    { distance[i] = 0; queue.Enqueue(i); }
                 }
             while (queue.Count > 0)
             {
@@ -1570,6 +1577,31 @@ namespace RealisticBases.Planning
                         LayoutCellClass cls = grid.At(n);
                         if (cls == LayoutCellClass.Open || cls == LayoutCellClass.Covered) inE[grid.Index(n)] = true;
                     }
+            // A pre-existing edifice cannot become a perimeter wall. Absorb nearby
+            // occupied cells into the enclosure instead of letting the perimeter
+            // collide with one and rejecting an otherwise usable site.
+            bool absorbed;
+            do
+            {
+                absorbed = false;
+                List<int> neighboringOccupied = new List<int>();
+                for (int i = 0; i < inE.Length; i++)
+                {
+                    if (inE[i] || grid.Class[i] != LayoutCellClass.Bad) continue;
+                    GridPoint c = new GridPoint(i % grid.Width, i / grid.Width);
+                    if (!grid.Terrain[c].Has(TerrainTraits.Occupied) ||
+                        grid.Terrain[c].HasAny(TerrainTraits.MapEdge | TerrainTraits.Water)) continue;
+                    bool adjacent = false;
+                    for (int dz = -1; dz <= 1 && !adjacent; dz++)
+                        for (int dx = -1; dx <= 1 && !adjacent; dx++)
+                        {
+                            GridPoint n = new GridPoint(c.X + dx, c.Z + dz);
+                            adjacent = grid.InBounds(n) && inE[grid.Index(n)];
+                        }
+                    if (adjacent) neighboringOccupied.Add(i);
+                }
+                foreach (int i in neighboringOccupied) { inE[i] = true; absorbed = true; }
+            } while (absorbed);
             int minX = int.MaxValue, minZ = int.MaxValue, maxX = int.MinValue, maxZ = int.MinValue;
             for (int i = 0; i < inE.Length; i++)
                 if (inE[i]) { int x = i % grid.Width, z = i / grid.Width; minX = Math.Min(minX, x); maxX = Math.Max(maxX, x); minZ = Math.Min(minZ, z); maxZ = Math.Max(maxZ, z); }
