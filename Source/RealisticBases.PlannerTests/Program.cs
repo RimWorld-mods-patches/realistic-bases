@@ -62,6 +62,8 @@ internal static class Program
         Run("P3 combat stock is operating reserve only", P3CombatStockIsOperatingReserveOnly);
         Run("P3 mortar adds no electrical load", P3MortarAddsNoElectricalLoad);
         Run("P3 tribal encounter excludes mortar content", P3TribalEncounterExcludesMortarContent);
+        Run("P3 geometry derives gate and perimeter posts without compound offsets", P3GeometryDerivesPosts);
+        Run("P3 geometry rejects disconnected gate endpoints and missing court", P3GeometryRejectsInvalidInputs);
         Console.WriteLine("P1/P2/P3/P4 pure tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
@@ -723,6 +725,50 @@ internal static class Program
         True(!encounter.Profile.MortarCapable && encounter.MortarCell.X < 0, "no mortar facility");
         True(!encounter.Posts.Any(p => p.Mortar) && encounter.Supplies.Count == 0, "no illegal mortar stocks");
         Equal(0, EncounterValidator.Validate(settlement, input.Profile, input.Terrain, encounter).Count, "tribal encounter validation");
+    }
+
+    private static GeometryEncounterInput GeometryInput(bool mortar = false)
+    {
+        GridRect inside = new GridRect(5, 5, 10, 10);
+        GridRect outside = new GridRect(4, 4, 12, 12);
+        GridPoint north = new GridPoint(9, 4), south = new GridPoint(9, 15);
+        return new GeometryEncounterInput("irregular-layout", mortar ? P3EncounterProfiles.Industrial : P3EncounterProfiles.Tribal,
+            inside.Points(), outside.Points().Where(c => !inside.Contains(c) && !c.Equals(north) && !c.Equals(south)),
+            new[] { new KeyValuePair<GridPoint, GridPoint>(north, new GridPoint(9, 5)),
+                new KeyValuePair<GridPoint, GridPoint>(south, new GridPoint(9, 14)) },
+            inside.Points(), new[] { new GridPoint(7, 8) },
+            mortar ? (GridPoint?)new GridPoint(10, 10) : null,
+            mortar ? (GridPoint?)new GridPoint(10, 9) : null);
+    }
+
+    private static void P3GeometryDerivesPosts()
+    {
+        EncounterPlan first = GeometryEncounterPlanner.Plan(GeometryInput());
+        EncounterPlan second = GeometryEncounterPlanner.Plan(GeometryInput());
+        Equal(first.Digest, second.Digest, "geometry encounter replay");
+        True(first.Posts.Count(p => p.Id.StartsWith("gate-", StringComparison.Ordinal)) >= 2, "gate posts");
+        True(first.Posts.Count(p => p.Id.StartsWith("ranged-", StringComparison.Ordinal)) >= 4, "perimeter posts");
+        True(first.Posts.All(p => first.DefendedCells.Contains(p.Cell)), "posts remain in defended cells");
+        Equal(new GridPoint(7, 8), first.MagazineCell, "magazine chosen from supplied geometry");
+        EncounterPlan armed = GeometryEncounterPlanner.Plan(GeometryInput(true));
+        True(armed.Posts.Any(p => p.Mortar) && armed.Supplies.Count == 3, "optional court and stocks");
+    }
+
+    private static void P3GeometryRejectsInvalidInputs()
+    {
+        GeometryEncounterInput valid = GeometryInput();
+        GeometryEncounterInput badGate = new GeometryEncounterInput(valid.LayoutDigest, valid.Profile,
+            valid.Enclosure, valid.PerimeterWalls,
+            new[] { new KeyValuePair<GridPoint, GridPoint>(new GridPoint(9, 4), new GridPoint(0, 0)) },
+            valid.PublicCirculation, valid.MagazineCandidates);
+        bool rejected = false;
+        try { GeometryEncounterPlanner.Plan(badGate); } catch (InvalidOperationException) { rejected = true; }
+        True(rejected, "invalid gate rejected");
+        GeometryEncounterInput missingCourt = new GeometryEncounterInput(valid.LayoutDigest, P3EncounterProfiles.Industrial,
+            valid.Enclosure, valid.PerimeterWalls, valid.Gates, valid.PublicCirculation, valid.MagazineCandidates);
+        rejected = false;
+        try { GeometryEncounterPlanner.Plan(missingCourt); } catch (InvalidOperationException) { rejected = true; }
+        True(rejected, "industrial mortar profile requires court");
     }
 
     private static TerrainSnapshot FertileOpen(int width, int height)

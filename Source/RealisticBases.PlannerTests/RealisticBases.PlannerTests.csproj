@@ -12,6 +12,7 @@
     <Compile Include="../RealisticBases/Planning/P2Layout.cs" Link="Planning/P2Layout.cs" />
     <Compile Include="../RealisticBases/Planning/P3Doctrine.cs" Link="Planning/P3Doctrine.cs" />
     <Compile Include="../RealisticBases/Planning/P3Encounter.cs" Link="Planning/P3Encounter.cs" />
+    <Compile Include="../RealisticBases/Planning/P4GeometryEncounter.cs" Link="Planning/P4GeometryEncounter.cs" />
     <Compile Include="../RealisticBases/Planning/P4Terrain.cs" Link="Planning/P4Terrain.cs" />
     <Compile Include="../RealisticBases/Planning/P4TerrainMutation.cs" Link="Planning/P4TerrainMutation.cs" />
     <Compile Include="../RealisticBases/Planning/P4Connectivity.cs" Link="Planning/P4Connectivity.cs" />

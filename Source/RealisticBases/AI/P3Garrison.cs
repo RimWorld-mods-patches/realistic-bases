@@ -150,6 +150,12 @@ namespace RealisticBases.AI
         public void Initialize(Settlement parent, PhysicalSettlementPlan settlementPlan, EncounterPlan plan, IEnumerable<Pawn> residents,
             IEnumerable<Thing> allOwnedThings, Thing mortarThing, IEnumerable<Thing> combatStocks)
         {
+            Initialize(parent, settlementPlan.Gates, plan, residents, allOwnedThings, mortarThing, combatStocks);
+        }
+
+        public void Initialize(Settlement parent, IEnumerable<GridPoint> gates, EncounterPlan plan, IEnumerable<Pawn> residents,
+            IEnumerable<Thing> allOwnedThings, Thing mortarThing, IEnumerable<Thing> combatStocks)
+        {
             settlement = parent;
             faction = parent.Faction;
             defenders = residents.OrderBy(p => p.thingIDNumber).ToList();
@@ -169,7 +175,7 @@ namespace RealisticBases.AI
             postCells = plan.Posts.Select(p => ToCell(p.Cell)).ToList();
             postFlags = plan.Posts.Select(p => (p.Mortar ? 1 : 0) | (p.Inner ? 2 : 0) |
                 (p.MinimumRange <= 3 ? 4 : 0)).ToList();
-            gateCells = settlementPlan.Gates.Select(ToCell).ToList();
+            gateCells = gates.Select(ToCell).ToList();
             initialHe = CountStock("Shell_HighExplosive");
             initialIncendiary = CountStock("Shell_Incendiary");
             initialBarrels = CountStock("ReinforcedBarrel") + (mortar?.TryGetComp<CompRefuelable>()?.HasFuel == true ? 1 : 0);
