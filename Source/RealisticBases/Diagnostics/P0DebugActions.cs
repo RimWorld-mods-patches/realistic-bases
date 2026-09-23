@@ -134,6 +134,7 @@ namespace RealisticBases.Diagnostics
                     MessageTypeDefOf.RejectInput, false);
                 return;
             }
+            Map arrivalHomeMap = arrivalPawn?.Map;
 
             Faction faction = Find.FactionManager.AllFactionsListForReading
                 .Where(f => !f.IsPlayer && !f.Hidden && !f.defeated && f.def.humanlikeFaction && f.HostileTo(Faction.OfPlayer))
@@ -170,7 +171,15 @@ namespace RealisticBases.Diagnostics
             if (arrivalPawn != null)
             {
                 P0MapState mapState = map.GetComponent<P0MapState>();
-                IntVec3 arrivalTarget = mapState.Active ? mapState.ArrivalTarget : map.Center;
+                if (mapState == null || !mapState.Active)
+                {
+                    P0Log.Message("PLAYABLE_ARRIVAL_SKIPPED", "settlement=" + settlement.ID + " map=" + map.uniqueID +
+                        " reason=no_generated_settlement pawnRemainsOnHomeMap=" +
+                        (arrivalPawn.Spawned && arrivalPawn.Map == arrivalHomeMap));
+                    Current.Game.CurrentMap = arrivalHomeMap;
+                    return;
+                }
+                IntVec3 arrivalTarget = mapState.ArrivalTarget;
                 List<IntVec3> reachableEdges = map.AllCells
                     .Where(c => c.OnEdge(map) && c.Standable(map) && !c.Fogged(map) && arrivalTarget.IsValid &&
                         map.reachability.CanReach(c, arrivalTarget, PathEndMode.OnCell,
