@@ -127,3 +127,74 @@
 > **Out of scope:** trade-stock composition (P5), long-term sustainability, and modded tool items. Don't start P5.
 >
 > **Decisions:** raise real design choices with the user or lead, each with options and a recommendation. Don't silently change agreed decisions (the tables in §6 and §10 and in the plan).
+
+---
+
+## Prompt C: finish P4, including picking up the P4A work (for the P4 owner)
+
+> You own **P4 — Terrain variety and stronger fortifications** for the RimWorld 1.6 mod Realistic Bases. Finish P4 to its exit gate. Along the way, bring the completed P4A foundation work into your line of history, and deliver the few contracts P4A needs from P4.
+>
+> ### 1. Pick up the P4A work from git (do this first)
+>
+> The P4A work is on branch **`claude/p4a-foundations`** in the same repository. Every worktree shares one `.git`, so the branch is already visible: no fetch or push is needed. It is built on your commit `a41477e`.
+>
+> - **Additions only.** It does not modify any file that existed at `a41477e`. It adds:
+>   - `Source/RealisticBases/Planning/`: `ProceduralLayoutModel.cs`, `ProceduralLayoutPlanner.cs`, `ProceduralLayoutValidator.cs`, `SettlementTechStage.cs`, `TechCatalog.cs`, `SettlementRoles.cs`, `LayoutEquipment.cs`, `LayoutPower.cs`, `LayoutLoadout.cs`.
+>   - `Source/RealisticBases.LayoutTests/`: a separate pure test project with a generated Core catalog fixture.
+>   - `tools/extract-core-catalog.py`.
+>   - Docs: `docs/p4a-foundations.md`, `docs/p4a-handoff-prompts.md`, `docs/plans/2026-09-23-tech-stage-equipment.md`, and `docs/p4a-examples/`.
+> - **Nothing references the new code yet.** The generator, spawner, audits and AI are untouched. The planning files still compile into the mod DLL (default compile items), and they are net472-safe.
+>
+> Steps:
+> 1. In your worktree, run `git status`. Commit or stash your own work first; never merge onto a dirty tree.
+> 2. Integrate:
+>    - If your HEAD is still `a41477e` (detached): `git checkout --detach claude/p4a-foundations`. This is a fast-forward.
+>    - If you have commits after `a41477e`: `git merge --no-ff claude/p4a-foundations -m "Merge P4A foundation and tech-stage planner"`. Conflicts are only possible if you created files with the same paths.
+>    - If you work on a branch, merge it into that branch instead.
+> 3. Verify, using your usual NuGet volume, and don't run it concurrently with another build on the same volume:
+>    ```
+>    docker run --rm -v "$PWD":/mod -v <nuget-volume>:/root/.nuget/packages -w /mod/Source/RealisticBases mcr.microsoft.com/dotnet/sdk:8.0 dotnet build -c Release
+>    docker run --rm -v "$PWD":/mod -v <nuget-volume>:/root/.nuget/packages -w /mod/Source/RealisticBases.PlannerTests mcr.microsoft.com/dotnet/sdk:8.0 dotnet run -c Release
+>    docker run --rm -v "$PWD":/mod -v <nuget-volume>:/root/.nuget/packages -w /mod/Source/RealisticBases.LayoutTests mcr.microsoft.com/dotnet/sdk:8.0 dotnet run -c Release
+>    ```
+>    Expected: 0 warnings/0 errors; your PlannerTests unchanged (52/52 at `a41477e`); LayoutTests 62/62.
+>    Rebuilding refreshes the DLL your RimWorld Mods symlink loads. Restart the game after building, as usual.
+> 4. Read `docs/p4a-foundations.md` (§6 decisions, §10 tech-stage equipment) and Prompt A in `docs/p4a-handoff-prompts.md` for context. Don't edit the P4A files. If a P4 change breaks a P4A test, report it rather than editing P4A code.
+>
+> ### 2. Finish P4
+>
+> Complete the remaining P4 checklist in `docs/p4-findings.md` and `docs/progress.md`, under your existing evidence policy: pure tests, the Docker build, and live Core and Geological Landforms observations kept separate. Commit each validated step. That covers:
+> - the P4.2 foothill case;
+> - the P4.3 lakeshore, peninsula and island live cases, including rejection;
+> - P4.4: layered fortifications, palettes and budgets, climate alternatives, the P3/save-reload regression, the Core and GL matrix, visual review, and the exit decision.
+>
+> The fixed compound remains your P4 vehicle. P4 does **not** need to adopt the P4A planner.
+>
+> ### 3. Deliver what P4A needs from P4
+>
+> P4A validates and spawns procedural layouts from its own model (`ProceduralLayoutValidator`, `ProceduralLayout`). Don't generalize `P4Connectivity`, and don't relax `PhysicalSettlementValidator` or extend the P2 plan types for P4A. Do build these, where they fit P4 naturally:
+>
+> 1. **Kept thick roof in the terrain mutation ledger and recovery.** Add a category for excavated cells that keep their natural `RoofRockThick`. Today `TerrainMutationPlanner.Validate` requires roof clearance for every roofed excavation. Recovery must record and restore rock around kept roofs; the audit must check for roof collapse after excavation; and rollback must restore rock under a kept roof. Support rule: vanilla's 6.9-cell roof holder, counting only intact natural rock, never built walls.
+> 2. **Reusable transactional spawn and recovery** callable with a mutation footprint plus a list of owned things, not with `PhysicalSettlementPlan`. It covers capture, owned-thing tracking, rock and roof restoration, checksums, and a safe pre-mutation rejection.
+> 3. **A geometry-based P3 encounter input.** It takes enclosure cells, perimeter walls, gates on any side with their inside endpoints, public circulation cells, and an optional mortar court (P4A's rock-protect doctrine can drop the mortar). Posts, rally and fallback points, and the magazine are derived from it, not from compound offsets.
+> 4. **Per-cell archetype output P4A can consume:** foothill and mountain regions where excavation is allowed, preserved lakeshore water, and verified island or causeway approaches. Also say whether a perimeter meeting river water is planned; P4A defers watermills until then.
+> 5. **Map inputs and persistence:** wood yield near the site, local stone block defs, river cells, steam geyser positions, faction id and `FactionDef.techLevel`, and persistence of the settlement's P4A layout seed and the faction's tech stage.
+>
+> Each item gets its own tests, and live evidence where it touches the map. If an item doesn't belong in P4, say so, and record it as a P4A integration task instead.
+>
+> FYI, for your own path: `P4Connectivity.cs:34` uses `Has(Water | Occupied)`, which requires both flags, so water-only and natural rock cells without an edifice aren't blocked.
+>
+> ### 4. Close-out
+>
+> - Record the P4 exit decision in your docs, as usual.
+> - In `docs/progress.md`, note that the P4A foundation and tech-stage planner (plan steps 1–6, pure) are merged, and that P4A integration (plan steps 7–8 and `docs/p4a-foundations.md` §5/§9) can start.
+> - Answer items 1–5 with: delivered (commit), left to P4A integration, or rejected (with reasons). Append the answer to `docs/p4a-handoff-prompts.md` under "P4 owner's answer".
+> - Don't start P4A integration or P5.
+>
+> ### Constraints
+>
+> - No traps or IEDs.
+> - Use isolated disposable RimWorld profiles, and never touch normal user saves.
+> - The carryover `CLAUDE.md` describes a different project.
+> - Commit each validated step separately.
+> - Don't rewrite or rebase the P4A commits; merge them.
