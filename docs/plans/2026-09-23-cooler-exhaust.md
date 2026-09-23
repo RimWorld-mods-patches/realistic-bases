@@ -1,6 +1,6 @@
 # Plan: cooler orientation and outdoor exhaust
 
-2026-09-23 · Status: **design agreed; not implemented**. This plan extends the P4A planner (`docs/p4a-foundations.md`, `docs/plans/2026-09-23-tech-stage-equipment.md`). It covers pure planner work plus the runtime changes it needs.
+2026-09-23 · Status: **steps 1–4 implemented (pure) on branch `claude/cooler-exhaust`, on top of Codex's `codex/p4-finish` (`7aeaa71`). Step 5 is partly done: the spawner now builds pocket walls. The live game is not yet tested.** This plan extends the P4A planner (`docs/p4a-foundations.md`, `docs/plans/2026-09-23-tech-stage-equipment.md`). It covers pure planner work plus the runtime changes it needs.
 
 ## Problem (observed in game on the procedural path)
 
@@ -94,3 +94,30 @@ If step 1 is needed in game before steps 2–4, Codex can cherry-pick the step-1
 ## Open calibration values (provisional)
 
 Roof-hole budget, pocket scoring costs, and the maximum pocket size (1×1 by default; 1×2 only when one cell can't take two coolers' hot sides).
+
+## As built (2026-09-23)
+
+- **Step 1 (`cb9893c`):** the rotation now points the hot side away from the room. The validator recomputes the vanilla hot and cold cells from the rotation string (`cooler_orientation_*`). With the old rule restored, this check rejects every freezer layout.
+- **Steps 2–4 (this commit):**
+  - `LayoutRoomPartition`: vanilla room splitting, roof coverage and `UsesOutdoorTemperature`.
+  - Coolers may use any straight wall, and choose their exhaust by cost: public open sky 0, shared pocket 1, new pocket 3, +5 for roof clearing, +1 for digging.
+  - Pockets are sealed by pocket walls, room walls or intact rock. Their reserved walls and seals can become later rooms' walls.
+  - Pocket walls are counted in the material ledger.
+  - Roof clearing over a pocket is allowed only on excavated rock, because P4's ledger clears roof only over excavation.
+  - The protect doctrine has a roof-hole budget of ceil(cooled rooms / 2).
+  - After enclosure, the partition check reruns the attempt in pockets-only mode if a public-exhaust cooler's room isn't outdoor.
+  - The validator checks the cold side, the outdoor hot side, pocket sealing, roof and excavation ledgers, and the budget.
+  - The ASCII export shows `x` for a pocket and `O` for a roof hole.
+- **Step 5 (partial):** `P4ProceduralSpawner` now spawns the pocket walls. Roof clearing over dug pockets already followed from its "excavated but not retained, roofed" clearance rule.
+- **Still open:**
+  - Extend `P2RuntimeAudit`'s cooler check: the hot room `UsesOutdoorTemperature` and the cold room is the served room.
+  - Live cases: an open-ground freezer, a hot-climate barracks, and a rock-protected freezer with a pocket.
+- **Evidence (synthetic):**
+  - Mod build 0/0; LayoutTests all pass; PlannerTests 55/55.
+  - Hot open ground: 36 coolers over 6 seeds, 31 of them exhausting into public open-sky space, all outdoor by the partition.
+  - Rock-protected, temperate and hot, 12 layouts: 19 pockets and 12 roof holes, all within budget, with rock support intact.
+  - Fault injection: a removed pocket wall is caught as `_not_sealed`; a kept roof is caught as `_roof_ledger` plus `cooler_exhaust_not_outdoor`.
+  - Example: `docs/p4a-examples/mountain-industrial-exhaust-pockets.txt`.
+- **Untested:**
+  - The pockets-only replan path. No test layout triggered it; open-ground public rooms always passed the 25% rule.
+  - Shared pockets never occurred in the test seeds.

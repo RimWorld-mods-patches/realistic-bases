@@ -2,12 +2,12 @@
 legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access
         B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
         f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
-        Y power yard (solar/wind/geothermal)  w wind clear zone
+        Y power yard (solar/wind/geothermal)  w wind clear zone  x cooler exhaust pocket (sealed, unroofed)
         g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
-roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  ' ' open sky
+roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  'O' roof cleared over an exhaust pocket  ' ' open sky
 
-digest=C1FB660E3930EEEE doctrine=OpenGround gates=1 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=885
+digest=1E1D460E04FC3360 doctrine=OpenGround gates=1 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=885
   barracks-1  bounds=55,67,7x7    door=58,67   8/8 beds
   dining      bounds=71,76,6x10   door=73,76   8/8 seats
   freezer     bounds=58,74,13x7   door=64,74   50/48 stockpile-cells
@@ -36,8 +36,8 @@ digest=C1FB660E3930EEEE doctrine=OpenGround gates=1 wallLayers=1 court=True exca
          #,#___________##..c.#,#    #,wwwwwww,#
          #,#k__________##....#,#### #,wwwwwww,#
          #,#k__________###D###,,,,# #,wwwwwww,#
-      ####,#_____.ii___#,,=######,###,wwwwwww,#
-      #,,,,######DCC####,,=#..LS#,,,,,wwwwwww,#
+      ####,#_____._ii__#,,=######,###,wwwwwww,#
+      #,,,,######D#CC###,,=#..LS#,,,,,wwwwwww,#
       #,#######,,==========D..iS######wwwwwww,#
       #,#BBBBB#########,,,=#...S##EEA#wwwwwww,#
       #,#BBBBB##WWWWWW#,,,=#######EEA#wwwwwww,#

@@ -580,9 +580,9 @@ namespace RealisticBases.Planning
             return new LayoutRoomDemand(id, kind, capacity, Unit(kind), sizes, batteries);
         }
 
-        internal static LayoutFurnishContext FurnishContext(LayoutKit kit, LayoutRequirements requirements, bool thickRoofed, Func<int, bool> exhaustAllowed,
+        internal static LayoutFurnishContext FurnishContext(LayoutKit kit, LayoutRequirements requirements, bool thickRoofed, Func<GridPoint, int> exhaustCost,
             int batteries = 0) =>
-            new LayoutFurnishContext(kit, requirements.Climate.HeatingRequired, requirements.Climate.CoolingRequired && !thickRoofed, exhaustAllowed, batteries);
+            new LayoutFurnishContext(kit, requirements.Climate.HeatingRequired, requirements.Climate.CoolingRequired && !thickRoofed, exhaustCost, batteries);
 
         // Upper bound on the critical load of a room over its candidate sizes.
         internal static int MaxCritical(LayoutRoomDemand demand, LayoutRequirements requirements, LayoutKit kit)
@@ -668,13 +668,13 @@ namespace RealisticBases.Planning
 
     public sealed class LayoutFurnishContext
     {
-        public LayoutFurnishContext(LayoutKit kit, bool heating, bool cooling, Func<int, bool> exhaustAllowed, int batteries = 0)
+        public LayoutFurnishContext(LayoutKit kit, bool heating, bool cooling, Func<GridPoint, int> exhaustCost, int batteries = 0)
         {
             Batteries = batteries;
             Kit = kit ?? throw new ArgumentNullException(nameof(kit));
             Heating = heating;
             Cooling = cooling;
-            ExhaustAllowed = exhaustAllowed;
+            ExhaustCost = exhaustCost;
         }
 
         public LayoutKit Kit { get; }
@@ -683,8 +683,9 @@ namespace RealisticBases.Planning
         public bool Electric => Kit.Powered;
         public bool Heating { get; }
         public bool Cooling { get; }
-        // Local x on the door wall whose outside cell may take a cooler exhaust; null = any.
-        public Func<int, bool> ExhaustAllowed { get; }
+        // Cost of taking cooler exhaust through a local wall cell (its outside
+        // neighbour is the vanilla hot cell); -1 = not allowed, null = any wall at cost 0.
+        public Func<GridPoint, int> ExhaustCost { get; }
     }
 
     // A fixture in room-local coordinates: interior x 1..W, z 1..H, walls at 0
@@ -766,7 +767,7 @@ namespace RealisticBases.Planning
                 if (kind == LayoutRoomKind.Freezer)
                 {
                     Template cooler = Cool(kit);
-                    if (cooler == null || !cooler.WallMounted || !room.PlaceWallCoolers(cooler, Ceil(area, 30), context.ExhaustAllowed)) failure = "freezer_cooler_exhaust";
+                    if (cooler == null || !cooler.WallMounted || !room.PlaceWallCoolers(cooler, Ceil(area, 30), context.ExhaustCost, true)) failure = "freezer_cooler_exhaust";
                 }
                 if (failure == null && (light == null || !room.Place(light, (area + 35) / 36))) failure = "lights";
                 int shelfCells = 0;
@@ -832,7 +833,7 @@ namespace RealisticBases.Planning
                     {
                         Template cool = Cool(kit);
                         bool placed = cool != null && (cool.WallMounted
-                            ? room.PlaceWallCoolers(cool, Ceil(area, 40), context.ExhaustAllowed)
+                            ? room.PlaceWallCoolers(cool, Ceil(area, 40), context.ExhaustCost, false)
                             : room.Place(cool, Ceil(area, 25)));
                         if (!placed) failure = "cooling";
                     }
@@ -1036,21 +1037,44 @@ namespace RealisticBases.Planning
                 return placed;
             }
 
-            // Wall-mounted coolers sit in the door wall; their cold side faces
-            // the room and their exhaust the unroofed public cell outside.
-            public bool PlaceWallCoolers(Template cooler, int count, Func<int, bool> exhaustAllowed)
+            // Wall-mounted coolers sit in a straight wall segment (never a corner or the
+            // door) with their cold side in the room. exhaustCost(local wall cell) prices
+            // the hot-side cell outside that wall, or returns -1 when it cannot take exhaust.
+            // Lower cost wins; at equal cost the door wall is preferred.
+            public bool PlaceWallCoolers(Template cooler, int count, Func<GridPoint, int> exhaustCost, bool keepHotAwayFromDoor)
             {
+                List<KeyValuePair<GridPoint, GridPoint>> walls = new List<KeyValuePair<GridPoint, GridPoint>>();
+                for (int x = 1; x <= w; x++) walls.Add(new KeyValuePair<GridPoint, GridPoint>(new GridPoint(x, 0), new GridPoint(0, 1)));
+                for (int z = 1; z <= h; z++) walls.Add(new KeyValuePair<GridPoint, GridPoint>(new GridPoint(0, z), new GridPoint(1, 0)));
+                for (int z = 1; z <= h; z++) walls.Add(new KeyValuePair<GridPoint, GridPoint>(new GridPoint(w + 1, z), new GridPoint(-1, 0)));
+                for (int x = 1; x <= w; x++) walls.Add(new KeyValuePair<GridPoint, GridPoint>(new GridPoint(x, h + 1), new GridPoint(0, -1)));
+                List<KeyValuePair<int, KeyValuePair<GridPoint, GridPoint>>> candidates = new List<KeyValuePair<int, KeyValuePair<GridPoint, GridPoint>>>();
+                for (int i = 0; i < walls.Count; i++)
+                {
+                    GridPoint wall = walls[i].Key;
+                    bool doorWall = wall.Z == 0;
+                    if (doorWall && (wall.X == doorX || (keepHotAwayFromDoor && Math.Abs(wall.X - doorX) <= 1))) continue;
+                    int cost = exhaustCost == null ? 0 : exhaustCost(wall);
+                    if (cost >= 0) candidates.Add(new KeyValuePair<int, KeyValuePair<GridPoint, GridPoint>>(cost, walls[i]));
+                }
+                List<KeyValuePair<int, GridPoint>> hot = new List<KeyValuePair<int, GridPoint>>();
                 int placed = 0;
-                IEnumerable<int> order = Enumerable.Range(1, w).OrderBy(x => Math.Abs(Math.Abs(x - doorX) - 2)).ThenBy(x => x);
-                foreach (int x in order)
+                foreach (KeyValuePair<int, KeyValuePair<GridPoint, GridPoint>> candidate in candidates
+                    .OrderBy(c => c.Key).ThenBy(c => c.Value.Key.Z == 0 ? 0 : 1)
+                    .ThenBy(c => c.Value.Key.Z == 0 ? Math.Abs(Math.Abs(c.Value.Key.X - doorX) - 2) : 0)
+                    .ThenBy(c => c.Value.Key.Z).ThenBy(c => c.Value.Key.X))
                 {
                     if (placed >= count) break;
-                    if (x == doorX || (exhaustAllowed != null && !exhaustAllowed(x))) continue;
-                    GridPoint cold = new GridPoint(x, 1);
-                    if (state[Index(x, 1)] != Free) continue;
+                    GridPoint wall = candidate.Value.Key, inward = candidate.Value.Value;
+                    GridPoint cold = new GridPoint(wall.X + inward.X, wall.Z + inward.Z);
+                    GridPoint hotCell = new GridPoint(wall.X - inward.X, wall.Z - inward.Z);
+                    if (state[Index(cold.X, cold.Z)] != Free) continue;
+                    // Two pockets may not touch: one would have to be the other's wall.
+                    if (hot.Any(o => (o.Key > 0 || candidate.Key > 0) && Math.Abs(o.Value.X - hotCell.X) + Math.Abs(o.Value.Z - hotCell.Z) == 1)) continue;
                     if (!TryCommit(new List<GridPoint>(), new List<GridPoint> { cold })) continue;
-                    Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.WallCooler, cooler.Def, new[] { new GridPoint(x, 0) },
-                        new[] { cold }, new GridPoint(0, 1), true, cooler.Watts, cooler.Fuel, cooler.Role));
+                    Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.WallCooler, cooler.Def, new[] { wall },
+                        new[] { cold }, inward, true, cooler.Watts, cooler.Fuel, cooler.Role));
+                    hot.Add(new KeyValuePair<int, GridPoint>(candidate.Key, hotCell));
                     placed++;
                 }
                 return placed >= count;

@@ -21,6 +21,7 @@
     <Compile Include="../RealisticBases/Planning/SettlementRoles.cs" Link="Planning/SettlementRoles.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutEquipment.cs" Link="Planning/LayoutEquipment.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutPower.cs" Link="Planning/LayoutPower.cs" />
+    <Compile Include="../RealisticBases/Planning/LayoutRoomPartition.cs" Link="Planning/LayoutRoomPartition.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutLoadout.cs" Link="Planning/LayoutLoadout.cs" />
   </ItemGroup>
 </Project>

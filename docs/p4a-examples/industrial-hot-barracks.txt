@@ -2,14 +2,14 @@
 legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access
         B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
         f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
-        Y power yard (solar/wind/geothermal)  w wind clear zone
+        Y power yard (solar/wind/geothermal)  w wind clear zone  x cooler exhaust pocket (sealed, unroofed)
         g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
-roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  ' ' open sky
+roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  'O' roof cleared over an exhaust pocket  ' ' open sky
 
-digest=A6684CE1316320C0 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=659
+digest=AC20BCAD73477A9A doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=659
   barracks-1  bounds=53,62,5x10   door=56,62   6/6 beds
-  dining      bounds=71,63,9x6    door=71,66   8/6 seats
+  dining      bounds=71,64,6x9    door=71,65   8/6 seats
   freezer     bounds=63,62,7x11   door=66,62   40/36 stockpile-cells
   jail        bounds=54,47,5x6    door=54,50   1/1 beds
   kitchen     bounds=66,54,5x6    door=68,59   1/1 stoves
@@ -19,27 +19,28 @@ digest=A6684CE1316320C0 doctrine=OpenGround gates=2 wallLayers=1 court=True exca
   workshop    bounds=58,62,5x10   door=60,62   4/4 benches
   note: excavated=0/480 retainedThickRoof=0
   note: gates=2 desired=2
-  note: materials walls=335 doors=11 stuff=WoodLog:3150 constructionWood=3150 fuelWood=0 generatorFuel=WoodLog:198/imported 0 localWood=3348 importedWood=0 importValue=0
+  note: exhaustPockets=1 roofHoles=0
+  note: materials walls=331 doors=11 stuff=WoodLog:3130 constructionWood=3130 fuelWood=0 generatorFuel=WoodLog:198/imported 0 localWood=3328 importedWood=0 importValue=0
   power: critical=400W nonCritical=2130W WoodFiredGeneratorx3 batteries=1 renewables= (0W) fuel=WoodLog:198
   power: power_source_unplaceable:WindTurbine:no_clear_zone
 
 
 
-                   ###########
-         ###########,,,,,,,,,#
-         #,,,,,,,,,,,#######,#
-         #,###########LLkk_#,#
-         #,#BBB##WWW##_____#,###########
-         #,#BBB##WiW##k____#,,,,,,,,,,,#
-         #,#...##WiW##k____#,#########,#
-         #,#BB.##W.W##k____#,#.c..cLR#,#
-         #,#BB.##W..##k____#=D.TTcTTc#,#
-       ###,#BB.##Wi.##k____#=#cTTcTT.#,#
-     ###,,,#L..##W..##k____#=Ci.c..c.#,#
-     #,,,MM#i..##L..##i_._i#=#########,#
-     #,,,MM#C#D###D###C#D#C#=,,,,,,,,,,#
-****sG,,,i===================,,,########
-   ###,,,====================,,,Gs*********
+                   ##################
+         ###########,,,,,,,,,,,,,,,,#
+         #,,,,,,,,,,,#######,######,#
+         #,###########LLkk_#,#.c.R#,#
+         #,#BBB##WWW##_____#,#.TTc#,#
+         #,#BBB##WiW##k____###cTT.#,#
+         #,#...##WiW##k____#xCicc.#,#
+         #,#BB.##W.W##k____###.TTc#,#
+         #,#BB.##W..##k____#,#cTTL#,#
+       ###,#BB.##Wi.##k____#=D..c.#,#
+     ###,,,#L..##W..##k____#=######,#
+     #,,,MM#i..##L..##i_._i#=,,,,,,,#
+     #,,,MM#C#D###D###C#D#C#=,,,#####
+****sG,,,i===================,,,Gs******
+   ###,,,====================,,,#
    #,,,,,,,=,#####D#######D##,,,#
    #,######=,#____.____##...#,,,#
    #,#....#=,#________k##...#,###
@@ -60,4 +61,4 @@ digest=A6684CE1316320C0 doctrine=OpenGround gates=2 wallLayers=1 court=True exca
 
 
 
-search: sites=1 attempts=1 evaluations=3402 repairs=1 routeNodes=19109 budgetExhausted=False
+search: sites=1 attempts=1 evaluations=3405 repairs=1 routeNodes=19248 budgetExhausted=False

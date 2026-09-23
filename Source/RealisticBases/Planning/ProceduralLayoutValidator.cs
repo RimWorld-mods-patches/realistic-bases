@@ -36,8 +36,9 @@ namespace RealisticBases.Planning
             if (excavation.Any(c => grid.At(c) != LayoutCellClass.Rock)) errors.Add("excavation_not_natural_rock");
             if (excavation.Count > requirements.ExcavationBudgetCells) errors.Add("excavation_budget");
             if (layout.Doctrine == LayoutDoctrine.OpenGround && excavation.Count > 0) errors.Add("open_ground_excavated");
-            if (retained.Any(c => !excavation.Contains(c) || !grid.ThickCover(c)) ||
-                excavation.Any(c => grid.ThickCover(c) && !retained.Contains(c)))
+            HashSet<GridPoint> clearedRoof = new HashSet<GridPoint>(layout.ExhaustRoofClearance);
+            if (retained.Any(c => !excavation.Contains(c) || !grid.ThickCover(c) || clearedRoof.Contains(c)) ||
+                excavation.Any(c => grid.ThickCover(c) && !retained.Contains(c) && !clearedRoof.Contains(c)))
                 errors.Add("retained_roof_ledger");
             if (LayoutRoofSupport.Unsupported(terrain, excavation, retained).Count > 0) errors.Add("roof_unsupported_without_built_walls");
 
@@ -69,7 +70,9 @@ namespace RealisticBases.Planning
 
             Func<GridPoint, bool> walkableTerrain = c => grid.InBounds(c) && !extra.Contains(c) &&
                 (excavation.Contains(c) || grid.At(c) == LayoutCellClass.Open || grid.At(c) == LayoutCellClass.Covered);
-            Func<GridPoint, bool> isPublic = c => enclosure.Contains(c) && !roomCells.Contains(c) && !courtCells.Contains(c) && !yardCells.Contains(c) && walkableTerrain(c);
+            HashSet<GridPoint> pocketCells = new HashSet<GridPoint>(layout.ExhaustPockets.Select(p => p.Cell).Concat(layout.ExhaustPocketWalls));
+            Func<GridPoint, bool> isPublic = c => enclosure.Contains(c) && !roomCells.Contains(c) && !courtCells.Contains(c) && !yardCells.Contains(c) &&
+                !pocketCells.Contains(c) && walkableTerrain(c);
             HashSet<GridPoint> reach = new HashSet<GridPoint>();
             if (layout.Gates.Count < input.Fortification.MinimumGates || layout.Gates.Count == 0) errors.Add("gate_count");
             else reach = Flood(layout.Gates[0].Inside, isPublic);
@@ -88,11 +91,12 @@ namespace RealisticBases.Planning
                 else if (!input.Catalog.Evaluate(def, kit.Stage).Legal) errors.Add("illegal_for_stage_" + fixture.DefName);
             }
             if (layout.TechStage == null || layout.TechStage.Digest != kit.Stage.Digest || layout.RolesDigest != kit.Roles.Digest) errors.Add("equipment_mismatch");
-            LayoutMaterialLedger materials = equipment.Count(layout.Rooms, layout.BuiltWalls, layout.Gates.Count, layout.Power);
+            LayoutMaterialLedger materials = equipment.Count(layout.Rooms, layout.BuiltWalls.Concat(layout.ExhaustPocketWalls), layout.Gates.Count, layout.Power);
             if (layout.Materials == null || layout.Materials.ToString() != materials.ToString()) errors.Add("materials_ledger_mismatch");
             if (materials.ImportValue > requirements.ImportValueLimit) errors.Add(LayoutEquipment.MaterialBudgetExceeded);
 
             foreach (LayoutRoom room in layout.Rooms) ValidateRoom(room, requirements, grid, excavation, retained, extra, reach, errors);
+            ValidateCoolersAndPockets(input, layout, grid, enclosure, roomCells, reach, errors);
 
             if (layout.Court != null)
             {
@@ -286,8 +290,7 @@ namespace RealisticBases.Planning
                     GridPoint vanillaCold = new GridPoint(cell.X - hotStep.X, cell.Z - hotStep.Z);
                     if (!interior.Contains(vanillaCold) || room.Bounds.Contains(vanillaHot) || !vanillaHot.Equals(exhaust))
                         errors.Add("cooler_orientation_" + label);
-                    if (!fixture.Exhaust.HasValue || !fixture.Exhaust.Value.Equals(exhaust) || !reach.Contains(exhaust) ||
-                        grid.At(exhaust) != LayoutCellClass.Open || excavation.Contains(exhaust)) errors.Add("cooler_exhaust_not_open_public_" + label);
+                    if (!fixture.Exhaust.HasValue || !fixture.Exhaust.Value.Equals(exhaust)) errors.Add("cooler_exhaust_mismatch_" + label);
                 }
                 else if (fixture.Cells.Any(c => !interior.Contains(c))) errors.Add("fixture_outside_interior_" + label);
                 if (fixture.Access.Any(c => blocking.Contains(c) || !local.Contains(c))) errors.Add("interaction_unreachable_" + label);
@@ -310,6 +313,54 @@ namespace RealisticBases.Planning
             }
             if (room.Kind != LayoutRoomKind.Power && room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Battery || f.Kind == LayoutFixtureKind.Generator))
                 errors.Add("power_equipment_outside_power_room_" + id);
+        }
+
+        // Vanilla temperature semantics on the final plan: each cooler cools its own room
+        // and exhausts into a room with UsesOutdoorTemperature; exhaust pockets are sealed,
+        // doorless, unroofed, off the public circulation, and within the roof-hole budget.
+        private static void ValidateCoolersAndPockets(ProceduralLayoutInput input, ProceduralLayout layout, LayoutTerrainGrid grid,
+            HashSet<GridPoint> enclosure, HashSet<GridPoint> roomCells, HashSet<GridPoint> reach, List<string> errors)
+        {
+            LayoutRoomPartition partition = LayoutRoomPartition.Build(input.Terrain, layout);
+            foreach (LayoutRoom room in layout.Rooms)
+                foreach (LayoutFixture cooler in room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.WallCooler))
+                {
+                    string label = room.Id + "_" + cooler.Cells[0];
+                    int served = partition.RoomAt(new GridPoint(room.Interior.MinX, room.Interior.MinZ));
+                    if (partition.RoomAt(cooler.ColdCell.Value) != served || served < 0) errors.Add("cooler_cold_side_not_served_room_" + label);
+                    if (!partition.IsOutdoor(cooler.HotCell.Value)) errors.Add("cooler_exhaust_not_outdoor_" + label);
+                    if (roomCells.Contains(cooler.HotCell.Value)) errors.Add("cooler_exhaust_into_room_" + label);
+                }
+            HashSet<GridPoint> roomWalls = new HashSet<GridPoint>(layout.Rooms.SelectMany(r => r.Bounds.Points().Where(c => r.IsEdge(c) && !c.Equals(r.Door))));
+            HashSet<GridPoint> doors = new HashSet<GridPoint>(layout.Rooms.Select(r => r.Door).Concat(layout.Gates.Select(g => g.Cell)));
+            HashSet<GridPoint> excavation = new HashSet<GridPoint>(layout.Excavation);
+            HashSet<GridPoint> retained = new HashSet<GridPoint>(layout.RetainedThickRoof);
+            HashSet<GridPoint> constructed = new HashSet<GridPoint>(layout.ConstructedRoof);
+            HashSet<GridPoint> allPocketWalls = new HashSet<GridPoint>(layout.ExhaustPocketWalls);
+            foreach (LayoutExhaustPocket pocket in layout.ExhaustPockets)
+            {
+                string label = "pocket_" + pocket.Cell;
+                GridPoint c = pocket.Cell;
+                if (!enclosure.Contains(c)) errors.Add(label + "_outside_enclosure");
+                if (reach.Contains(c) || roomCells.Contains(c)) errors.Add(label + "_not_sealed");
+                foreach (GridPoint n in Neighbors(c))
+                {
+                    bool intactRock = grid.At(n) == LayoutCellClass.Rock && !excavation.Contains(n);
+                    if (doors.Contains(n)) errors.Add(label + "_has_door");
+                    else if (!allPocketWalls.Contains(n) && !roomWalls.Contains(n) && !intactRock) errors.Add(label + "_not_sealed");
+                }
+                if (constructed.Contains(c) || retained.Contains(c)) errors.Add(label + "_roofed");
+                if (grid.Roofed(c) != pocket.RoofCleared || (pocket.RoofCleared && !pocket.Excavated)) errors.Add(label + "_roof_ledger");
+                if (pocket.Excavated != (grid.At(c) == LayoutCellClass.Rock) || (pocket.Excavated && !excavation.Contains(c))) errors.Add(label + "_excavation_ledger");
+                if (pocket.Walls.Any(w => grid.At(w) != LayoutCellClass.Open && grid.At(w) != LayoutCellClass.Covered)) errors.Add(label + "_wall_terrain");
+                if (!layout.Rooms.Any(r => r.Fixtures.Any(f => f.Kind == LayoutFixtureKind.WallCooler && f.HotCell.Value.Equals(c)))) errors.Add(label + "_unused");
+            }
+            if (layout.Doctrine == LayoutDoctrine.RockProtected)
+            {
+                int cooled = input.Equipment.Demand.Rooms.Count(r => r.Kind == LayoutRoomKind.Freezer ||
+                    (input.Requirements.Climate.CoolingRequired && LayoutDemandModel.IsLiving(r.Kind)));
+                if (layout.ExhaustRoofClearance.Count > (cooled + 1) / 2) errors.Add("exhaust_roof_hole_budget");
+            }
         }
 
         // IntVec3.North.RotatedBy(rot) for the four vanilla rotations.
@@ -340,7 +391,8 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> enclosure = new HashSet<GridPoint>(layout.Enclosure);
             HashSet<GridPoint> excavation = new HashSet<GridPoint>(layout.Excavation);
             HashSet<GridPoint> blocked = new HashSet<GridPoint>(layout.Rooms.SelectMany(r => r.Bounds.Points()).Concat(layout.ExtraObstacles)
-                .Concat(layout.Court == null ? Enumerable.Empty<GridPoint>() : layout.Court.Cells));
+                .Concat(layout.Court == null ? Enumerable.Empty<GridPoint>() : layout.Court.Cells)
+                .Concat(layout.ExhaustPockets.Select(p => p.Cell)).Concat(layout.ExhaustPocketWalls));
             if (layout.Gates.Count == 0) return new GridPoint[0];
             return Flood(layout.Gates[0].Inside, c => enclosure.Contains(c) && !blocked.Contains(c) &&
                 (excavation.Contains(c) || grid.At(c) == LayoutCellClass.Open || grid.At(c) == LayoutCellClass.Covered));
@@ -473,7 +525,7 @@ namespace RealisticBases.Planning
             LayoutGate first = layout.Gates[0];
             LayoutGate second = layout.Gates.Count > 1 ? layout.Gates[1] : first;
             return new PhysicalSettlementPlan(layout.Digest, input.Requirements.Digest, compound, new GridRect(0, 0, 0, 0),
-                layout.Gates.Select(g => g.Cell), layout.BuiltWalls.Concat(layout.NaturalWalls),
+                layout.Gates.Select(g => g.Cell), layout.BuiltWalls.Concat(layout.NaturalWalls).Concat(layout.ExhaustPocketWalls),
                 layout.Gates.SelectMany(g => g.BandDoors), layout.Gates.SelectMany(g => g.BandWalls), layout.WallLayers,
                 publicCells.Where(compound.Contains).OrderBy(c => c), Enumerable.Empty<GridPoint>(), first.ExteriorRoute, second.ExteriorRoute,
                 facilities, placements, wallStuff, 1, 1,
@@ -527,10 +579,10 @@ namespace RealisticBases.Planning
             "legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access\n" +
             "        B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater\n" +
             "        f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf\n" +
-            "        Y power yard (solar/wind/geothermal)  w wind clear zone\n" +
+            "        Y power yard (solar/wind/geothermal)  w wind clear zone  x cooler exhaust pocket (sealed, unroofed)\n" +
             "        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle\n" +
             "        outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable\n" +
-            "roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  ' ' open sky";
+            "roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  'O' roof cleared over an exhaust pocket  ' ' open sky";
 
         public static string Render(TerrainSnapshot terrain, ProceduralLayout layout, int margin = 3)
         {
@@ -546,7 +598,9 @@ namespace RealisticBases.Planning
             }
             foreach (GridPoint c in layout.Enclosure) map[c] = ',';
             foreach (GridPoint c in layout.Corridors.SelectMany(x => x.Cells)) map[c] = '=';
-            foreach (GridPoint c in layout.BuiltWalls) map[c] = '#';
+            foreach (GridPoint c in layout.Enclosure.Where(c => terrain[c].Has(TerrainTraits.NaturalRock) && !layout.Excavation.Contains(c))) map[c] = '^';
+            foreach (GridPoint c in layout.BuiltWalls.Concat(layout.ExhaustPocketWalls)) map[c] = '#';
+            foreach (LayoutExhaustPocket pocket in layout.ExhaustPockets) map[pocket.Cell] = 'x';
             foreach (GridPoint c in layout.NaturalWalls) map[c] = '^';
             foreach (LayoutRoom room in layout.Rooms)
             {
@@ -587,6 +641,7 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> retained = new HashSet<GridPoint>(layout.RetainedThickRoof);
             HashSet<GridPoint> constructed = new HashSet<GridPoint>(layout.ConstructedRoof);
             HashSet<GridPoint> dug = new HashSet<GridPoint>(layout.Excavation);
+            HashSet<GridPoint> cleared = new HashSet<GridPoint>(layout.ExhaustRoofClearance);
             StringBuilder text = new StringBuilder();
             for (int z = rect.MaxZ; z >= rect.MinZ; z--)
             {
@@ -594,7 +649,7 @@ namespace RealisticBases.Planning
                 {
                     GridPoint c = new GridPoint(x, z);
                     TerrainCell cell = terrain[c];
-                    text.Append(retained.Contains(c) ? 'R' : constructed.Contains(c) ? 'r' : cell.Has(TerrainTraits.NaturalRock) && !dug.Contains(c) ? '^' :
+                    text.Append(cleared.Contains(c) ? 'O' : retained.Contains(c) ? 'R' : constructed.Contains(c) ? 'r' : cell.Has(TerrainTraits.NaturalRock) && !dug.Contains(c) ? '^' :
                         cell.Has(TerrainTraits.Water) ? '~' : cell.Has(TerrainTraits.Roofed) ? ':' : ' ');
                 }
                 text.Append('\n');

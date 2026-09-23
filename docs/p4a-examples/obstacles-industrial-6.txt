@@ -2,12 +2,12 @@
 legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access
         B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
         f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
-        Y power yard (solar/wind/geothermal)  w wind clear zone
+        Y power yard (solar/wind/geothermal)  w wind clear zone  x cooler exhaust pocket (sealed, unroofed)
         g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
-roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  ' ' open sky
+roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  'O' roof cleared over an exhaust pocket  ' ' open sky
 
-digest=D40DA57F4730C616 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=688
+digest=6DBB6F6BCCCB6CD8 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=688
   barracks-1  bounds=35,69,6x7    door=38,69   6/6 beds
   dining      bounds=43,74,6x10   door=46,74   8/6 seats
   freezer     bounds=50,69,6x13   door=52,69   39/36 stockpile-cells
@@ -40,8 +40,8 @@ digest=D40DA57F4730C616 doctrine=OpenGround gates=2 wallLayers=1 court=True exca
               #,#BBBB######=,,,#k___##k_____#^^^^^
               #,#....##SSS#=,,,#____##k_____#^^^^^
            ####,#BB.L##Li.#=,,,#____##k_____#^^^^^
-           #,,,,#BB..##...#=,,,#i._i##__.___#^^^^^
-**********sG,,,,###D#####D#=,,,#CD#C####D####^^^^^
+           #,,,,#BB..##...#=,,=Ci._i##__.___#^^^^^
+**********sG,,,,###D#####D#=,,=##D#C####D####^^^^^
            #,,,==============================^^^^^
          ###,,,==============================^^^^^
    #######,,,,,,=,,,,,,,,,,,,,,,,,,,,,,,#D###^^^^^
@@ -64,4 +64,4 @@ digest=D40DA57F4730C616 doctrine=OpenGround gates=2 wallLayers=1 court=True exca
                                              ^^^^^
                                              ^^^^^
 
-search: sites=3 attempts=8 evaluations=53002 repairs=48 routeNodes=14831 budgetExhausted=False
+search: sites=3 attempts=8 evaluations=45872 repairs=48 routeNodes=14831 budgetExhausted=False

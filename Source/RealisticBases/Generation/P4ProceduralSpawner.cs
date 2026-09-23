@@ -38,7 +38,10 @@ namespace RealisticBases.Generation
             HashSet<GridPoint> coolers = new HashSet<GridPoint>(layout.AllFixtures
                 .Where(f => f.Kind == LayoutFixtureKind.WallCooler).SelectMany(f => f.Cells));
             HashSet<GridPoint> natural = new HashSet<GridPoint>(layout.NaturalWalls.Concat(layout.Rooms.SelectMany(r => r.NaturalWalls)));
-            HashSet<GridPoint> walls = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.Gates.SelectMany(g => g.BandWalls)));
+            // Cooler exhaust pockets are sealed by their own walls; their cleared roof is part of the
+            // excavation-without-retained-roof clearance above.
+            HashSet<GridPoint> walls = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.Gates.SelectMany(g => g.BandWalls))
+                .Concat(layout.ExhaustPocketWalls));
             HashSet<GridPoint> doors = new HashSet<GridPoint>(layout.Gates.Select(g => g.Cell)
                 .Concat(layout.Gates.SelectMany(g => g.BandDoors)).Concat(layout.Rooms.Select(r => r.Door)));
             foreach (LayoutRoom room in layout.Rooms)

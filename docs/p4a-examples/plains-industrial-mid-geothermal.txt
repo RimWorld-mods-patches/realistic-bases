@@ -2,65 +2,72 @@
 legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access
         B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
         f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
-        Y power yard (solar/wind/geothermal)  w wind clear zone
+        Y power yard (solar/wind/geothermal)  w wind clear zone  x cooler exhaust pocket (sealed, unroofed)
         g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
-roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  ' ' open sky
+roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  'O' roof cleared over an exhaust pocket  ' ' open sky
 
-digest=2A71B7609861254C doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=809
-  barracks-1  bounds=53,76,5x11   door=53,77   8/8 beds
-  dining      bounds=43,74,9x6    door=51,76   8/8 seats
-  freezer     bounds=45,61,7x13   door=51,70   50/48 stockpile-cells
-  jail        bounds=61,76,6x5    door=61,78   1/1 beds
-  kitchen     bounds=53,70,6x5    door=53,72   1/1 stoves
-  medical     bounds=69,57,5x5    door=70,61   2/2 beds
-  power       bounds=69,67,5x5    door=73,70   1/1 generators
-  storage     bounds=75,60,9x10   door=75,62   53/50 stockpile-cells
-  workshop    bounds=71,72,5x9    door=74,72   4/4 benches
+digest=1DE3C9F532FBA697 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=793
+  barracks-1  bounds=71,38,11x5   door=71,40   8/8 beds
+  dining      bounds=60,39,9x7    door=66,45   8/8 seats
+  freezer     bounds=59,47,10x9   door=68,52   51/48 stockpile-cells
+  jail        bounds=79,44,5x6    door=81,44   1/1 beds
+  kitchen     bounds=71,45,5x6    door=71,49   1/1 stoves
+  medical     bounds=63,63,5x5    door=65,63   2/2 beds
+  power       bounds=63,33,5x5    door=65,37   1/1 generators
+  storage     bounds=75,58,7x13   door=78,58   52/50 stockpile-cells
+  workshop    bounds=72,51,8x6    door=78,56   4/4 benches
   note: excavated=0/620 retainedThickRoof=0
   note: gates=2 desired=2
-  note: materials walls=417 doors=11 stuff=WoodLog:3645 constructionWood=3645 fuelWood=0 generatorFuel=WoodLog:66/imported 0 localWood=3711 importedWood=0 importValue=0
+  note: materials walls=357 doors=11 stuff=WoodLog:3345 constructionWood=3345 fuelWood=0 generatorFuel=WoodLog:66/imported 0 localWood=3411 importedWood=0 importValue=0
   power: critical=400W nonCritical=1330W WoodFiredGeneratorx1 batteries=1 renewables=GeothermalGenerator (3600W) fuel=WoodLog:66
+                *
+                *
+                *
+                *  ###########
+                *  #,,,,,,,,,#
+                *  #,#######,#
+       #########*  #,#LLkk_#,#
+       #,,,,,,,#*  #,#_____#,#
+       #,#####,#*  #,#k____#,#
+       #,#HHL#,#*  #,#k____#,#
+       #,#HH.#,#s  #,#k____#,#
+       #,#...#,#G###,#k____#,#
+       #,##D##,,,,,,,#k____#,#
+       #,,,======,iMM#k____#,#
+       #,YYYYYY==,=MM#k____#,#
+       #,YYYYYY==,=,,#k____#,#
+       #,YYYYYY==,=,,#__.__#,#
+       #,YYYYYY==,=,,###D###,#
+   #####,YYYYYY==========,,,,#
+   #,,,,,YYYYYYi=,######D#,###
+   #,##########==,#W.WWW.#,#
+   #,#_______iC==,#Wi.i..#,#
+   #,#k_______#==,#Wi..iL#,#
+   #,#k______.D==,#WWWWWW#,#
+   #,#k_______#==,########,#####
+   #,#k______iC==#####,,,,,,,,,#
+   #,#L_______#==D..S#,,,#####,#
+   #,#L_kkkkkk#==#.iS#,,,#PL.#,#
+   #,##########==#..S#,,,#P..#,#
+   #,,,,,,,,=====#..L#,,,#...#,#
+   ##,######D##==#####,,,#...#,#
+    #,#.......#==,,,,,,,,##D##,#
+    #,#.c..c..#=============,,,#
+    #,#.TTcTTc#==###########,###
+    #,#cTTcTT.#==#LBBBBB.BB#,#
+    #,#.Lc..cR#==D.BBBBB.BB#,#
+    #,#########==#.......BB#,#
+    #,,,,,,======###########,#
+    ####,##D##,==,,,,,,,,,,,,#
+       #,#..L#,,,,,###########
+       #,#AEE#,,,,,#
+       #,#AEE#,,,,,#
+       #,#####,##G##
+       #,,,,,,,# s
+       ######### *
+                 *
+                 *
+                 *
 
-
-
-             #########
-             #,,,,,,,#
-             #,#####,#
-             #,#.BB#,#
-             #,#.BB#,#
-             #,#.BB#,#
-             #,#.BB#,###################
-   ###########,#.BB#,#,,,,,,,,##,,,,,,,#
-   #,,,,,,,,,,,#.BB#,#,######,##,#####,#
-   #,#########,#.BB#,,,#..PP#,##,#WWW#,#
-   #,#.c..c..#,#.BB#,,=D...L#,##,#WiW#,#
-   #,#.TTcTTc#=D..L#,,=#....#,##,#WiW#,#
-   #,#cTTcTT.D=#####,,=######,##,#W.W#,#
-   #,#RLc..c.#=,,,,,,,=,,,,,,,##,#W.L#,#
-   #,#########=######,=,########,#Wi.#,#
-   #,,,#######=#..LS#,=,#    ###,#W..#,#
-   ###,#____iC=D..iS#,=,#    #,,,###D#,#
-     #,#k____#=#...S#,=,######,#####=,,#########
-     #,#k___.D=######,=,,,,,,#,#AA.D=,,,,,,,,,,#
-     #,#k___iC==============,#,#EE.#=#########,#
-     #,#k____#,,,,,,,,,,,,==,#,#EEL#=#_kkkk_L#,#
-     #,#k____#,#G########,==,#,#####=#______L#,#
-     #,#k____#,#s       #,==,,,,,,,,=#______k#,#
-     #,#k____#,#*       #,=iMM,,,,,,=#______k#,#
-     #,#k____#,#*     *sG,==MM,,,,,,=#______k#,#
-     #,#L____#,#*     *##,==,,,,,,,,=#______k#,#
-     #,#L_kk_#,#*     *#,,i==========D._____k#,#
-     #,#######,#*     *#,YYYYYY#D###,#______k#,#
-     #,,,,,,,,,#*     *#,YYYYYY#...#,#########,#
-     ###########*     *#,YYYYYY#.HH#,,,,,,,,,,,#
-*****************     *#,YYYYYY#LHH#,###########
-                      *#,YYYYYY#####,#
-                      *#,YYYYYY,,,,,,#
-                      *#,,,,,,,,######
-                      *##########
-                      *
-                      *
-                      *
-
-search: sites=1 attempts=1 evaluations=5328 repairs=3 routeNodes=24218 budgetExhausted=False
+search: sites=2 attempts=4 evaluations=17455 repairs=22 routeNodes=22704 budgetExhausted=False
