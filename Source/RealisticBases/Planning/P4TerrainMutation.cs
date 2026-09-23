@@ -12,13 +12,15 @@ namespace RealisticBases.Planning
     {
         public TerrainMutationFootprint(IEnumerable<GridPoint> excavationCells,
             IEnumerable<GridPoint> roofClearanceCells, IEnumerable<GridPoint> constructedRoofCells,
-            IEnumerable<GridPoint> preservedNaturalRockCells, IEnumerable<GridPoint> preservedWaterCells = null)
+            IEnumerable<GridPoint> preservedNaturalRockCells, IEnumerable<GridPoint> preservedWaterCells = null,
+            IEnumerable<GridPoint> retainedThickRoofCells = null)
         {
             ExcavationCells = Copy(excavationCells);
             RoofClearanceCells = Copy(roofClearanceCells);
             ConstructedRoofCells = Copy(constructedRoofCells);
             PreservedNaturalRockCells = Copy(preservedNaturalRockCells);
             PreservedWaterCells = Copy(preservedWaterCells);
+            RetainedThickRoofCells = Copy(retainedThickRoofCells);
             Digest = ComputeDigest();
         }
 
@@ -27,6 +29,9 @@ namespace RealisticBases.Planning
         public IReadOnlyList<GridPoint> ConstructedRoofCells { get; }
         public IReadOnlyList<GridPoint> PreservedNaturalRockCells { get; }
         public IReadOnlyList<GridPoint> PreservedWaterCells { get; }
+        // Excavated natural-rock cells whose original thick roof is deliberately
+        // retained. The live spawner must prove a natural-rock holder remains.
+        public IReadOnlyList<GridPoint> RetainedThickRoofCells { get; }
         public bool HasOwnedLandformMutation => ExcavationCells.Count != 0 || RoofClearanceCells.Count != 0;
         public string Digest { get; }
 
@@ -36,12 +41,13 @@ namespace RealisticBases.Planning
         private string ComputeDigest()
         {
             ulong hash = StableHash.Start;
-            hash = StableHash.Add(hash, "p4-terrain-mutation-v1");
+            hash = StableHash.Add(hash, "p4-terrain-mutation-v2");
             foreach (GridPoint cell in ExcavationCells) hash = Add(hash, cell, 1);
             foreach (GridPoint cell in RoofClearanceCells) hash = Add(hash, cell, 2);
             foreach (GridPoint cell in ConstructedRoofCells) hash = Add(hash, cell, 3);
             foreach (GridPoint cell in PreservedNaturalRockCells) hash = Add(hash, cell, 4);
             foreach (GridPoint cell in PreservedWaterCells) hash = Add(hash, cell, 5);
+            foreach (GridPoint cell in RetainedThickRoofCells) hash = Add(hash, cell, 6);
             return StableHash.Hex(hash);
         }
 
@@ -98,11 +104,16 @@ namespace RealisticBases.Planning
             {
                 if (!terrain.InBounds(cell) || !terrain[cell].Has(TerrainTraits.NaturalRock))
                     errors.Add("excavation_not_natural_rock");
-                if (terrain[cell].Has(TerrainTraits.Roofed) && !footprint.RoofClearanceCells.Contains(cell))
+                if (terrain[cell].Has(TerrainTraits.Roofed) && !footprint.RoofClearanceCells.Contains(cell) &&
+                    !footprint.RetainedThickRoofCells.Contains(cell))
                     errors.Add("roofed_excavation_without_roof_ledger");
             }
             if (footprint.RoofClearanceCells.Any(c => !footprint.ExcavationCells.Contains(c) || !terrain[c].Has(TerrainTraits.Roofed)))
                 errors.Add("invalid_roof_clearance");
+            if (footprint.RetainedThickRoofCells.Any(c => !footprint.ExcavationCells.Contains(c) || !terrain[c].Has(TerrainTraits.Roofed)))
+                errors.Add("invalid_retained_thick_roof");
+            if (footprint.RoofClearanceCells.Intersect(footprint.RetainedThickRoofCells).Any())
+                errors.Add("roof_ledger_overlap");
             if (footprint.ExcavationCells.Intersect(footprint.PreservedNaturalRockCells).Any())
                 errors.Add("excavates_preserved_boundary");
             if (archetype == TerrainArchetype.Lakeshore && footprint.PreservedWaterCells.Count < 8)

@@ -29,7 +29,9 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> doors = new HashSet<GridPoint>(plan.Gates.Concat(plan.ReinforcementGates).Concat(plan.Facilities.Where(f => f.Roofed).Select(f => f.Door)));
             HashSet<GridPoint> blocked = new HashSet<GridPoint>();
             HashSet<GridPoint> excavated = new HashSet<GridPoint>(plan.TerrainMutations.ExcavationCells);
-            foreach (GridPoint cell in terrain.Points()) if (terrain[cell].Has(TerrainTraits.Water | TerrainTraits.Occupied) && !excavated.Contains(cell)) blocked.Add(cell);
+            foreach (GridPoint cell in terrain.Points())
+                if ((terrain[cell].HasAny(TerrainTraits.Water | TerrainTraits.Occupied) || !terrain[cell].Has(TerrainTraits.Standable)) &&
+                    !excavated.Contains(cell)) blocked.Add(cell);
             foreach (GridPoint cell in plan.Perimeter.Concat(plan.ReinforcementPerimeter)) blocked.Add(cell);
             foreach (PhysicalFacility facility in plan.Facilities.Where(f => f.Roofed))
                 foreach (GridPoint cell in facility.Bounds.Points()) if (IsEdge(facility.Bounds, cell) && !doors.Contains(cell)) blocked.Add(cell);

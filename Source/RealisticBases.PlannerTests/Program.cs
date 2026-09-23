@@ -43,6 +43,7 @@ internal static class Program
         Run("P4 inaccessible islands reject without assumed bridges", P4InaccessibleIslandRejects);
         Run("P4 terrain candidate search is bounded", P4TerrainCandidateSearchIsBounded);
         Run("P4 mountain plan owns only roofed rock excavation", P4MountainPlanOwnsOnlyRoofedRock);
+        Run("P4 retained thick roofs are explicit excavation ledger entries", P4RetainedThickRoofLedger);
         Run("P4 non-mountain plans have no landform mutation", P4NonMountainPlansHaveNoLandformMutation);
         Run("P4 lakeshore plan preserves water and dry routes", P4LakeshorePlanPreservesWaterAndDryRoutes);
         Run("P4 final navigation rejects an inset wall that blocks the circulation root", P4ConnectivityRejectsBlockedInsetWall);
@@ -453,6 +454,22 @@ internal static class Program
         True(footprint.ExcavationCells.All(c => terrain[c].Has(TerrainTraits.NaturalRock | TerrainTraits.Roofed)), "excavation source legal");
         True(footprint.RoofClearanceCells.SequenceEqual(footprint.ExcavationCells), "every roofed excavation owns its roof change");
         True(PhysicalSettlementValidator.Validate(input, result.Plan).Count == 0, "mountain plan validates");
+    }
+
+    private static void P4RetainedThickRoofLedger()
+    {
+        TerrainCell[] cells = FertileOpenCells(40, 40);
+        GridPoint roofedRock = new GridPoint(20, 20);
+        cells[roofedRock.Z * 40 + roofedRock.X] = Cell(TerrainTraits.NaturalRock | TerrainTraits.Roofed);
+        TerrainSnapshot terrain = new TerrainSnapshot(40, 40, cells, "retained-roof-v1");
+        TerrainMutationFootprint retained = new TerrainMutationFootprint(new[] { roofedRock }, Enumerable.Empty<GridPoint>(),
+            Enumerable.Empty<GridPoint>(), Enumerable.Empty<GridPoint>(), null, new[] { roofedRock });
+        True(TerrainMutationPlanner.Validate(TerrainArchetype.ExcavatedMountain, terrain, retained).Count == 0,
+            "retained roof is a legal alternative to roof clearance");
+        TerrainMutationFootprint overlap = new TerrainMutationFootprint(new[] { roofedRock }, new[] { roofedRock },
+            Enumerable.Empty<GridPoint>(), Enumerable.Empty<GridPoint>(), null, new[] { roofedRock });
+        True(TerrainMutationPlanner.Validate(TerrainArchetype.ExcavatedMountain, terrain, overlap).Contains("roof_ledger_overlap"),
+            "a roof cannot be both cleared and retained");
     }
 
     private static void P4NonMountainPlansHaveNoLandformMutation()
