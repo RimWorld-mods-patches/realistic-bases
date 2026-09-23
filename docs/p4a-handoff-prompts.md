@@ -6,38 +6,49 @@
 
 ## Prompt A: what P4A needs from P4 (for the P4 owner)
 
-> You own P4 (terrain variety and stronger fortifications) in Realistic Bases. A separate workstream has built a pure P4A procedural-layout planner on branch `claude/p4a-foundations` (commit `f844e43`, based on your `a41477e`). It is not wired into generation. Integration waits for P4 to finish. Please account for the contract needs below while you complete P4, and tell us which ones you will deliver in P4 and which you consider P4A integration work. Don't change P4A files. Details and line references are in `docs/p4a-foundations.md` §1.3, §5 and §9 on that branch.
+> You own P4 (terrain variety and stronger fortifications) in Realistic Bases. A separate workstream has built a procedural settlement planner (P4A) on branch `claude/p4a-foundations` (commit `f844e43`, based on your `a41477e`). It is pure code and is not wired into generation. Integration waits for P4 to finish.
 >
-> **Must-haves before P4A can be integrated:**
+> **What P4A does NOT need from you.** P4A has its own planner, final-occupancy validator (`ProceduralLayoutValidator`) and layout model (`ProceduralLayout`). Procedural layouts will be validated and spawned from that model directly. So there is no need to:
+> - generalize `PlannedNavigationGrid` / `P4Connectivity`;
+> - relax `PhysicalSettlementValidator`;
+> - extend `PhysicalSettlementPlan`, `PhysicalFacility` or `PhysicalPlacement`.
 >
-> 1. **Generalize `PlannedNavigationGrid` / `P4Connectivity`** (`Planning/P4Connectivity.cs`). Today it can express only 7 of 24 P4A test layouts, and all 7 pass. It needs:
->    - an explicit public-circulation mask, instead of `Compound.Points()` minus roofed rooms;
->    - an explicit interior endpoint per gate, instead of `InsideGate` inferring it from the rectangle edge;
->    - gatehouse bands facing any direction, not only north and south (`GatehousePassages`);
->    - multi-cell blocking footprints (a 1×2 bed, a 3×1 bench, a 2×2 generator), not single-cell `PhysicalPlacement`s;
->    - a walled-versus-roofed distinction, with room walls blocking whether or not the room is roofed.
+> Your fixed-compound path can keep them as they are.
 >
->    The authority stays yours. P4A's `ProceduralLayoutValidator` becomes a search pre-filter only.
-> 2. **Fix the terrain blocking test** at `P4Connectivity.cs:34`. `Has(TerrainTraits.Water | TerrainTraits.Occupied)` requires **both** flags, so water-only cells, and natural rock cells without an edifice, are not blocked. The fixed compound masks this today; irregular enclosures would expose it. Use `HasAny`, plus a non-standable check.
-> 3. **Extend `TerrainMutationFootprint`** with retained thick roof: excavated cells that keep their natural `RoofRockThick`. `TerrainMutationPlanner.Validate` currently demands roof clearance for every roofed excavation (`roofed_excavation_without_roof_ledger`). P4A's rock-protected doctrine keeps the thick roof, which is the whole point against mortars. It proves support with vanilla's 6.9-cell holder rule, counting **only intact natural rock** as a holder, never built walls. The spawner, the recovery and the final audit also need to handle retained roofs: record them, check for collapse after excavation, and roll back.
-> 4. **Relax `PhysicalSettlementValidator`**: capacity per `FacilityKind` rather than exactly one facility per kind (P4A can produce several barracks or storage rooms); cooler rotation derived from geometry, not the literal `"West"`; gatehouse band geometry derived from the gates, not `MinX+13..17`; and the field placed outside the compound as an interface rather than at four fixed offsets.
-> 5. **Extend the plan model** (`PhysicalPlacement` / `PhysicalFacility`):
->    - multi-cell fixtures, with footprint, rotation, stuff and role;
->    - placement kinds for heater, lamp, torch, campfire, passive cooler, shelf, vitals monitor, stockpile zone, and power yards (solar, wind with its clear zone, geothermal);
->    - an optional mortar court: under the rock-protect doctrine, P4A can deliberately drop the mortar.
+> **What P4A does need.** Please build these into P4 where they naturally belong, or say which you would leave to P4A integration. Don't change P4A files.
 >
-> **Needed from the P4 adapters (runtime):**
+> 1. **Retained thick roof in the terrain mutation ledger and recovery.** P4A's rock-protected doctrine digs rooms and streets under a mountain and **keeps** the natural `RoofRockThick` over them, which is what protects against mortars. It proves support with vanilla's 6.9-cell roof-holder rule, counting only intact natural rock as a holder, never built walls. Today `TerrainMutationFootprint` / `TerrainMutationPlanner.Validate` require roof clearance for every roofed excavation (`roofed_excavation_without_roof_ledger`). Needed:
+>    - a retained-roof category in the ledger;
+>    - spawner recovery that records and restores excavated rock around kept roofs;
+>    - a post-excavation collapse check in the audit;
+>    - rollback that restores rock under a kept roof.
+> 2. **Transactional spawn and recovery that doesn't require `PhysicalSettlementPlan`.** P4A's spawner needs the same machinery `P2SettlementSpawner` has: mutation-footprint capture, owned-thing tracking, rock and roof restoration, checksums, and a safe pre-mutation rejection. It should be callable with a footprint plus a list of owned things, not with the P2 plan type. A small reusable service or helper is enough.
+> 3. **A P3 encounter input that doesn't depend on the fixed compound.** `EncounterPlanner.Plan` takes a `PhysicalSettlementPlan` and still starts from compound offsets. P4A needs an entry point that takes explicit geometry:
+>    - enclosure cells, perimeter walls and gates (on any side, with their inside endpoints);
+>    - public circulation cells;
+>    - an optional mortar court. P4A's rock-protect doctrine may drop it deliberately, and the mortar may then be absent.
 >
-> 6. **Snapshot additions**, captured by the map adapter and passed to P4A as `LayoutLocalResources`, not as new `TerrainTraits`:
+>    Posts, rally and fallback points, and the magazine should come from that input.
+> 4. **Archetype output P4A can consume per cell.** P4A classifies cells as open, covered, diggable rock, or unusable. Please expose the P4 archetype result so that P4A can use it:
+>    - foothill and excavated-mountain regions where excavation is allowed;
+>    - preserved lakeshore water;
+>    - verified island and causeway approaches.
+>
+>    Also say whether P4 plans a perimeter that can meet river water; P4A defers watermills until then.
+> 5. **Map inputs and persistence.** P4A needs these from the map and world, captured by whichever adapter you consider right:
 >    - harvestable wood yield near the site;
->    - local stone block defs (`LocalStoneStuffs`);
+>    - local stone block defs;
 >    - river (moving-fluid) cells;
->    - steam geyser positions.
+>    - steam geyser positions;
+>    - the faction id and `FactionDef.techLevel`.
 >
->    The P4A input also needs the faction id and `FactionDef.techLevel`, and it needs **persistence** of the P4A layout seed per settlement and of the resolved tech stage per faction, so revisits never reroll.
-> 7. **Archetypes feeding the usable mask.** Foothill and excavated-mountain geometry, preserved lakeshore water and island approaches should reach P4A's usable-mask builder, so terrain support can be claimed from live evidence. Watermills are deferred until a perimeter can meet river water; please say whether P4 plans such a perimeter.
+>    P4A also needs somewhere to persist the settlement's layout seed and the faction's resolved tech stage, so revisits never reroll.
 >
-> Please reply with, for each item: delivered in P4 (with commit), planned for P4A integration, or rejected (with reasons).
+> **For your own path (FYI, not needed by P4A):**
+> - `P4Connectivity.cs:34` uses `Has(TerrainTraits.Water | TerrainTraits.Occupied)`, which requires **both** flags. Water-only cells, and natural rock cells without an edifice, are not blocked. The fixed compound hides this today.
+> - If live pathing tests teach you a new connectivity rule, please record it, so P4A's validator can adopt it too.
+>
+> Please reply with, for each numbered item: delivered in P4 (with commit), planned for P4A integration, or rejected (with reasons).
 
 ---
 
@@ -55,9 +66,9 @@
 > **Read first, in order:**
 > 1. `docs/p4a-foundations.md`: the hardcoded dependencies (§1), reuse and ownership (§2–3), integration checklist (§5), design decisions (§6), evidence (§7), limitations (§8), handoff (§9), and tech-stage equipment (§10).
 > 2. `docs/plans/2026-09-23-tech-stage-equipment.md`: the agreed decisions, stage research sets, steps 1–8 as built, and the provisional constants.
-> 3. The P4 findings and connectivity docs as they stand when P4 closes, plus the P4 owner's answer to Prompt A.
+> 3. The P4 findings and connectivity docs as they stand when P4 closes, plus the P4 owner's answer to Prompt A (retained roof, reusable spawn/recovery, geometry-based P3 input, archetype cells, map inputs and persistence).
 > 4. The code in `Source/RealisticBases/Planning/`:
->    - `ProceduralLayoutModel.cs`, `ProceduralLayoutPlanner.cs`, `ProceduralLayoutValidator.cs` (planner, validator, adapter, ASCII export)
+>    - `ProceduralLayoutModel.cs`, `ProceduralLayoutPlanner.cs`, `ProceduralLayoutValidator.cs` (planner, validator, diagnostic P4 adapter, ASCII export)
 >    - `SettlementTechStage.cs`, `TechCatalog.cs`, `SettlementRoles.cs`, `LayoutEquipment.cs`, `LayoutPower.cs`, `LayoutLoadout.cs`
 >    - tests: `Source/RealisticBases.LayoutTests/`; the synthetic fixture is produced by `tools/extract-core-catalog.py`.
 >
@@ -76,16 +87,16 @@
 > - The carryover `CLAUDE.md` describes a different project and is not this mod's specification.
 >
 > **Work, in dependency order:**
-> 1. **Adopt the generalized P4 contract** (Prompt A items 1–5). Make `PlannedNavigationGrid` the single acceptance authority, and reduce `ProceduralLayoutValidator` to a pre-filter. Target: every accepted P4A layout is representable and passes `P4Connectivity` (currently 7/24). Replace `ProceduralLayoutAdapter`'s declared losses with real mappings.
+> 1. **Keep P4A's own contract as the authority.** `ProceduralLayoutValidator` accepts procedural layouts, and `ProceduralLayout` is the spawn model. Don't route procedural layouts through `PhysicalSettlementPlan`, `PhysicalSettlementValidator` or `P4Connectivity`. `ProceduralLayoutAdapter` and its cross-check test stay as a diagnostic only. Adopt what P4 delivered for Prompt A items 1–5, and implement whatever P4 left to P4A integration.
 > 2. **Plan step 7: runtime catalog adapter.** Build `TechCatalog` from `DefDatabase<ThingDef>` and `ResearchProjectDef`, including DLC and mod defs, reusing the extraction semantics of `tools/extract-core-catalog.py`: ParentName inheritance, building plus recipeMaker research, hidden prerequisites, the producer gate for items, `RawMinimumTiers`, and the vanilla market-value port.
 >    - Resolve and **persist** the faction stage (`TechStageModel.TryResolve` with `LayoutSeed.DeriveFaction`) and the settlement layout seed (`LayoutSeed.Derive`).
 >    - Capture `LayoutLocalResources`: wood yield, stone stuffs, river cells, geyser cells.
 >    - Add a pure-versus-runtime parity test: the Core runtime catalog must equal the fixture for Core defs.
-> 3. **Plan step 8: runtime spawning and equipping.** Replace the P2 fixed compound with the P4A planner behind a guarded path, and keep an explicit, logged fixed-compound fallback that reports its selection frequency.
->    - Spawn per-room fixtures with their stuff and rotation (bench interaction offset (0,0,-1)), stockpile zones, yards, fuel and medicine stocks, and components.
+> 3. **Plan step 8: runtime spawning and equipping.** Add a guarded generation path that plans with P4A and spawns directly from `ProceduralLayout`, using P4's reusable transactional spawn and recovery (Prompt A item 2). A P4A rejection must leave the map untouched and playable, through the existing pre-mutation rejection path.
+>    - Spawn per-room fixtures with their stuff and rotation (bench interaction offset (0,0,-1)), stockpile zones, power yards, fuel, medicine and component stocks, and retained-roof excavation (Prompt A item 1).
 >    - Strip resident gear and re-equip from `SettlementLoadout`.
->    - Adapt P3 posts, rally point, mortar court and magazine to the procedural geometry.
->    - Fix the P2 profile defects through the catalog: the tribal `Bed`/`FueledSmithy`, and industrial flak without FlakArmor.
+>    - Feed P3 through its geometry-based input (Prompt A item 3).
+>    - Procedural settlements use `LayoutRequirements` and the tech catalog, not P2 profiles.
 > 4. **Integration checklist** (`docs/p4a-foundations.md` §5):
 >    - field placement from the exterior field requirement;
 >    - power conduits between the generator, coolers, heaters, lamps, stoves and turrets;
