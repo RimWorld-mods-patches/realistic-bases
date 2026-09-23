@@ -280,6 +280,12 @@ namespace RealisticBases.Planning
                     bool coolerCorner = (cell.X == room.Bounds.MinX || cell.X == room.Bounds.MaxX) && (cell.Z == room.Bounds.MinZ || cell.Z == room.Bounds.MaxZ);
                     GridPoint exhaust = new GridPoint(cell.X - fixture.Facing.X, cell.Z - fixture.Facing.Z);
                     if (!room.IsEdge(cell) || coolerCorner || cell.Equals(room.Door)) errors.Add("cooler_not_in_wall_" + label);
+                    // Recomputed from the rotation string with vanilla's formula, independently of Facing.
+                    GridPoint hotStep = VanillaNorthRotatedBy(fixture.Rotation);
+                    GridPoint vanillaHot = new GridPoint(cell.X + hotStep.X, cell.Z + hotStep.Z);
+                    GridPoint vanillaCold = new GridPoint(cell.X - hotStep.X, cell.Z - hotStep.Z);
+                    if (!interior.Contains(vanillaCold) || room.Bounds.Contains(vanillaHot) || !vanillaHot.Equals(exhaust))
+                        errors.Add("cooler_orientation_" + label);
                     if (!fixture.Exhaust.HasValue || !fixture.Exhaust.Value.Equals(exhaust) || !reach.Contains(exhaust) ||
                         grid.At(exhaust) != LayoutCellClass.Open || excavation.Contains(exhaust)) errors.Add("cooler_exhaust_not_open_public_" + label);
                 }
@@ -304,6 +310,18 @@ namespace RealisticBases.Planning
             }
             if (room.Kind != LayoutRoomKind.Power && room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Battery || f.Kind == LayoutFixtureKind.Generator))
                 errors.Add("power_equipment_outside_power_room_" + id);
+        }
+
+        // IntVec3.North.RotatedBy(rot) for the four vanilla rotations.
+        internal static GridPoint VanillaNorthRotatedBy(string rotation)
+        {
+            switch (rotation)
+            {
+                case "East": return new GridPoint(1, 0);
+                case "South": return new GridPoint(0, -1);
+                case "West": return new GridPoint(-1, 0);
+                default: return new GridPoint(0, 1);
+            }
         }
 
         // The fixture's back row touches the wall and its interaction cell is in front, facing the room.

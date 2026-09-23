@@ -7,7 +7,7 @@ using RealisticBases.Planning;
 
 // Synthetic pure-planner evidence for the P4A foundation. Nothing here runs the
 // game; results are not live-map evidence.
-internal static class Program
+internal static partial class Program
 {
     private static int failures;
     private static string exportDir;
@@ -27,6 +27,7 @@ internal static class Program
         Run("rich settlements get personal bedrooms", PersonalRooms);
         Run("climate drives heating, cooling and lighting fixtures", ClimateFixtures);
         Run("workbenches stand against a wall with an interior work cell", WorkbenchesAgainstWall);
+        RunCoolerExhaustTests();
         Run("identical inputs replay identical layouts", Determinism);
         Run("seeds vary internal layout beyond translation and rotation", SeedVariation);
         Run("population change alters capacity and geometry coherently", PopulationChangesGeometry);

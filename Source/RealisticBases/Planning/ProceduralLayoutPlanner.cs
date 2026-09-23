@@ -74,15 +74,21 @@ namespace RealisticBases.Planning
         // Chosen stuff for stuffable defs (WoodLog or a stone block def), otherwise null.
         public string Stuff { get; }
 
+        // Wall coolers only. Vanilla Building_Cooler cools Position + South.RotatedBy(rot)
+        // and heats Position + North.RotatedBy(rot); Facing points into the cooled room.
+        public GridPoint? ColdCell => Kind == LayoutFixtureKind.WallCooler
+            ? new GridPoint(Cells[0].X + Facing.X, Cells[0].Z + Facing.Z) : (GridPoint?)null;
+        public GridPoint? HotCell => Kind == LayoutFixtureKind.WallCooler
+            ? new GridPoint(Cells[0].X - Facing.X, Cells[0].Z - Facing.Z) : (GridPoint?)null;
+
         // Vanilla rotation convention. Benches and campfires use interactionCellOffset
         // (0,0,-1): North puts the work cell south. Beds point their head at the wall.
+        // A cooler's rotation names its hot side, so it points away from the cooled room.
         public string Rotation
         {
             get
             {
-                GridPoint d = Kind == LayoutFixtureKind.Stove || Kind == LayoutFixtureKind.Workbench || Kind == LayoutFixtureKind.Campfire
-                    ? new GridPoint(-Facing.X, -Facing.Z)
-                    : Kind == LayoutFixtureKind.WallCooler ? Facing : new GridPoint(-Facing.X, -Facing.Z);
+                GridPoint d = new GridPoint(-Facing.X, -Facing.Z);
                 if (d.Z > 0) return "North";
                 if (d.Z < 0) return "South";
                 return d.X > 0 ? "East" : "West";
