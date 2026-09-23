@@ -54,7 +54,7 @@ scope.
 |---|---|---|---|
 | P4.0 | Scope, archetype contract, terrain-mutation/recovery ledger, matrix, and boundaries | Docs agree with P0–P3 evidence and leave P5/P6 unstarted | Complete — this checkpoint |
 | P4.1 | Immutable terrain analysis, versioned archetype inputs, deterministic bounded candidate/rejection model | 47/47 combined pure tests; Docker Release build 0 warnings/errors; same-input/rejection/landform/snapshot cases passed | Complete — this checkpoint |
-| P4.2 | Foothill and excavated-mountain physical plans/spawning with explicit mutation footprints, roof support, natural-boundary preservation, and P3 geometry adapters | 50/50 combined pure tests and Docker Release build 0 warnings/errors. Core 160×160 excavated-mountain spawn passed: 187 owned rocks, unowned-rock preservation, routes/gates/utilities/P3/mortar/player arrival all passed. A forced partial mountain spawn restored 477 things, 298 roofs, one owned rock, and the terrain/roof checksum before successful retry. Foothill case remains. | In progress |
+| P4.2 | Foothill and excavated-mountain physical plans/spawning with explicit mutation footprints, roof support, natural-boundary preservation, and P3 geometry adapters | Pure/build suite passed. Core 160×160 excavated-mountain spawn and deep recovery passed; Core foothill now also passed with 12/12 reachable facilities, two-layer gates, P3, and a playable arrival. | Complete |
 | P4.3 | Lakeshore, peninsula, and supported-island plans with legal approach/bridge/gate/circulation validation | Versioned water-preservation footprint and dry-route pure case added (50/50). Core water and rejected inaccessible/tiny/narrow cases remain required. | In progress |
 | P4.4 | Layered fortifications, palettes/import budgets, climate alternatives, P3/save-reload regression, Core + Geological Landforms matrix, visual review, and exit decision | Actual final-map/path/roof/utility/combat/recovery observations, separate from estimates/screenshots | Pending |
 
@@ -153,6 +153,18 @@ gatehouse geometry, and the spawner/audit treat all primary and reinforced doors
 real structures. Pure tests cover one, two, and three layers plus a blocked
 vestibule and offset-door rejection. This does not yet prove an in-game multilayer
 run.
+
+## Core foothill and layered-gate runtime checkpoint
+
+On 2026-09-23, the isolated Core disposable profile generated a playable foothill
+settlement after arming two P4 wall layers. The authoritative log recorded
+`archetype=Foothill`, `gateFactionDoors=4/4`, `facilitiesReachable=12/12`, valid
+attack/retreat topology, 298/298 roofed facility cells, no prohibited defenses,
+and a pass-doors player arrival from the edge. P3 initialized eleven posts and a
+mortar without controlling player pawns. After saving and reloading the active
+encounter, the controller restored `HoldSectors`, four defenders, four assignments,
+and twelve HE shells. This is Core evidence only; it does not close the remaining
+lakeshore/island, climate, or GL matrix.
 
 ## Next action
 
