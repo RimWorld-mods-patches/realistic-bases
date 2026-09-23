@@ -1,5 +1,12 @@
 # P4A hand-off prompts
 
+2026-09-23 scope update: prompts A–C below are archived handoff context. The
+current assignment authorizes P4A integration alongside P4 terrain completion.
+The live generator uses `ProceduralLayout` directly and validates it with
+`ProceduralLayoutValidator`; the fixed-plan adapter is diagnostic. Instructions
+below to wait for P4 closeout, avoid P4A files, or continue the fixed compound
+have been superseded.
+
 2026-09-23. There are two paste-ready prompts: **A** for the P4 owner, and **B** for the agent that picks up P4A after P4 closes. Both refer to commit `f844e43` on branch `claude/p4a-foundations` (worktree `/Users/roman_gr/Repositories/rimworld/realistic-bases-p4a`), which is based on P4 commit `a41477e`.
 
 ---

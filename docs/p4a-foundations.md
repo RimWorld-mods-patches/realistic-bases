@@ -1,6 +1,6 @@
 # P4A foundations: procedural settlement layouts
 
-2026-09-22 (updated 2026-09-23) · Status: **foundation investigation and pure-planner prototype only**, extended with the pure tech-stage equipment model (plan steps 1–6, §10). P4A is not complete; P4 is still in progress under separate ownership; P5 is not started.
+2026-09-23 scope update: the pure foundation and tech-stage steps 1–6 are merged into `codex/p4-finish`. The user has authorized live P4A integration now, with remaining P4 terrain work applied to that generator. P4 and P4A are both in progress; P5 is unstarted. Historical handoff and sequencing descriptions below document the earlier design and are superseded by this update. `ProceduralLayout` and `ProceduralLayoutValidator` are the authority for the new runtime path; its adapter to `PhysicalSettlementPlan` remains diagnostic.
 
 This document is the P4A foundation workstream's own record. The shared milestone documents (`implementation-plan.md`, `progress.md`, `p4-findings.md`, `p4-connectivity.md`) were deliberately left unchanged while P4 work runs concurrently.
 

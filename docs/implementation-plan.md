@@ -99,6 +99,8 @@ Run battles from multiple approaches, at night, under long-range harassment, aft
 
 **Depends on:** P3, plus P0 terrain evidence.
 
+**2026-09-23 scope update:** Complete the remaining P4 terrain and fortification work on the P4A procedural generator. The fixed P2 compound is historical prototype evidence. Its separate remaining test matrix is superseded by the procedural runtime matrix below.
+
 Add foothill/mountain carving, roof support, preservation of natural rock boundaries, outdoor utility/mortar areas, lakeshores, peninsulas, and islands with verified approaches. Add one-to-three wall layers, coherent material palettes and reinforcement budgets, multiple gates when suitable, and climate-driven food/power alternatives.
 
 Integrate Geological Landforms through generated terrain first; add metadata/per-cell biome access only where needed. Register tested versions. Detect geometry-affecting incompatibilities, including altered water passability and unexpected late terrain changes.
@@ -107,7 +109,7 @@ Integrate Geological Landforms through generated terrain first; add metadata/per
 
 ### P4A — Procedural settlement layouts
 
-**Depends on:** P4.
+**Depends on:** P3 and the reusable P4 terrain/mutation contracts. P4 and P4A now proceed together under the user's authorization of 2026-09-23.
 
 Replace the fixed whole-settlement compound with a bounded, seeded planner that
 derives facility capacities from the profile/population, packs terrain-legal room
@@ -128,9 +130,15 @@ meaningfully different internal layouts beyond translation/rotation; population 
 facility demand changes capacity and geometry coherently; terrain changes selected
 layout rather than merely relocating/rejecting the same rectangle; all room/job
 access remains connected for each supported wall thickness; and representative
-live pathing, defense, visual, and rollback cases pass. This is a separately
-authorized milestone after P4 and before P5; it is not implied by P2's fixed-layout
-prototype.
+live pathing, defense, visual, and rollback cases pass. The pure foundation and
+tech-stage steps 1–6 are merged. Runtime integration and remaining P4 terrain work
+share one generation path; neither milestone closes from the fixed-layout prototype.
+
+**Implementation order:** runtime catalog and local resources; persisted seed and
+faction stage; plan and final occupancy validation; transactional spawning of
+walls, doors, room fixtures, fields, utilities, equipment, and finite stocks;
+geometry-based P3; terrain and one-to-three-layer gates; Core and Geological
+Landforms normal/rejection/recovery, save/reload, and visual/path/job evidence.
 
 ### P5 — Encounter supplies, trade stock, and persistent consequences
 

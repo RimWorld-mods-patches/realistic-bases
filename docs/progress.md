@@ -1,10 +1,10 @@
 # Realistic Bases: progress tracker
 
-Updated: 2026-09-21
+Updated: 2026-09-23
 
 ## Current state
 
-Design, source review, **P0 — Resolve the technical risks**, **P1 — Planner and validation harness**, **P2 — First complete physical settlement**, and **P3 — Playable defensive encounter** are complete. **P4 — Terrain variety and stronger fortifications** is in progress. P5 and later milestones remain unstarted.
+Design, source review, and P0–P3 are complete. P4 and P4A are active together: the procedural planner is the target for remaining terrain, fortification, equipment, and runtime work. P5 remains unstarted. Earlier fixed-compound P4 observations are historical evidence only.
 
 Specification: [design and feasibility](design-feasibility.md). Delivery gates: [implementation plan](implementation-plan.md). Detailed evidence: [P0 findings](p0-findings.md).
 
@@ -17,7 +17,8 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 | P1 — Planner and validation harness | Complete | Fixed-input determinism, invalid-terrain rejection, bounded termination, required property cases, read-only planning, diagnostics, and Core/GL integration passed; see [P1 findings](p1-findings.md) |
 | P2 — First complete physical settlement | Complete | Industrial/tribal profiles, full plan-driven spawning, real power/freezer/outage behavior, Core recovery, and GL + Map Preview normal/recovery matrices passed; see [P2 findings](p2-findings.md) |
 | P3 — Playable defensive encounter | Complete | Bounded local garrison, physical mortar supply, save/reload, full failure matrix, tribal exclusions, and Core/GL regression passed; see [P3 findings](p3-findings.md) |
-| P4 — Terrain variety and stronger fortifications | In progress | Terrain-adapted archetype, mutation/recovery, layered-fortification, and terrain-matrix checklist established; see [P4 findings](p4-findings.md) |
+| P4 — Terrain variety and stronger fortifications | In progress | Finish terrain and fortifications on the P4A procedural generator; see [P4 findings](p4-findings.md) |
+| P4A — Procedural settlement layouts | In progress | Pure foundation and tech-stage steps 1–6 merged; live generation, catalog, equipment, persistence, and evidence remain |
 | P5 — Encounter supplies, trade stock, and persistent consequences | Not started | Revised scope: bounded routine/combat reserves, trade consistency and no-duplication persistence; full sustainability post-MVP |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage |
 
@@ -102,7 +103,9 @@ P0–P3 findings remain historical evidence; no completed checks were rewritten.
 | P4.2 | Foothill/excavated-mountain layouts, roof/support/mutation recovery, and P3 geometry adaptation | Pure/build suite passed; accepted Core 160×160 mountain and deep rollback passed. A Core foothill generated with 12/12 facilities, two-layer gates, P3/mortar, and player arrival. | Complete |
 | P4.3 | Lakeshore/peninsula/supported-island layouts with legal approach, bridge, gate, and circulation constraints | Versioned preserved-water footprint plus dry-route pure case passed; Core water/rejection cases remain. | In progress |
 | P4.4 | Layered fortifications, palettes/budgets/climate alternatives, P3/save-reload regression, Core/GL matrix, and exit | Actual runtime/recovery evidence and closeout commit | Pending |
-| P4A — Procedural settlement layouts | Not started | After P4 and before P5: replace the fixed P2 compound with bounded, seeded demand/terrain-aware district packing, circulation, enclosure, and portals; prove deterministic varied geometry plus runtime/path/defense/recovery invariants |
+| P4/P4A integration | In progress | ProceduralLayout is the production plan and validator. Build runtime catalog/resources, stable seed/stage, transactional spawn, geometry-based P3, fixtures/utilities/fields, then terrain/fortification and live matrix. Commit each validated checkpoint. |
+
+The 2026-09-23 scope change supersedes the earlier ordering that deferred P4A until P4 closeout. Do not count fixed-compound passes as procedural runtime evidence. P4 and P4A exit only after the new path passes their pure, build, Core, GL, and recovery gates.
 
 ## Activity log
 

@@ -1,6 +1,6 @@
 # Plan: tech-stage-driven settlement equipment
 
-2026-09-23 · Status: **steps 1–6 implemented (pure); steps 7–8 pending P4**. See `docs/p4a-foundations.md` §10 for what was built. This plan extends the P4A foundation (`docs/p4a-foundations.md`). It does not start P5, and it does not modify P4 work in progress.
+2026-09-23 · Status: **steps 1–6 implemented (pure); steps 7–8 authorized and in progress**. See `docs/p4a-foundations.md` §10 for what was built. The current integration applies the remaining P4 terrain work to the procedural generator. P5 remains unstarted. Earlier dependency wording below is historical.
 
 ## Goal
 

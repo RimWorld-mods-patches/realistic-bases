@@ -1,6 +1,12 @@
 # P4 terrain variety and stronger fortifications: findings and validation
 
-2026-09-21 · Status: P4 in progress; P5/P6 unstarted
+2026-09-23 · Status: P4 and P4A integration in progress; P5/P6 unstarted
+
+The 2026-09-23 direction makes the P4A procedural generator the vehicle for all
+remaining P4 work. Earlier fixed-compound findings below remain historical
+evidence. The prior instruction to finish a separate fixed-compound P4 matrix and
+defer P4A until P4 closes is superseded. P4 exit requires the procedural path to
+pass its own terrain, fortification, pathing, recovery, and live matrix.
 
 ## Scope and boundaries
 
@@ -65,7 +71,7 @@ combat behavior.
 
 The resident-circulation correction is specified in [P4 connectivity](p4-connectivity.md).
 
-## Deferred P4A — procedural settlement layouts
+## P4A procedural settlement layouts — active integration
 
 The completed P2 layout is a fixed 31×25 prototype: its room offsets, dimensions,
 and gate positions are hardcoded. Its prior runtime evidence remains valid evidence
@@ -83,8 +89,7 @@ crossings are solved and repaired or rejected together. A fixed compact prototyp
 may remain only as an explicit exceptional fallback; its use is logged so it cannot
 mask the normal generator.
 
-P4 therefore remains a terrain/fortification milestone and may retain its fixed
-internal prototype until P4A begins under separate authorization. P4A proof will
+P4 and P4A now share one runtime generator. P4A proof will
 require deterministic replay; several fixed-terrain seeds
 whose internal layouts differ beyond translation/rotation; changed population or
 facility demand that coherently changes capacities and geometry; terrain that
