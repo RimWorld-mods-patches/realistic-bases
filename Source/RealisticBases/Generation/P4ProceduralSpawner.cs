@@ -197,6 +197,7 @@ namespace RealisticBases.Generation
                     throw new InvalidOperationException("Prohibited trap or IED detected");
                 if (layout.Gates.Any(g => !(ToCell(g.Cell).GetEdifice(map) is Building_Door)))
                     throw new InvalidOperationException("A procedural gate did not spawn as a door");
+                int outdoorExhausts = AuditCoolerExhaust(map, layout);
                 tx.Commit();
 
                 map.GetComponent<P3GarrisonController>().Initialize(settlement, layout.Gates.Select(g => g.Cell), encounter,
@@ -217,6 +218,7 @@ namespace RealisticBases.Generation
                     " layers=" + layout.WallLayers + " things=" + tx.OwnedCount + " residents=" + defenders.Count +
                     " crops=" + crops + " excavated=" + tx.ExcavatedCount + " retainedRoofs=" + layout.RetainedThickRoof.Count +
                     " conduits=" + conduitCells.Count +
+                    " outdoorCoolerExhausts=" + outdoorExhausts +
                     " generatorStartupFuel=" + internalFuel + " storedFuel=" + fuel +
                     " encounter=" + encounter.Digest + " loadout=" + loadout.Digest);
                 return true;
@@ -386,6 +388,25 @@ namespace RealisticBases.Generation
             CompQuality comp = thing.TryGetComp<CompQuality>();
             if (comp == null) throw new InvalidOperationException("Planned quality cannot be applied to " + thing.def.defName);
             comp.SetQuality((QualityCategory)(int)quality.Value, ArtGenerationContext.Outsider);
+        }
+
+        private static int AuditCoolerExhaust(Map map, ProceduralLayout layout)
+        {
+            int count = 0;
+            foreach (LayoutRoom room in layout.Rooms)
+                foreach (LayoutFixture cooler in room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.WallCooler))
+                {
+                    IntVec3 cold = ToCell(cooler.ColdCell.Value);
+                    IntVec3 hot = ToCell(cooler.HotCell.Value);
+                    Room served = cold.GetRoom(map);
+                    Room exhaust = hot.GetRoom(map);
+                    if (served == null || exhaust == null || served == exhaust ||
+                        served.UsesOutdoorTemperature || !exhaust.UsesOutdoorTemperature)
+                        throw new InvalidOperationException("Cooler lacks a sealed served room and outdoor exhaust: " +
+                            room.Id + " cold=" + cold + " hot=" + hot);
+                    count++;
+                }
+            return count;
         }
 
         private static ThingDef Require(string name) => DefDatabase<ThingDef>.GetNamed(name, true);

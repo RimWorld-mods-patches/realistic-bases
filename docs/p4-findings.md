@@ -245,6 +245,27 @@ checksum, and then succeeded on the same map: nine rooms, one gate, four residen
 unchanged, and playable arrival. The old mountain forced-failure recovery above
 tested the fixed-compound path and is separate evidence.
 
-Remaining P4/P4A exit evidence includes procedural flat/foothill/lakeshore and
-three-layer maps, hot/cold and tribal cases, GL plus Map Preview, and save/reload
-on the procedural path. P5/P6 are unstarted.
+At this checkpoint, remaining P4/P4A exit evidence includes procedural flat and
+lakeshore maps, hot/cold and tribal cases, and GL plus Map Preview. P5/P6 are
+unstarted.
+
+## Cooler integration and procedural save/reload
+
+The cooler-exhaust commits `fc79176`–`9bc9d1d` orient wall coolers by their
+vanilla hot/cold sides and add sealed roof-open exhaust pockets when a mountain
+hallway is not an outdoor-temperature room. The current build, P1–P4 tests, and
+P4A layout suite pass. A new spawn-time audit checks RimWorld's actual `Room`
+objects: every cooler's cold side must be in a sealed served room and its hot
+side in a distinct room using outdoor temperature.
+
+Disposable Core live runs passed this audit for a mountain with two coolers, a
+SmallHills foothill with four, and a three-layer SmallHills foothill with three.
+Each run also passed final terrain/roof preservation and playable arrival. The
+three-layer encounter survived save/reload with four defenders and four
+assignments restored on each of its three test maps; a manual post-reload audit
+of the active map showed four alive/assigned, two occupied posts, zero defenders
+outside bounds, and zero player pawns controlled.
+
+These runs close the current cooler regression and provide Core procedural
+foothill/three-layer and reload evidence. Flat, lakeshore, hot/cold, tribal,
+and GL+Map Preview procedural cases still require focused live checks.
