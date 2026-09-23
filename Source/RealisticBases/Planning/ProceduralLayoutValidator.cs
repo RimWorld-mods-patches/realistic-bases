@@ -35,7 +35,8 @@ namespace RealisticBases.Planning
             if (natural.Any(c => grid.At(c) != LayoutCellClass.Rock || excavation.Contains(c))) errors.Add("natural_wall_not_intact_rock");
             if (excavation.Any(c => grid.At(c) != LayoutCellClass.Rock)) errors.Add("excavation_not_natural_rock");
             if (excavation.Count > requirements.ExcavationBudgetCells) errors.Add("excavation_budget");
-            if (layout.Doctrine == LayoutDoctrine.OpenGround && excavation.Count > 0) errors.Add("open_ground_excavated");
+            if (layout.Doctrine == LayoutDoctrine.OpenGround && excavation.Any(c => grid.ThickCover(c)))
+                errors.Add("open_ground_excavated_thick_roof_rock");
             HashSet<GridPoint> clearedRoof = new HashSet<GridPoint>(layout.ExhaustRoofClearance);
             if (retained.Any(c => !excavation.Contains(c) || !grid.ThickCover(c) || clearedRoof.Contains(c)) ||
                 excavation.Any(c => grid.ThickCover(c) && !retained.Contains(c) && !clearedRoof.Contains(c)))

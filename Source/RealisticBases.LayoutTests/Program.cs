@@ -32,6 +32,7 @@ internal static partial class Program
         Run("seeds vary internal layout beyond translation and rotation", SeedVariation);
         Run("population change alters capacity and geometry coherently", PopulationChangesGeometry);
         Run("obstacles reshape the layout", ObstaclesReshapeLayout);
+        Run("scattered rock on open ground does not force mountain doctrine", ScatteredRockUsesOpenGround);
         Run("final obstacles and access reservations are validated", ConnectivityAfterBlocking);
         Run("rooms are never public transit", RoomsNeverTransit);
         Run("impossible demand and unusable terrain reject predictably", Rejections);
@@ -266,6 +267,17 @@ internal static partial class Program
         HashSet<GridPoint> used = new HashSet<GridPoint>(b.Layout.Rooms.SelectMany(r => r.Bounds.Points()).Concat(b.Layout.Corridors.SelectMany(c => c.Cells)));
         True(used.All(c => !obstacles[c].HasAny(TerrainTraits.Water | TerrainTraits.Occupied)), "nothing placed on water or obstacles");
         ExportLayout("obstacles-industrial-6", b);
+    }
+
+    private static void ScatteredRockUsesOpenGround()
+    {
+        TerrainSnapshot terrain = Build(140, 140, (x, z) =>
+            x > 8 && z > 8 && x % 24 < 4 && z % 24 < 4 ? RockRoofed : Ground);
+        ProceduralLayoutResult result = Plan(terrain,
+            LayoutRequirements.FromPopulation(6, Industrial, Temperate), 8);
+        Accepted(result);
+        Equal(LayoutDoctrine.OpenGround, result.Layout.Doctrine,
+            "separate stone outcrops cannot sustain a rock-protected settlement");
     }
 
     // ---- connectivity ----

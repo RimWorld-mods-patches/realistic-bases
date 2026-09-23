@@ -103,7 +103,7 @@ namespace RealisticBases.Generation
                 if (!run.Result.Success)
                 {
                     P2Log.Error("PROCEDURAL_PLAN_REJECT", "map=" + map.uniqueID + " mutationCount=0 diagnostics=" +
-                        P1MapPlanner.Compact(run.Result.Diagnostics.Select(d => d.ToString())));
+                        P4AMapPlanner.RejectionSummary(run.Result));
                     return;
                 }
                 if (RealisticBasesMod.Settings.forceRejectNext)

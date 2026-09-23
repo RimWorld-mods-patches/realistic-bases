@@ -245,7 +245,7 @@ checksum, and then succeeded on the same map: nine rooms, one gate, four residen
 unchanged, and playable arrival. The old mountain forced-failure recovery above
 tested the fixed-compound path and is separate evidence.
 
-At this checkpoint, remaining P4/P4A exit evidence includes procedural flat and
+At this checkpoint, remaining P4/P4A exit evidence includes procedural
 lakeshore maps, hot/cold and tribal cases, and GL plus Map Preview. P5/P6 are
 unstarted.
 
@@ -267,7 +267,7 @@ of the active map showed four alive/assigned, two occupied posts, zero defenders
 outside bounds, and zero player pawns controlled.
 
 These runs close the current cooler regression and provide Core procedural
-foothill/three-layer and reload evidence. Flat, lakeshore, hot/cold, tribal,
+foothill/three-layer and reload evidence. Lakeshore, hot/cold, tribal,
 and GL+Map Preview procedural cases still require focused live checks.
 
 ## Reachable exterior fields
@@ -279,3 +279,26 @@ crossed; the staging cells themselves are not planted. A pure regression rejects
 fertile land across a water barrier and reserved crop cells. A disposable Core
 mountain still spawned all 124 required crops with one live outdoor cooler,
 preserved the final terrain/roof checksum, and admitted the player arrival.
+
+## Flat-map search and owned boulder clearance
+
+Two visibly open flat maps initially rejected before mutation. The corrected
+diagnostics exposed planner failures instead of hiding them behind six equipment
+notes: one site had no contiguous placement component after the three-cell
+obstacle margin; another exhausted candidate room placement. Scattered thick-roof
+counts had incorrectly selected a mountain strategy, and the global site budget
+could be consumed before open-ground fallback. The planner now requires a
+contiguous thick-roof mass for that strategy, reserves bounded search slots for
+fallback, ranks open anchors by clearance, and permits explicitly owned
+excavation of unroofed or thin-roofed natural rock in an open-ground layout.
+Thick-roof mountain excavation remains in the protected strategy. The
+mutation/rollback ledger snapshots removed rock and roof cells.
+
+A clean, single-process disposable Core flat run then accepted an open-ground
+layout: nine rooms, two gates, 101 owned rock removals, zero retained thick
+roofs, 124 crops, five coolers with actual outdoor exhaust rooms, and four
+defenders with a mortar. The final terrain/roof checksum matched settlement
+spawn and player arrival crossed the doors. The pure suite includes a
+scattered-rock regression. Earlier overlapping-process flat results were
+discarded; this run started after verifying exactly one game process used the
+disposable profile.

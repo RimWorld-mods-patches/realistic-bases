@@ -431,6 +431,7 @@ namespace RealisticBases.Planning
         public readonly int Height;
         public readonly LayoutCellClass[] Class;
         public readonly bool[] Placeable;
+        public readonly int[] OpenClearance;
 
         private LayoutTerrainGrid(TerrainSnapshot terrain, int margin, IEnumerable<GridPoint> openOverrides)
         {
@@ -464,6 +465,30 @@ namespace RealisticBases.Planning
                         if (distance[n] <= distance[i] + 1) continue;
                         distance[n] = distance[i] + 1;
                         queue.Enqueue(n);
+                    }
+            }
+            OpenClearance = new int[distance.Length];
+            Queue<int> openQueue = new Queue<int>();
+            for (int i = 0; i < OpenClearance.Length; i++)
+            {
+                int x = i % Width, z = i / Width;
+                OpenClearance[i] = Math.Min(Math.Min(x, z), Math.Min(Width - 1 - x, Height - 1 - z)) + 1;
+                if (Class[i] == LayoutCellClass.Bad || terrain[x, z].Has(TerrainTraits.ThickRoof))
+                { OpenClearance[i] = 0; openQueue.Enqueue(i); }
+            }
+            while (openQueue.Count > 0)
+            {
+                int i = openQueue.Dequeue();
+                int x = i % Width, z = i / Width;
+                for (int dz = -1; dz <= 1; dz++)
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        int nx = x + dx, nz = z + dz;
+                        if (nx < 0 || nz < 0 || nx >= Width || nz >= Height) continue;
+                        int n = nz * Width + nx;
+                        if (OpenClearance[n] <= OpenClearance[i] + 1) continue;
+                        OpenClearance[n] = OpenClearance[i] + 1;
+                        openQueue.Enqueue(n);
                     }
             }
             for (int i = 0; i < distance.Length; i++) Placeable[i] = Class[i] != LayoutCellClass.Bad && distance[i] > margin;
@@ -540,7 +565,8 @@ namespace RealisticBases.Planning
             }
 
             int protectedCells = components.Sum(c => c.Count(i => grid.ThickCover(new GridPoint(i % grid.Width, i / grid.Width))));
-            bool protectionPossible = requirements.ExcavationBudgetCells > 0 && protectedCells >= requiredArea / 2;
+            int contiguousProtection = LargestThickRockCluster(grid, components);
+            bool protectionPossible = requirements.ExcavationBudgetCells > 0 && contiguousProtection >= requiredArea / 2;
             List<KeyValuePair<LayoutDoctrine, bool>> doctrines = new List<KeyValuePair<LayoutDoctrine, bool>>();
             if (!protectionPossible) doctrines.Add(new KeyValuePair<LayoutDoctrine, bool>(LayoutDoctrine.OpenGround, kit.MortarCapable));
             else if (!kit.MortarCapable)
@@ -558,18 +584,22 @@ namespace RealisticBases.Planning
                 doctrines.Add(keepMortar ? open : rock);
                 doctrines.Add(keepMortar ? rock : open);
             }
-            if (!protectionPossible) diagnostics.Add(new LayoutDiagnostic("doctrine", "open_ground_only", "protectedCells=" + protectedCells));
+            if (!protectionPossible) diagnostics.Add(new LayoutDiagnostic("doctrine", "open_ground_only",
+                "protectedCells=" + protectedCells + " largestThickRockCluster=" + contiguousProtection));
 
             for (int d = 0; d < doctrines.Count; d++)
             {
                 LayoutDoctrine doctrine = doctrines[d].Key;
                 bool wantsCourt = doctrines[d].Value;
                 if (d > 0) diagnostics.Add(new LayoutDiagnostic("doctrine", "fallback", doctrine + " court=" + wantsCourt));
-                List<GridPoint> anchors = Anchors(grid, components, doctrine, LayoutSeed.Sub(input.Seed, "site"), input.Budget.MaxSites);
+                int sitesRemaining = input.Budget.MaxSites - stats.SitesTried;
+                int siteQuota = d == doctrines.Count - 1 ? sitesRemaining : Math.Max(1, sitesRemaining / (doctrines.Count - d));
+                int siteLimit = stats.SitesTried + siteQuota;
+                List<GridPoint> anchors = Anchors(grid, components, doctrine, LayoutSeed.Sub(input.Seed, "site"), siteQuota);
                 if (anchors.Count == 0) diagnostics.Add(new LayoutDiagnostic("site", "no_anchor", doctrine.ToString()));
                 foreach (GridPoint anchor in anchors)
                 {
-                    if (stats.SitesTried >= input.Budget.MaxSites) break;
+                    if (stats.SitesTried >= siteLimit) break;
                     stats.SitesTried++;
                     for (int attempt = 0; attempt < input.Budget.AttemptsPerSite; attempt++)
                     {
@@ -638,6 +668,35 @@ namespace RealisticBases.Planning
             return result.OrderByDescending(c => c.Count).ThenBy(c => c[0]).ToList();
         }
 
+        private static int LargestThickRockCluster(LayoutTerrainGrid grid, IEnumerable<List<int>> components)
+        {
+            HashSet<int> eligible = new HashSet<int>(components.SelectMany(c => c).Where(i =>
+                grid.Class[i] == LayoutCellClass.Rock &&
+                grid.ThickCover(new GridPoint(i % grid.Width, i / grid.Width))));
+            int largest = 0;
+            while (eligible.Count > 0)
+            {
+                int start = eligible.Min();
+                eligible.Remove(start);
+                Queue<int> queue = new Queue<int>();
+                queue.Enqueue(start);
+                int size = 0;
+                while (queue.Count > 0)
+                {
+                    int i = queue.Dequeue();
+                    size++;
+                    GridPoint cell = new GridPoint(i % grid.Width, i / grid.Width);
+                    foreach (GridPoint step in Cardinal)
+                    {
+                        GridPoint next = new GridPoint(cell.X + step.X, cell.Z + step.Z);
+                        if (grid.InBounds(next) && eligible.Remove(grid.Index(next))) queue.Enqueue(grid.Index(next));
+                    }
+                }
+                if (size > largest) largest = size;
+            }
+            return largest;
+        }
+
         private static List<GridPoint> Anchors(LayoutTerrainGrid grid, List<List<int>> components, LayoutDoctrine doctrine, ulong siteSeed, int max)
         {
             List<GridPoint> result = new List<GridPoint>();
@@ -662,26 +721,24 @@ namespace RealisticBases.Planning
                     }
                 }
             }
-            foreach (List<int> component in components)
+            IEnumerable<int> candidates;
+            if (doctrine == LayoutDoctrine.OpenGround)
+                // The centroid of an irregular usable component can sit on a narrow edge. Prefer
+                // the widest genuinely open patches across all qualifying components.
+                candidates = components.SelectMany(c => c).Where(i => grid.Class[i] == LayoutCellClass.Open)
+                    .OrderByDescending(i => grid.OpenClearance[i]).ThenBy(i => LayoutSeed.Key(siteSeed, i));
+            else
+                // A rock face: covered cells a few steps from open ground, preferring more overhead cover nearby.
+                candidates = components.SelectMany(c => c)
+                    .Where(i => grid.ThickCover(new GridPoint(i % grid.Width, i / grid.Width)) && toOpen[i] >= 3 && toOpen[i] <= 8)
+                    .OrderByDescending(i => CoverAround(grid, i, 5) / 8).ThenBy(i => toOpen[i])
+                    .ThenBy(i => LayoutSeed.Key(siteSeed, i));
+            foreach (int i in candidates)
             {
-                double cx = component.Average(i => i % grid.Width), cz = component.Average(i => i / grid.Width);
-                IEnumerable<int> candidates;
-                if (doctrine == LayoutDoctrine.OpenGround)
-                    candidates = component.Where(i => grid.Class[i] == LayoutCellClass.Open)
-                        .OrderBy(i => Math.Round(Math.Abs(i % grid.Width - cx) + Math.Abs(i / grid.Width - cz)))
-                        .ThenBy(i => LayoutSeed.Key(siteSeed, i));
-                else
-                    // A rock face: covered cells a few steps from open ground, preferring more overhead cover nearby.
-                    candidates = component.Where(i => grid.ThickCover(new GridPoint(i % grid.Width, i / grid.Width)) && toOpen[i] >= 3 && toOpen[i] <= 8)
-                        .OrderByDescending(i => CoverAround(grid, i, 5) / 8).ThenBy(i => toOpen[i])
-                        .ThenBy(i => LayoutSeed.Key(siteSeed, i));
-                foreach (int i in candidates)
-                {
-                    GridPoint p = new GridPoint(i % grid.Width, i / grid.Width);
-                    if (result.Any(a => Math.Abs(a.X - p.X) + Math.Abs(a.Z - p.Z) < 8)) continue;
-                    result.Add(p);
-                    if (result.Count >= max) return result;
-                }
+                GridPoint p = new GridPoint(i % grid.Width, i / grid.Width);
+                if (result.Any(a => Math.Abs(a.X - p.X) + Math.Abs(a.Z - p.Z) < 12)) continue;
+                result.Add(p);
+                if (result.Count >= max) return result;
             }
             return result;
         }
@@ -804,7 +861,7 @@ namespace RealisticBases.Planning
             return cells;
         }
 
-        private bool AllowDig => doctrine == LayoutDoctrine.RockProtected;
+        private bool CanExcavate(GridPoint cell) => doctrine == LayoutDoctrine.RockProtected || !grid.ThickCover(cell);
         private int Budget => input.Requirements.ExcavationBudgetCells;
         private string Site => anchor + "/" + doctrine;
 
@@ -1054,7 +1111,7 @@ namespace RealisticBases.Planning
         }
 
         private bool OkForStreet(GridPoint c) => grid.CanPlace(c) && occ[grid.Index(c)] == Free &&
-            (AllowDig || grid.At(c) != LayoutCellClass.Rock);
+            (grid.At(c) != LayoutCellClass.Rock || CanExcavate(c));
 
         private bool BuildSpine()
         {
@@ -1066,7 +1123,14 @@ namespace RealisticBases.Planning
             Func<int, List<GridPoint>> section = t => Enumerable.Range(0, MainWidth)
                 .Select(k => new GridPoint(anchor.X + t * axis.X + k * width.X, anchor.Z + t * axis.Z + k * width.Z)).ToList();
             List<int> positions = new List<int>();
-            if (!section(0).All(OkForStreet)) { Fail("spine_blocked"); return false; }
+            if (!section(0).All(OkForStreet))
+            {
+                Fail("spine_blocked", string.Join(",", section(0).Select(c => c + ":" +
+                    (grid.CanPlace(c) ? "placeable" : "unplaceable") + "/" +
+                    (grid.InBounds(c) ? occ[grid.Index(c)].ToString() : "outside") + "/" + grid.At(c) +
+                    (grid.InBounds(c) && grid.ThickCover(c) ? "/thick" : string.Empty))));
+                return false;
+            }
             positions.Add(0);
             int up = 1, down = -1;
             bool upOpen = true, downOpen = true;
@@ -1249,7 +1313,7 @@ namespace RealisticBases.Planning
                     if (o != Free && !absorbable) return null;
                     if (grid.At(c) == LayoutCellClass.Rock)
                     {
-                        if (!AllowDig) return null;
+                        if (!CanExcavate(c)) return null;
                         if (!edge || c.Equals(door)) dig.Add(c);
                     }
                     if (!edge && grid.ThickCover(c)) protectedCells++;
@@ -1371,7 +1435,7 @@ namespace RealisticBases.Planning
             if (o == Pocket) return 1;
             if (o != Free || !grid.CanPlace(hot)) return -1;
             LayoutCellClass cls = grid.At(hot);
-            if (cls == LayoutCellClass.Bad || (cls == LayoutCellClass.Rock && !AllowDig)) return -1;
+            if (cls == LayoutCellClass.Bad || (cls == LayoutCellClass.Rock && !CanExcavate(hot))) return -1;
             foreach (GridPoint n in ProceduralLayoutValidator.Neighbors(hot))
             {
                 if (n.Equals(wall)) continue;

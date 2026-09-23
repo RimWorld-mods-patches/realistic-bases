@@ -42,7 +42,14 @@ Launch the installed game executable directly. Steam does not need to be running
   -logFile "$RB_LOG_FILE"
 ```
 
-Run it in a long-lived terminal session and retain the session id. Never run two RimWorld processes against the same profile. Stop the process with Ctrl-C before rebuilding, editing the profile, changing the active-mod list, restoring the save, or relaunching.
+Run it in a long-lived terminal session and retain the session id. Never run two RimWorld processes against the same profile. On macOS the GUI process can survive after the launching terminal session reports exit, so Ctrl-C is **not** proof that the game stopped. Before restoring a save or relaunching, inspect the process table for the exact disposable `-savedatafolder` path:
+
+```bash
+ps -axo pid=,command= | rg -F 'RimWorld by Ludeon Studios' \
+  | rg -F -- "-savedatafolder=$RB_PROFILE_DIR" | rg -v '/bin/zsh -c|rg -F'
+```
+
+If a process remains, verify its full command line matches this profile, then send `kill -TERM` to that exact PID and repeat the process-table check until no match remains. Do not use `killall`, a name-only match, or an unverified PID. Stop and verify the process before rebuilding, editing the profile, changing the active-mod list, restoring the save, or relaunching. After launching, verify exactly **one** process matches this profile. A second match invalidates that run's test evidence; stop both before trying again.
 
 Verify startup from the log rather than assuming the visible map is ready:
 
@@ -164,9 +171,9 @@ Use the filtered action `Audit current P3 defensive encounter` for an on-demand 
 
 1. Resolve `RB_REPO_ROOT`, `RB_PROFILE_DIR`, `RB_LOG_DIR`, and `RB_LOG_FILE` as shown above.
 2. Build and run pure tests in Docker through `build-mod`.
-3. Stop any existing RimWorld process using this profile.
+3. Stop any existing RimWorld process using this profile and verify the exact-path process-table query returns no matches; Ctrl-C alone is insufficient on macOS.
 4. Restore `autostart.rws` from `RealisticBases-P0-Disposable.rws` for a clean scenario.
-5. Launch directly with the repository-local `-savedatafolder` and `-logFile` paths.
+5. Launch directly with the repository-local `-savedatafolder` and `-logFile` paths; verify exactly one matching process before interacting with the game.
 6. Confirm the expected active-mod list and `GAME_LOADED` in the log.
 7. Invoke the desired debug action with `slash`, exact label, `Tab`, `Return`.
 8. Confirm generation and runtime events in the log.

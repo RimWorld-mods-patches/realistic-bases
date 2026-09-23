@@ -42,6 +42,12 @@ namespace RealisticBases.Integration
             ProceduralLayoutInput input = new ProceduralLayoutInput(requirements, terrain, seed, catalog,
                 new LayoutFortificationReservation(wallLayers), resources: resources);
             ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
+            string terrainStats = result.Success ? string.Empty : " terrainCells=" + terrain.Width * terrain.Height +
+                " standable=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Standable)) +
+                " buildable=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Buildable)) +
+                " occupied=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Occupied)) +
+                " naturalRock=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.NaturalRock)) +
+                " water=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Water));
             P2Log.Message("PROCEDURAL_PLAN", "map=" + map.uniqueID + " profile=" + profile.Id +
                 " stage=" + stage.Level + " seed=" + StableHash.Hex(seed) + " layers=" + wallLayers +
                 " catalogDefs=" + catalog.Defs.Count + " catalogResearch=" + catalog.Research.Count +
@@ -49,8 +55,18 @@ namespace RealisticBases.Integration
                 " river=" + resources.RiverCells.Count + " geysers=" + resources.SteamGeyserCells.Count +
                 " climate=" + climate + " success=" + result.Success + " input=" + input.Digest +
                 " layout=" + (result.Layout?.Digest ?? "none") + " stats=" + result.Stats +
-                " rejected=" + P1MapPlanner.Compact(result.Diagnostics.Select(d => d.ToString())));
+                terrainStats + " rejectionCode=" + (result.RejectionCode ?? "none") +
+                " rejected=" + RejectionSummary(result));
             return new P4AMapPlanningRun(input, result, profile.Id);
+        }
+
+        public static string RejectionSummary(ProceduralLayoutResult result)
+        {
+            if (result == null || result.Success) return "none";
+            string[] failures = result.Diagnostics
+                .Where(d => d.Stage == "attempt" || d.Stage == "result" || d.Stage == "site")
+                .Reverse().Take(6).Reverse().Select(d => d.ToString()).ToArray();
+            return P1MapPlanner.Compact(failures);
         }
 
         public static LayoutLocalResources CaptureResources(Map map)
