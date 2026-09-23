@@ -16,5 +16,6 @@
     <Compile Include="../RealisticBases/Planning/P4Terrain.cs" Link="Planning/P4Terrain.cs" />
     <Compile Include="../RealisticBases/Planning/P4TerrainMutation.cs" Link="Planning/P4TerrainMutation.cs" />
     <Compile Include="../RealisticBases/Planning/P4Connectivity.cs" Link="Planning/P4Connectivity.cs" />
+    <Compile Include="../RealisticBases/Planning/P4FieldPlacement.cs" Link="Planning/P4FieldPlacement.cs" />
   </ItemGroup>
 </Project>

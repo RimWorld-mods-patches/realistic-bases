@@ -48,6 +48,7 @@ internal static class Program
         Run("P4 lakeshore plan preserves water and dry routes", P4LakeshorePlanPreservesWaterAndDryRoutes);
         Run("P4 final navigation rejects an inset wall that blocks the circulation root", P4ConnectivityRejectsBlockedInsetWall);
         Run("P4 gatehouse layers are serially connected and reject offset or blocked crossings", P4GatehouseLayersValidateConnectivity);
+        Run("P4 fields are reachable from gate approaches across dry terrain", P4FieldsRequireDryGateAccess);
         Run("P3 assignments are deterministic and exclusive", P3AssignmentsAreDeterministicAndExclusive);
         Run("P3 assignment is weapon and post aware", P3AssignmentIsWeaponAndPostAware);
         Run("P3 pursuit validates destination and full route", P3PursuitValidatesDestinationAndFullRoute);
@@ -790,6 +791,33 @@ internal static class Program
         yield return new GridPoint(point.X - 1, point.Z);
         yield return new GridPoint(point.X + 1, point.Z);
         yield return new GridPoint(point.X, point.Z + 1);
+    }
+
+    private static void P4FieldsRequireDryGateAccess()
+    {
+        const int width = 7;
+        const int height = 5;
+        TerrainCell[] cells = OpenCells(width, height);
+        for (int z = 0; z < height; z++)
+            for (int x = 0; x < width; x++)
+            {
+                TerrainTraits traits = TerrainTraits.Standable | TerrainTraits.Buildable;
+                if (x == 3) traits = TerrainTraits.Water;
+                if (x >= 4 || (z == 2 && x <= 1)) traits |= TerrainTraits.Fertile;
+                cells[z * width + x] = Cell(traits);
+            }
+        TerrainSnapshot terrain = new TerrainSnapshot(width, height, cells, "field-reachability");
+        GridPoint start = new GridPoint(0, 2);
+        IReadOnlyList<GridPoint> one = P4FieldPlacement.SelectReachable(terrain,
+            new[] { start }, Array.Empty<GridPoint>(), 1);
+        Equal(1, one.Count, "one reachable fertile cell");
+        Equal(new GridPoint(1, 2), one[0], "uses dry side of water");
+        Equal(1, P4FieldPlacement.SelectReachable(terrain,
+            new[] { start }, Array.Empty<GridPoint>(), 2).Count, "unreachable shore cannot fill demand");
+        Equal(0, P4FieldPlacement.SelectReachable(terrain,
+            new[] { start }, new[] { new GridPoint(1, 2) }, 1).Count, "reserved crop cell is excluded");
+        Equal(0, P4FieldPlacement.SelectReachable(terrain,
+            new[] { new GridPoint(3, 2) }, Array.Empty<GridPoint>(), 1).Count, "water approach is invalid");
     }
 
     private static SettlementProfile Profile(int candidates = 128) =>

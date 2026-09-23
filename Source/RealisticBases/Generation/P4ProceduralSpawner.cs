@@ -70,7 +70,7 @@ namespace RealisticBases.Generation
             try { conduitCells = PlanConduits(map, input, layout); }
             catch (Exception ex) { failure = "power_route_rejected:" + ex.Message; return false; }
 
-            List<GridPoint> fields = SelectFields(map, input, layout);
+            IReadOnlyList<GridPoint> fields = SelectFields(input, layout);
             if (fields.Count < layout.FieldCellsRequired)
             { failure = "insufficient_reachable_fertile_field:" + fields.Count + "/" + layout.FieldCellsRequired; return false; }
             foreach (GridPoint c in structures.Concat(fields).Distinct())
@@ -234,20 +234,14 @@ namespace RealisticBases.Generation
             }
         }
 
-        private static List<GridPoint> SelectFields(Map map, ProceduralLayoutInput input, ProceduralLayout layout)
+        private static IReadOnlyList<GridPoint> SelectFields(ProceduralLayoutInput input, ProceduralLayout layout)
         {
-            HashSet<GridPoint> reserved = new HashSet<GridPoint>(layout.Enclosure.Concat(layout.BuiltWalls)
-                .Concat(layout.NaturalWalls).Concat(layout.Gates.Select(g => g.Cell)));
-            List<GridPoint> chosen = new List<GridPoint>();
-            foreach (GridPoint c in input.Terrain.Points().Where(c => !reserved.Contains(c) &&
-                input.Terrain[c].Has(TerrainTraits.Fertile) && input.Terrain[c].Has(TerrainTraits.Standable))
-                .OrderBy(c => layout.Gates.Min(g => Math.Abs(c.X - g.Staging.X) + Math.Abs(c.Z - g.Staging.Z))).ThenBy(c => c))
-            {
-                if (ToCell(c).GetEdifice(map) != null) continue;
-                chosen.Add(c);
-                if (chosen.Count == layout.FieldCellsRequired) break;
-            }
-            return chosen;
+            IEnumerable<GridPoint> reserved = layout.Enclosure.Concat(layout.BuiltWalls).Concat(layout.NaturalWalls)
+                .Concat(layout.ExhaustPocketWalls).Concat(layout.ExhaustPockets.Select(p => p.Cell))
+                .Concat(layout.Gates.SelectMany(g => g.BandWalls)).Concat(layout.Gates.SelectMany(g => g.BandDoors))
+                .Concat(layout.Gates.SelectMany(g => g.OuterVestibule));
+            return P4FieldPlacement.SelectReachable(input.Terrain, layout.Gates.Select(g => g.Staging),
+                reserved, layout.FieldCellsRequired);
         }
 
         private static GridPoint FindOrigin(ThingDef def, Rot4 rotation, IReadOnlyList<GridPoint> footprint)

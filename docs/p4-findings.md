@@ -269,3 +269,13 @@ outside bounds, and zero player pawns controlled.
 These runs close the current cooler regression and provide Core procedural
 foothill/three-layer and reload evidence. Flat, lakeshore, hot/cold, tribal,
 and GL+Map Preview procedural cases still require focused live checks.
+
+## Reachable exterior fields
+
+Procedural crop selection now floods dry, standable exterior terrain from the
+gate staging cells before selecting fertile tiles. Water, intact rock, existing
+edifices, the enclosure, gatehouse, and exhaust-pocket structures cannot be
+crossed; the staging cells themselves are not planted. A pure regression rejects
+fertile land across a water barrier and reserved crop cells. A disposable Core
+mountain still spawned all 124 required crops with one live outdoor cooler,
+preserved the final terrain/roof checksum, and admitted the player arrival.
