@@ -22,7 +22,7 @@ These are code observations, not runtime results. The previous P3 and P4/P4A obs
 | Step | Pure/build evidence required | Live evidence required | Result |
 |---|---|---|---|
 | P4B.0 | Inspect source and record baseline, immutable defense inputs/outputs, reservation/occupancy ownership, test corpus, recovery boundary | None | Documentation baseline only |
-| P4B.1 | Deterministic 1/2/3-layer section topology on flat, irregular, corner, narrow, rock and water fixtures; exact physical wall/door counts; legal materials/imports; one public root with every crossing and service/retreat path | Final-map structures/terrain/roof/path audit for representative accepted plans | Pending |
+| P4B.1 | Deterministic 1/2/3-layer section topology on flat, irregular, corner, narrow, rock and water fixtures; exact physical wall/door counts; legal materials/imports; one public root with every crossing and service/retreat path | Final-map structures/terrain/roof/path audit for representative accepted plans | Partial: pure rock/water/irregular matrix and flat service-lane audit; constrained live and narrow/corner recovery remain |
 | P4B.2 | Geometry-driven post and turret range/line-of-fire checks for intended gate state; blocked-lane and blind-zone negatives; reachable cover/service/fallback | Actual defender/turret shots, cover use, and unobstructed lanes on accepted maps | Pending |
 | P4B.3 | IndustrialLate research prerequisite closure and lower-tier exclusions; resolved footprint/power/range/refuel/explosion values; effective difficulty-sensitive uranium accounting including loaded ammunition; power/material/threat/stock budget and transaction preflight | Turret firing, power loss, uranium consumption/rearm/exhaustion, breached gate/wall fallback and active reload | Pending |
 | P4B.4 | Full pure suites, Docker Release, static no-trap/IED and final occupancy/recovery regressions | Representative player raid, Core and GL terrain, forced partial rollback and save/reload | Pending |
@@ -45,9 +45,24 @@ On the disposable Core flat-map test, an open-ground three-layer plan realized
 a second flat-labeled, rock-bearing map realized 3/3, 8/8, 4/4 and 2/2.
 Neither proves full concentric enclosure coverage: these are declared short
 reinforcement sections. The captured flat-tile plant regression and 460/460
-plant rollback are detailed in [P4 findings](p4-findings.md). The P4B.1
-irregular/corner/water/rock and service/retreat-route matrix remains open;
-P4B.2–P4B.4 have not been implemented.
+plant rollback are detailed in [P4 findings](p4-findings.md).
+
+The next P4B.1 checkpoint requires at least three physical outer-wall cells
+per declared section, an inner run supporting every farther-out cell, and a
+continuous walkable lane from each section end to its own gate crossing.
+Candidates lacking an outer section reject before mutation; production's
+bounded layer fallback can then choose a feasible thickness. The pure suite
+accepts 1/2/3 layers on pond/ridge, mountain-face, shoreline and water-corner
+fixtures, with a deliberately blocked lane rejected by the validator. The
+spawner now clears lane plants within the transaction and audits both actual
+lane cells and endpoint reachability. A disposable Core flat three-layer
+generation realized 6/6 outer walls, 8/8 band walls, 3/3 doors, 1/1 gate
+routes, 12/12 clear service cells and 2/2 reachable service termini. Both
+pure suites and Docker Release passed; the game process was stopped afterward.
+
+P4B.1 remains open for a narrow/corner rejection matrix, live constrained
+terrain and roof checks, and recovery evidence with the new service-lane
+reservation. P4B.2–P4B.4 have not been implemented.
 
 ## Implementation interface to preserve
 

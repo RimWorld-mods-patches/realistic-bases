@@ -26,6 +26,7 @@ internal static partial class Program
         Run("demand scales with population and splits barracks", DemandScalesWithPopulation);
         Run("rich settlements get personal bedrooms", PersonalRooms);
         Run("climate drives heating, cooling and lighting fixtures", ClimateFixtures);
+        Run("freezer and occupied-room cooler targets differ", CoolerTemperatureTargets);
         Run("workbenches stand against a wall with an interior work cell", WorkbenchesAgainstWall);
         RunCoolerExhaustTests();
         Run("identical inputs replay identical layouts", Determinism);
@@ -46,6 +47,8 @@ internal static partial class Program
         Run("roof support ignores built walls and rejects wide halls", RoofSupportRule);
         Run("tech and spend capacity weight one to three physical wall layers", LayerPolicy);
         Run("gatehouse crossings and exterior sections reserve one to three layers", WallLayers);
+        Run("layered walls retain service lanes on rock, water and irregular terrain", FortificationTerrainMatrix);
+        Run("validator rejects a blocked outer-wall service lane", BlockedFortificationServiceLane);
         Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck);
         Run("tech stage is stable per faction", TechStageStablePerFaction);
         Run("tech stage respects every faction band", TechStageBands);
@@ -176,6 +179,13 @@ internal static partial class Program
             "temperate needs no climate fixtures");
         ExportLayout("industrial-hot-barracks", hotIndustrial);
         ExportLayout("tribal-cold-barracks", coldTribal);
+    }
+
+    private static void CoolerTemperatureTargets()
+    {
+        Equal(-10f, SettlementTemperatureTargets.ForRoom(LayoutRoomKind.Freezer), "freezer setpoint");
+        foreach (LayoutRoomKind kind in Enum.GetValues<LayoutRoomKind>().Where(kind => kind != LayoutRoomKind.Freezer))
+            Equal(21f, SettlementTemperatureTargets.ForRoom(kind), kind + " setpoint");
     }
 
     private static void WorkbenchesAgainstWall()
@@ -576,6 +586,73 @@ internal static partial class Program
             Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count, "layered plan validates");
             if (layers == 3) ExportLayout("plains-industrial-3-layers", result);
         }
+    }
+
+    private static void FortificationTerrainMatrix()
+    {
+        var sites = new[]
+        {
+            new { Name = "pond-ridge", Terrain = Obstacles(120), Seed = 31UL },
+            new { Name = "mountain-face", Terrain = Mountain(130, 110), Seed = 4UL },
+            new { Name = "shoreline", Terrain = Build(120, 120, (x, z) => x < 31 + (z / 13) % 5 ? DeepWater : Ground), Seed = 31UL },
+            new { Name = "water-corner", Terrain = Build(120, 120, (x, z) => x >= 69 && z >= 69 ? DeepWater : Ground), Seed = 31UL }
+        };
+        foreach (var site in sites)
+            foreach (int layers in new[] { 1, 2, 3 })
+            {
+                ProceduralLayoutInput input = Input(site.Terrain, LayoutRequirements.FromPopulation(6, Industrial, Temperate), site.Seed,
+                    new LayoutFortificationReservation(wallLayers: layers));
+                ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
+                if (!result.Success && site.Name == "shoreline" && layers > 1)
+                {
+                    True(result.Diagnostics.Any(d => d.Code == "no_outer_wall_section"),
+                        "shoreline rejects an unbuildable outer layer explicitly");
+                    Console.WriteLine("  " + site.Name + " layers=" + layers + " rejected=" + result.RejectionCode +
+                        " after " + result.Stats);
+                    continue;
+                }
+                Accepted(result);
+                ProceduralLayout layout = result.Layout;
+                LayoutTerrainGrid grid = LayoutTerrainGrid.Build(site.Terrain, 0);
+                Equal(0, ProceduralLayoutValidator.Validate(input, layout).Count, site.Name + " layer " + layers + " validates");
+                if (layers > 1) True(layout.OuterSections.Count > 0, site.Name + " has physical outer sections");
+                foreach (LayoutWallSection section in layout.OuterSections)
+                {
+                    LayoutGate gate = layout.Gates[section.GateIndex];
+                    GridPoint tangent = new GridPoint(gate.Outward.Z, gate.Outward.X);
+                    foreach (int side in new[] { -1, 1 })
+                    {
+                        int armLength = side < 0 ? section.Left.Count : section.Right.Count;
+                        if (armLength == 0) continue;
+                        for (int distance = 0; distance <= armLength + 2; distance++)
+                        {
+                            GridPoint lane = new GridPoint(gate.Cell.X + distance * side * tangent.X +
+                                (2 * section.Layer - 1) * gate.Outward.X, gate.Cell.Z + distance * side * tangent.Z +
+                                (2 * section.Layer - 1) * gate.Outward.Z);
+                            True(grid.Passable(lane), site.Name + " service lane " + lane);
+                            True(!layout.OuterWalls.Contains(lane) && !gate.BandWalls.Contains(lane),
+                                site.Name + " lane has no physical wall at " + lane);
+                        }
+                    }
+                }
+                Console.WriteLine("  " + site.Name + " layers=" + layers + " sections=" + layout.OuterSections.Count +
+                    " outerWalls=" + layout.OuterWalls.Count() + " gates=" + layout.Gates.Count);
+            }
+    }
+
+    private static void BlockedFortificationServiceLane()
+    {
+        TerrainSnapshot clear = Plains(120);
+        LayoutRequirements requirements = LayoutRequirements.FromPopulation(6, Industrial, Temperate);
+        LayoutFortificationReservation fortification = new LayoutFortificationReservation(wallLayers: 2);
+        ProceduralLayoutInput input = Input(clear, requirements, 31, fortification);
+        ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
+        Accepted(result);
+        LayoutWallSection section = result.Layout.OuterSections.First();
+        GridPoint blocked = section.ServiceTermini(result.Layout.Gates[section.GateIndex]).First();
+        TerrainSnapshot obstructed = Build(120, 120, (x, z) => x == blocked.X && z == blocked.Z ? TerrainTraits.Occupied : Ground);
+        ProceduralLayoutInput changed = Input(obstructed, requirements, 31, fortification);
+        Contains(ProceduralLayoutValidator.Validate(changed, result.Layout), "outer_section_service_lane_blocked");
     }
 
     private static void AdapterCrossCheck()

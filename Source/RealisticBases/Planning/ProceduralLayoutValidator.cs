@@ -146,7 +146,7 @@ namespace RealisticBases.Planning
             foreach (LayoutWallSection section in layout.OuterSections)
             {
                 if (section.GateIndex < 0 || section.GateIndex >= layout.Gates.Count || section.Layer < 1 || section.Layer >= layers ||
-                    (section.Left.Count == 0 && section.Right.Count == 0))
+                    section.Left.Count + section.Right.Count < 3)
                 { errors.Add("outer_section_invalid"); continue; }
                 LayoutGate gate = layout.Gates[section.GateIndex];
                 GridPoint tangent = new GridPoint(gate.Outward.Z, gate.Outward.X);
@@ -157,6 +157,20 @@ namespace RealisticBases.Planning
                     GridPoint junction = new GridPoint(gate.Cell.X + 2 * side * tangent.X + 2 * section.Layer * gate.Outward.X,
                         gate.Cell.Z + 2 * side * tangent.Z + 2 * section.Layer * gate.Outward.Z);
                     if (!gate.BandWalls.Contains(junction)) errors.Add("outer_section_disconnected_band");
+                    LayoutWallSection inner = section.Layer > 1
+                        ? layout.OuterSections.FirstOrDefault(s => s.GateIndex == section.GateIndex && s.Layer == section.Layer - 1)
+                        : null;
+                    if (section.Layer > 1 && (inner == null || arm.Count > (side < 0 ? inner.Left.Count : inner.Right.Count)))
+                        errors.Add("outer_section_unsupported_layer");
+                    for (int distance = 1; distance <= arm.Count + 2; distance++)
+                    {
+                        GridPoint lane = new GridPoint(gate.Cell.X + distance * side * tangent.X + (2 * section.Layer - 1) * gate.Outward.X,
+                            gate.Cell.Z + distance * side * tangent.Z + (2 * section.Layer - 1) * gate.Outward.Z);
+                        if (!grid.InBounds(lane) || grid.At(lane) != LayoutCellClass.Open || !grid.Passable(lane) ||
+                            enclosure.Contains(lane) || boundary.Contains(lane) || outer.Contains(lane) ||
+                            exteriorReserved.Contains(lane) || terrain[lane].Has(TerrainTraits.MapEdge))
+                        { errors.Add("outer_section_service_lane_blocked"); break; }
+                    }
                     for (int j = 0; j < arm.Count; j++)
                     {
                         GridPoint baseline = new GridPoint(gate.Cell.X + (j + 3) * side * tangent.X,

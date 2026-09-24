@@ -198,6 +198,33 @@ namespace RealisticBases.Planning
         public IReadOnlyList<GridPoint> Left { get; }
         public IReadOnlyList<GridPoint> Right { get; }
         public IEnumerable<GridPoint> Cells => Left.Concat(Right);
+
+        // Walkable strip immediately inside this wall layer, from the gate
+        // crossing to each arm's end. The zero-distance crossing is shared.
+        public IEnumerable<GridPoint> ServiceLane(LayoutGate gate)
+        {
+            GridPoint tangent = new GridPoint(gate.Outward.Z, gate.Outward.X);
+            foreach (int side in new[] { -1, 1 })
+            {
+                int count = side < 0 ? Left.Count : Right.Count;
+                if (count == 0) continue;
+                for (int distance = 0; distance <= count + 2; distance++)
+                    yield return new GridPoint(gate.Cell.X + distance * side * tangent.X + (2 * Layer - 1) * gate.Outward.X,
+                        gate.Cell.Z + distance * side * tangent.Z + (2 * Layer - 1) * gate.Outward.Z);
+            }
+        }
+
+        public IEnumerable<GridPoint> ServiceTermini(LayoutGate gate)
+        {
+            GridPoint tangent = new GridPoint(gate.Outward.Z, gate.Outward.X);
+            foreach (int side in new[] { -1, 1 })
+            {
+                int count = side < 0 ? Left.Count : Right.Count;
+                if (count > 0)
+                    yield return new GridPoint(gate.Cell.X + (count + 2) * side * tangent.X + (2 * Layer - 1) * gate.Outward.X,
+                        gate.Cell.Z + (count + 2) * side * tangent.Z + (2 * Layer - 1) * gate.Outward.Z);
+            }
+        }
     }
 
     public enum LayoutPortalKind
@@ -1694,6 +1721,12 @@ namespace RealisticBases.Planning
             if (gates == null) return null;
             foreach (LayoutGate gate in gates) built.Remove(gate.Cell);
             List<LayoutWallSection> outerSections = ExtendGateBands(inE, built, gates);
+            if (input.Fortification.WallLayers > 1 &&
+                !outerSections.Any(section => section.Layer == input.Fortification.WallLayers - 1))
+            {
+                Fail("no_outer_wall_section", "requestedLayers=" + input.Fortification.WallLayers + " gates=" + gates.Count);
+                return null;
+            }
 
             HashSet<GridPoint> cleared = new HashSet<GridPoint>(pockets.Values.Where(p => p.RoofCleared).Select(p => p.Cell));
             List<GridPoint> retained = dug.Where(c => grid.ThickCover(c) && !cleared.Contains(c)).ToList();
@@ -1765,9 +1798,11 @@ namespace RealisticBases.Planning
                 GridPoint tangent = new GridPoint(gate.Outward.Z, gate.Outward.X);
                 for (int layer = 1; layer < input.Fortification.WallLayers; layer++)
                 {
-                    if (layer > 1 && !result.Any(s => s.GateIndex == i && s.Layer == layer - 1)) break;
+                    LayoutWallSection inner = layer > 1 ? result.FirstOrDefault(s => s.GateIndex == i && s.Layer == layer - 1) : null;
+                    if (layer > 1 && inner == null) break;
                     List<GridPoint> left = Arm(-1), right = Arm(1);
-                    if (left.Count == 0 && right.Count == 0) break;
+                    // A one-cell nub is not a meaningful extra wall section.
+                    if (left.Count + right.Count < 3) break;
                     LayoutWallSection section = new LayoutWallSection(i, layer, left, right);
                     result.Add(section);
                     reserved.UnionWith(section.Cells);
@@ -1775,8 +1810,16 @@ namespace RealisticBases.Planning
                     List<GridPoint> Arm(int sign)
                     {
                         List<GridPoint> cells = new List<GridPoint>();
+                        // The first two lane cells sit behind the gate-band
+                        // junction; without them the apparent arm has no
+                        // walkable access from its own crossing.
+                        if (!LaneClear(1) || !LaneClear(2)) return cells;
                         for (int j = 3; j <= MaxArm + 2; j++)
                         {
+                            // A farther-out run cannot extend beyond its inner run;
+                            // the intervening cell is its continuous service and
+                            // retreat lane back to the gate crossing.
+                            if (inner != null && j - 3 >= (sign < 0 ? inner.Left.Count : inner.Right.Count)) break;
                             GridPoint baseCell = new GridPoint(gate.Cell.X + j * sign * tangent.X,
                                 gate.Cell.Z + j * sign * tangent.Z);
                             GridPoint cell = new GridPoint(baseCell.X + 2 * layer * gate.Outward.X,
@@ -1784,10 +1827,19 @@ namespace RealisticBases.Planning
                             GridPoint inside = new GridPoint(baseCell.X - gate.Outward.X, baseCell.Z - gate.Outward.Z);
                             if (!baseline.Contains(baseCell) || !grid.InBounds(inside) || !inE[grid.Index(inside)] ||
                                 !grid.InBounds(cell) || grid.At(cell) != LayoutCellClass.Open ||
-                                grid.Terrain[cell].Has(TerrainTraits.MapEdge) || reserved.Contains(cell)) break;
+                                grid.Terrain[cell].Has(TerrainTraits.MapEdge) || reserved.Contains(cell) ||
+                                !LaneClear(j)) break;
                             cells.Add(cell);
                         }
                         return cells;
+
+                        bool LaneClear(int distance)
+                        {
+                            GridPoint lane = new GridPoint(gate.Cell.X + distance * sign * tangent.X + (2 * layer - 1) * gate.Outward.X,
+                                gate.Cell.Z + distance * sign * tangent.Z + (2 * layer - 1) * gate.Outward.Z);
+                            return grid.InBounds(lane) && grid.At(lane) == LayoutCellClass.Open && grid.Passable(lane) &&
+                                !grid.Terrain[lane].Has(TerrainTraits.MapEdge) && !reserved.Contains(lane) && !inE[grid.Index(lane)];
+                        }
                     }
                 }
             }

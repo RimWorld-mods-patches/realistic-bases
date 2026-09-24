@@ -316,7 +316,9 @@ namespace RealisticBases.Generation
                 if (placement.Kind == PhysicalPlacementKind.PrisonBed) bed.ForPrisoners = true;
                 if (placement.Kind == PhysicalPlacementKind.MedicalBed) bed.Medical = true;
             }
-            if (thing.def.defName == "Cooler") thing.TryGetComp<CompTempControl>().TargetTemperature = -5f;
+            if (thing.def.defName == "Cooler")
+                thing.TryGetComp<CompTempControl>().TargetTemperature =
+                    placement.FacilityId == "freezer" ? SettlementTemperatureTargets.FreezerC : SettlementTemperatureTargets.OccupiedRoomC;
             if (thing is IBillGiver billGiver && (thing.def.defName == "ElectricStove" || thing.def.defName == "FueledStove"))
             {
                 RecipeDef recipe = DefDatabase<RecipeDef>.GetNamedSilentFail("CookMealSimple");

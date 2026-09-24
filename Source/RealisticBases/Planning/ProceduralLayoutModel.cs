@@ -34,6 +34,15 @@ namespace RealisticBases.Planning
         Power
     }
 
+    public static class SettlementTemperatureTargets
+    {
+        public const float FreezerC = -10f;
+        public const float OccupiedRoomC = 21f;
+
+        public static float ForRoom(LayoutRoomKind kind) =>
+            kind == LayoutRoomKind.Freezer ? FreezerC : OccupiedRoomC;
+    }
+
     public enum LayoutFixtureKind
     {
         Bed,

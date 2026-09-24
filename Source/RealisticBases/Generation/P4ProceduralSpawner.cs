@@ -56,6 +56,8 @@ namespace RealisticBases.Generation
                 .Where(f => f.Kind != LayoutFixtureKind.Stockpile && f.Kind != LayoutFixtureKind.MortarCourt)
                 .SelectMany(f => f.Cells)).Concat(layout.PowerYards.SelectMany(y => y.Cells)));
             if (layout.Court != null) structures.UnionWith(layout.Court.Cells);
+            List<GridPoint> serviceCells = layout.OuterSections
+                .SelectMany(section => section.ServiceLane(layout.Gates[section.GateIndex])).Distinct().ToList();
 
             Dictionary<LayoutFixture, GridPoint> fixtureOrigins = new Dictionary<LayoutFixture, GridPoint>();
             Dictionary<LayoutPowerYard, GridPoint> yardOrigins = new Dictionary<LayoutPowerYard, GridPoint>();
@@ -75,7 +77,7 @@ namespace RealisticBases.Generation
             IReadOnlyList<GridPoint> fields = SelectFields(input, layout);
             if (fields.Count < layout.FieldCellsRequired)
             { failure = "insufficient_reachable_fertile_field:" + fields.Count + "/" + layout.FieldCellsRequired; return false; }
-            foreach (GridPoint c in structures.Concat(fields).Distinct())
+            foreach (GridPoint c in structures.Concat(fields).Concat(serviceCells).Distinct())
             {
                 IntVec3 cell = ToCell(c);
                 if (!cell.InBounds(map)) { failure = "spawn_cell_out_of_bounds:" + c; return false; }
@@ -116,7 +118,7 @@ namespace RealisticBases.Generation
             try
             {
                 tx.Excavate();
-                foreach (GridPoint c in layout.Enclosure.Concat(structures).Concat(fields)
+                foreach (GridPoint c in layout.Enclosure.Concat(structures).Concat(fields).Concat(serviceCells)
                     .Concat(layout.Gates.SelectMany(g => g.OuterVestibule.Concat(g.ExteriorRoute))).Distinct())
                     tx.ClearPlant(c);
                 ThingDef wallStuff = Require(layout.WallStuff);
@@ -131,7 +133,8 @@ namespace RealisticBases.Generation
                         settlement.Faction, Rotation(fixture.Rotation));
                     if (!fixture.Cells.All(c => thing.OccupiedRect().Contains(ToCell(c))) || thing.OccupiedRect().Area != fixture.Cells.Count)
                         throw new InvalidOperationException("Fixture footprint differs from plan: " + fixture.DefName + " at " + fixture.Cells[0]);
-                    Configure(thing, fixture.Kind);
+                    LayoutRoom owner = layout.Rooms.FirstOrDefault(room => room.Id == fixture.RoomId);
+                    Configure(thing, fixture.Kind, owner?.Kind);
                 }
                 foreach (LayoutPowerYard yard in layout.PowerYards)
                     Spawn(tx, Require(yard.DefName), null, yardOrigins[yard], map, settlement.Faction, Rotation(yard.Rotation));
@@ -211,16 +214,27 @@ namespace RealisticBases.Generation
                 int reachableGates = layout.Gates.Count(g => map.reachability.CanReach(
                     ToCell(g.ExteriorRoute[g.ExteriorRoute.Count - 1]), ToCell(g.Inside), PathEndMode.OnCell,
                     TraverseParms.For(TraverseMode.PassDoors)));
+                List<KeyValuePair<GridPoint, GridPoint>> serviceTermini = layout.OuterSections
+                    .SelectMany(section => section.ServiceTermini(layout.Gates[section.GateIndex])
+                        .Select(cell => new KeyValuePair<GridPoint, GridPoint>(layout.Gates[section.GateIndex].Inside, cell))).ToList();
+                int clearServiceCells = serviceCells.Count(c => ToCell(c).Standable(map) && ToCell(c).GetEdifice(map) == null);
+                int reachableServiceTermini = serviceTermini.Count(pair => map.reachability.CanReach(
+                    ToCell(pair.Key), ToCell(pair.Value), PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)));
                 if (realizedOuterWalls != plannedOuterWalls || realizedBandWalls != plannedBandWalls ||
-                    realizedGateDoors != plannedGateDoors || reachableGates != layout.Gates.Count)
+                    realizedGateDoors != plannedGateDoors || reachableGates != layout.Gates.Count ||
+                    clearServiceCells != serviceCells.Count || reachableServiceTermini != serviceTermini.Count)
                     throw new InvalidOperationException("Realized layered-wall or gate audit failed: outer=" + realizedOuterWalls +
                         "/" + plannedOuterWalls + " bands=" + realizedBandWalls + "/" + plannedBandWalls +
                         " doors=" + realizedGateDoors + "/" + plannedGateDoors +
-                        " reachable=" + reachableGates + "/" + layout.Gates.Count);
+                        " reachable=" + reachableGates + "/" + layout.Gates.Count +
+                        " clearService=" + clearServiceCells + "/" + serviceCells.Count +
+                        " reachableService=" + reachableServiceTermini + "/" + serviceTermini.Count);
                 P2Log.Message("PROCEDURAL_DEFENSE_AUDIT", "map=" + map.uniqueID + " outerWalls=" + realizedOuterWalls +
                     "/" + plannedOuterWalls + " bandWalls=" + realizedBandWalls + "/" + plannedBandWalls +
                     " gateDoors=" + realizedGateDoors + "/" + plannedGateDoors +
-                    " reachableGates=" + reachableGates + "/" + layout.Gates.Count);
+                    " reachableGates=" + reachableGates + "/" + layout.Gates.Count +
+                    " clearService=" + clearServiceCells + "/" + serviceCells.Count +
+                    " reachableService=" + reachableServiceTermini + "/" + serviceTermini.Count);
                 int outdoorExhausts = AuditCoolerExhaust(map, layout);
                 tx.Commit();
 
@@ -366,7 +380,7 @@ namespace RealisticBases.Generation
             return result;
         }
 
-        private static void Configure(Thing thing, LayoutFixtureKind kind)
+        private static void Configure(Thing thing, LayoutFixtureKind kind, LayoutRoomKind? roomKind)
         {
             Building_Bed bed = thing as Building_Bed;
             if (bed != null)
@@ -374,7 +388,11 @@ namespace RealisticBases.Generation
                 if (kind == LayoutFixtureKind.PrisonBed) bed.ForPrisoners = true;
                 if (kind == LayoutFixtureKind.MedicalBed) bed.Medical = true;
             }
-            if (kind == LayoutFixtureKind.WallCooler) thing.TryGetComp<CompTempControl>().TargetTemperature = -5f;
+            if (kind == LayoutFixtureKind.WallCooler)
+            {
+                if (!roomKind.HasValue) throw new InvalidOperationException("Cooler has no owning room");
+                thing.TryGetComp<CompTempControl>().TargetTemperature = SettlementTemperatureTargets.ForRoom(roomKind.Value);
+            }
             if (kind == LayoutFixtureKind.Stove && thing is IBillGiver giver)
             {
                 RecipeDef recipe = DefDatabase<RecipeDef>.GetNamedSilentFail("CookMealSimple");
@@ -416,7 +434,7 @@ namespace RealisticBases.Generation
 
         private static int AuditCoolerExhaust(Map map, ProceduralLayout layout)
         {
-            int count = 0;
+            int count = 0, freezerCount = 0, roomCount = 0;
             foreach (LayoutRoom room in layout.Rooms)
                 foreach (LayoutFixture cooler in room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.WallCooler))
                 {
@@ -428,8 +446,16 @@ namespace RealisticBases.Generation
                         served.UsesOutdoorTemperature || !exhaust.UsesOutdoorTemperature)
                         throw new InvalidOperationException("Cooler lacks a sealed served room and outdoor exhaust: " +
                             room.Id + " cold=" + cold + " hot=" + hot);
+                    CompTempControl control = ToCell(cooler.Cells[0]).GetEdifice(map)?.TryGetComp<CompTempControl>();
+                    if (control == null || control.TargetTemperature != SettlementTemperatureTargets.ForRoom(room.Kind))
+                        throw new InvalidOperationException("Cooler target temperature differs from room policy: " + room.Id);
+                    if (room.Kind == LayoutRoomKind.Freezer) freezerCount++;
+                    else roomCount++;
                     count++;
                 }
+            P2Log.Message("PROCEDURAL_COOLER_AUDIT", "map=" + map.uniqueID + " freezer=" + freezerCount +
+                " targetC=" + SettlementTemperatureTargets.FreezerC + " rooms=" + roomCount +
+                " targetC=" + SettlementTemperatureTargets.OccupiedRoomC);
             return count;
         }
 
