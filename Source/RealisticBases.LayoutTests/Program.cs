@@ -48,6 +48,7 @@ internal static partial class Program
         Run("tech and spend capacity weight one to three physical wall layers", LayerPolicy);
         Run("gatehouse crossings and exterior sections reserve one to three layers", WallLayers);
         Run("layered walls retain service lanes on rock, water and irregular terrain", FortificationTerrainMatrix);
+        Run("narrow dry approach keeps layered gates and recovery bounded", NarrowFortificationApproach);
         Run("validator rejects a blocked outer-wall service lane", BlockedFortificationServiceLane);
         Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck);
         Run("tech stage is stable per faction", TechStageStablePerFaction);
@@ -561,6 +562,7 @@ internal static partial class Program
 
     private static void WallLayers()
     {
+        bool Touches(GridPoint a, GridPoint b) => Math.Abs(a.X - b.X) + Math.Abs(a.Z - b.Z) == 1;
         foreach (int layers in new[] { 1, 2, 3 })
         {
             ProceduralLayoutInput input = Input(Plains(120), LayoutRequirements.FromPopulation(6, Industrial, Temperate), 31,
@@ -573,19 +575,63 @@ internal static partial class Program
                 Equal(4 * (layers - 1), gate.BandWalls.Count, "band walls");
                 True(gate.ExteriorRoute.Count > 0, "exterior route");
             }
+            Equal(result.Layout.Gates.Count * (layers - 1), result.Layout.OuterSections.Count,
+                "every added gate layer returns to the previous wall");
             if (layers == 1) Equal(0, result.Layout.OuterSections.Count, "single-layer has no outer sections");
             else
             {
-                True(result.Layout.OuterSections.Count > 0, "open ground has physical exterior extensions");
                 foreach (LayoutWallSection section in result.Layout.OuterSections)
                 {
-                    True(section.Left.Count + section.Right.Count > 0, "section extends beyond gate band");
+                    True(section.Left.Count + section.Right.Count >= 3, "gate has substantive outer arms");
                     True(section.Cells.All(c => !result.Layout.Enclosure.Contains(c)), "outer walls remain exterior");
+                    LayoutGate gate = result.Layout.Gates[section.GateIndex];
+                    LayoutWallSection inner = result.Layout.OuterSections.FirstOrDefault(s =>
+                        s.GateIndex == section.GateIndex && s.Layer == section.Layer - 1);
+                    foreach (int side in new[] { -1, 1 })
+                    {
+                        IReadOnlyList<GridPoint> arm = side < 0 ? section.Left : section.Right;
+                        IReadOnlyList<GridPoint> path = side < 0 ? section.LeftReturn : section.RightReturn;
+                        GridPoint tangent = new GridPoint(gate.Outward.Z, gate.Outward.X);
+                        GridPoint junction = arm.Count > 0 ? arm[arm.Count - 1] :
+                            new GridPoint(gate.Cell.X + 2 * side * tangent.X + 2 * section.Layer * gate.Outward.X,
+                                gate.Cell.Z + 2 * side * tangent.Z + 2 * section.Layer * gate.Outward.Z);
+                        True(path.Count > 0 && Touches(junction, path[0]), "return starts at outer wall");
+                        for (int j = 1; j < path.Count; j++) True(Touches(path[j - 1], path[j]), "return path is continuous");
+                        GridPoint terminal = path[path.Count - 1];
+                        GridPoint parent = arm.Count == 0 && section.Layer == 1
+                            ? new GridPoint(gate.Cell.X + side * tangent.X, gate.Cell.Z + side * tangent.Z)
+                            : new GridPoint(terminal.X - gate.Outward.X, terminal.Z - gate.Outward.Z);
+                        True(Touches(terminal, parent), "return touches previous wall");
+                        True(section.Layer == 1 ? result.Layout.BuiltWalls.Contains(parent) || result.Layout.NaturalWalls.Contains(parent) :
+                            arm.Count == 0 ? gate.BandWalls.Contains(parent) : inner != null && inner.Cells.Contains(parent),
+                            "return anchors to previous physical wall " + terminal + " -> " + parent);
+                        True(path.All(c => section.Cells.Contains(c) && !section.ServiceLane(gate).Contains(c)),
+                            "return is built and leaves service lane clear");
+                    }
                 }
+                AssertOuterWallConnectivity(result.Layout);
             }
             Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count, "layered plan validates");
             if (layers == 3) ExportLayout("plains-industrial-3-layers", result);
         }
+    }
+
+    private static void AssertOuterWallConnectivity(ProceduralLayout layout)
+    {
+        // The old straight arms touched only their gate band and failed this graph check.
+        HashSet<GridPoint> roots = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.NaturalWalls));
+        HashSet<GridPoint> wallGraph = new HashSet<GridPoint>(roots.Concat(layout.OuterWalls)
+            .Concat(layout.Gates.SelectMany(g => g.BandWalls)));
+        HashSet<GridPoint> connected = new HashSet<GridPoint>(roots);
+        Queue<GridPoint> queue = new Queue<GridPoint>(roots);
+        while (queue.Count > 0)
+        {
+            GridPoint cell = queue.Dequeue();
+            foreach (GridPoint next in new[] { new GridPoint(cell.X - 1, cell.Z), new GridPoint(cell.X + 1, cell.Z),
+                new GridPoint(cell.X, cell.Z - 1), new GridPoint(cell.X, cell.Z + 1) })
+                if (wallGraph.Contains(next) && connected.Add(next)) queue.Enqueue(next);
+        }
+        True(layout.OuterWalls.All(connected.Contains), "every outer wall connects to enclosure");
     }
 
     private static void FortificationTerrainMatrix()
@@ -603,19 +649,13 @@ internal static partial class Program
                 ProceduralLayoutInput input = Input(site.Terrain, LayoutRequirements.FromPopulation(6, Industrial, Temperate), site.Seed,
                     new LayoutFortificationReservation(wallLayers: layers));
                 ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
-                if (!result.Success && site.Name == "shoreline" && layers > 1)
-                {
-                    True(result.Diagnostics.Any(d => d.Code == "no_outer_wall_section"),
-                        "shoreline rejects an unbuildable outer layer explicitly");
-                    Console.WriteLine("  " + site.Name + " layers=" + layers + " rejected=" + result.RejectionCode +
-                        " after " + result.Stats);
-                    continue;
-                }
                 Accepted(result);
                 ProceduralLayout layout = result.Layout;
                 LayoutTerrainGrid grid = LayoutTerrainGrid.Build(site.Terrain, 0);
                 Equal(0, ProceduralLayoutValidator.Validate(input, layout).Count, site.Name + " layer " + layers + " validates");
-                if (layers > 1) True(layout.OuterSections.Count > 0, site.Name + " has physical outer sections");
+                AssertOuterWallConnectivity(layout);
+                Equal(layout.Gates.Count * (layers - 1), layout.OuterSections.Count,
+                    site.Name + " returns every added gate layer");
                 foreach (LayoutWallSection section in layout.OuterSections)
                 {
                     LayoutGate gate = layout.Gates[section.GateIndex];
@@ -624,7 +664,7 @@ internal static partial class Program
                     {
                         int armLength = side < 0 ? section.Left.Count : section.Right.Count;
                         if (armLength == 0) continue;
-                        for (int distance = 0; distance <= armLength + 2; distance++)
+                        for (int distance = 0; distance <= armLength + 1; distance++)
                         {
                             GridPoint lane = new GridPoint(gate.Cell.X + distance * side * tangent.X +
                                 (2 * section.Layer - 1) * gate.Outward.X, gate.Cell.Z + distance * side * tangent.Z +
@@ -638,6 +678,32 @@ internal static partial class Program
                 Console.WriteLine("  " + site.Name + " layers=" + layers + " sections=" + layout.OuterSections.Count +
                     " outerWalls=" + layout.OuterWalls.Count() + " gates=" + layout.Gates.Count);
             }
+    }
+
+    private static void NarrowFortificationApproach()
+    {
+        // A roomy peninsula has only a three-cell-wide dry bridge to the edge.
+        // The approach cannot be replaced by an assumed water crossing.
+        TerrainSnapshot terrain = Build(120, 120, (x, z) =>
+            (x >= 35 && x < 99 && z >= 27 && z < 94) || (x < 35 && z >= 59 && z <= 61)
+                ? Ground : DeepWater);
+        string digest = terrain.Digest;
+        foreach (int layers in new[] { 1, 2, 3 })
+        {
+            ProceduralLayoutInput input = Input(terrain, LayoutRequirements.FromPopulation(6, Industrial, Temperate), 31,
+                new LayoutFortificationReservation(wallLayers: layers));
+            ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
+            True(result.Stats.EvaluationCount <= 200000 && result.Stats.AttemptCount <= 30,
+                "narrow approach search bounded: " + result.Stats);
+            Equal(digest, terrain.Digest, "narrow approach terrain unchanged");
+            Accepted(result);
+            Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count, "narrow approach final occupancy");
+            AssertOuterWallConnectivity(result.Layout);
+            True(result.Layout.Gates.All(g => g.ExteriorRoute.Any(c => c.X < 35 && c.Z >= 59 && c.Z <= 61)),
+                "every exterior route crosses the dry bridge");
+            Console.WriteLine("  narrow approach layers=" + layers + " sections=" + result.Layout.OuterSections.Count +
+                " gates=" + result.Layout.Gates.Count);
+        }
     }
 
     private static void BlockedFortificationServiceLane()

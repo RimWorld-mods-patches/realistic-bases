@@ -205,6 +205,34 @@ namespace RealisticBases.Generation
                     throw new InvalidOperationException("A procedural gate did not spawn as a door");
                 int realizedOuterWalls = layout.OuterWalls.Count(c => ToCell(c).GetEdifice(map)?.def == ThingDefOf.Wall);
                 int plannedOuterWalls = layout.OuterWalls.Count();
+                int plannedReturnCells = layout.OuterSections.Sum(section => section.LeftReturn.Count + section.RightReturn.Count);
+                int realizedReturnCells = layout.OuterSections.SelectMany(section => section.LeftReturn.Concat(section.RightReturn))
+                    .Count(c => ToCell(c).GetEdifice(map)?.def == ThingDefOf.Wall);
+                int plannedAnchoredReturns = 2 * layout.OuterSections.Count;
+                int realizedAnchoredReturns = layout.OuterSections.Sum(section =>
+                {
+                    LayoutGate gate = layout.Gates[section.GateIndex];
+                    return new[] { -1, 1 }.Count(side =>
+                    {
+                        IReadOnlyList<GridPoint> arm = side < 0 ? section.Left : section.Right;
+                        IReadOnlyList<GridPoint> path = side < 0 ? section.LeftReturn : section.RightReturn;
+                        if (path.Count == 0 || path.Any(c => ToCell(c).GetEdifice(map)?.def != ThingDefOf.Wall)) return false;
+                        GridPoint tangent = new GridPoint(gate.Outward.Z, gate.Outward.X);
+                        GridPoint junction = arm.Count > 0 ? arm[arm.Count - 1] :
+                            new GridPoint(gate.Cell.X + 2 * side * tangent.X + 2 * section.Layer * gate.Outward.X,
+                                gate.Cell.Z + 2 * side * tangent.Z + 2 * section.Layer * gate.Outward.Z);
+                        if (ToCell(junction).GetEdifice(map)?.def != ThingDefOf.Wall ||
+                            Math.Abs(junction.X - path[0].X) + Math.Abs(junction.Z - path[0].Z) != 1) return false;
+                        for (int j = 1; j < path.Count; j++)
+                            if (Math.Abs(path[j - 1].X - path[j].X) + Math.Abs(path[j - 1].Z - path[j].Z) != 1) return false;
+                        GridPoint terminal = path[path.Count - 1];
+                        GridPoint parent = arm.Count == 0 && section.Layer == 1
+                            ? new GridPoint(gate.Cell.X + side * tangent.X, gate.Cell.Z + side * tangent.Z)
+                            : new GridPoint(terminal.X - gate.Outward.X, terminal.Z - gate.Outward.Z);
+                        return Math.Abs(terminal.X - parent.X) + Math.Abs(terminal.Z - parent.Z) == 1 &&
+                            ToCell(parent).GetEdifice(map) != null;
+                    });
+                });
                 int realizedBandWalls = layout.Gates.SelectMany(g => g.BandWalls)
                     .Count(c => ToCell(c).GetEdifice(map)?.def == ThingDefOf.Wall);
                 int plannedBandWalls = layout.Gates.Sum(g => g.BandWalls.Count);
@@ -220,17 +248,23 @@ namespace RealisticBases.Generation
                 int clearServiceCells = serviceCells.Count(c => ToCell(c).Standable(map) && ToCell(c).GetEdifice(map) == null);
                 int reachableServiceTermini = serviceTermini.Count(pair => map.reachability.CanReach(
                     ToCell(pair.Key), ToCell(pair.Value), PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)));
-                if (realizedOuterWalls != plannedOuterWalls || realizedBandWalls != plannedBandWalls ||
+                if (realizedOuterWalls != plannedOuterWalls || realizedReturnCells != plannedReturnCells ||
+                    realizedAnchoredReturns != plannedAnchoredReturns ||
+                    realizedBandWalls != plannedBandWalls ||
                     realizedGateDoors != plannedGateDoors || reachableGates != layout.Gates.Count ||
                     clearServiceCells != serviceCells.Count || reachableServiceTermini != serviceTermini.Count)
                     throw new InvalidOperationException("Realized layered-wall or gate audit failed: outer=" + realizedOuterWalls +
-                        "/" + plannedOuterWalls + " bands=" + realizedBandWalls + "/" + plannedBandWalls +
+                        "/" + plannedOuterWalls + " returnCells=" + realizedReturnCells + "/" + plannedReturnCells +
+                        " anchoredReturns=" + realizedAnchoredReturns + "/" + plannedAnchoredReturns +
+                        " bands=" + realizedBandWalls + "/" + plannedBandWalls +
                         " doors=" + realizedGateDoors + "/" + plannedGateDoors +
                         " reachable=" + reachableGates + "/" + layout.Gates.Count +
                         " clearService=" + clearServiceCells + "/" + serviceCells.Count +
                         " reachableService=" + reachableServiceTermini + "/" + serviceTermini.Count);
                 P2Log.Message("PROCEDURAL_DEFENSE_AUDIT", "map=" + map.uniqueID + " outerWalls=" + realizedOuterWalls +
-                    "/" + plannedOuterWalls + " bandWalls=" + realizedBandWalls + "/" + plannedBandWalls +
+                    "/" + plannedOuterWalls + " returnCells=" + realizedReturnCells + "/" + plannedReturnCells +
+                    " anchoredReturns=" + realizedAnchoredReturns + "/" + plannedAnchoredReturns +
+                    " bandWalls=" + realizedBandWalls + "/" + plannedBandWalls +
                     " gateDoors=" + realizedGateDoors + "/" + plannedGateDoors +
                     " reachableGates=" + reachableGates + "/" + layout.Gates.Count +
                     " clearService=" + clearServiceCells + "/" + serviceCells.Count +

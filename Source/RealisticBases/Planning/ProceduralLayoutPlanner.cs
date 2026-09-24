@@ -178,18 +178,20 @@ namespace RealisticBases.Planning
         public bool RockFace { get; }
     }
 
-    // One straight, terrain-legal exterior reinforcement section tied to a gate.
-    // Cells are the extension beyond that gate's five-wide band, not a second
-    // whole-compound shell. A section may extend one or both flanks of its gate;
-    // every nonempty flank connects to the physical band wall.
+    // A gate-adjacent reinforcement section with both flanks returned to the
+    // baseline wall or preceding layer. It is a closed gatehouse surround,
+    // not a complete second shell around the whole compound.
     public sealed class LayoutWallSection
     {
-        internal LayoutWallSection(int gateIndex, int layer, IEnumerable<GridPoint> left, IEnumerable<GridPoint> right)
+        internal LayoutWallSection(int gateIndex, int layer, IEnumerable<GridPoint> left, IEnumerable<GridPoint> right,
+            IEnumerable<GridPoint> leftReturn, IEnumerable<GridPoint> rightReturn)
         {
             GateIndex = gateIndex;
             Layer = layer;
             Left = new ReadOnlyCollection<GridPoint>(left.ToList());
             Right = new ReadOnlyCollection<GridPoint>(right.ToList());
+            LeftReturn = new ReadOnlyCollection<GridPoint>(leftReturn.ToList());
+            RightReturn = new ReadOnlyCollection<GridPoint>(rightReturn.ToList());
         }
 
         public int GateIndex { get; }
@@ -197,10 +199,12 @@ namespace RealisticBases.Planning
         public int Layer { get; }
         public IReadOnlyList<GridPoint> Left { get; }
         public IReadOnlyList<GridPoint> Right { get; }
-        public IEnumerable<GridPoint> Cells => Left.Concat(Right);
+        public IReadOnlyList<GridPoint> LeftReturn { get; }
+        public IReadOnlyList<GridPoint> RightReturn { get; }
+        public IEnumerable<GridPoint> Cells => Left.Concat(Right).Concat(LeftReturn).Concat(RightReturn);
 
-        // Walkable strip immediately inside this wall layer, from the gate
-        // crossing to each arm's end. The zero-distance crossing is shared.
+        // Walkable strip immediately inside this wall layer, ending just
+        // before the return cap. The zero-distance crossing is shared.
         public IEnumerable<GridPoint> ServiceLane(LayoutGate gate)
         {
             GridPoint tangent = new GridPoint(gate.Outward.Z, gate.Outward.X);
@@ -208,7 +212,7 @@ namespace RealisticBases.Planning
             {
                 int count = side < 0 ? Left.Count : Right.Count;
                 if (count == 0) continue;
-                for (int distance = 0; distance <= count + 2; distance++)
+                for (int distance = 0; distance <= count + 1; distance++)
                     yield return new GridPoint(gate.Cell.X + distance * side * tangent.X + (2 * Layer - 1) * gate.Outward.X,
                         gate.Cell.Z + distance * side * tangent.Z + (2 * Layer - 1) * gate.Outward.Z);
             }
@@ -221,8 +225,8 @@ namespace RealisticBases.Planning
             {
                 int count = side < 0 ? Left.Count : Right.Count;
                 if (count > 0)
-                    yield return new GridPoint(gate.Cell.X + (count + 2) * side * tangent.X + (2 * Layer - 1) * gate.Outward.X,
-                        gate.Cell.Z + (count + 2) * side * tangent.Z + (2 * Layer - 1) * gate.Outward.Z);
+                    yield return new GridPoint(gate.Cell.X + (count + 1) * side * tangent.X + (2 * Layer - 1) * gate.Outward.X,
+                        gate.Cell.Z + (count + 1) * side * tangent.Z + (2 * Layer - 1) * gate.Outward.Z);
             }
         }
     }
@@ -424,6 +428,8 @@ namespace RealisticBases.Planning
                 hash = StableHash.Add(hash, section.Layer);
                 foreach (GridPoint c in section.Left) hash = Point(hash, c);
                 foreach (GridPoint c in section.Right) hash = Point(hash, c);
+                foreach (GridPoint c in section.LeftReturn) hash = Point(hash, c);
+                foreach (GridPoint c in section.RightReturn) hash = Point(hash, c);
             }
             hash = StableHash.Add(hash, WallLayers);
             hash = StableHash.Add(hash, TechStage == null ? string.Empty : TechStage.Digest);
@@ -1720,11 +1726,11 @@ namespace RealisticBases.Planning
             List<LayoutGate> gates = ChooseGates(inE, built, natural, streets, isPublic);
             if (gates == null) return null;
             foreach (LayoutGate gate in gates) built.Remove(gate.Cell);
-            List<LayoutWallSection> outerSections = ExtendGateBands(inE, built, gates);
-            if (input.Fortification.WallLayers > 1 &&
-                !outerSections.Any(section => section.Layer == input.Fortification.WallLayers - 1))
+            List<LayoutWallSection> outerSections = ExtendGateBands(inE, built, natural, gates);
+            if (outerSections.Count != gates.Count * (input.Fortification.WallLayers - 1))
             {
-                Fail("no_outer_wall_section", "requestedLayers=" + input.Fortification.WallLayers + " gates=" + gates.Count);
+                Fail("unreturned_outer_wall_section", "requestedLayers=" + input.Fortification.WallLayers +
+                    " gates=" + gates.Count + " returnedSections=" + outerSections.Count);
                 return null;
             }
 
@@ -1782,14 +1788,15 @@ namespace RealisticBases.Planning
             return layout;
         }
 
-        private List<LayoutWallSection> ExtendGateBands(bool[] inE, HashSet<GridPoint> built, List<LayoutGate> gates)
+        private List<LayoutWallSection> ExtendGateBands(bool[] inE, HashSet<GridPoint> built,
+            HashSet<GridPoint> natural, List<LayoutGate> gates)
         {
             // Only extend a straight, already enclosed wall run whose parallel
             // exterior terrain is clear. A short band remains a band, not a
             // declared layer section. One-cell lane spacing preserves the serial
             // gate crossing, with bounded side arms for material discipline.
             const int MaxArm = 8;
-            HashSet<GridPoint> baseline = new HashSet<GridPoint>(built.Concat(gates.Select(g => g.Cell)));
+            HashSet<GridPoint> baseline = new HashSet<GridPoint>(built.Concat(natural).Concat(gates.Select(g => g.Cell)));
             HashSet<GridPoint> reserved = new HashSet<GridPoint>(gates.SelectMany(g => Footprint(g).Concat(g.ExteriorRoute)));
             List<LayoutWallSection> result = new List<LayoutWallSection>();
             for (int i = 0; i < gates.Count; i++)
@@ -1801,9 +1808,12 @@ namespace RealisticBases.Planning
                     LayoutWallSection inner = layer > 1 ? result.FirstOrDefault(s => s.GateIndex == i && s.Layer == layer - 1) : null;
                     if (layer > 1 && inner == null) break;
                     List<GridPoint> left = Arm(-1), right = Arm(1);
-                    // A one-cell nub is not a meaningful extra wall section.
+                    // A side with no straight arm still needs a short return
+                    // around the gate-band corner; otherwise it is a pier.
                     if (left.Count + right.Count < 3) break;
-                    LayoutWallSection section = new LayoutWallSection(i, layer, left, right);
+                    List<GridPoint> leftReturn = Return(-1, left), rightReturn = Return(1, right);
+                    if (leftReturn == null || rightReturn == null) break;
+                    LayoutWallSection section = new LayoutWallSection(i, layer, left, right, leftReturn, rightReturn);
                     result.Add(section);
                     reserved.UnionWith(section.Cells);
 
@@ -1840,6 +1850,38 @@ namespace RealisticBases.Planning
                             return grid.InBounds(lane) && grid.At(lane) == LayoutCellClass.Open && grid.Passable(lane) &&
                                 !grid.Terrain[lane].Has(TerrainTraits.MapEdge) && !reserved.Contains(lane) && !inE[grid.Index(lane)];
                         }
+                    }
+
+                    List<GridPoint> Return(int sign, List<GridPoint> arm)
+                    {
+                        List<GridPoint> path = new List<GridPoint>();
+                        if (arm.Count > 0)
+                        {
+                            GridPoint end = arm[arm.Count - 1];
+                            path.Add(new GridPoint(end.X - gate.Outward.X, end.Z - gate.Outward.Z));
+                        }
+                        else
+                        {
+                            // At the five-wide band's tip, layer 1 bends one
+                            // cell sideways to the known baseline wall at j=1.
+                            // Farther layers return to the preceding band at j=2.
+                            path.Add(new GridPoint(gate.Cell.X + 2 * sign * tangent.X + (2 * layer - 1) * gate.Outward.X,
+                                gate.Cell.Z + 2 * sign * tangent.Z + (2 * layer - 1) * gate.Outward.Z));
+                            if (layer == 1)
+                                path.Add(new GridPoint(gate.Cell.X + sign * tangent.X + gate.Outward.X,
+                                    gate.Cell.Z + sign * tangent.Z + gate.Outward.Z));
+                        }
+                        GridPoint terminal = path[path.Count - 1];
+                        GridPoint parent = new GridPoint(terminal.X - gate.Outward.X, terminal.Z - gate.Outward.Z);
+                        if (arm.Count == 0 && layer == 1)
+                            parent = new GridPoint(gate.Cell.X + sign * tangent.X, gate.Cell.Z + sign * tangent.Z);
+                        if (!(layer == 1 ? baseline.Contains(parent) :
+                            arm.Count == 0 ? gate.BandWalls.Contains(parent) :
+                            (sign < 0 ? inner.Left : inner.Right).Contains(parent))) return null;
+                        foreach (GridPoint c in path)
+                            if (!grid.InBounds(c) || grid.At(c) != LayoutCellClass.Open ||
+                                grid.Terrain[c].Has(TerrainTraits.MapEdge) || inE[grid.Index(c)] || reserved.Contains(c)) return null;
+                        return path;
                     }
                 }
             }

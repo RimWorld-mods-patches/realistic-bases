@@ -143,6 +143,9 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> outerReserved = new HashSet<GridPoint>(exteriorReserved);
             outerReserved.UnionWith(layout.Gates.SelectMany(g => g.ExteriorRoute));
             HashSet<GridPoint> seenOuter = new HashSet<GridPoint>();
+            if (layout.OuterSections.Count != layout.Gates.Count * Math.Max(0, layers - 1) ||
+                layout.OuterSections.Select(s => (s.GateIndex, s.Layer)).Distinct().Count() != layout.OuterSections.Count)
+                errors.Add("outer_sections_missing_or_duplicate");
             foreach (LayoutWallSection section in layout.OuterSections)
             {
                 if (section.GateIndex < 0 || section.GateIndex >= layout.Gates.Count || section.Layer < 1 || section.Layer >= layers ||
@@ -153,7 +156,7 @@ namespace RealisticBases.Planning
                 for (int side = -1; side <= 1; side += 2)
                 {
                     IReadOnlyList<GridPoint> arm = side < 0 ? section.Left : section.Right;
-                    if (arm.Count == 0) continue;
+                    IReadOnlyList<GridPoint> returned = side < 0 ? section.LeftReturn : section.RightReturn;
                     GridPoint junction = new GridPoint(gate.Cell.X + 2 * side * tangent.X + 2 * section.Layer * gate.Outward.X,
                         gate.Cell.Z + 2 * side * tangent.Z + 2 * section.Layer * gate.Outward.Z);
                     if (!gate.BandWalls.Contains(junction)) errors.Add("outer_section_disconnected_band");
@@ -162,7 +165,7 @@ namespace RealisticBases.Planning
                         : null;
                     if (section.Layer > 1 && (inner == null || arm.Count > (side < 0 ? inner.Left.Count : inner.Right.Count)))
                         errors.Add("outer_section_unsupported_layer");
-                    for (int distance = 1; distance <= arm.Count + 2; distance++)
+                    for (int distance = 1; arm.Count > 0 && distance <= arm.Count + 1; distance++)
                     {
                         GridPoint lane = new GridPoint(gate.Cell.X + distance * side * tangent.X + (2 * section.Layer - 1) * gate.Outward.X,
                             gate.Cell.Z + distance * side * tangent.Z + (2 * section.Layer - 1) * gate.Outward.Z);
@@ -181,6 +184,31 @@ namespace RealisticBases.Planning
                         if (!arm[j].Equals(expected) || !boundary.Contains(baseline) || !enclosure.Contains(inside) ||
                             outerReserved.Contains(expected) || !seenOuter.Add(expected)) errors.Add("outer_section_geometry_or_overlap");
                     }
+                    List<GridPoint> expectedReturn = new List<GridPoint>();
+                    if (arm.Count > 0)
+                    {
+                        GridPoint end = arm[arm.Count - 1];
+                        expectedReturn.Add(new GridPoint(end.X - gate.Outward.X, end.Z - gate.Outward.Z));
+                    }
+                    else
+                    {
+                        expectedReturn.Add(new GridPoint(gate.Cell.X + 2 * side * tangent.X + (2 * section.Layer - 1) * gate.Outward.X,
+                            gate.Cell.Z + 2 * side * tangent.Z + (2 * section.Layer - 1) * gate.Outward.Z));
+                        if (section.Layer == 1)
+                            expectedReturn.Add(new GridPoint(gate.Cell.X + side * tangent.X + gate.Outward.X,
+                                gate.Cell.Z + side * tangent.Z + gate.Outward.Z));
+                    }
+                    GridPoint terminal = expectedReturn[expectedReturn.Count - 1];
+                    GridPoint parent = new GridPoint(terminal.X - gate.Outward.X, terminal.Z - gate.Outward.Z);
+                    if (arm.Count == 0 && section.Layer == 1)
+                        parent = new GridPoint(gate.Cell.X + side * tangent.X, gate.Cell.Z + side * tangent.Z);
+                    IReadOnlyList<GridPoint> parentArm = inner == null ? null : side < 0 ? inner.Left : inner.Right;
+                    bool anchored = section.Layer == 1 ? boundary.Contains(parent) :
+                        arm.Count == 0 ? gate.BandWalls.Contains(parent) : parentArm != null && parentArm.Contains(parent);
+                    if (!returned.SequenceEqual(expectedReturn) || !anchored || returned.Any(c => !grid.InBounds(c) ||
+                        grid.At(c) != LayoutCellClass.Open || terrain[c].Has(TerrainTraits.MapEdge) ||
+                        enclosure.Contains(c) || outerReserved.Contains(c) || !seenOuter.Add(c)))
+                        errors.Add("outer_section_unreturned");
                 }
                 if (section.Layer > 1 && !layout.OuterSections.Any(s => s.GateIndex == section.GateIndex && s.Layer == section.Layer - 1))
                     errors.Add("outer_section_missing_inner_layer");
