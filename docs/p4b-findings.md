@@ -60,9 +60,16 @@ generation realized 6/6 outer walls, 8/8 band walls, 3/3 doors, 1/1 gate
 routes, 12/12 clear service cells and 2/2 reachable service termini. Both
 pure suites and Docker Release passed; the game process was stopped afterward.
 
-P4B.1 remains open for a narrow/corner rejection matrix, live constrained
-terrain and roof checks, and recovery evidence with the new service-lane
-reservation. P4B.2–P4B.4 have not been implemented.
+A separate clean three-layer forced partial-spawn test aborted after 613 owned
+things and restored 379/379 cleared plants plus the terrain/roof checksum.
+The same plan then spawned successfully: 6/6 outer walls, 16/16 band walls,
+6/6 doors, 2/2 gate routes, 12/12 clear service cells and 2/2 reachable
+service termini. Its cooler audit also found one freezer unit at −10°C and
+four occupied-room units at +21°C. This tests rollback of the new lane-clearing
+footprint on flat Core terrain, not constrained-terrain recovery or combat.
+
+P4B.1 remains open for a narrow/corner rejection matrix and live constrained
+terrain and roof checks. P4B.2–P4B.4 have not been implemented.
 
 ## Implementation interface to preserve
 
