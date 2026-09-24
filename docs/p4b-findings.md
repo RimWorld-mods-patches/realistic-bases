@@ -1,6 +1,6 @@
 # P4B defensive layout: findings and validation
 
-2026-09-24 · Status: P4B.0 complete; P4B.1 partial wall-section evidence, exit gate open
+2026-09-25 · Status: P4B.0–P4B.1 complete; P4B.2–P4B.4 open
 
 The [P4B plan](p4b-defense-plan.md) is the scope authority. P4 and P4A remain open independently: their lakeshore, climate, tribal, optional-mod and exact rejected-flat-tile checks are not credited to P4B or silently closed. P5–P7 are not part of this implementation.
 
@@ -22,14 +22,14 @@ These are code observations, not runtime results. The previous P3 and P4/P4A obs
 | Step | Pure/build evidence required | Live evidence required | Result |
 |---|---|---|---|
 | P4B.0 | Inspect source and record baseline, immutable defense inputs/outputs, reservation/occupancy ownership, test corpus, recovery boundary | None | Documentation baseline only |
-| P4B.1 | Deterministic 1/2/3-layer section topology on flat, irregular, corner, narrow, rock and water fixtures; exact physical wall/door counts; legal materials/imports; one public root with every crossing and service/retreat path | Final-map structures/terrain/roof/path audit for representative accepted plans | Partial: pure wall-connectivity, rock/water/irregular/narrow matrix and flat live return audit; constrained live terrain/roof and corner recovery remain |
+| P4B.1 | Deterministic 1/2/3-layer section topology on flat, irregular, corner, narrow, rock and water fixtures; exact physical wall/door counts; legal materials/imports; one public root with every crossing and service/retreat path | Final-map structures/terrain/roof/path audit for representative accepted plans | Complete: pure wall-connectivity/corner recovery and flat/mountain live return, path, checksum and forced-rollback audits; GL compatibility remains in P4B.4 |
 | P4B.2 | Geometry-driven post and turret range/line-of-fire checks for intended gate state; blocked-lane and blind-zone negatives; reachable cover/service/fallback | Actual defender/turret shots, cover use, and unobstructed lanes on accepted maps | Pending |
 | P4B.3 | IndustrialLate research prerequisite closure and lower-tier exclusions; resolved footprint/power/range/refuel/explosion values; effective difficulty-sensitive uranium accounting including loaded ammunition; power/material/threat/stock budget and transaction preflight | Turret firing, power loss, uranium consumption/rearm/exhaustion, breached gate/wall fallback and active reload | Pending |
 | P4B.4 | Full pure suites, Docker Release, static no-trap/IED and final occupancy/recovery regressions | Representative player raid, Core and GL terrain, forced partial rollback and save/reload | Pending |
 
 Every validation entry must distinguish pure test, build, runtime log, and observed game behavior. Screenshots may illustrate geometry but do not establish firing, cover, pathing or consumable depletion. A plan rejection with zero mutations is safe recovery evidence, not evidence that the fortification works. Do not mark P4B complete without the live matrix.
 
-## P4B.1 prototype and flat-terrain prerequisite (not a completed gate)
+## P4B.1 physical wall layers and access
 
 The current prototype selects a seed-weighted 50/30/20 preference for one,
 two or three layers, capped by tech stage and declared construction/import
@@ -68,8 +68,8 @@ service termini. Its cooler audit also found one freezer unit at −10°C and
 four occupied-room units at +21°C. This tests rollback of the new lane-clearing
 footprint on flat Core terrain, not constrained-terrain recovery or combat.
 
-P4B.1 remains open for corner recovery and live constrained-terrain and roof
-checks. P4B.2–P4B.4 have not been implemented.
+The remaining corner-recovery and live constrained-terrain/roof checks are
+recorded below. P4B.2–P4B.4 remain open.
 
 ### Detached-wall correction
 
@@ -90,6 +90,26 @@ returns, 8/8 band walls, 3/3 gate doors and 2/2 reachable service endpoints.
 The in-game view showed the gate flanks returning into the existing wall.
 This is flat-map connectivity evidence only, not a constrained-terrain,
 combat or P4B closeout. The test process was stopped afterward.
+
+### Corner recovery and constrained live terrain
+
+A new pure water-corner fixture places a permanent obstruction at a previously
+valid return cell. The old plan is rejected for `outer_section_unreturned`;
+bounded replanning produces a different valid three-layer layout whose every
+outer wall cell remains cardinally connected to the enclosure. The input
+terrain digest is unchanged. The full layout suite and Release build pass.
+
+A fresh disposable Core Mountain/Caves map accepted three requested layers
+without downshift: 11/11 outer walls, 5/5 return cells, 4/4 anchored returns,
+8/8 band walls, 3/3 doors, 1/1 gate route and 2/2 reachable service termini.
+It excavated 106 rock cells. Final-map validation reported unchanged terrain
+after the settlement/power steps, preserved terrain/roof state, no traps or
+IEDs and a reachable player arrival. In a separate clean Mountain/Coast run,
+a forced partial spawn rolled back 623 owned things, restored 514/514 plants
+and the terrain/roof checksum, then the same three-layer plan spawned with the
+same wall/return/path counts. This completes P4B.1's Core wall/access and
+recovery gate. It does not prove fire lanes, cover use, turret operation, GL
+compatibility, or the P4B.4 raid/save matrix.
 
 ## Implementation interface to preserve
 

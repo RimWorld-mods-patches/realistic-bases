@@ -49,6 +49,7 @@ internal static partial class Program
         Run("gatehouse crossings and exterior sections reserve one to three layers", WallLayers);
         Run("layered walls retain service lanes on rock, water and irregular terrain", FortificationTerrainMatrix);
         Run("narrow dry approach keeps layered gates and recovery bounded", NarrowFortificationApproach);
+        Run("corner obstruction replans connected wall returns within budget", CornerWallReturnRecovery);
         Run("validator rejects a blocked outer-wall service lane", BlockedFortificationServiceLane);
         Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck);
         Run("tech stage is stable per faction", TechStageStablePerFaction);
@@ -704,6 +705,32 @@ internal static partial class Program
             Console.WriteLine("  narrow approach layers=" + layers + " sections=" + result.Layout.OuterSections.Count +
                 " gates=" + result.Layout.Gates.Count);
         }
+    }
+
+    private static void CornerWallReturnRecovery()
+    {
+        TerrainSnapshot corner = Build(120, 120, (x, z) => x >= 69 && z >= 69 ? DeepWater : Ground);
+        LayoutRequirements requirements = LayoutRequirements.FromPopulation(6, Industrial, Temperate);
+        LayoutFortificationReservation fortification = new LayoutFortificationReservation(wallLayers: 3);
+        ProceduralLayoutInput input = Input(corner, requirements, 31, fortification);
+        ProceduralLayoutResult original = ProceduralLayoutPlanner.Plan(input);
+        Accepted(original);
+        LayoutWallSection section = original.Layout.OuterSections.First();
+        GridPoint blocked = section.LeftReturn[0];
+        TerrainSnapshot changed = Build(120, 120, (x, z) =>
+            x == blocked.X && z == blocked.Z ? TerrainTraits.Occupied :
+            x >= 69 && z >= 69 ? DeepWater : Ground);
+        string digest = changed.Digest;
+        ProceduralLayoutInput changedInput = Input(changed, requirements, 31, fortification);
+        Contains(ProceduralLayoutValidator.Validate(changedInput, original.Layout), "outer_section_unreturned");
+        ProceduralLayoutResult recovered = ProceduralLayoutPlanner.Plan(changedInput);
+        True(recovered.Stats.AttemptCount <= 30 && recovered.Stats.EvaluationCount <= 200000,
+            "corner recovery bounded: " + recovered.Stats);
+        Equal(digest, changed.Digest, "corner recovery does not mutate terrain");
+        Accepted(recovered);
+        True(recovered.Layout.OuterWalls.All(c => !c.Equals(blocked)), "recovered walls avoid blocked corner");
+        Equal(0, ProceduralLayoutValidator.Validate(changedInput, recovered.Layout).Count, "recovered corner validates");
+        AssertOuterWallConnectivity(recovered.Layout);
     }
 
     private static void BlockedFortificationServiceLane()
