@@ -51,6 +51,7 @@ internal static partial class Program
         Run("narrow dry approach keeps layered gates and recovery bounded", NarrowFortificationApproach);
         Run("corner obstruction replans connected wall returns within budget", CornerWallReturnRecovery);
         Run("validator rejects a blocked outer-wall service lane", BlockedFortificationServiceLane);
+        Run("P4B firing-lane prefilter rejects opaque and out-of-range shots", P4BFireLaneCases);
         Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck);
         Run("tech stage is stable per faction", TechStageStablePerFaction);
         Run("tech stage respects every faction band", TechStageBands);
@@ -746,6 +747,25 @@ internal static partial class Program
         TerrainSnapshot obstructed = Build(120, 120, (x, z) => x == blocked.X && z == blocked.Z ? TerrainTraits.Occupied : Ground);
         ProceduralLayoutInput changed = Input(obstructed, requirements, 31, fortification);
         Contains(ProceduralLayoutValidator.Validate(changed, result.Layout), "outer_section_service_lane_blocked");
+    }
+
+    private static void P4BFireLaneCases()
+    {
+        GridPoint inner = new GridPoint(0, 0), approach = new GridPoint(6, 0);
+        True(P4BFireLane.CanEngage(inner, approach, 1, 8, Array.Empty<GridPoint>()), "clear direct approach");
+        GridPoint closedGate = new GridPoint(3, 0);
+        True(!P4BFireLane.CanEngage(inner, approach, 1, 8, new[] { closedGate }),
+            "closed opaque gate blocks an inner post");
+        True(P4BFireLane.CanEngage(new GridPoint(3, 1), new GridPoint(6, 1), 1, 8, new[] { closedGate }),
+            "an exterior flanking post can still cover the approach");
+        True(!P4BFireLane.CanEngage(inner, new GridPoint(2, 0), 3, 8, Array.Empty<GridPoint>()),
+            "minimum range creates a real blind zone");
+        True(!P4BFireLane.CanEngage(inner, approach, 1, 5, Array.Empty<GridPoint>()),
+            "maximum range excludes the far approach");
+        True(!P4BFireLane.CanEngage(inner, new GridPoint(2, 2), 1, 8,
+            new[] { new GridPoint(1, 0), new GridPoint(0, 1) }), "diagonal wall slit is not clear");
+        True(P4BFireLane.CanEngage(inner, new GridPoint(2, 2), 1, 8, Array.Empty<GridPoint>()),
+            "open diagonal remains visible");
     }
 
     private static void AdapterCrossCheck()

@@ -23,7 +23,7 @@ These are code observations, not runtime results. The previous P3 and P4/P4A obs
 |---|---|---|---|
 | P4B.0 | Inspect source and record baseline, immutable defense inputs/outputs, reservation/occupancy ownership, test corpus, recovery boundary | None | Documentation baseline only |
 | P4B.1 | Deterministic 1/2/3-layer section topology on flat, irregular, corner, narrow, rock and water fixtures; exact physical wall/door counts; legal materials/imports; one public root with every crossing and service/retreat path | Final-map structures/terrain/roof/path audit for representative accepted plans | Complete: pure wall-connectivity/corner recovery and flat/mountain live return, path, checksum and forced-rollback audits; GL compatibility remains in P4B.4 |
-| P4B.2 | Geometry-driven post and turret range/line-of-fire checks for intended gate state; blocked-lane and blind-zone negatives; reachable cover/service/fallback | Actual defender/turret shots, cover use, and unobstructed lanes on accepted maps | Pending |
+| P4B.2 | Geometry-driven post and turret range/line-of-fire checks for intended gate state; blocked-lane and blind-zone negatives; reachable cover/service/fallback | Actual defender/turret shots, cover use, and unobstructed lanes on accepted maps | In progress: conservative pure sightline/range prefilter and generated-plan diagnostic; no placement or live firing evidence yet |
 | P4B.3 | IndustrialLate research prerequisite closure and lower-tier exclusions; resolved footprint/power/range/refuel/explosion values; effective difficulty-sensitive uranium accounting including loaded ammunition; power/material/threat/stock budget and transaction preflight | Turret firing, power loss, uranium consumption/rearm/exhaustion, breached gate/wall fallback and active reload | Pending |
 | P4B.4 | Full pure suites, Docker Release, static no-trap/IED and final occupancy/recovery regressions | Representative player raid, Core and GL terrain, forced partial rollback and save/reload | Pending |
 
@@ -110,6 +110,23 @@ and the terrain/roof checksum, then the same three-layer plan spawned with the
 same wall/return/path counts. This completes P4B.1's Core wall/access and
 recovery gate. It does not prove fire lanes, cover use, turret operation, GL
 compatibility, or the P4B.4 raid/save matrix.
+
+## P4B.2 sightline baseline (not a completed gate)
+
+The inherited `GeometryEncounterPlanner` chooses gate posts near the inside
+endpoint and ranged posts beside a wall, setting `HasLineOfFire=true` without
+tracing a shot. `P4BFireLane` now supplies a conservative pure prefilter for
+Euclidean range and grid occlusion, including closed opaque doors and diagonal
+wall slits. Synthetic clear, blocked-gate, exterior-flank, minimum/maximum
+range and diagonal-slit cases pass. It is not a substitute for RimWorld's
+runtime shot check. A diagnostic-only generated-plan audit samples the first
+12 cells of each exterior gate route against planned opaque walls and closed
+doors. In a clean Core flat three-layer plan, it found 0/6 inherited direct
+posts with a shot and 0/12 sampled approach cells covered. The map still
+spawned and passed its separate wall/access audit; this result identifies a
+combat gap, not a generation failure. P4B.2 must next plan exterior fighting
+positions, cover and fallback routes in final occupancy, then confirm actual
+shots and defender use in-game before treating any post as valid.
 
 ## Implementation interface to preserve
 

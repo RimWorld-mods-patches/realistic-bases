@@ -105,6 +105,18 @@ namespace RealisticBases.Generation
                     layout.Enclosure, walls.Concat(natural), layout.Gates.Select(g =>
                         new KeyValuePair<GridPoint, GridPoint>(g.Cell, g.Inside)), publicCells,
                     storage.Interior.Points(), layout.Court?.Cells.FirstOrDefault(), layout.Court?.Access.FirstOrDefault()));
+                // Diagnostic only until P4B selects exterior positions and cover.
+                // Closed gates are opaque; proximity to a wall cannot assert a shot.
+                List<GridPoint> approaches = layout.Gates.SelectMany(g => g.ExteriorRoute.Take(12)).Distinct().ToList();
+                HashSet<GridPoint> opaque = new HashSet<GridPoint>(walls.Concat(natural).Concat(doors));
+                List<DefensivePost> directPosts = encounter.Posts.Where(p => !p.Mortar).ToList();
+                int usefulPosts = directPosts.Count(p => approaches.Any(c =>
+                    P4BFireLane.CanEngage(p.Cell, c, p.MinimumRange, p.MaximumRange, opaque)));
+                int coveredApproaches = approaches.Count(c => directPosts.Any(p =>
+                    P4BFireLane.CanEngage(p.Cell, c, p.MinimumRange, p.MaximumRange, opaque)));
+                P2Log.Message("PROCEDURAL_FIRE_LANE_PLAN", "map=" + map.uniqueID + " closedGate=true postsWithShot=" +
+                    usefulPosts + "/" + directPosts.Count + " approachSamplesCovered=" + coveredApproaches +
+                    "/" + approaches.Count);
             }
             catch (Exception ex) { failure = "geometry_encounter_rejected:" + ex.Message; return false; }
 
