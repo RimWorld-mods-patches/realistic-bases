@@ -333,3 +333,38 @@ and the test asserts no built wall occupies an existing edifice. The full pure
 layout suite and Release build pass. This is planner-level regression evidence;
 the previously failing live tile has not yet been retested, so flat-map runtime
 robustness is not closed by this test alone.
+
+## Captured flat-tile plant obstruction regression
+
+A later single-process, 160×160 flat rejection still exhausted its bounded room
+search (`sites=8`, `attempts=24`, `evaluations=111058`, `repairs=150`) with
+`room_unplaceable`. Its exact terrain-trait rows, seed, stage, climate and two
+geysers are preserved as a compressed pure fixture in
+`Source/RealisticBases.LayoutTests/flat-rejected-traits.rle`. Before the fix,
+that fixture reproduced the live search counts and rejection. It contained
+1,895 buildable, fertile, heavy-supporting but nonstandable cells, consistent
+with blocking plants rather than permanent water, rock or occupied edifices.
+
+The terrain snapshot now marks an actual plant as `ClearablePlant`. The planner
+may use that cell for a room, gate route or field, but still rejects a
+nonstandable cell without a removable plant and any occupied edifice. The
+existing spawn transaction clears plants from the full planned enclosure,
+structures, fields and exterior routes before placement; rollback verifies the
+original plant definition, growth and sown state at every cleared cell. The
+captured fixture and a negative classification test pass in the pure layout
+suite. The PlannerTests suite and Docker Release build pass (0 warnings/errors).
+
+Three clean-profile flat debug generations accepted. The first open-ground
+settlement placed nine rooms, three requested wall layers, two physical outer
+reinforcement sections, 124 crops and four defenders with **zero** rock
+excavation; 476 plants were cleared, all planned walls/doors and the gate route
+were realized, and final terrain/roof and player-arrival checks passed. A
+second flat-labeled tile also accepted two layers and both gate routes, but
+used 194 rock excavations; it is not counted as an open-ground case. A third
+open-ground tile deliberately failed after partial spawn, restored 460/460
+plants and the original terrain/roof checksum, then spawned the same plan and
+passed arrival. These are runtime evidence for the plant-clearance path, not
+proof that the exact earlier rejected world tile was regenerated or that all
+P4/P4A terrain matrices are complete. The disposable save referenced RIMAPI,
+but this run loaded only Harmony, Core and Realistic Bases; no RIMAPI results
+are claimed.

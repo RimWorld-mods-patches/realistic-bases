@@ -33,7 +33,7 @@ namespace RealisticBases.Planning
         public static LayoutRoomPartition Build(TerrainSnapshot terrain, ProceduralLayout layout)
         {
             if (terrain == null || layout == null) throw new ArgumentNullException();
-            HashSet<GridPoint> separators = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.NaturalWalls)
+            HashSet<GridPoint> separators = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.OuterWalls).Concat(layout.NaturalWalls)
                 .Concat(layout.Gates.Select(g => g.Cell)).Concat(layout.Gates.SelectMany(g => g.BandDoors.Concat(g.BandWalls)))
                 .Concat(layout.ExhaustPockets.SelectMany(p => p.Walls)));
             foreach (LayoutRoom room in layout.Rooms)

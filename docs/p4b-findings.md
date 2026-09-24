@@ -1,6 +1,6 @@
 # P4B defensive layout: findings and validation
 
-2026-09-24 · Status: P4B.0 baseline complete; no P4B defense behavior validated yet
+2026-09-24 · Status: P4B.0 complete; P4B.1 partial wall-section evidence, exit gate open
 
 The [P4B plan](p4b-defense-plan.md) is the scope authority. P4 and P4A remain open independently: their lakeshore, climate, tribal, optional-mod and exact rejected-flat-tile checks are not credited to P4B or silently closed. P5–P7 are not part of this implementation.
 
@@ -28,6 +28,26 @@ These are code observations, not runtime results. The previous P3 and P4/P4A obs
 | P4B.4 | Full pure suites, Docker Release, static no-trap/IED and final occupancy/recovery regressions | Representative player raid, Core and GL terrain, forced partial rollback and save/reload | Pending |
 
 Every validation entry must distinguish pure test, build, runtime log, and observed game behavior. Screenshots may illustrate geometry but do not establish firing, cover, pathing or consumable depletion. A plan rejection with zero mutations is safe recovery evidence, not evidence that the fortification works. Do not mark P4B complete without the live matrix.
+
+## P4B.1 prototype and flat-terrain prerequisite (not a completed gate)
+
+The current prototype selects a seed-weighted 50/30/20 preference for one,
+two or three layers, capped by tech stage and declared construction/import
+spend per resident. A bounded fallback reduces layers when terrain cannot
+support an outer section. Eligible straight gate-adjacent wall runs gain
+physical outer sections connected to serial gate bands. The exact wall/door
+material ledger, final wall/door realization and gate reachability are checked.
+The pure layout suite and PlannerTests pass; Docker Release builds without
+warnings or errors.
+
+On the disposable Core flat-map test, an open-ground three-layer plan realized
+6/6 outer wall cells, 8/8 band walls, 3/3 gate doors and 1/1 reachable gate;
+a second flat-labeled, rock-bearing map realized 3/3, 8/8, 4/4 and 2/2.
+Neither proves full concentric enclosure coverage: these are declared short
+reinforcement sections. The captured flat-tile plant regression and 460/460
+plant rollback are detailed in [P4 findings](p4-findings.md). The P4B.1
+irregular/corner/water/rock and service/retreat-route matrix remains open;
+P4B.2–P4B.4 have not been implemented.
 
 ## Implementation interface to preserve
 

@@ -34,6 +34,9 @@ internal static partial class Program
         Run("obstacles reshape the layout", ObstaclesReshapeLayout);
         Run("scattered rock on open ground does not force mountain doctrine", ScatteredRockUsesOpenGround);
         Run("flat maps with natural clutter remain placeable", ClutteredFlatMaps);
+        Run("live-density flat tiles place complete rooms", LiveDensityFlatTiles);
+        Run("only clearable plants relax nonstandable flat terrain", ClearablePlantClassification);
+        Run("captured flat obstruction pattern places complete rooms without RimWorld", CapturedFlatTile);
         Run("final obstacles and access reservations are validated", ConnectivityAfterBlocking);
         Run("rooms are never public transit", RoomsNeverTransit);
         Run("impossible demand and unusable terrain reject predictably", Rejections);
@@ -41,7 +44,8 @@ internal static partial class Program
         Run("tribal settlement digs under rock with natural roof support", RockProtectedTribal);
         Run("mortar doctrine trades protection for an open-sky court", MortarDoctrine);
         Run("roof support ignores built walls and rejects wide halls", RoofSupportRule);
-        Run("gatehouse crossings reserve one to three layers", WallLayers);
+        Run("tech and spend capacity weight one to three physical wall layers", LayerPolicy);
+        Run("gatehouse crossings and exterior sections reserve one to three layers", WallLayers);
         Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck);
         Run("tech stage is stable per faction", TechStageStablePerFaction);
         Run("tech stage respects every faction band", TechStageBands);
@@ -306,6 +310,85 @@ internal static partial class Program
         }
     }
 
+    private static void LiveDensityFlatTiles()
+    {
+        // 160x160 live rejected flat tile: 1780/25600 natural-rock cells and
+        // virtually no water. Model small boulder groups rather than 5x5 rock
+        // chunks, using its stage, climate and 4-resident profile.
+        LayoutRequirements needs = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate,
+            new LayoutClimate(-9, 32), stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialMid));
+        for (int salt = 0; salt < 6; salt++)
+        {
+            int sample = salt;
+            TerrainSnapshot terrain = Build(160, 160, (x, z) =>
+            {
+                uint cluster = (uint)((x / 3) * 73856093 ^ (z / 3) * 19349663 ^ sample * 83492791);
+                cluster ^= cluster >> 13;
+                cluster *= 1274126177u;
+                if (cluster % 1000 < 70) return RockRoofed;
+                return Ground;
+            });
+            ProceduralLayoutInput input = new ProceduralLayoutInput(needs, terrain, 0x8B704E948E310455UL + (ulong)sample,
+                CoreCatalog, resources: new LayoutLocalResources(29800, new[] { "BlocksGranite", "BlocksMarble" }));
+            ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
+            True(result.Success, "live-density sample=" + sample + " rejected=" + result.RejectionCode + " " + result.Stats +
+                " tail=" + string.Join("|", result.Diagnostics.Where(d => d.Stage == "attempt").TakeLast(4)));
+        }
+    }
+
+    private static void ClearablePlantClassification()
+    {
+        TerrainTraits ground = TerrainTraits.Buildable | TerrainTraits.Fertile | TerrainTraits.SupportsHeavy;
+        GridPoint center = new GridPoint(5, 5);
+        TerrainSnapshot blocked = Build(11, 11, (x, z) => ground);
+        TerrainSnapshot clearable = Build(11, 11, (x, z) =>
+            ground | TerrainTraits.ClearablePlant);
+        TerrainSnapshot occupied = Build(11, 11, (x, z) =>
+            ground | TerrainTraits.ClearablePlant | TerrainTraits.Occupied);
+        Equal(LayoutCellClass.Bad, LayoutTerrainGrid.Classify(blocked[center]), "nonstandable ground stays blocked");
+        Equal(LayoutCellClass.Open, LayoutTerrainGrid.Classify(clearable[center]), "clearable plant becomes open");
+        Equal(LayoutCellClass.Bad, LayoutTerrainGrid.Classify(occupied[center]), "edifice remains blocked");
+        True(!LayoutTerrainGrid.Build(blocked, 0).Passable(center), "unclearable ground is not a route");
+        True(LayoutTerrainGrid.Build(clearable, 0).Passable(center), "clearable plant can be a route");
+        True(!LayoutTerrainGrid.Build(occupied, 0).Passable(center), "occupied plant is not a route");
+    }
+
+    private static void CapturedFlatTile()
+    {
+        string[] rows = File.ReadAllLines(Path.Combine(AppContext.BaseDirectory, "flat-rejected-traits.rle"));
+        Equal(160, rows.Length, "captured flat tile height");
+        List<TerrainCell> cells = new List<TerrainCell>();
+        foreach (string row in rows)
+        {
+            int width = 0;
+            foreach (string token in row.Split(','))
+            {
+                string[] parts = token.Split('*');
+                TerrainTraits traits = (TerrainTraits)Convert.ToUInt16(parts[0], 16);
+                // The capture predates the explicit ClearablePlant trait. The
+                // 0x062 cells are buildable fertile ground obstructed by trees,
+                // not water, rock or an edifice.
+                if (traits == (TerrainTraits.Buildable | TerrainTraits.Fertile | TerrainTraits.SupportsHeavy))
+                    traits |= TerrainTraits.ClearablePlant;
+                int count = int.Parse(parts[1]);
+                for (int i = 0; i < count; i++) cells.Add(new TerrainCell(traits));
+                width += count;
+            }
+            Equal(160, width, "captured flat tile row width");
+        }
+        TerrainSnapshot terrain = new TerrainSnapshot(160, 160, cells, "captured-flat-obstruction-v1");
+        LayoutRequirements needs = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate,
+            new LayoutClimate(-8, 32), stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialMid));
+        LayoutLocalResources resources = new LayoutLocalResources(32667, new[] { "BlocksGranite", "BlocksMarble" },
+            steamGeyserCells: new[] { new GridPoint(70, 32), new GridPoint(58, 69) });
+        ProceduralLayoutInput input = new ProceduralLayoutInput(needs, terrain, 0xCB52CAC6AEE2BE0AUL,
+            CoreCatalog, new LayoutFortificationReservation(1), resources: resources);
+        ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
+        True(result.Success, "captured flat tile rejected=" + result.RejectionCode + " " + result.Stats +
+            " tail=" + string.Join("|", result.Diagnostics.Where(d => d.Stage == "attempt").TakeLast(5)));
+        Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count, "captured layout validates");
+    }
+
     // ---- connectivity ----
 
     private static void ConnectivityAfterBlocking()
@@ -450,6 +533,22 @@ internal static partial class Program
 
     // ---- fortification interface ----
 
+    private static void LayerPolicy()
+    {
+        int[] counts = new int[4];
+        for (ulong seed = 0; seed < 10000; seed++)
+            counts[P4BLayerPolicy.Select(seed, SettlementTechStageLevel.IndustrialLate, 30000, 6000, 6)]++;
+        True(Math.Abs(counts[1] - 5000) < 250, "rich late-tech one-layer share " + counts[1]);
+        True(Math.Abs(counts[2] - 3000) < 250, "rich late-tech two-layer share " + counts[2]);
+        True(Math.Abs(counts[3] - 2000) < 250, "rich late-tech three-layer share " + counts[3]);
+        for (ulong seed = 0; seed < 100; seed++)
+        {
+            Equal(1, P4BLayerPolicy.Select(seed, SettlementTechStageLevel.Neolithic, 20000, 6000, 6), "neolithic cap");
+            True(P4BLayerPolicy.Select(seed, SettlementTechStageLevel.IndustrialEarly, 20000, 6000, 6) <= 2, "early tech cap");
+            Equal(1, P4BLayerPolicy.Select(seed, SettlementTechStageLevel.IndustrialLate, 1000, 500, 6), "low spend cap");
+        }
+    }
+
     private static void WallLayers()
     {
         foreach (int layers in new[] { 1, 2, 3 })
@@ -464,6 +563,17 @@ internal static partial class Program
                 Equal(4 * (layers - 1), gate.BandWalls.Count, "band walls");
                 True(gate.ExteriorRoute.Count > 0, "exterior route");
             }
+            if (layers == 1) Equal(0, result.Layout.OuterSections.Count, "single-layer has no outer sections");
+            else
+            {
+                True(result.Layout.OuterSections.Count > 0, "open ground has physical exterior extensions");
+                foreach (LayoutWallSection section in result.Layout.OuterSections)
+                {
+                    True(section.Left.Count + section.Right.Count > 0, "section extends beyond gate band");
+                    True(section.Cells.All(c => !result.Layout.Enclosure.Contains(c)), "outer walls remain exterior");
+                }
+            }
+            Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count, "layered plan validates");
             if (layers == 3) ExportLayout("plains-industrial-3-layers", result);
         }
     }

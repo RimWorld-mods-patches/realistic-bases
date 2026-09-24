@@ -97,7 +97,7 @@ namespace RealisticBases.Generation
             try
             {
                 int requestedLayers = RealisticBasesMod.Settings.forceP4WallLayersNext;
-                int layers = requestedLayers >= 1 && requestedLayers <= 3 ? requestedLayers : 1;
+                int layers = requestedLayers >= 1 && requestedLayers <= 3 ? requestedLayers : 0;
                 RealisticBasesMod.Settings.probeProceduralNext = false;
                 P4AMapPlanningRun run = P4AMapPlanner.Run(map, settlement, layers);
                 if (!run.Result.Success)

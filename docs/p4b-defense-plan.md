@@ -1,6 +1,6 @@
 # P4B — Defensive layout planner
 
-2026-09-24 · Active; P4B.0 baseline recorded · After P4/P4A, before P5
+2026-09-24 · Active; P4B.0 complete, P4B.1 in progress · After P4/P4A, before P5
 
 The user authorized a distinct defensive-layout milestone: extend the procedural settlement with actual outer-wall layers, gates, turrets, barricades and sandbags. Reuse the current procedural planner, transaction and P3 controller. This document specifies future work; it does not claim these defenses already work on the P4A path.
 

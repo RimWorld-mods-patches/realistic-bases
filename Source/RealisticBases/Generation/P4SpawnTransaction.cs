@@ -58,6 +58,8 @@ namespace RealisticBases.Generation
         public int OwnedCount => owned.Count;
         public IReadOnlyList<Thing> OwnedThings => owned;
         public int ExcavatedCount => rocks.Count;
+        public int ClearedPlantCount => plants.Count;
+        public int RestoredPlantCount { get; private set; }
         public int RoofChangedCount => roofs.Count;
         public void Own(Thing thing)
         {
@@ -128,14 +130,21 @@ namespace RealisticBases.Generation
             foreach (KeyValuePair<IntVec3, RoofDef> roof in roofs) map.roofGrid.SetRoof(roof.Key, roof.Value);
             foreach (PlantSnapshot original in plants)
             {
-                if (original.Cell.GetPlant(map) != null) continue;
-                Plant plant = (Plant)ThingMaker.MakeThing(original.Def);
-                plant.Growth = original.Growth;
-                plant.sown = original.Sown;
-                GenSpawn.Spawn(plant, original.Cell, map, Rot4.North, WipeMode.Vanish);
+                if (original.Cell.GetPlant(map) == null)
+                {
+                    Plant plant = (Plant)ThingMaker.MakeThing(original.Def);
+                    plant.Growth = original.Growth;
+                    plant.sown = original.Sown;
+                    GenSpawn.Spawn(plant, original.Cell, map, Rot4.North, WipeMode.Vanish);
+                }
+                Plant restored = original.Cell.GetPlant(map);
+                if (restored?.def == original.Def &&
+                    Math.Abs(restored.Growth - original.Growth) < 0.0001f &&
+                    restored.sown == original.Sown) RestoredPlantCount++;
             }
             completed = true;
-            return terrainBefore == P0MapAudit.TerrainRoofChecksum(map) &&
+            return RestoredPlantCount == plants.Count &&
+                terrainBefore == P0MapAudit.TerrainRoofChecksum(map) &&
                 rockBefore == P0MapAudit.NaturalRockChecksum(map, footprint.ExcavationCells.Select(ToCell));
         }
 

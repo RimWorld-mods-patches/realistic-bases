@@ -23,7 +23,7 @@ namespace RealisticBases.Integration
     {
         private static TechCatalog cachedCatalog;
 
-        public static P4AMapPlanningRun Run(Map map, Settlement settlement, int wallLayers)
+        public static P4AMapPlanningRun Run(Map map, Settlement settlement, int requestedWallLayers)
         {
             if (map == null || settlement?.Faction == null) throw new ArgumentNullException(nameof(settlement));
             PhysicalSettlementProfile profile = P2MapPlanner.SelectProfile(settlement.Faction);
@@ -38,18 +38,35 @@ namespace RealisticBases.Integration
             LayoutLocalResources resources = CaptureResources(map);
             LayoutClimate climate = CaptureClimate(map);
             LayoutRequirements requirements = LayoutRequirements.FromProfile(profile, climate, stage: stage);
+            int targetLayers = requestedWallLayers >= 1 && requestedWallLayers <= 3 ? requestedWallLayers :
+                P4BLayerPolicy.Select(seed, stage.Level, requirements.EquipmentValueLimit,
+                    requirements.ImportValueLimit, requirements.Residents);
             TechCatalog catalog = cachedCatalog ?? (cachedCatalog = P4ARuntimeCatalog.Capture());
-            ProceduralLayoutInput input = new ProceduralLayoutInput(requirements, terrain, seed, catalog,
-                new LayoutFortificationReservation(wallLayers), resources: resources);
-            ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
+            ProceduralLayoutInput input = null;
+            ProceduralLayoutResult result = null;
+            int wallLayers = targetLayers;
+            string layerFallback = "none";
+            for (; wallLayers >= 1; wallLayers--)
+            {
+                input = new ProceduralLayoutInput(requirements, terrain, seed, catalog,
+                    new LayoutFortificationReservation(wallLayers), resources: resources);
+                result = ProceduralLayoutPlanner.Plan(input);
+                if (result.Success && (wallLayers == 1 || result.Layout.OuterSections.Any(s => s.Layer == wallLayers - 1))) break;
+                if (wallLayers > 1) layerFallback = result.Success ? "no_eligible_outer_section" : result.RejectionCode ?? "plan_rejected";
+            }
             string terrainStats = result.Success ? string.Empty : " terrainCells=" + terrain.Width * terrain.Height +
                 " standable=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Standable)) +
                 " buildable=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Buildable)) +
+                " clearablePlant=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.ClearablePlant)) +
+                " plantBlocked=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.ClearablePlant) &&
+                    !terrain[c].Has(TerrainTraits.Standable)) +
                 " occupied=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Occupied)) +
                 " naturalRock=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.NaturalRock)) +
                 " water=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Water));
             P2Log.Message("PROCEDURAL_PLAN", "map=" + map.uniqueID + " profile=" + profile.Id +
-                " stage=" + stage.Level + " seed=" + StableHash.Hex(seed) + " layers=" + wallLayers +
+                " stage=" + stage.Level + " seed=" + StableHash.Hex(seed) + " targetLayers=" + targetLayers +
+                " effectiveLayers=" + input.Fortification.WallLayers + " layerFallback=" + layerFallback +
+                " layerMode=" + (requestedWallLayers == 0 ? "tech-budget-weighted" : "debug-override") +
                 " catalogDefs=" + catalog.Defs.Count + " catalogResearch=" + catalog.Research.Count +
                 " wood=" + resources.LocalWoodYield + " stone=" + resources.LocalStoneStuffs.Count +
                 " river=" + resources.RiverCells.Count + " geysers=" + resources.SteamGeyserCells.Count +

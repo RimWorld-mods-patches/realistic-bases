@@ -38,7 +38,7 @@ namespace RealisticBases.Planning
             return fields;
 
             bool Passable(GridPoint cell) => terrain.InBounds(cell) && !blocked.Contains(cell) &&
-                terrain[cell].Has(TerrainTraits.Standable) &&
+                (terrain[cell].Has(TerrainTraits.Standable) || terrain[cell].Has(TerrainTraits.ClearablePlant)) &&
                 !terrain[cell].HasAny(TerrainTraits.Water | TerrainTraits.NaturalRock | TerrainTraits.Occupied);
         }
     }

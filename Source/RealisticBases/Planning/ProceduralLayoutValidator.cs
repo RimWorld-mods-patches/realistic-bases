@@ -24,6 +24,7 @@ namespace RealisticBases.Planning
 
             HashSet<GridPoint> enclosure = new HashSet<GridPoint>(layout.Enclosure);
             HashSet<GridPoint> built = new HashSet<GridPoint>(layout.BuiltWalls);
+            HashSet<GridPoint> outer = new HashSet<GridPoint>(layout.OuterWalls);
             HashSet<GridPoint> natural = new HashSet<GridPoint>(layout.NaturalWalls);
             HashSet<GridPoint> gateCells = new HashSet<GridPoint>(layout.Gates.Select(g => g.Cell));
             HashSet<GridPoint> excavation = new HashSet<GridPoint>(layout.Excavation);
@@ -32,6 +33,8 @@ namespace RealisticBases.Planning
 
             // Terrain legality and the excavation ledger.
             if (built.Any(c => grid.At(c) != LayoutCellClass.Open && grid.At(c) != LayoutCellClass.Covered)) errors.Add("built_wall_illegal_terrain");
+            if (outer.Count != layout.OuterWalls.Count() || outer.Any(c => grid.At(c) != LayoutCellClass.Open ||
+                terrain[c].Has(TerrainTraits.MapEdge) || built.Contains(c))) errors.Add("outer_wall_illegal_or_duplicate");
             if (natural.Any(c => grid.At(c) != LayoutCellClass.Rock || excavation.Contains(c))) errors.Add("natural_wall_not_intact_rock");
             if (excavation.Any(c => grid.At(c) != LayoutCellClass.Rock)) errors.Add("excavation_not_natural_rock");
             if (excavation.Count > requirements.ExcavationBudgetCells) errors.Add("excavation_budget");
@@ -92,7 +95,9 @@ namespace RealisticBases.Planning
                 else if (!input.Catalog.Evaluate(def, kit.Stage).Legal) errors.Add("illegal_for_stage_" + fixture.DefName);
             }
             if (layout.TechStage == null || layout.TechStage.Digest != kit.Stage.Digest || layout.RolesDigest != kit.Roles.Digest) errors.Add("equipment_mismatch");
-            LayoutMaterialLedger materials = equipment.Count(layout.Rooms, layout.BuiltWalls.Concat(layout.ExhaustPocketWalls), layout.Gates.Count, layout.Power);
+            LayoutMaterialLedger materials = equipment.Count(layout.Rooms,
+                layout.BuiltWalls.Concat(layout.Gates.SelectMany(g => g.BandWalls)).Concat(layout.OuterWalls).Concat(layout.ExhaustPocketWalls),
+                layout.Gates.Sum(g => 1 + g.BandDoors.Count), layout.Power);
             if (layout.Materials == null || layout.Materials.ToString() != materials.ToString()) errors.Add("materials_ledger_mismatch");
             if (materials.ImportValue > requirements.ImportValueLimit) errors.Add(LayoutEquipment.MaterialBudgetExceeded);
 
@@ -135,6 +140,37 @@ namespace RealisticBases.Planning
                 }
             }
             if (layout.Gates.Select(g => g.Cell).Distinct().Count() != layout.Gates.Count) errors.Add("duplicate_gate");
+            HashSet<GridPoint> outerReserved = new HashSet<GridPoint>(exteriorReserved);
+            outerReserved.UnionWith(layout.Gates.SelectMany(g => g.ExteriorRoute));
+            HashSet<GridPoint> seenOuter = new HashSet<GridPoint>();
+            foreach (LayoutWallSection section in layout.OuterSections)
+            {
+                if (section.GateIndex < 0 || section.GateIndex >= layout.Gates.Count || section.Layer < 1 || section.Layer >= layers ||
+                    (section.Left.Count == 0 && section.Right.Count == 0))
+                { errors.Add("outer_section_invalid"); continue; }
+                LayoutGate gate = layout.Gates[section.GateIndex];
+                GridPoint tangent = new GridPoint(gate.Outward.Z, gate.Outward.X);
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    IReadOnlyList<GridPoint> arm = side < 0 ? section.Left : section.Right;
+                    if (arm.Count == 0) continue;
+                    GridPoint junction = new GridPoint(gate.Cell.X + 2 * side * tangent.X + 2 * section.Layer * gate.Outward.X,
+                        gate.Cell.Z + 2 * side * tangent.Z + 2 * section.Layer * gate.Outward.Z);
+                    if (!gate.BandWalls.Contains(junction)) errors.Add("outer_section_disconnected_band");
+                    for (int j = 0; j < arm.Count; j++)
+                    {
+                        GridPoint baseline = new GridPoint(gate.Cell.X + (j + 3) * side * tangent.X,
+                            gate.Cell.Z + (j + 3) * side * tangent.Z);
+                        GridPoint expected = new GridPoint(baseline.X + 2 * section.Layer * gate.Outward.X,
+                            baseline.Z + 2 * section.Layer * gate.Outward.Z);
+                        GridPoint inside = new GridPoint(baseline.X - gate.Outward.X, baseline.Z - gate.Outward.Z);
+                        if (!arm[j].Equals(expected) || !boundary.Contains(baseline) || !enclosure.Contains(inside) ||
+                            outerReserved.Contains(expected) || !seenOuter.Add(expected)) errors.Add("outer_section_geometry_or_overlap");
+                    }
+                }
+                if (section.Layer > 1 && !layout.OuterSections.Any(s => s.GateIndex == section.GateIndex && s.Layer == section.Layer - 1))
+                    errors.Add("outer_section_missing_inner_layer");
+            }
 
             // Hard relationships use real public walking distance between door outsides.
             foreach (LayoutRelationship rel in layout.Relationships.Where(r => r.Hard))
@@ -601,6 +637,7 @@ namespace RealisticBases.Planning
             foreach (GridPoint c in layout.Corridors.SelectMany(x => x.Cells)) map[c] = '=';
             foreach (GridPoint c in layout.Enclosure.Where(c => terrain[c].Has(TerrainTraits.NaturalRock) && !layout.Excavation.Contains(c))) map[c] = '^';
             foreach (GridPoint c in layout.BuiltWalls.Concat(layout.ExhaustPocketWalls)) map[c] = '#';
+            foreach (GridPoint c in layout.OuterWalls) map[c] = 'H';
             foreach (LayoutExhaustPocket pocket in layout.ExhaustPockets) map[pocket.Cell] = 'x';
             foreach (GridPoint c in layout.NaturalWalls) map[c] = '^';
             foreach (LayoutRoom room in layout.Rooms)
@@ -679,7 +716,7 @@ namespace RealisticBases.Planning
         private static GridRect Expand(ProceduralLayout layout, TerrainSnapshot terrain, int margin)
         {
             GridRect b = layout.BoundingRect;
-            IEnumerable<GridPoint> gateCells = layout.Gates.SelectMany(g => g.BandWalls.Concat(new[] { g.Staging }));
+            IEnumerable<GridPoint> gateCells = layout.Gates.SelectMany(g => g.BandWalls.Concat(new[] { g.Staging })).Concat(layout.OuterWalls);
             int minX = Math.Min(b.MinX, gateCells.Select(c => c.X).DefaultIfEmpty(b.MinX).Min()) - margin;
             int minZ = Math.Min(b.MinZ, gateCells.Select(c => c.Z).DefaultIfEmpty(b.MinZ).Min()) - margin;
             int maxX = Math.Max(b.MaxX, gateCells.Select(c => c.X).DefaultIfEmpty(b.MaxX).Max()) + margin;

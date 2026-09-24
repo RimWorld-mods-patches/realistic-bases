@@ -7,7 +7,7 @@ namespace RealisticBases.Planning
     public static class P1Versions
     {
         public const int ProfileSchema = 1;
-        public const int SnapshotSchema = 1;
+        public const int SnapshotSchema = 2;
         public const int PlanSchema = 1;
         public const string Planner = "p1.1";
     }
@@ -48,7 +48,10 @@ namespace RealisticBases.Planning
         SupportsHeavy = 1 << 6,
         MapEdge = 1 << 7,
         Occupied = 1 << 8,
-        ThickRoof = 1 << 9
+        ThickRoof = 1 << 9,
+        // A blocking plant can be removed by the owned spawn transaction; it
+        // is not a permanent terrain obstacle like water or an edifice.
+        ClearablePlant = 1 << 10
     }
 
     public struct TerrainCell

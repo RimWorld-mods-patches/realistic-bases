@@ -6,6 +6,7 @@
     <Nullable>disable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Content Include="flat-rejected-traits.rle" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="../RealisticBases/Planning/P1Model.cs" Link="Planning/P1Model.cs" />
     <Compile Include="../RealisticBases/Planning/P1Planner.cs" Link="Planning/P1Planner.cs" />
     <Compile Include="../RealisticBases/Planning/P2Profiles.cs" Link="Planning/P2Profiles.cs" />
@@ -17,6 +18,7 @@
     <Compile Include="../RealisticBases/Planning/ProceduralLayoutPlanner.cs" Link="Planning/ProceduralLayoutPlanner.cs" />
     <Compile Include="../RealisticBases/Planning/ProceduralLayoutValidator.cs" Link="Planning/ProceduralLayoutValidator.cs" />
     <Compile Include="../RealisticBases/Planning/SettlementTechStage.cs" Link="Planning/SettlementTechStage.cs" />
+    <Compile Include="../RealisticBases/Planning/P4BLayerPolicy.cs" Link="Planning/P4BLayerPolicy.cs" />
     <Compile Include="../RealisticBases/Planning/TechCatalog.cs" Link="Planning/TechCatalog.cs" />
     <Compile Include="../RealisticBases/Planning/SettlementRoles.cs" Link="Planning/SettlementRoles.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutEquipment.cs" Link="Planning/LayoutEquipment.cs" />

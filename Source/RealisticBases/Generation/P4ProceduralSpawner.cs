@@ -8,6 +8,7 @@ using RealisticBases.Planning;
 using RimWorld;
 using RimWorld.Planet;
 using Verse;
+using Verse.AI;
 using Verse.AI.Group;
 using LayoutRoom = RealisticBases.Planning.LayoutRoom;
 
@@ -41,6 +42,7 @@ namespace RealisticBases.Generation
             // Cooler exhaust pockets are sealed by their own walls; their cleared roof is part of the
             // excavation-without-retained-roof clearance above.
             HashSet<GridPoint> walls = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.Gates.SelectMany(g => g.BandWalls))
+                .Concat(layout.OuterWalls)
                 .Concat(layout.ExhaustPocketWalls));
             HashSet<GridPoint> doors = new HashSet<GridPoint>(layout.Gates.Select(g => g.Cell)
                 .Concat(layout.Gates.SelectMany(g => g.BandDoors)).Concat(layout.Rooms.Select(r => r.Door)));
@@ -114,7 +116,8 @@ namespace RealisticBases.Generation
             try
             {
                 tx.Excavate();
-                foreach (GridPoint c in structures.Concat(fields).Concat(layout.Gates.SelectMany(g => g.OuterVestibule)).Distinct())
+                foreach (GridPoint c in layout.Enclosure.Concat(structures).Concat(fields)
+                    .Concat(layout.Gates.SelectMany(g => g.OuterVestibule.Concat(g.ExteriorRoute))).Distinct())
                     tx.ClearPlant(c);
                 ThingDef wallStuff = Require(layout.WallStuff);
                 foreach (GridPoint c in walls.OrderBy(c => c)) Spawn(tx, ThingDefOf.Wall, wallStuff, c, map, settlement.Faction, Rot4.North);
@@ -197,6 +200,27 @@ namespace RealisticBases.Generation
                     throw new InvalidOperationException("Prohibited trap or IED detected");
                 if (layout.Gates.Any(g => !(ToCell(g.Cell).GetEdifice(map) is Building_Door)))
                     throw new InvalidOperationException("A procedural gate did not spawn as a door");
+                int realizedOuterWalls = layout.OuterWalls.Count(c => ToCell(c).GetEdifice(map)?.def == ThingDefOf.Wall);
+                int plannedOuterWalls = layout.OuterWalls.Count();
+                int realizedBandWalls = layout.Gates.SelectMany(g => g.BandWalls)
+                    .Count(c => ToCell(c).GetEdifice(map)?.def == ThingDefOf.Wall);
+                int plannedBandWalls = layout.Gates.Sum(g => g.BandWalls.Count);
+                int realizedGateDoors = layout.Gates.SelectMany(g => new[] { g.Cell }.Concat(g.BandDoors))
+                    .Count(c => ToCell(c).GetEdifice(map) is Building_Door);
+                int plannedGateDoors = layout.Gates.Sum(g => 1 + g.BandDoors.Count);
+                int reachableGates = layout.Gates.Count(g => map.reachability.CanReach(
+                    ToCell(g.ExteriorRoute[g.ExteriorRoute.Count - 1]), ToCell(g.Inside), PathEndMode.OnCell,
+                    TraverseParms.For(TraverseMode.PassDoors)));
+                if (realizedOuterWalls != plannedOuterWalls || realizedBandWalls != plannedBandWalls ||
+                    realizedGateDoors != plannedGateDoors || reachableGates != layout.Gates.Count)
+                    throw new InvalidOperationException("Realized layered-wall or gate audit failed: outer=" + realizedOuterWalls +
+                        "/" + plannedOuterWalls + " bands=" + realizedBandWalls + "/" + plannedBandWalls +
+                        " doors=" + realizedGateDoors + "/" + plannedGateDoors +
+                        " reachable=" + reachableGates + "/" + layout.Gates.Count);
+                P2Log.Message("PROCEDURAL_DEFENSE_AUDIT", "map=" + map.uniqueID + " outerWalls=" + realizedOuterWalls +
+                    "/" + plannedOuterWalls + " bandWalls=" + realizedBandWalls + "/" + plannedBandWalls +
+                    " gateDoors=" + realizedGateDoors + "/" + plannedGateDoors +
+                    " reachableGates=" + reachableGates + "/" + layout.Gates.Count);
                 int outdoorExhausts = AuditCoolerExhaust(map, layout);
                 tx.Commit();
 
@@ -215,8 +239,12 @@ namespace RealisticBases.Generation
                     ToCell(marker), P0MapAudit.TerrainRoofChecksum(map));
                 P2Log.Message("PROCEDURAL_SPAWN_COMPLETE", "map=" + map.uniqueID + " layout=" + layout.Digest +
                     " profile=" + run.ProfileId + " rooms=" + layout.Rooms.Count + " gates=" + layout.Gates.Count +
-                    " layers=" + layout.WallLayers + " things=" + tx.OwnedCount + " residents=" + defenders.Count +
+                    " requestedLayers=" + layout.WallLayers + " reinforcedSections=" + layout.OuterSections.Count +
+                    " outerWallCells=" + layout.OuterWalls.Count() +
+                    " maxReinforcedLayer=" + (layout.OuterSections.Count == 0 ? 0 : layout.OuterSections.Max(s => s.Layer)) +
+                    " things=" + tx.OwnedCount + " residents=" + defenders.Count +
                     " crops=" + crops + " excavated=" + tx.ExcavatedCount + " retainedRoofs=" + layout.RetainedThickRoof.Count +
+                    " plantsCleared=" + tx.ClearedPlantCount +
                     " conduits=" + conduitCells.Count +
                     " outdoorCoolerExhausts=" + outdoorExhausts +
                     " generatorStartupFuel=" + internalFuel + " storedFuel=" + fuel +
@@ -229,7 +257,8 @@ namespace RealisticBases.Generation
                 try { restored = tx.Rollback(); } catch (Exception recovery) { P2Log.Error("PROCEDURAL_RECOVERY_ERROR", recovery.ToString()); }
                 failure = ex.GetType().Name + ":" + ex.Message;
                 P2Log.Error("PROCEDURAL_SPAWN_ABORT", "map=" + map.uniqueID + " error=" + failure +
-                    " owned=" + tx.OwnedCount + " recovered=" + restored);
+                    " owned=" + tx.OwnedCount + " plantsRestored=" + tx.RestoredPlantCount +
+                    "/" + tx.ClearedPlantCount + " recovered=" + restored);
                 return false;
             }
         }
@@ -237,6 +266,7 @@ namespace RealisticBases.Generation
         private static IReadOnlyList<GridPoint> SelectFields(ProceduralLayoutInput input, ProceduralLayout layout)
         {
             IEnumerable<GridPoint> reserved = layout.Enclosure.Concat(layout.BuiltWalls).Concat(layout.NaturalWalls)
+                .Concat(layout.OuterWalls)
                 .Concat(layout.ExhaustPocketWalls).Concat(layout.ExhaustPockets.Select(p => p.Cell))
                 .Concat(layout.Gates.SelectMany(g => g.BandWalls)).Concat(layout.Gates.SelectMany(g => g.BandDoors))
                 .Concat(layout.Gates.SelectMany(g => g.OuterVestibule));
