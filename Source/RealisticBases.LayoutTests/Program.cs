@@ -52,6 +52,8 @@ internal static partial class Program
         Run("corner obstruction replans connected wall returns within budget", CornerWallReturnRecovery);
         Run("validator rejects a blocked outer-wall service lane", BlockedFortificationServiceLane);
         Run("P4B firing-lane prefilter rejects opaque and out-of-range shots", P4BFireLaneCases);
+        Run("P4B field wall joins the perimeter with unroofed crops and exterior posts", P4BFieldWallCases);
+        Run("P4B field wall planner finds an attached flat-map bailey", P4BFieldWallPlannerCases);
         Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck);
         Run("tech stage is stable per faction", TechStageStablePerFaction);
         Run("tech stage respects every faction band", TechStageBands);
@@ -766,6 +768,62 @@ internal static partial class Program
             new[] { new GridPoint(1, 0), new GridPoint(0, 1) }), "diagonal wall slit is not clear");
         True(P4BFireLane.CanEngage(inner, new GridPoint(2, 2), 1, 8, Array.Empty<GridPoint>()),
             "open diagonal remains visible");
+    }
+
+    private static void P4BFieldWallCases()
+    {
+        TerrainSnapshot terrain = Build(20, 20, (x, z) => Ground);
+        GridPoint innerGate = new GridPoint(9, 4), outerGate = new GridPoint(9, 15);
+        GridPoint[] gates = { innerGate, outerGate };
+        List<GridPoint> baseline = Enumerable.Range(4, 12).Select(x => new GridPoint(x, 4))
+            .Where(c => !c.Equals(innerGate)).ToList();
+        List<GridPoint> fieldWall = Enumerable.Range(5, 11)
+            .SelectMany(z => new[] { new GridPoint(4, z), new GridPoint(15, z) })
+            .Concat(Enumerable.Range(5, 10).Select(x => new GridPoint(x, 15)))
+            .Where(c => !c.Equals(outerGate)).ToList();
+        List<GridPoint> crops = Enumerable.Range(6, 8)
+            .SelectMany(z => Enumerable.Range(6, 8).Select(x => new GridPoint(x, z))).ToList();
+        GridPoint post = new GridPoint(9, 17), access = new GridPoint(9, 2);
+        IReadOnlyList<string> Valid(IEnumerable<GridPoint> b, IEnumerable<GridPoint> w,
+            IEnumerable<GridPoint> f, IEnumerable<GridPoint> p, IEnumerable<GridPoint> roof = null) =>
+            P4BFieldWall.Validate(terrain, f, b, w, gates, p, access, roof);
+        Equal(0, Valid(baseline, fieldWall, crops, new[] { post }).Count,
+            "attached field wall protects unroofed crops and leaves a post outside");
+        Contains(Valid(baseline, fieldWall.Where(c => c.Z != 5), crops, new[] { post }),
+            "field_wall_detached");
+        Contains(Valid(baseline, fieldWall.Where(c => !c.Equals(new GridPoint(6, 15))),
+            crops, new[] { post }), "field_exposed_behind_closed_wall");
+        Contains(Valid(baseline, fieldWall, crops, new[] { new GridPoint(9, 5) }),
+            "post_not_outside_field_wall");
+        Contains(Valid(baseline, fieldWall, crops, new[] { post }, new[] { crops[0] }),
+            "field_not_fertile_unroofed_ground");
+    }
+
+    private static void P4BFieldWallPlannerCases()
+    {
+        TerrainSnapshot terrain = Plains(160);
+        for (int layers = 1; layers <= 3; layers++)
+        {
+            ProceduralLayoutInput input = Input(terrain, LayoutRequirements.FromPopulation(6, Industrial, Temperate), 31,
+                new LayoutFortificationReservation(wallLayers: layers));
+            ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
+            Accepted(result);
+            ProceduralLayout layout = result.Layout;
+            HashSet<GridPoint> occupied = new HashSet<GridPoint>(layout.Enclosure.Concat(layout.BuiltWalls)
+                .Concat(layout.NaturalWalls).Concat(layout.OuterWalls)
+                .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
+                .Concat(layout.Gates.Select(g => g.Cell))
+                .Concat(layout.Gates.SelectMany(g => g.BandWalls.Concat(g.BandDoors))));
+            P4BFieldWallPlan plan = P4BFieldWallPlanner.Plan(input, layout, occupied);
+            True(plan != null, "flat layer " + layers + " has a bounded attached field enclosure candidate");
+            P4BFieldWallPlan replay = P4BFieldWallPlanner.Plan(input, layout, occupied);
+            Equal(string.Join(";", plan.Walls), string.Join(";", replay.Walls),
+                "field wall selection is deterministic");
+            Equal(layout.FieldCellsRequired, plan.Fields.Count, "field demand survives wall reservation");
+            True(plan.Fields.All(c => !terrain[c].Has(TerrainTraits.Roofed)), "main field stays unroofed");
+            True(plan.ExteriorPosts.Count == 2, "positions are outside the field-facing wall");
+            Equal(terrain.Digest, input.Terrain.Digest, "field wall selection preserves terrain");
+        }
     }
 
     private static void AdapterCrossCheck()

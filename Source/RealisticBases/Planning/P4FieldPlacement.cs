@@ -6,17 +6,18 @@ namespace RealisticBases.Planning
 {
     public static class P4FieldPlacement
     {
-        // Search the exterior from the gate approaches. A fertile cell on the
-        // far side of water or rock is not a usable field, however close it is
-        // to a gate in straight-line distance.
+        // Search from gate approaches. A fertile cell on the far side of water
+        // or rock, or below a natural/planned roof, is not a usable field.
         public static IReadOnlyList<GridPoint> SelectReachable(TerrainSnapshot terrain,
-            IEnumerable<GridPoint> approaches, IEnumerable<GridPoint> reserved, int required)
+            IEnumerable<GridPoint> approaches, IEnumerable<GridPoint> reserved, int required,
+            IEnumerable<GridPoint> plannedRoof = null)
         {
             if (terrain == null) throw new ArgumentNullException(nameof(terrain));
             if (approaches == null) throw new ArgumentNullException(nameof(approaches));
             if (reserved == null) throw new ArgumentNullException(nameof(reserved));
             if (required < 0) throw new ArgumentOutOfRangeException(nameof(required));
             HashSet<GridPoint> blocked = new HashSet<GridPoint>(reserved);
+            HashSet<GridPoint> roofed = new HashSet<GridPoint>(plannedRoof ?? Enumerable.Empty<GridPoint>());
             HashSet<GridPoint> startCells = new HashSet<GridPoint>(approaches);
             HashSet<GridPoint> visited = new HashSet<GridPoint>();
             Queue<GridPoint> queue = new Queue<GridPoint>();
@@ -28,7 +29,8 @@ namespace RealisticBases.Planning
             while (queue.Count > 0 && fields.Count < required)
             {
                 GridPoint here = queue.Dequeue();
-                if (!startCells.Contains(here) && terrain[here].Has(TerrainTraits.Fertile)) fields.Add(here);
+                if (!startCells.Contains(here) && terrain[here].Has(TerrainTraits.Fertile) &&
+                    !terrain[here].Has(TerrainTraits.Roofed) && !roofed.Contains(here)) fields.Add(here);
                 foreach (GridPoint direction in directions)
                 {
                     GridPoint next = new GridPoint(here.X + direction.X, here.Z + direction.Z);

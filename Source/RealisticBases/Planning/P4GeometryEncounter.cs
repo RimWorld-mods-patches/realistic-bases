@@ -130,7 +130,7 @@ namespace RealisticBases.Planning
 
         private static DefensivePost Post(string id, string sector, GridPoint cell, bool gate) =>
             new DefensivePost(id, sector, cell, gate ? 0 : 10, gate ? 4 : 38,
-                !gate, true, true, false, false, true);
+                !gate, true, true, false, true, true);
 
         private static bool Adjacent(GridPoint a, GridPoint b) => Distance(a, b) == 1;
         private static int Distance(GridPoint a, GridPoint b) => Math.Abs(a.X - b.X) + Math.Abs(a.Z - b.Z);

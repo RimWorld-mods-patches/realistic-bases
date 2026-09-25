@@ -749,6 +749,8 @@ internal static class Program
         Equal(first.Digest, second.Digest, "geometry encounter replay");
         True(first.Posts.Count(p => p.Id.StartsWith("gate-", StringComparison.Ordinal)) >= 2, "gate posts");
         True(first.Posts.Count(p => p.Id.StartsWith("ranged-", StringComparison.Ordinal)) >= 4, "perimeter posts");
+        True(first.Posts.Where(p => !p.Mortar).All(p => p.Inner),
+            "enclosed inherited posts are fallback, not an exterior firing line");
         True(first.Posts.All(p => first.DefendedCells.Contains(p.Cell)), "posts remain in defended cells");
         Equal(new GridPoint(7, 8), first.MagazineCell, "magazine chosen from supplied geometry");
         EncounterPlan armed = GeometryEncounterPlanner.Plan(GeometryInput(true));
@@ -818,6 +820,15 @@ internal static class Program
             new[] { start }, new[] { new GridPoint(1, 2) }, 1).Count, "reserved crop cell is excluded");
         Equal(0, P4FieldPlacement.SelectReachable(terrain,
             new[] { new GridPoint(3, 2) }, Array.Empty<GridPoint>(), 1).Count, "water approach is invalid");
+        Equal(0, P4FieldPlacement.SelectReachable(terrain,
+            new[] { start }, Array.Empty<GridPoint>(), 1, new[] { new GridPoint(1, 2) }).Count,
+            "planned roof excludes the only reachable crop cell");
+        cells[2 * width + 1] = Cell(TerrainTraits.Standable | TerrainTraits.Buildable |
+            TerrainTraits.Fertile | TerrainTraits.Roofed);
+        TerrainSnapshot roofed = new TerrainSnapshot(width, height, cells, "field-natural-roof");
+        Equal(0, P4FieldPlacement.SelectReachable(roofed,
+            new[] { start }, Array.Empty<GridPoint>(), 1).Count,
+            "existing roof excludes the only reachable crop cell");
     }
 
     private static SettlementProfile Profile(int candidates = 128) =>

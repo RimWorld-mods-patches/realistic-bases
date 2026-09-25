@@ -113,6 +113,8 @@ compatibility, or the P4B.4 raid/save matrix.
 
 ## P4B.2 sightline baseline (not a completed gate)
 
+The user clarified the target topology: keep the main field unroofed and outdoors, surround it with wall, and put fighting positions outside that field-facing wall. Planting within the existing inner courtyard is not the target. A gate-adjacent exterior-post prototype was tested in a disposable Core flat map (two reachable posts, two barricades, two P3 assignments), but it did not enclose the field or prove live shots. That prototype was removed from production rather than treating its counts as P4B.2 evidence. The remaining implementation must co-plan the field, its perimeter and crossings, and posts beyond it.
+
 The inherited `GeometryEncounterPlanner` chooses gate posts near the inside
 endpoint and ranged posts beside a wall, setting `HasLineOfFire=true` without
 tracing a shot. `P4BFireLane` now supplies a conservative pure prefilter for

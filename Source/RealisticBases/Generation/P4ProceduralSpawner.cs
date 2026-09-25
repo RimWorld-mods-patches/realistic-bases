@@ -77,6 +77,15 @@ namespace RealisticBases.Generation
             IReadOnlyList<GridPoint> fields = SelectFields(input, layout);
             if (fields.Count < layout.FieldCellsRequired)
             { failure = "insufficient_reachable_fertile_field:" + fields.Count + "/" + layout.FieldCellsRequired; return false; }
+            // Diagnostic-only candidate until its material, roof, gate and
+            // transaction footprints are merged into final occupancy.
+            string fieldWallDiagnostic;
+            P4BFieldWallPlan fieldWall = P4BFieldWallPlanner.Plan(input, layout,
+                structures.Concat(layout.Enclosure).Concat(serviceCells), out fieldWallDiagnostic);
+            P2Log.Message("PROCEDURAL_FIELD_WALL_CANDIDATE", "map=" + map.uniqueID +
+                " available=" + (fieldWall != null) + " fieldCells=" + (fieldWall?.Fields.Count ?? 0) +
+                " wallCells=" + (fieldWall?.Walls.Count ?? 0) +
+                " exteriorPosts=" + (fieldWall?.ExteriorPosts.Count ?? 0) + " diagnostic=" + fieldWallDiagnostic);
             foreach (GridPoint c in structures.Concat(fields).Concat(serviceCells).Distinct())
             {
                 IntVec3 cell = ToCell(c);
@@ -331,7 +340,7 @@ namespace RealisticBases.Generation
                 .Concat(layout.Gates.SelectMany(g => g.BandWalls)).Concat(layout.Gates.SelectMany(g => g.BandDoors))
                 .Concat(layout.Gates.SelectMany(g => g.OuterVestibule));
             return P4FieldPlacement.SelectReachable(input.Terrain, layout.Gates.Select(g => g.Staging),
-                reserved, layout.FieldCellsRequired);
+                reserved, layout.FieldCellsRequired, layout.ConstructedRoof);
         }
 
         private static GridPoint FindOrigin(ThingDef def, Rot4 rotation, IReadOnlyList<GridPoint> footprint)
