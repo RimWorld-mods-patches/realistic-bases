@@ -168,6 +168,7 @@ namespace RealisticBases.Diagnostics
             IntVec3 mapSize = requireMountainous || requireFoothill || requireFlat ? new IntVec3(160, 1, 160) : new IntVec3(80, 1, 80);
             Map map = GetOrGenerateMapUtility.GetOrGenerateMap(tile, mapSize, null);
             Current.Game.CurrentMap = map;
+            RevealDebugMap(map);
             if (arrivalPawn != null)
             {
                 P0MapState mapState = map.GetComponent<P0MapState>();
@@ -221,8 +222,22 @@ namespace RealisticBases.Diagnostics
 
             Map map = GetOrGenerateMapUtility.GetOrGenerateMap(settlement.Tile, new IntVec3(80, 1, 80), null);
             Current.Game.CurrentMap = map;
+            RevealDebugMap(map);
             P0Log.Message("DEBUG_SETTLEMENT_REOPENED", "settlement=" + settlement.ID + " map=" + map.uniqueID +
                 " generator=" + map.generatorDef?.defName);
+        }
+
+        private static void RevealDebugMap(Map map)
+        {
+            int revealed = 0;
+            foreach (IntVec3 cell in map.AllCells)
+            {
+                if (!cell.Fogged(map)) continue;
+                map.fogGrid.Unfog(cell);
+                revealed++;
+            }
+            P0Log.Message("DEBUG_MAP_REVEALED", "map=" + map.uniqueID + " cells=" + revealed +
+                " remainingFog=" + map.AllCells.Count(cell => cell.Fogged(map)));
         }
 
         [DebugAction(Category, "Mark last isolated P0 settlement depleted/damaged", actionType = DebugActionType.Action,
