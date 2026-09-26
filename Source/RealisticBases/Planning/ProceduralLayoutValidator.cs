@@ -39,7 +39,7 @@ namespace RealisticBases.Planning
                         terrain[c].Has(TerrainTraits.Roofed) || !site.Field.Contains(c)))
                     errors.Add("joint_field_capacity_or_roof");
                 HashSet<GridPoint> fieldReserve = new HashSet<GridPoint>(site.Field.Points());
-                fieldReserve.UnionWith(site.PostClearance);
+                fieldReserve.UnionWith(site.AllPostClearance);
                 if (site.Crops.Intersect(site.Lane.Concat(site.Wall).Concat(site.PostClearance)).Any())
                     errors.Add("joint_field_reservation_overlap");
                 IEnumerable<GridPoint> compoundFootprint = layout.Enclosure.Concat(layout.BuiltWalls)
@@ -54,6 +54,35 @@ namespace RealisticBases.Planning
                 if (layout.Rooms.SelectMany(r => r.Bounds.Points()).Any(c => !site.Compound.Contains(c)) ||
                     layout.PowerYards.SelectMany(y => y.Cells).Any(c => !site.Compound.Contains(c)))
                     errors.Add("joint_packing_outside_compound_envelope");
+                if (layout.FieldWall != null)
+                {
+                    P4BFieldWallPlan fieldWall = layout.FieldWall;
+                    GridPoint fieldEntry = fieldWall.InnerGate ?? fieldWall.OuterGate;
+                    if (!fieldWall.InnerGate.HasValue || fieldWall.Fields.Count != layout.FieldCellsRequired || !site.Interfaces.Any(option =>
+                        option.InnerGate.Equals(fieldEntry) && option.OuterGate.Equals(fieldWall.OuterGate) &&
+                        option.Crops.SequenceEqual(fieldWall.Fields) && option.Lane.SequenceEqual(fieldWall.Access)))
+                        errors.Add("joint_field_interface_not_reserved");
+                    HashSet<GridPoint> baselineWalls = new HashSet<GridPoint>(layout.BuiltWalls
+                        .Concat(layout.NaturalWalls).Concat(layout.OuterWalls)
+                        .Concat(layout.Gates.SelectMany(g => g.BandWalls)));
+                    IReadOnlyList<string> fieldErrors = P4BFieldWall.Validate(terrain, fieldWall.Fields,
+                        baselineWalls, fieldWall.Walls,
+                        layout.Gates.Select(g => g.Cell).Concat(layout.Gates.SelectMany(g => g.BandDoors))
+                            .Concat(new[] { fieldEntry, fieldWall.OuterGate }),
+                        fieldWall.ExteriorPosts, layout.Gates[fieldWall.GateIndex].Inside, layout.ConstructedRoof);
+                    foreach (string error in fieldErrors) errors.Add("joint_" + error);
+                    if (!layout.Gates[fieldWall.GateIndex].ExteriorRoute.SequenceEqual(fieldWall.ArrivalRoute) ||
+                        layout.Gates.Any(g => g.ExteriorRoute.Any(fieldWall.Walls.Contains)) ||
+                        !fieldWall.ArrivalRoute.Contains(fieldEntry) ||
+                        !fieldWall.ArrivalRoute.Contains(fieldWall.OuterGate))
+                        errors.Add("joint_arrival_route_blocked_or_misaligned");
+                    if (fieldWall.Walls.Any(c => enclosure.Contains(c) ||
+                        layout.Rooms.Any(r => r.Bounds.Contains(c)) ||
+                        layout.PowerYards.Any(y => y.Cells.Contains(c)) ||
+                        layout.ConstructedRoof.Contains(c)) ||
+                        fieldWall.Fields.Any(c => layout.ConstructedRoof.Contains(c)))
+                        errors.Add("joint_field_compound_occupancy");
+                }
             }
 
             // Terrain legality and the excavation ledger.
@@ -121,8 +150,10 @@ namespace RealisticBases.Planning
             }
             if (layout.TechStage == null || layout.TechStage.Digest != kit.Stage.Digest || layout.RolesDigest != kit.Roles.Digest) errors.Add("equipment_mismatch");
             LayoutMaterialLedger materials = equipment.Count(layout.Rooms,
-                layout.BuiltWalls.Concat(layout.Gates.SelectMany(g => g.BandWalls)).Concat(layout.OuterWalls).Concat(layout.ExhaustPocketWalls),
-                layout.Gates.Sum(g => 1 + g.BandDoors.Count), layout.Power);
+                layout.BuiltWalls.Concat(layout.Gates.SelectMany(g => g.BandWalls)).Concat(layout.OuterWalls)
+                    .Concat(layout.ExhaustPocketWalls).Concat(layout.FieldWall == null
+                        ? Enumerable.Empty<GridPoint>() : layout.FieldWall.Walls),
+                layout.Gates.Sum(g => 1 + g.BandDoors.Count) + (layout.FieldWall == null ? 0 : 2), layout.Power);
             if (layout.Materials == null || layout.Materials.ToString() != materials.ToString()) errors.Add("materials_ledger_mismatch");
             if (materials.ImportValue > requirements.ImportValueLimit) errors.Add(LayoutEquipment.MaterialBudgetExceeded);
 

@@ -283,9 +283,10 @@ namespace RealisticBases.Planning
             IEnumerable<GridPoint> extraObstacles, IEnumerable<string> notes, SettlementTechStage techStage, string rolesDigest,
             string equipmentDigest, string wallStuff, LayoutMaterialLedger materials, LayoutPowerPlan power,
             IEnumerable<LayoutExhaustPocket> exhaustPockets = null, IEnumerable<LayoutWallSection> outerSections = null,
-            P4BJointSite jointSite = null)
+            P4BJointSite jointSite = null, P4BFieldWallPlan fieldWall = null)
         {
             JointSite = jointSite;
+            FieldWall = fieldWall;
             Power = power;
             OuterSections = new ReadOnlyCollection<LayoutWallSection>((outerSections ?? Enumerable.Empty<LayoutWallSection>())
                 .OrderBy(s => s.GateIndex).ThenBy(s => s.Layer).ToList());
@@ -345,6 +346,7 @@ namespace RealisticBases.Planning
         // Explicit field/compound reservation in joint-site mode; null for
         // legacy pure-layout fixtures and supported no-outdoor-field profiles.
         public P4BJointSite JointSite { get; }
+        public P4BFieldWallPlan FieldWall { get; }
         public IReadOnlyList<LayoutRelationship> Relationships { get; }
         // Test-only planned blockers used to prove the validator sees final obstacles.
         public IReadOnlyList<GridPoint> ExtraObstacles { get; }
@@ -386,7 +388,26 @@ namespace RealisticBases.Planning
             new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court, Enclosure, BuiltWalls,
                 NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof, WallLayers, FieldCellsRequired, Relationships,
                 ExtraObstacles.Concat(obstacles ?? Enumerable.Empty<GridPoint>()), Notes, TechStage, RolesDigest, EquipmentDigest, WallStuff, Materials, Power,
-                ExhaustPockets, OuterSections, JointSite);
+                ExhaustPockets, OuterSections, JointSite, FieldWall);
+
+        public ProceduralLayout WithFieldWall(ProceduralLayoutInput input, P4BFieldWallPlan fieldWall)
+        {
+            if (input == null || fieldWall == null) throw new ArgumentNullException(nameof(fieldWall));
+            List<LayoutGate> gates = Gates.Select((g, index) => index == fieldWall.GateIndex
+                ? new LayoutGate(g.Cell, g.Inside, g.Outward, g.BandDoors, g.BandWalls, g.OuterVestibule,
+                    g.Staging, fieldWall.ArrivalRoute, g.InnerVestibule, g.RockFace)
+                : g).ToList();
+            LayoutMaterialLedger materials = input.Equipment.Count(Rooms,
+                BuiltWalls.Concat(gates.SelectMany(g => g.BandWalls)).Concat(OuterWalls)
+                    .Concat(ExhaustPocketWalls).Concat(fieldWall.Walls),
+                gates.Sum(g => 1 + g.BandDoors.Count) + 2, Power);
+            return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court,
+                Enclosure, BuiltWalls, NaturalWalls, gates, Excavation, RetainedThickRoof, ConstructedRoof,
+                WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
+                Notes.Concat(new[] { "fieldWall=" + fieldWall.Digest + " materials " + materials }),
+                TechStage, RolesDigest, EquipmentDigest, WallStuff, materials, Power,
+                ExhaustPockets, OuterSections, JointSite, fieldWall);
+        }
 
         private static IReadOnlyList<GridPoint> Sorted(IEnumerable<GridPoint> cells) =>
             new ReadOnlyCollection<GridPoint>((cells ?? Enumerable.Empty<GridPoint>()).Distinct().OrderBy(c => c).ToList());
@@ -438,6 +459,7 @@ namespace RealisticBases.Planning
             }
             hash = StableHash.Add(hash, WallLayers);
             hash = StableHash.Add(hash, JointSite == null ? string.Empty : JointSite.Digest);
+            hash = StableHash.Add(hash, FieldWall == null ? string.Empty : FieldWall.Digest);
             hash = StableHash.Add(hash, TechStage == null ? string.Empty : TechStage.Digest);
             hash = StableHash.Add(hash, RolesDigest);
             hash = StableHash.Add(hash, EquipmentDigest);
@@ -733,6 +755,29 @@ namespace RealisticBases.Planning
                         IReadOnlyList<string> violations = ProceduralLayoutValidator.Validate(input, layout);
                         if (violations.Count == 0)
                         {
+                            if (site != null)
+                            {
+                                HashSet<GridPoint> occupied = new HashSet<GridPoint>(layout.Enclosure
+                                    .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
+                                    .Concat(layout.PowerYards.SelectMany(y => y.Cells))
+                                    .Concat(layout.AllFixtures.SelectMany(f => f.Cells))
+                                    .Concat(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex]))));
+                                string wallDiagnostic;
+                                P4BFieldWallPlan fieldWall = P4BFieldWallPlanner.PlanJoint(input, layout, occupied,
+                                    out wallDiagnostic);
+                                if (fieldWall == null)
+                                {
+                                    Note(diagnostics, "joint_site", "field_wall_rejected", anchor + " " + wallDiagnostic);
+                                    continue;
+                                }
+                                layout = layout.WithFieldWall(input, fieldWall);
+                                violations = ProceduralLayoutValidator.Validate(input, layout);
+                                if (violations.Count != 0)
+                                {
+                                    Note(diagnostics, "joint_site", "final_rejected", anchor + " " + string.Join("+", violations.Take(6)));
+                                    continue;
+                                }
+                            }
                             if (input.Terrain.Digest != terrainDigest || input.Digest != inputDigest) throw new InvalidOperationException("P4A planner mutated its input.");
                             diagnostics.Add(new LayoutDiagnostic("result", "accepted", stats + " digest=" + layout.Digest));
                             return new ProceduralLayoutResult(layout, demand, diagnostics, stats);
@@ -1231,7 +1276,10 @@ namespace RealisticBases.Planning
 
         private bool BuildSpine()
         {
-            bool vertical = LayoutSeed.Roll(seed, "axis", 2) == 0;
+            // In joint-site mode the principal public street reaches toward
+            // the reserved field interface; branch/room geometry remains seeded.
+            bool vertical = jointSite == null ? LayoutSeed.Roll(seed, "axis", 2) == 0 :
+                Math.Abs(jointSite.InnerGate.Z - anchor.Z) >= Math.Abs(jointSite.InnerGate.X - anchor.X);
             GridPoint axis = vertical ? new GridPoint(0, 1) : new GridPoint(1, 0);
             GridPoint width = vertical ? new GridPoint(1, 0) : new GridPoint(0, 1);
             double[] factors = { 1.0, 1.25, 1.5 };
@@ -1979,6 +2027,14 @@ namespace RealisticBases.Planning
                 bool rockFace = natural.Contains(new GridPoint(g.X + perp.X, g.Z + perp.Z)) || natural.Contains(new GridPoint(g.X - perp.X, g.Z - perp.Z));
                 double score = distance + (streets.Contains(inside) ? 0 : 3) + (doctrine == LayoutDoctrine.RockProtected && rockFace ? -20 : 0) +
                     (int)(LayoutSeed.Key(LayoutSeed.Sub(seed, "gate"), g.X, g.Z) % 6);
+                if (jointSite != null)
+                {
+                    GridPoint fieldGate = jointSite.InnerGate;
+                    int forward = (fieldGate.X - g.X) * outward.X + (fieldGate.Z - g.Z) * outward.Z;
+                    int lateral = Math.Abs((fieldGate.X - g.X) * perp.X + (fieldGate.Z - g.Z) * perp.Z);
+                    if (forward > 2 * layers && lateral <= jointSite.Field.Width / 2)
+                        score -= 1000 - forward - lateral * 2;
+                }
                 HashSet<GridPoint> bandSet = new HashSet<GridPoint>(bandDoors.Concat(bandWalls));
                 List<GridPoint> outerVestibule = line.Where(c => !bandSet.Contains(c) && !c.Equals(staging)).ToList();
                 List<GridPoint> innerVestibule = new List<GridPoint>();

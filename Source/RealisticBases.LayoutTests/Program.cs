@@ -866,11 +866,17 @@ internal static partial class Program
         Accepted(result);
         P4BJointSite site = result.Layout.JointSite;
         True(site != null, "joint site is carried into the layout");
+        True(result.Layout.FieldWall != null, "accepted layout includes the attached field wall, not just a candidate");
         Equal(input.Requirements.FieldCells, site.Crops.Count, "all crop demand remains reserved");
         Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count,
             "final room packing retains the field and defense reservations");
         ProceduralLayoutResult replay = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
         Equal(result.Layout.Digest, replay.Layout.Digest, "joined layout and site digest replay");
+        P4BFieldWallPlan wall = result.Layout.FieldWall;
+        True(wall.ArrivalRoute.Contains(wall.InnerGate.Value) && wall.ArrivalRoute.Contains(wall.OuterGate),
+            "accepted arrival path crosses both reserved field gates");
+        Equal(input.Requirements.FieldCells, wall.Fields.Count,
+            "realized field gate and hauling lane preserve crop capacity");
     }
 
     private static void AdapterCrossCheck()
