@@ -54,6 +54,7 @@ internal static partial class Program
         Run("P4B firing-lane prefilter rejects opaque and out-of-range shots", P4BFireLaneCases);
         Run("P4B field wall joins the perimeter with unroofed crops and exterior posts", P4BFieldWallCases);
         Run("P4B field wall planner finds an attached flat-map bailey", P4BFieldWallPlannerCases);
+        Run("P4B joint site keeps crop capacity and compound space together", P4BJointSiteCases);
         Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck);
         Run("tech stage is stable per faction", TechStageStablePerFaction);
         Run("tech stage respects every faction band", TechStageBands);
@@ -824,6 +825,34 @@ internal static partial class Program
             True(plan.ExteriorPosts.Count == 2, "positions are outside the field-facing wall");
             Equal(terrain.Digest, input.Terrain.Digest, "field wall selection preserves terrain");
         }
+    }
+
+    private static void P4BJointSiteCases()
+    {
+        TerrainSnapshot flat = Plains(160);
+        string originalDigest = flat.Digest;
+        P4BJointSiteResult first = P4BJointSitePlanner.Find(flat, 124, 550, 4, 1234, 16, 4096);
+        P4BJointSiteResult replay = P4BJointSitePlanner.Find(flat, 124, 550, 4, 1234, 16, 4096);
+        True(first.Candidates.Count > 0, "flat land supplies a field-compound pair");
+        Equal(first.Candidates[0].Digest, replay.Candidates[0].Digest, "joint reservations replay exactly");
+        True(first.Evaluated <= 4096, "joint search is bounded");
+        P4BJointSite site = first.Candidates[0];
+        Equal(124, site.Crops.Count, "actual plantable capacity is counted after lane and wall exclusions");
+        True(!site.Crops.Intersect(site.Lane.Concat(site.Wall).Concat(site.PostClearance)).Any(),
+            "crops do not consume gate, wall, lane or defense clearance");
+        True(!site.Crops.Any(site.Compound.Contains), "compound is outside crop reservation");
+        Equal(originalDigest, flat.Digest, "input terrain unchanged");
+
+        TerrainSnapshot separated = Build(160, 160, (x, z) =>
+            (x >= 18 && x <= 40 && z >= 18 && z <= 40) ||
+            (x >= 73 && x <= 150 && z >= 73 && z <= 150) ? Ground : DeepWater);
+        P4BJointSiteResult paired = P4BJointSitePlanner.Find(separated, 124, 550, 3, 4567, 16, 4096);
+        True(paired.Candidates.Count > 0, "second fertile region has adjacent compound room");
+        True(paired.Candidates.All(c => c.Field.MinX >= 70 && c.Field.MinZ >= 70),
+            "fertile patch without a compound cannot win by soil score alone");
+        TerrainSnapshot roofed = Build(80, 80, (x, z) => Ground | TerrainTraits.Roofed);
+        Equal(0, P4BJointSitePlanner.Find(roofed, 124, 400, 3, 1).Candidates.Count,
+            "roofed land cannot become an outdoor field");
     }
 
     private static void AdapterCrossCheck()
