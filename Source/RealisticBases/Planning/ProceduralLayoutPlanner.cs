@@ -282,8 +282,10 @@ namespace RealisticBases.Planning
             IEnumerable<GridPoint> constructedRoof, int wallLayers, int fieldCells, IEnumerable<LayoutRelationship> relationships,
             IEnumerable<GridPoint> extraObstacles, IEnumerable<string> notes, SettlementTechStage techStage, string rolesDigest,
             string equipmentDigest, string wallStuff, LayoutMaterialLedger materials, LayoutPowerPlan power,
-            IEnumerable<LayoutExhaustPocket> exhaustPockets = null, IEnumerable<LayoutWallSection> outerSections = null)
+            IEnumerable<LayoutExhaustPocket> exhaustPockets = null, IEnumerable<LayoutWallSection> outerSections = null,
+            P4BJointSite jointSite = null)
         {
+            JointSite = jointSite;
             Power = power;
             OuterSections = new ReadOnlyCollection<LayoutWallSection>((outerSections ?? Enumerable.Empty<LayoutWallSection>())
                 .OrderBy(s => s.GateIndex).ThenBy(s => s.Layer).ToList());
@@ -340,6 +342,9 @@ namespace RealisticBases.Planning
         public int WallLayers { get; }
         // Unresolved exterior interface: P4 integration must place a fertile field reachable from a gate.
         public int FieldCellsRequired { get; }
+        // Explicit field/compound reservation in joint-site mode; null for
+        // legacy pure-layout fixtures and supported no-outdoor-field profiles.
+        public P4BJointSite JointSite { get; }
         public IReadOnlyList<LayoutRelationship> Relationships { get; }
         // Test-only planned blockers used to prove the validator sees final obstacles.
         public IReadOnlyList<GridPoint> ExtraObstacles { get; }
@@ -381,7 +386,7 @@ namespace RealisticBases.Planning
             new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court, Enclosure, BuiltWalls,
                 NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof, WallLayers, FieldCellsRequired, Relationships,
                 ExtraObstacles.Concat(obstacles ?? Enumerable.Empty<GridPoint>()), Notes, TechStage, RolesDigest, EquipmentDigest, WallStuff, Materials, Power,
-                ExhaustPockets, OuterSections);
+                ExhaustPockets, OuterSections, JointSite);
 
         private static IReadOnlyList<GridPoint> Sorted(IEnumerable<GridPoint> cells) =>
             new ReadOnlyCollection<GridPoint>((cells ?? Enumerable.Empty<GridPoint>()).Distinct().OrderBy(c => c).ToList());
@@ -432,6 +437,7 @@ namespace RealisticBases.Planning
                 foreach (GridPoint c in section.RightReturn) hash = Point(hash, c);
             }
             hash = StableHash.Add(hash, WallLayers);
+            hash = StableHash.Add(hash, JointSite == null ? string.Empty : JointSite.Digest);
             hash = StableHash.Add(hash, TechStage == null ? string.Empty : TechStage.Digest);
             hash = StableHash.Add(hash, RolesDigest);
             hash = StableHash.Add(hash, EquipmentDigest);
@@ -567,6 +573,20 @@ namespace RealisticBases.Planning
             for (int i = 0; i < distance.Length; i++) Placeable[i] = Class[i] != LayoutCellClass.Bad && distance[i] > margin;
         }
 
+        private LayoutTerrainGrid(LayoutTerrainGrid source, GridRect allowed)
+        {
+            Terrain = source.Terrain;
+            Width = source.Width;
+            Height = source.Height;
+            Class = source.Class;
+            OpenClearance = source.OpenClearance;
+            Placeable = (bool[])source.Placeable.Clone();
+            for (int i = 0; i < Placeable.Length; i++)
+                if (!allowed.Contains(new GridPoint(i % Width, i / Width))) Placeable[i] = false;
+        }
+
+        public LayoutTerrainGrid RestrictTo(GridRect allowed) => new LayoutTerrainGrid(this, allowed);
+
         public static LayoutTerrainGrid Build(TerrainSnapshot terrain, int margin, IEnumerable<GridPoint> openOverrides = null) =>
             new LayoutTerrainGrid(terrain, margin, openOverrides);
 
@@ -600,7 +620,7 @@ namespace RealisticBases.Planning
     {
         internal static readonly GridPoint[] Cardinal = { new GridPoint(0, -1), new GridPoint(-1, 0), new GridPoint(1, 0), new GridPoint(0, 1) };
 
-        public static ProceduralLayoutResult Plan(ProceduralLayoutInput input)
+        public static ProceduralLayoutResult Plan(ProceduralLayoutInput input, bool requireJointSite = false)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
             string terrainDigest = input.Terrain.Digest;
@@ -630,6 +650,16 @@ namespace RealisticBases.Planning
 
             LayoutTerrainGrid grid = LayoutTerrainGrid.Build(input.Terrain, input.Fortification.PlacementMargin, input.Resources.GeyserFootprints());
             int requiredArea = demand.MinimumRoomArea * 3 / 2;
+            P4BJointSiteResult jointSites = null;
+            if (requireJointSite && requirements.FieldCells > 0)
+            {
+                jointSites = P4BJointSitePlanner.Find(input.Terrain, requirements.FieldCells, requiredArea,
+                    input.Fortification.PlacementMargin, LayoutSeed.Sub(input.Seed, "joint-site"),
+                    input.Budget.MaxSites, input.Budget.MaxSites * 1024);
+                diagnostics.Add(new LayoutDiagnostic("joint_site", "preflight", "pairs=" + jointSites.Candidates.Count +
+                    " evaluated=" + jointSites.Evaluated + " rejected=" + string.Join(",", jointSites.Rejections)));
+                if (jointSites.Candidates.Count == 0) return reject("no_feasible_field_compound_pair");
+            }
             List<List<int>> components = Components(grid).Where(c => c.Count >= requiredArea).ToList();
             int placeable = grid.Placeable.Count(p => p);
             if (components.Count == 0)
@@ -670,10 +700,17 @@ namespace RealisticBases.Planning
                 int sitesRemaining = input.Budget.MaxSites - stats.SitesTried;
                 int siteQuota = d == doctrines.Count - 1 ? sitesRemaining : Math.Max(1, sitesRemaining / (doctrines.Count - d));
                 int siteLimit = stats.SitesTried + siteQuota;
-                List<GridPoint> anchors = Anchors(grid, components, doctrine, LayoutSeed.Sub(input.Seed, "site"), siteQuota);
+                List<P4BJointSite> paired = jointSites == null ? null : jointSites.Candidates
+                    .Skip(stats.SitesTried).Take(siteQuota).ToList();
+                List<GridPoint> anchors = paired == null
+                    ? Anchors(grid, components, doctrine, LayoutSeed.Sub(input.Seed, "site"), siteQuota)
+                    : paired.Select(s => s.Anchor).ToList();
                 if (anchors.Count == 0) diagnostics.Add(new LayoutDiagnostic("site", "no_anchor", doctrine.ToString()));
-                foreach (GridPoint anchor in anchors)
+                for (int siteIndex = 0; siteIndex < anchors.Count; siteIndex++)
                 {
+                    GridPoint anchor = anchors[siteIndex];
+                    P4BJointSite site = paired == null ? null : paired[siteIndex];
+                    LayoutTerrainGrid siteGrid = site == null ? grid : grid.RestrictTo(site.Compound);
                     if (stats.SitesTried >= siteLimit) break;
                     stats.SitesTried++;
                     for (int attempt = 0; attempt < input.Budget.AttemptsPerSite; attempt++)
@@ -681,13 +718,14 @@ namespace RealisticBases.Planning
                         if (stats.BudgetExhausted) return reject("search_budget_exhausted");
                         stats.Attempts++;
                         ulong attemptSeed = LayoutSeed.Key(LayoutSeed.Sub(input.Seed, "attempt"), anchor.X * 4099 + anchor.Z, attempt, (int)doctrine);
-                        LayoutAttempt run = new LayoutAttempt(input, demand, grid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics);
+                        LayoutAttempt run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics,
+                            jointSite: site);
                         ProceduralLayout layout = run.Run();
                         if (layout == null && run.NeedsPocketsOnly && !stats.BudgetExhausted)
                         {
                             // The public room failed vanilla's outdoor rule: replan this attempt with pocket exhaust only.
                             stats.Attempts++;
-                            run = new LayoutAttempt(input, demand, grid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics, true);
+                            run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics, true, site);
                             layout = run.Run();
                         }
                         if (stats.BudgetExhausted && layout == null) return reject("search_budget_exhausted");
@@ -869,6 +907,7 @@ namespace RealisticBases.Planning
         private readonly List<string> powerDiagnostics = new List<string>();
         private LayoutPowerPlan power;
         private readonly bool pocketsOnly;
+        private readonly P4BJointSite jointSite;
         private readonly int roofHoleBudget;
         private readonly Dictionary<GridPoint, PocketBuild> pockets = new Dictionary<GridPoint, PocketBuild>();
         private readonly HashSet<GridPoint> roomWalls = new HashSet<GridPoint>();
@@ -897,9 +936,11 @@ namespace RealisticBases.Planning
         }
 
         public LayoutAttempt(ProceduralLayoutInput input, LayoutDemandSet demand, LayoutTerrainGrid grid, GridPoint anchor,
-            LayoutDoctrine doctrine, bool wantsCourt, ulong seed, LayoutSearchStats stats, List<LayoutDiagnostic> diagnostics, bool pocketsOnly = false)
+            LayoutDoctrine doctrine, bool wantsCourt, ulong seed, LayoutSearchStats stats, List<LayoutDiagnostic> diagnostics,
+            bool pocketsOnly = false, P4BJointSite jointSite = null)
         {
             this.pocketsOnly = pocketsOnly;
+            this.jointSite = jointSite;
             this.input = input;
             this.demand = demand;
             this.grid = grid;
@@ -1768,7 +1809,7 @@ namespace RealisticBases.Planning
                 segments.Select(x => new LayoutCorridor(x.Id, x.Main, x.Cells)), court, enclosure, built, natural, gates, dug,
                 retained, constructed, input.Fortification.WallLayers, input.Requirements.FieldCells, demand.Relationships,
                 Enumerable.Empty<GridPoint>(), layoutNotes, equipment.Kit.Stage, equipment.Kit.Roles.Digest, equipment.Digest,
-                equipment.ConstructionStuff, materials, power, exhaustPockets, outerSections);
+                equipment.ConstructionStuff, materials, power, exhaustPockets, outerSections, jointSite);
             // Vanilla temperature rule on the final plan: every cooler cools its own room and
             // exhausts into a room that uses outdoor temperature.
             LayoutRoomPartition partition = LayoutRoomPartition.Build(input.Terrain, layout);

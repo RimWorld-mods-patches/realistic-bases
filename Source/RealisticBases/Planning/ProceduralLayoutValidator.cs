@@ -31,6 +31,31 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> retained = new HashSet<GridPoint>(layout.RetainedThickRoof);
             HashSet<GridPoint> extra = new HashSet<GridPoint>(layout.ExtraObstacles);
 
+            if (layout.JointSite != null)
+            {
+                P4BJointSite site = layout.JointSite;
+                if (site.Crops.Count != layout.FieldCellsRequired ||
+                    site.Crops.Any(c => !terrain.InBounds(c) || !terrain[c].Has(TerrainTraits.Fertile) ||
+                        terrain[c].Has(TerrainTraits.Roofed) || !site.Field.Contains(c)))
+                    errors.Add("joint_field_capacity_or_roof");
+                HashSet<GridPoint> fieldReserve = new HashSet<GridPoint>(site.Field.Points());
+                fieldReserve.UnionWith(site.PostClearance);
+                if (site.Crops.Intersect(site.Lane.Concat(site.Wall).Concat(site.PostClearance)).Any())
+                    errors.Add("joint_field_reservation_overlap");
+                IEnumerable<GridPoint> compoundFootprint = layout.Enclosure.Concat(layout.BuiltWalls)
+                    .Concat(layout.NaturalWalls).Concat(layout.OuterWalls)
+                    .Concat(layout.Gates.Select(g => g.Cell))
+                    .Concat(layout.Gates.SelectMany(g => g.BandDoors.Concat(g.BandWalls)))
+                    .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
+                    .Concat(layout.PowerYards.SelectMany(y => y.Cells));
+                if (compoundFootprint.Any(fieldReserve.Contains) ||
+                    layout.ConstructedRoof.Any(fieldReserve.Contains))
+                    errors.Add("joint_compound_consumes_field_or_defense");
+                if (layout.Rooms.SelectMany(r => r.Bounds.Points()).Any(c => !site.Compound.Contains(c)) ||
+                    layout.PowerYards.SelectMany(y => y.Cells).Any(c => !site.Compound.Contains(c)))
+                    errors.Add("joint_packing_outside_compound_envelope");
+            }
+
             // Terrain legality and the excavation ledger.
             if (built.Any(c => grid.At(c) != LayoutCellClass.Open && grid.At(c) != LayoutCellClass.Covered)) errors.Add("built_wall_illegal_terrain");
             if (outer.Count != layout.OuterWalls.Count() || outer.Any(c => grid.At(c) != LayoutCellClass.Open ||

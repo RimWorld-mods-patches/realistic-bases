@@ -55,6 +55,7 @@ internal static partial class Program
         Run("P4B field wall joins the perimeter with unroofed crops and exterior posts", P4BFieldWallCases);
         Run("P4B field wall planner finds an attached flat-map bailey", P4BFieldWallPlannerCases);
         Run("P4B joint site keeps crop capacity and compound space together", P4BJointSiteCases);
+        Run("P4B joint reservation constrains detailed room packing", P4BJointPackingCases);
         Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck);
         Run("tech stage is stable per faction", TechStageStablePerFaction);
         Run("tech stage respects every faction band", TechStageBands);
@@ -853,6 +854,23 @@ internal static partial class Program
         TerrainSnapshot roofed = Build(80, 80, (x, z) => Ground | TerrainTraits.Roofed);
         Equal(0, P4BJointSitePlanner.Find(roofed, 124, 400, 3, 1).Candidates.Count,
             "roofed land cannot become an outdoor field");
+    }
+
+    private static void P4BJointPackingCases()
+    {
+        TerrainSnapshot terrain = Plains(160);
+        ProceduralLayoutInput input = Input(terrain,
+            LayoutRequirements.FromPopulation(4, Industrial, Temperate), 184,
+            new LayoutFortificationReservation(wallLayers: 1));
+        ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+        Accepted(result);
+        P4BJointSite site = result.Layout.JointSite;
+        True(site != null, "joint site is carried into the layout");
+        Equal(input.Requirements.FieldCells, site.Crops.Count, "all crop demand remains reserved");
+        Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count,
+            "final room packing retains the field and defense reservations");
+        ProceduralLayoutResult replay = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+        Equal(result.Layout.Digest, replay.Layout.Digest, "joined layout and site digest replay");
     }
 
     private static void AdapterCrossCheck()
