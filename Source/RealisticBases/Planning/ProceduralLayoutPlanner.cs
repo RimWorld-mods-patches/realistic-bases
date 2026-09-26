@@ -400,7 +400,8 @@ namespace RealisticBases.Planning
             LayoutMaterialLedger materials = input.Equipment.Count(Rooms,
                 BuiltWalls.Concat(gates.SelectMany(g => g.BandWalls)).Concat(OuterWalls)
                     .Concat(ExhaustPocketWalls).Concat(fieldWall.Walls),
-                gates.Sum(g => 1 + g.BandDoors.Count) + 2, Power);
+                gates.Sum(g => 1 + g.BandDoors.Count) + 2, Power,
+                Enumerable.Repeat(fieldWall.CoverDefName, fieldWall.CoverCells.Count));
             return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court,
                 Enclosure, BuiltWalls, NaturalWalls, gates, Excavation, RetainedThickRoof, ConstructedRoof,
                 WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,

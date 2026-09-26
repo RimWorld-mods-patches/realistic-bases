@@ -8,13 +8,16 @@ namespace RealisticBases.Planning
     public sealed class P4BFieldInterface
     {
         internal P4BFieldInterface(GridPoint innerGate, GridPoint outerGate,
-            IEnumerable<GridPoint> crops, IEnumerable<GridPoint> lane, IEnumerable<GridPoint> posts)
+            IEnumerable<GridPoint> crops, IEnumerable<GridPoint> lane, IEnumerable<GridPoint> posts,
+            IEnumerable<GridPoint> cover, IEnumerable<GridPoint> postAccess)
         {
             InnerGate = innerGate;
             OuterGate = outerGate;
             Crops = Copy(crops);
             Lane = Copy(lane);
             PostClearance = Copy(posts);
+            CoverCells = Copy(cover);
+            PostAccess = Copy(postAccess);
         }
         private static IReadOnlyList<GridPoint> Copy(IEnumerable<GridPoint> cells) =>
             new ReadOnlyCollection<GridPoint>(cells.Distinct().OrderBy(c => c).ToList());
@@ -23,6 +26,8 @@ namespace RealisticBases.Planning
         public IReadOnlyList<GridPoint> Crops { get; }
         public IReadOnlyList<GridPoint> Lane { get; }
         public IReadOnlyList<GridPoint> PostClearance { get; }
+        public IReadOnlyList<GridPoint> CoverCells { get; }
+        public IReadOnlyList<GridPoint> PostAccess { get; }
     }
 
     // A bounded field-first preflight. The compound envelope is a packing
@@ -55,7 +60,8 @@ namespace RealisticBases.Planning
             {
                 hash = StableHash.Add(hash, option.InnerGate.X); hash = StableHash.Add(hash, option.InnerGate.Z);
                 hash = StableHash.Add(hash, option.OuterGate.X); hash = StableHash.Add(hash, option.OuterGate.Z);
-                foreach (GridPoint c in option.Crops.Concat(option.Lane).Concat(option.PostClearance))
+                foreach (GridPoint c in option.Crops.Concat(option.Lane).Concat(option.PostClearance)
+                    .Concat(option.CoverCells).Concat(option.PostAccess))
                 { hash = StableHash.Add(hash, c.X); hash = StableHash.Add(hash, c.Z); }
             }
             Digest = hash.ToString("X16");
@@ -74,7 +80,7 @@ namespace RealisticBases.Planning
         public GridPoint OuterGate { get; }
         public IReadOnlyList<GridPoint> PostClearance { get; }
         public IReadOnlyList<P4BFieldInterface> Interfaces { get; }
-        public IEnumerable<GridPoint> AllPostClearance => Interfaces.SelectMany(i => i.PostClearance).Distinct();
+        public IEnumerable<GridPoint> AllPostClearance => Interfaces.SelectMany(i => i.PostClearance.Concat(i.CoverCells)).Distinct();
         public int Score { get; }
         public string Digest { get; }
     }
@@ -105,7 +111,10 @@ namespace RealisticBases.Planning
             if (maxCandidates <= 0 || maxEvaluations <= 0) throw new ArgumentOutOfRangeException(nameof(maxCandidates));
             LayoutTerrainGrid grid = LayoutTerrainGrid.Build(terrain, margin);
             int fieldSide = (int)Math.Ceiling(Math.Sqrt(requiredCrops)) + 5;
-            int compoundSide = Math.Max(30, (int)Math.Ceiling(Math.Sqrt(minimumCompoundCells)) + 8);
+            // Room packing needs circulation, gate returns and utility pockets in
+            // addition to the minimum room-area count. A 30-cell square passed
+            // site preflight but repeatedly ran out of room on live 160x160 maps.
+            int compoundSide = Math.Max(38, (int)Math.Ceiling(Math.Sqrt(minimumCompoundCells)) + 14);
             Dictionary<string, int> rejected = new Dictionary<string, int>(StringComparer.Ordinal);
             List<P4BJointSite> accepted = new List<P4BJointSite>();
             int evaluated = 0;
@@ -141,7 +150,20 @@ namespace RealisticBases.Planning
                         GridPoint innerGate = GateAt(field, side, true, gateOffset);
                         GridPoint outerGate = GateAt(field, side, false, gateOffset);
                         List<GridPoint> posts = PostCells(field, outerGate, side);
-                        if (posts.Count != 2 || posts.Any(c => !grid.Passable(c) || grid.At(c) != LayoutCellClass.Open)) continue;
+                        GridPoint outward = side == 0 ? new GridPoint(0, 1) : side == 1 ? new GridPoint(-1, 0) :
+                            side == 2 ? new GridPoint(0, -1) : new GridPoint(1, 0);
+                        List<GridPoint> cover = posts.Select(p => new GridPoint(p.X + outward.X, p.Z + outward.Z)).ToList();
+                        if (posts.Count != 2 || posts.Concat(cover).Any(c => !grid.Passable(c) || grid.At(c) != LayoutCellClass.Open)) continue;
+                        GridPoint tangent = new GridPoint(outward.Z, outward.X);
+                        List<GridPoint> postAccess = new List<GridPoint>();
+                        for (int forward = 1; forward <= 4; forward++)
+                            for (int lateral = -6; lateral <= 6; lateral++)
+                            {
+                                GridPoint c = new GridPoint(outerGate.X + outward.X * forward + tangent.X * lateral,
+                                    outerGate.Z + outward.Z * forward + tangent.Z * lateral);
+                                if (grid.Passable(c) && !cover.Contains(c)) postAccess.Add(c);
+                            }
+                        if (posts.Any(p => !ConnectedTo(outerGate, p, postAccess))) continue;
                         List<GridPoint> crossLane = field.Points().Where(c => !Edge(field, c) &&
                             (side == 0 || side == 2 ? c.X == innerGate.X : c.Z == innerGate.Z)).ToList();
                         List<GridPoint> lane = perimeterLane.Concat(crossLane).Distinct().ToList();
@@ -154,8 +176,10 @@ namespace RealisticBases.Planning
                             terrain[c].Has(TerrainTraits.Fertile)).ToList();
                         List<GridPoint> reachable = ReachableFromLane(interior, lane);
                         if (reachable.Count < requiredCrops) continue;
-                        List<GridPoint> chosen = reachable.Take(requiredCrops).ToList();
-                        interfaces.Add(new P4BFieldInterface(innerGate, outerGate, chosen, lane, posts));
+                        // Demand is a floor, not a planting cap: an established
+                        // field uses every reachable fertile cell beyond its lane.
+                        List<GridPoint> chosen = reachable;
+                        interfaces.Add(new P4BFieldInterface(innerGate, outerGate, chosen, lane, posts, cover, postAccess));
                     }
                     if (interfaces.Count == 0) { Reject("crop_capacity_or_interface"); continue; }
                     P4BFieldInterface preferred = interfaces.OrderBy(i => Manhattan(i.InnerGate,
@@ -219,6 +243,25 @@ namespace RealisticBases.Planning
         }
 
         private static int Manhattan(GridPoint a, GridPoint b) => Math.Abs(a.X - b.X) + Math.Abs(a.Z - b.Z);
+
+        private static bool ConnectedTo(GridPoint start, GridPoint target, IEnumerable<GridPoint> cells)
+        {
+            HashSet<GridPoint> legal = new HashSet<GridPoint>(cells) { start };
+            HashSet<GridPoint> seen = new HashSet<GridPoint> { start };
+            Queue<GridPoint> queue = new Queue<GridPoint>();
+            queue.Enqueue(start);
+            while (queue.Count > 0)
+            {
+                GridPoint here = queue.Dequeue();
+                if (here.Equals(target)) return true;
+                foreach (GridPoint d in ProceduralLayoutPlanner.Cardinal)
+                {
+                    GridPoint next = new GridPoint(here.X + d.X, here.Z + d.Z);
+                    if (legal.Contains(next) && seen.Add(next)) queue.Enqueue(next);
+                }
+            }
+            return false;
+        }
 
         private static List<GridPoint> LargestConnected(IEnumerable<GridPoint> cells)
         {

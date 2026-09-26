@@ -838,7 +838,7 @@ internal static partial class Program
         Equal(first.Candidates[0].Digest, replay.Candidates[0].Digest, "joint reservations replay exactly");
         True(first.Evaluated <= 4096, "joint search is bounded");
         P4BJointSite site = first.Candidates[0];
-        Equal(124, site.Crops.Count, "actual plantable capacity is counted after lane and wall exclusions");
+        True(site.Crops.Count > 124, "all usable crop soil is planted beyond minimum demand");
         True(!site.Crops.Intersect(site.Lane.Concat(site.Wall).Concat(site.PostClearance)).Any(),
             "crops do not consume gate, wall, lane or defense clearance");
         True(!site.Crops.Any(site.Compound.Contains), "compound is outside crop reservation");
@@ -867,7 +867,7 @@ internal static partial class Program
         P4BJointSite site = result.Layout.JointSite;
         True(site != null, "joint site is carried into the layout");
         True(result.Layout.FieldWall != null, "accepted layout includes the attached field wall, not just a candidate");
-        Equal(input.Requirements.FieldCells, site.Crops.Count, "all crop demand remains reserved");
+        True(site.Crops.Count > input.Requirements.FieldCells, "all usable field soil is reserved for crops");
         Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count,
             "final room packing retains the field and defense reservations");
         ProceduralLayoutResult replay = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
@@ -875,8 +875,24 @@ internal static partial class Program
         P4BFieldWallPlan wall = result.Layout.FieldWall;
         True(wall.ArrivalRoute.Contains(wall.InnerGate.Value) && wall.ArrivalRoute.Contains(wall.OuterGate),
             "accepted arrival path crosses both reserved field gates");
-        Equal(input.Requirements.FieldCells, wall.Fields.Count,
-            "realized field gate and hauling lane preserve crop capacity");
+        True(wall.Fields.Count > input.Requirements.FieldCells,
+            "realized field plants beyond minimum crop demand while preserving its lane");
+        True(wall.CoverCells.Count == wall.ExteriorPosts.Count && wall.CoverCells.Count == 2,
+            "each exterior post has a reserved cover fixture");
+        True(wall.ExteriorPosts.All(wall.Access.Contains),
+            "outside post positions belong to the defended access reservation");
+        True(wall.CoverCells.All(c => !wall.Access.Contains(c) && !wall.Fields.Contains(c)),
+            "cover stays outside the walkable access and crop cells");
+        foreach (ulong seed in new ulong[] { 185, 186, 187 })
+        {
+            ProceduralLayoutInput varied = Input(terrain,
+                LayoutRequirements.FromPopulation(4, Industrial, Temperate), seed,
+                new LayoutFortificationReservation(wallLayers: 1));
+            ProceduralLayoutResult alternate = ProceduralLayoutPlanner.Plan(varied, requireJointSite: true);
+            Accepted(alternate);
+            True(alternate.Layout.FieldWall != null,
+                "multiple seeded room packings retain a joined field wall");
+        }
     }
 
     private static void AdapterCrossCheck()

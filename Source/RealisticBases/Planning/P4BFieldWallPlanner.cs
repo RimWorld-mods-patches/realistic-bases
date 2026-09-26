@@ -10,7 +10,8 @@ namespace RealisticBases.Planning
         internal P4BFieldWallPlan(int gateIndex, IEnumerable<GridPoint> fields,
             IEnumerable<GridPoint> walls, GridPoint outerGate, IEnumerable<GridPoint> exteriorPosts,
             GridPoint? innerGate = null, IEnumerable<GridPoint> access = null,
-            IEnumerable<GridPoint> arrivalRoute = null)
+            IEnumerable<GridPoint> arrivalRoute = null, IEnumerable<GridPoint> coverCells = null,
+            string coverDefName = null)
         {
             GateIndex = gateIndex;
             Fields = new ReadOnlyCollection<GridPoint>(fields.OrderBy(c => c).ToList());
@@ -20,12 +21,15 @@ namespace RealisticBases.Planning
             InnerGate = innerGate;
             Access = new ReadOnlyCollection<GridPoint>((access ?? Enumerable.Empty<GridPoint>()).Distinct().OrderBy(c => c).ToList());
             ArrivalRoute = new ReadOnlyCollection<GridPoint>((arrivalRoute ?? Enumerable.Empty<GridPoint>()).ToList());
+            CoverCells = new ReadOnlyCollection<GridPoint>((coverCells ?? Enumerable.Empty<GridPoint>()).Distinct().OrderBy(c => c).ToList());
+            CoverDefName = coverDefName ?? string.Empty;
             ulong hash = StableHash.Add(StableHash.Start, "p4b-field-wall-1");
             hash = StableHash.Add(hash, gateIndex);
             hash = StableHash.Add(hash, outerGate.X); hash = StableHash.Add(hash, outerGate.Z);
             hash = StableHash.Add(hash, innerGate.HasValue ? innerGate.Value.X : -1);
             hash = StableHash.Add(hash, innerGate.HasValue ? innerGate.Value.Z : -1);
-            foreach (GridPoint c in Fields.Concat(Walls).Concat(ExteriorPosts).Concat(Access).Concat(ArrivalRoute))
+            hash = StableHash.Add(hash, CoverDefName);
+            foreach (GridPoint c in Fields.Concat(Walls).Concat(ExteriorPosts).Concat(Access).Concat(ArrivalRoute).Concat(CoverCells))
             { hash = StableHash.Add(hash, c.X); hash = StableHash.Add(hash, c.Z); }
             Digest = hash.ToString("X16");
         }
@@ -38,6 +42,8 @@ namespace RealisticBases.Planning
         public GridPoint? InnerGate { get; }
         public IReadOnlyList<GridPoint> Access { get; }
         public IReadOnlyList<GridPoint> ArrivalRoute { get; }
+        public IReadOnlyList<GridPoint> CoverCells { get; }
+        public string CoverDefName { get; }
         public string Digest { get; }
     }
 
@@ -63,6 +69,11 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> doors = new HashSet<GridPoint>(layout.Gates.Select(g => g.Cell)
                 .Concat(layout.Gates.SelectMany(g => g.BandDoors)));
             HashSet<GridPoint> field = new HashSet<GridPoint>(site.Field.Points());
+            CatalogDef coverDef;
+            string coverName = new[] { "Sandbags", "Barricade" }.FirstOrDefault(name =>
+                input.Catalog.TryGet(name, out coverDef) &&
+                input.Catalog.IsLegal(coverDef, input.Equipment.Kit.Stage));
+            if (coverName == null) { diagnostic = "cover_def_unavailable"; return null; }
             List<string> rejected = new List<string>();
             int bestDistance = int.MaxValue;
             for (int gateIndex = 0; gateIndex < layout.Gates.Count; gateIndex++)
@@ -142,13 +153,18 @@ namespace RealisticBases.Planning
                     if (option.PostClearance.Count < 2 || option.PostClearance.Take(2).Any(p =>
                         !targets.Any(target => P4BFireLane.CanEngage(p, target, 8, 38, opaque))))
                     { rejected.Add("outside_posts_no_shot"); continue; }
+                    if (option.CoverCells.Count != option.PostClearance.Count ||
+                        option.CoverCells.Any(c => blocked.Contains(c) || wall.Contains(c) || arrival.Contains(c) ||
+                            baseline.Contains(c) || !Walkable(input.Terrain, c)))
+                    { rejected.Add("outside_cover_blocked"); continue; }
                     IReadOnlyList<string> errors = P4BFieldWall.Validate(input.Terrain, option.Crops, baseline, wall,
                         doors.Concat(new[] { option.InnerGate, option.OuterGate }), option.PostClearance,
                         gate.Inside, layout.ConstructedRoof);
                     if (errors.Count != 0) { rejected.Add("validate:" + errors[0]); continue; }
                     diagnostic = "accepted gate=" + gateIndex + " forward=" + forward + " inner=" + option.InnerGate;
                     return new P4BFieldWallPlan(gateIndex, option.Crops, wall, option.OuterGate,
-                        option.PostClearance, option.InnerGate, option.Lane, arrival);
+                        option.PostClearance, option.InnerGate, option.Lane.Concat(option.PostAccess),
+                        arrival, option.CoverCells, coverName);
                 }
             }
             diagnostic = "bestGateDistance=" + (bestDistance == int.MaxValue ? -1 : bestDistance) +

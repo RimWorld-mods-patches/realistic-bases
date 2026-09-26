@@ -25,6 +25,9 @@ namespace RealisticBases.Generation
             if (run?.Result?.Layout == null) { failure = "missing_procedural_layout"; return false; }
             ProceduralLayoutInput input = run.Input;
             ProceduralLayout layout = run.Result.Layout;
+            P4BFieldWallPlan fieldWall = layout.FieldWall;
+            if (layout.FieldCellsRequired > 0 && fieldWall == null)
+            { failure = "missing_joint_field_wall"; return false; }
             IReadOnlyList<string> errors = ProceduralLayoutValidator.Validate(input, layout);
             if (errors.Count != 0) { failure = "invalid_layout:" + string.Join(",", errors); return false; }
             SettlementLoadout loadout = LayoutLoadoutModel.Build(input, layout);
@@ -52,9 +55,16 @@ namespace RealisticBases.Generation
             walls.ExceptWith(doors);
             walls.ExceptWith(coolers);
             walls.ExceptWith(natural);
+            if (fieldWall != null) walls.UnionWith(fieldWall.Walls);
+            if (fieldWall != null)
+            {
+                doors.Add(fieldWall.InnerGate.Value);
+                doors.Add(fieldWall.OuterGate);
+            }
             HashSet<GridPoint> structures = new HashSet<GridPoint>(walls.Concat(doors).Concat(layout.AllFixtures
                 .Where(f => f.Kind != LayoutFixtureKind.Stockpile && f.Kind != LayoutFixtureKind.MortarCourt)
-                .SelectMany(f => f.Cells)).Concat(layout.PowerYards.SelectMany(y => y.Cells)));
+                .SelectMany(f => f.Cells)).Concat(layout.PowerYards.SelectMany(y => y.Cells))
+                .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() : fieldWall.CoverCells));
             if (layout.Court != null) structures.UnionWith(layout.Court.Cells);
             List<GridPoint> serviceCells = layout.OuterSections
                 .SelectMany(section => section.ServiceLane(layout.Gates[section.GateIndex])).Distinct().ToList();
@@ -74,19 +84,16 @@ namespace RealisticBases.Generation
             try { conduitCells = PlanConduits(map, input, layout); }
             catch (Exception ex) { failure = "power_route_rejected:" + ex.Message; return false; }
 
-            IReadOnlyList<GridPoint> fields = SelectFields(input, layout);
+            IReadOnlyList<GridPoint> fields = fieldWall == null ? SelectFields(input, layout) : fieldWall.Fields;
             if (fields.Count < layout.FieldCellsRequired)
             { failure = "insufficient_reachable_fertile_field:" + fields.Count + "/" + layout.FieldCellsRequired; return false; }
-            // Diagnostic-only candidate until its material, roof, gate and
-            // transaction footprints are merged into final occupancy.
-            string fieldWallDiagnostic;
-            P4BFieldWallPlan fieldWall = P4BFieldWallPlanner.Plan(input, layout,
-                structures.Concat(layout.Enclosure).Concat(serviceCells), out fieldWallDiagnostic);
-            P2Log.Message("PROCEDURAL_FIELD_WALL_CANDIDATE", "map=" + map.uniqueID +
-                " available=" + (fieldWall != null) + " fieldCells=" + (fieldWall?.Fields.Count ?? 0) +
-                " wallCells=" + (fieldWall?.Walls.Count ?? 0) +
-                " exteriorPosts=" + (fieldWall?.ExteriorPosts.Count ?? 0) + " diagnostic=" + fieldWallDiagnostic);
-            foreach (GridPoint c in structures.Concat(fields).Concat(serviceCells).Distinct())
+            if (fieldWall != null)
+                P2Log.Message("PROCEDURAL_FIELD_WALL_PLAN", "map=" + map.uniqueID +
+                    " digest=" + fieldWall.Digest + " fieldCells=" + fieldWall.Fields.Count +
+                    " wallCells=" + fieldWall.Walls.Count + " gates=2 cover=" + fieldWall.CoverCells.Count +
+                    " exteriorPosts=" + fieldWall.ExteriorPosts.Count);
+            foreach (GridPoint c in structures.Concat(fields).Concat(serviceCells)
+                .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() : fieldWall.ExteriorPosts).Distinct())
             {
                 IntVec3 cell = ToCell(c);
                 if (!cell.InBounds(map)) { failure = "spawn_cell_out_of_bounds:" + c; return false; }
@@ -114,6 +121,26 @@ namespace RealisticBases.Generation
                     layout.Enclosure, walls.Concat(natural), layout.Gates.Select(g =>
                         new KeyValuePair<GridPoint, GridPoint>(g.Cell, g.Inside)), publicCells,
                     storage.Interior.Points(), layout.Court?.Cells.FirstOrDefault(), layout.Court?.Access.FirstOrDefault()));
+                if (fieldWall != null)
+                {
+                    // The compound reservation also covers the short exterior
+                    // crossing to the field. Vanilla pathfinding may leave the
+                    // literal wall interior through a different compound gate.
+                    List<GridPoint> defended = layout.Enclosure.Concat(layout.JointSite.Compound.Points())
+                        .Concat(layout.JointSite.Field.Points())
+                        .Concat(fieldWall.Access)
+                        .Concat(fieldWall.ArrivalRoute.TakeWhile(c => !c.Equals(fieldWall.OuterGate)))
+                        .Concat(fieldWall.ExteriorPosts).Concat(new[] { fieldWall.OuterGate }).Distinct().ToList();
+                    GridRect bounds = new GridRect(defended.Min(c => c.X), defended.Min(c => c.Z),
+                        defended.Max(c => c.X) - defended.Min(c => c.X) + 1,
+                        defended.Max(c => c.Z) - defended.Min(c => c.Z) + 1);
+                    encounter = new EncounterPlan(layout.Digest, profile, encounter.Posts.Concat(
+                        fieldWall.ExteriorPosts.Select((c, i) => new DefensivePost("field-outer-" + i,
+                            "field", c, 8, 38, true, true, true, false, false, true))),
+                        bounds, encounter.SupportCenter, encounter.InnerFallback,
+                        encounter.MortarCell, encounter.MortarInteractionCell, encounter.MagazineCell,
+                        encounter.Supplies, defended);
+                }
                 // Diagnostic only until P4B selects exterior positions and cover.
                 // Closed gates are opaque; proximity to a wall cannot assert a shot.
                 List<GridPoint> approaches = layout.Gates.SelectMany(g => g.ExteriorRoute.Take(12)).Distinct().ToList();
@@ -140,11 +167,19 @@ namespace RealisticBases.Generation
             {
                 tx.Excavate();
                 foreach (GridPoint c in layout.Enclosure.Concat(structures).Concat(fields).Concat(serviceCells)
-                    .Concat(layout.Gates.SelectMany(g => g.OuterVestibule.Concat(g.ExteriorRoute))).Distinct())
+                    .Concat(layout.Gates.SelectMany(g => g.OuterVestibule.Concat(g.ExteriorRoute)))
+                    .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() :
+                        layout.JointSite.Field.Points().Concat(fieldWall.ExteriorPosts).Concat(fieldWall.Access)).Distinct())
                     tx.ClearPlant(c);
                 ThingDef wallStuff = Require(layout.WallStuff);
                 foreach (GridPoint c in walls.OrderBy(c => c)) Spawn(tx, ThingDefOf.Wall, wallStuff, c, map, settlement.Faction, Rot4.North);
                 foreach (GridPoint c in doors.OrderBy(c => c)) Spawn(tx, ThingDefOf.Door, wallStuff, c, map, settlement.Faction, Rot4.North);
+                if (fieldWall != null)
+                {
+                    ThingDef coverDef = Require(fieldWall.CoverDefName);
+                    foreach (GridPoint c in fieldWall.CoverCells)
+                        Spawn(tx, coverDef, wallStuff, c, map, settlement.Faction, Rot4.North);
+                }
                 foreach (GridPoint c in roofsToBuild) tx.SetConstructedRoof(c);
 
                 foreach (LayoutFixture fixture in layout.AllFixtures)
@@ -220,10 +255,65 @@ namespace RealisticBases.Generation
                     tx.Own(GenSpawn.Spawn(pawn, ToCell(homes[i]), map));
                     defenders.Add(pawn);
                 }
+                if (fieldWall != null)
+                {
+                    HashSet<IntVec3> defendedCells = new HashSet<IntVec3>(encounter.DefendedCells.Select(ToCell));
+                    foreach (GridPoint post in fieldWall.ExteriorPosts)
+                    {
+                        int eligibleDefenders = 0;
+                        List<string> routeDiagnostics = new List<string>();
+                        foreach (Pawn pawn in defenders)
+                            using (PawnPath path = map.pathFinder.FindPathNow(pawn.Position, ToCell(post),
+                                TraverseParms.For(pawn), null, PathEndMode.OnCell))
+                            {
+                                IntVec3 firstOutside = path.Found
+                                    ? path.NodesReversed.FirstOrDefault(c => !defendedCells.Contains(c)) : IntVec3.Invalid;
+                                bool legal = path.Found && path.NodesReversed.Count <= 64 &&
+                                    path.NodesReversed.All(defendedCells.Contains);
+                                if (legal) eligibleDefenders++;
+                                else routeDiagnostics.Add(pawn.LabelShort + ":found=" + path.Found +
+                                    "/nodes=" + path.NodesReversed.Count + "/firstOutside=" + firstOutside);
+                            }
+                        if (eligibleDefenders < 2)
+                            throw new InvalidOperationException("Outside field post lacks two P3-legal pawn paths: " +
+                                post + " eligible=" + eligibleDefenders + " routes=" + string.Join(";", routeDiagnostics.Take(4)));
+                    }
+                    if (fieldWall.Fields.Any(c => map.roofGrid.RoofAt(ToCell(c)) != null ||
+                        ToCell(c).GetPlant(map)?.def != crop))
+                        throw new InvalidOperationException("Field crop missing or roofed after spawn");
+                    int wildPlantsInField = layout.JointSite.Field.Points().Count(c =>
+                        !fieldWall.Fields.Contains(c) && ToCell(c).GetPlant(map) != null);
+                    if (wildPlantsInField != 0)
+                        throw new InvalidOperationException("Established field retains wild plants: " + wildPlantsInField);
+                    P2Log.Message("PROCEDURAL_FIELD_POST_PATH_AUDIT", "map=" + map.uniqueID +
+                        " posts=" + fieldWall.ExteriorPosts.Count + " eachReachableByAtLeast=2" +
+                        " cropsUnroofed=" + fieldWall.Fields.Count + " wildPlantsInField=0");
+                }
                 if (map.listerThings.AllThings.Any(P0MapAudit.IsProhibitedDefense))
                     throw new InvalidOperationException("Prohibited trap or IED detected");
                 if (layout.Gates.Any(g => !(ToCell(g.Cell).GetEdifice(map) is Building_Door)))
                     throw new InvalidOperationException("A procedural gate did not spawn as a door");
+                if (fieldWall != null)
+                {
+                    int builtFieldWalls = fieldWall.Walls.Count(c => ToCell(c).GetEdifice(map)?.def == ThingDefOf.Wall);
+                    int builtFieldGates = new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }
+                        .Count(c => ToCell(c).GetEdifice(map) is Building_Door);
+                    int builtCover = fieldWall.CoverCells.Count(c => ToCell(c).GetThingList(map)
+                        .Any(t => t.def.defName == fieldWall.CoverDefName));
+                    int reachablePosts = fieldWall.ExteriorPosts.Count(c => map.reachability.CanReach(
+                        ToCell(layout.Gates[fieldWall.GateIndex].Inside), ToCell(c), PathEndMode.OnCell,
+                        TraverseParms.For(TraverseMode.PassDoors)));
+                    if (builtFieldWalls != fieldWall.Walls.Count || builtFieldGates != 2 ||
+                        builtCover != fieldWall.CoverCells.Count || reachablePosts != fieldWall.ExteriorPosts.Count)
+                        throw new InvalidOperationException("Field enclosure realization failed: walls=" + builtFieldWalls +
+                            "/" + fieldWall.Walls.Count + " gates=" + builtFieldGates + "/2 cover=" + builtCover +
+                            "/" + fieldWall.CoverCells.Count + " reachablePosts=" + reachablePosts +
+                            "/" + fieldWall.ExteriorPosts.Count);
+                    P2Log.Message("PROCEDURAL_FIELD_WALL_AUDIT", "map=" + map.uniqueID + " walls=" + builtFieldWalls +
+                        "/" + fieldWall.Walls.Count + " gates=" + builtFieldGates + "/2 cover=" + builtCover +
+                        "/" + fieldWall.CoverCells.Count + " reachablePosts=" + reachablePosts +
+                        "/" + fieldWall.ExteriorPosts.Count);
+                }
                 int realizedOuterWalls = layout.OuterWalls.Count(c => ToCell(c).GetEdifice(map)?.def == ThingDefOf.Wall);
                 int plannedOuterWalls = layout.OuterWalls.Count();
                 int plannedReturnCells = layout.OuterSections.Sum(section => section.LeftReturn.Count + section.RightReturn.Count);
@@ -293,7 +383,9 @@ namespace RealisticBases.Generation
                 int outdoorExhausts = AuditCoolerExhaust(map, layout);
                 tx.Commit();
 
-                map.GetComponent<P3GarrisonController>().Initialize(settlement, layout.Gates.Select(g => g.Cell), encounter,
+                map.GetComponent<P3GarrisonController>().Initialize(settlement, layout.Gates.Select(g => g.Cell)
+                    .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() :
+                        new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }), encounter,
                     defenders, tx.OwnedThings, mortar, combatStocks);
                 LordMaker.MakeNewLord(settlement.Faction, new LordJob_P3Garrison(settlement.ID), map, defenders);
                 P0SettlementState state = Current.Game.GetComponent<P0WorldState>().GetOrCreate(settlement.ID, settlement.Faction);

@@ -34,7 +34,7 @@ namespace RealisticBases.Planning
             if (layout.JointSite != null)
             {
                 P4BJointSite site = layout.JointSite;
-                if (site.Crops.Count != layout.FieldCellsRequired ||
+                if (site.Crops.Count < layout.FieldCellsRequired ||
                     site.Crops.Any(c => !terrain.InBounds(c) || !terrain[c].Has(TerrainTraits.Fertile) ||
                         terrain[c].Has(TerrainTraits.Roofed) || !site.Field.Contains(c)))
                     errors.Add("joint_field_capacity_or_roof");
@@ -58,9 +58,13 @@ namespace RealisticBases.Planning
                 {
                     P4BFieldWallPlan fieldWall = layout.FieldWall;
                     GridPoint fieldEntry = fieldWall.InnerGate ?? fieldWall.OuterGate;
-                    if (!fieldWall.InnerGate.HasValue || fieldWall.Fields.Count != layout.FieldCellsRequired || !site.Interfaces.Any(option =>
+                    if (!fieldWall.InnerGate.HasValue || fieldWall.Fields.Count < layout.FieldCellsRequired || !site.Interfaces.Any(option =>
                         option.InnerGate.Equals(fieldEntry) && option.OuterGate.Equals(fieldWall.OuterGate) &&
-                        option.Crops.SequenceEqual(fieldWall.Fields) && option.Lane.SequenceEqual(fieldWall.Access)))
+                        option.Crops.SequenceEqual(fieldWall.Fields) &&
+                        option.Lane.Concat(option.PostAccess).Distinct().OrderBy(c => c)
+                            .SequenceEqual(fieldWall.Access) &&
+                        option.PostClearance.SequenceEqual(fieldWall.ExteriorPosts) &&
+                        option.CoverCells.SequenceEqual(fieldWall.CoverCells)))
                         errors.Add("joint_field_interface_not_reserved");
                     HashSet<GridPoint> baselineWalls = new HashSet<GridPoint>(layout.BuiltWalls
                         .Concat(layout.NaturalWalls).Concat(layout.OuterWalls)
@@ -80,8 +84,13 @@ namespace RealisticBases.Planning
                         layout.Rooms.Any(r => r.Bounds.Contains(c)) ||
                         layout.PowerYards.Any(y => y.Cells.Contains(c)) ||
                         layout.ConstructedRoof.Contains(c)) ||
-                        fieldWall.Fields.Any(c => layout.ConstructedRoof.Contains(c)))
+                        fieldWall.Fields.Any(c => layout.ConstructedRoof.Contains(c)) ||
+                        fieldWall.CoverCells.Any(c => fieldReserve.Contains(c) && site.Field.Contains(c)))
                         errors.Add("joint_field_compound_occupancy");
+                    if (fieldWall.CoverDefName.Length == 0 ||
+                        !input.Catalog.TryGet(fieldWall.CoverDefName, out CatalogDef selectedCover) ||
+                        !input.Catalog.IsLegal(selectedCover, input.Equipment.Kit.Stage))
+                        errors.Add("joint_cover_def_illegal");
                 }
             }
 
@@ -153,7 +162,9 @@ namespace RealisticBases.Planning
                 layout.BuiltWalls.Concat(layout.Gates.SelectMany(g => g.BandWalls)).Concat(layout.OuterWalls)
                     .Concat(layout.ExhaustPocketWalls).Concat(layout.FieldWall == null
                         ? Enumerable.Empty<GridPoint>() : layout.FieldWall.Walls),
-                layout.Gates.Sum(g => 1 + g.BandDoors.Count) + (layout.FieldWall == null ? 0 : 2), layout.Power);
+                layout.Gates.Sum(g => 1 + g.BandDoors.Count) + (layout.FieldWall == null ? 0 : 2), layout.Power,
+                layout.FieldWall == null ? Enumerable.Empty<string>() :
+                    Enumerable.Repeat(layout.FieldWall.CoverDefName, layout.FieldWall.CoverCells.Count));
             if (layout.Materials == null || layout.Materials.ToString() != materials.ToString()) errors.Add("materials_ledger_mismatch");
             if (materials.ImportValue > requirements.ImportValueLimit) errors.Add(LayoutEquipment.MaterialBudgetExceeded);
 

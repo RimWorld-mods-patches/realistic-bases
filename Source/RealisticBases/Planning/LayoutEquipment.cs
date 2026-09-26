@@ -418,7 +418,8 @@ namespace RealisticBases.Planning
 
         // Exact ledger of a planned layout: room walls (minus doors, natural rock and cooler
         // cells), the outline wall, room doors and gate doors, and every placed fixture.
-        public LayoutMaterialLedger Count(IEnumerable<LayoutRoom> rooms, IEnumerable<GridPoint> builtWalls, int gates, LayoutPowerPlan power)
+        public LayoutMaterialLedger Count(IEnumerable<LayoutRoom> rooms, IEnumerable<GridPoint> builtWalls, int gates,
+            LayoutPowerPlan power, IEnumerable<string> defenseFixtures = null)
         {
             List<LayoutRoom> list = rooms.ToList();
             int wallCells = builtWalls.Count();
@@ -431,7 +432,9 @@ namespace RealisticBases.Planning
             int doors = list.Count + gates;
             IEnumerable<KeyValuePair<string, SettlementRole?>> fixtures = list.SelectMany(r => r.Fixtures)
                 .Select(f => new KeyValuePair<string, SettlementRole?>(f.DefName, f.Role))
-                .Concat((power == null ? Enumerable.Empty<LayoutPowerYard>() : power.Yards).Select(y => new KeyValuePair<string, SettlementRole?>(y.DefName, null)));
+                .Concat((power == null ? Enumerable.Empty<LayoutPowerYard>() : power.Yards).Select(y => new KeyValuePair<string, SettlementRole?>(y.DefName, null)))
+                .Concat((defenseFixtures ?? Enumerable.Empty<string>()).Select(name =>
+                    new KeyValuePair<string, SettlementRole?>(name, SettlementRole.Defense)));
             return Ledger(Kit, Resources, ConstructionStuff, StonecuttingAdapted, wallCells, doors, fixtures, power == null ? 0 : power.FuelStock);
         }
 

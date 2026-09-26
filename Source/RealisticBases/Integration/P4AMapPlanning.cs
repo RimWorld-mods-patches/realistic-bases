@@ -50,7 +50,7 @@ namespace RealisticBases.Integration
             {
                 input = new ProceduralLayoutInput(requirements, terrain, seed, catalog,
                     new LayoutFortificationReservation(wallLayers), resources: resources);
-                result = ProceduralLayoutPlanner.Plan(input);
+                result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
                 if (result.Success && (wallLayers == 1 || result.Layout.OuterSections.Any(s => s.Layer == wallLayers - 1))) break;
                 if (wallLayers > 1) layerFallback = result.Success ? "no_eligible_outer_section" : result.RejectionCode ?? "plan_rejected";
             }
