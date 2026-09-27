@@ -62,6 +62,7 @@ internal static partial class Program
         Run("tech stage research sets are monotonic", TechStageMonotonic);
         Run("tech stage adaptations and step-down", TechStageAdaptations);
         Run("catalog stage sets are closed under prerequisites", CatalogPrerequisiteClosure);
+        Run("Core turret facts retain resolved range, power and finite reloads", P4BTurretCatalogFacts);
         Run("catalog golden legality per stage", CatalogGoldenLegality);
         Run("catalog never allows traps or IEDs", CatalogProhibitedContent);
         Run("catalog legality rules and rule order", CatalogLegalityRules);
@@ -1823,6 +1824,33 @@ internal static partial class Program
         Contains(CoreCatalog.ResearchSetGaps(new[] { "HospitalBed", "IEDs" }), "missing_prerequisite:HospitalBed->SterileMaterials");
         Contains(CoreCatalog.ResearchSetGaps(new[] { "IEDs" }), "prohibited_research:IEDs");
         Contains(CoreCatalog.ResearchSetGaps(new[] { "NoSuchProject" }), "unknown_research:NoSuchProject");
+    }
+
+    private static void P4BTurretCatalogFacts()
+    {
+        foreach (string name in new[] { "Turret_MiniTurret", "Turret_Autocannon", "Turret_Sniper" })
+        {
+            True(CoreCatalog.TryGet(name, out CatalogDef def) && def.AutonomousTurret,
+                name + " has an autonomous turret gun and draw");
+            True(def.MaximumRange > def.MinimumRange && def.FuelCapacity > 0 &&
+                def.FuelMultiplier > 0 && def.FuelPerShot > 0 && def.InitialFuelPercent == 1 &&
+                def.FuelFactorByDifficulty, name + " has finite difficulty-scaled shots");
+        }
+        CoreCatalog.TryGet("Turret_MiniTurret", out CatalogDef mini);
+        CoreCatalog.TryGet("Turret_Autocannon", out CatalogDef auto);
+        CoreCatalog.TryGet("Turret_Sniper", out CatalogDef slug);
+        Equal(0.0, mini.MinimumRange, "mini-turret has no inner blind zone");
+        Equal(8.9, auto.MinimumRange, "autocannon close blind zone");
+        Equal(11.9, slug.MinimumRange, "uranium turret close blind zone");
+        Equal(45.9, slug.MaximumRange, "uranium turret long lane");
+        Equal(150, slug.BasePowerConsumption, "uranium turret power load");
+        Equal("Uranium", slug.Fuel.Single(), "uranium is its actual reload input");
+        Equal(30.0, slug.FuelCapacity, "uranium turret fuel capacity");
+        Equal(0.5, slug.FuelMultiplier, "uranium reload multiplier before difficulty");
+        Equal(5.9, slug.ExplosionRadius, "uranium turret explosion clearance");
+        True(!CoreCatalog.IsLegal(slug, TechStageModel.Create(SettlementTechStageLevel.IndustrialMid)) &&
+            CoreCatalog.IsLegal(slug, TechStageModel.Create(SettlementTechStageLevel.IndustrialLate)),
+            "late industrial eligibility remains stage-gated");
     }
 
     private static void CatalogGoldenLegality()

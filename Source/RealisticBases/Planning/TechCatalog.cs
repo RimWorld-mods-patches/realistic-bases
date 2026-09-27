@@ -33,13 +33,19 @@ namespace RealisticBases.Planning
             IEnumerable<string> apparelBodyParts = null, int basePowerConsumption = 0, IEnumerable<string> fuel = null,
             double fuelPerDay = 0, bool hasInteractionCell = false, GridPoint interactionOffset = default(GridPoint),
             CatalogPassability passability = CatalogPassability.Standable, double marketValue = 0, string thingClass = null,
-            string designationCategory = null, bool isTrap = false, IEnumerable<string> producedAt = null, bool raw = false, int stackLimit = 1, double workToMake = 0)
+            string designationCategory = null, bool isTrap = false, IEnumerable<string> producedAt = null, bool raw = false, int stackLimit = 1, double workToMake = 0,
+            string turretGunDefName = null, double minimumRange = 0, double maximumRange = 0,
+            double fuelCapacity = 0, double fuelMultiplier = 0, double initialFuelPercent = 0,
+            double fuelPerShot = 0, bool fuelFactorByDifficulty = false, double explosionRadius = 0, double combatPower = 0)
         {
             if (string.IsNullOrEmpty(defName)) throw new ArgumentNullException(nameof(defName));
             if (sizeX < 1 || sizeZ < 1) throw new ArgumentOutOfRangeException(nameof(sizeX));
             if (stackLimit < 1) throw new ArgumentOutOfRangeException(nameof(stackLimit));
             if (workToMake < 0) throw new ArgumentOutOfRangeException(nameof(workToMake));
             if (costStuffCount < 0 || fuelPerDay < 0 || marketValue < 0) throw new ArgumentOutOfRangeException(nameof(costStuffCount));
+            if (minimumRange < 0 || maximumRange < minimumRange || fuelCapacity < 0 || fuelMultiplier < 0 ||
+                initialFuelPercent < 0 || initialFuelPercent > 1 || fuelPerShot < 0 || explosionRadius < 0 || combatPower < 0)
+                throw new ArgumentOutOfRangeException(nameof(minimumRange));
             DefName = defName;
             Category = category;
             TechLevel = techLevel;
@@ -75,6 +81,16 @@ namespace RealisticBases.Planning
             Raw = raw;
             StackLimit = stackLimit;
             WorkToMake = workToMake;
+            TurretGunDefName = turretGunDefName ?? string.Empty;
+            MinimumRange = minimumRange;
+            MaximumRange = maximumRange;
+            FuelCapacity = fuelCapacity;
+            FuelMultiplier = fuelMultiplier;
+            InitialFuelPercent = initialFuelPercent;
+            FuelPerShot = fuelPerShot;
+            FuelFactorByDifficulty = fuelFactorByDifficulty;
+            ExplosionRadius = explosionRadius;
+            CombatPower = combatPower;
         }
 
         public string DefName { get; }
@@ -116,6 +132,18 @@ namespace RealisticBases.Planning
         public int StackLimit { get; }
         // max(WorkToMake, WorkToBuild) from statBases; feeds the vanilla market value formula.
         public double WorkToMake { get; }
+        // Resolved autonomous turret facts; zero/empty for other defs.
+        public string TurretGunDefName { get; }
+        public double MinimumRange { get; }
+        public double MaximumRange { get; }
+        public double FuelCapacity { get; }
+        public double FuelMultiplier { get; }
+        public double InitialFuelPercent { get; }
+        public double FuelPerShot { get; }
+        public bool FuelFactorByDifficulty { get; }
+        public double ExplosionRadius { get; }
+        public double CombatPower { get; }
+        public bool AutonomousTurret => TurretGunDefName.Length > 0 && MaximumRange > 0 && BasePowerConsumption > 0;
         public bool GeneratesPower => BasePowerConsumption < 0;
         public bool Blocking => Passability == CatalogPassability.Impassable;
 
@@ -156,7 +184,11 @@ namespace RealisticBases.Planning
             hash = AddList(hash, ProducedAt);
             hash = StableHash.Add(hash, Raw ? 1 : 0);
             hash = StableHash.Add(hash, StackLimit);
-            return AddScaled(hash, WorkToMake);
+            hash = AddScaled(hash, WorkToMake);
+            hash = StableHash.Add(hash, TurretGunDefName);
+            foreach (double value in new[] { MinimumRange, MaximumRange, FuelCapacity, FuelMultiplier,
+                InitialFuelPercent, FuelPerShot, ExplosionRadius, CombatPower }) hash = AddScaled(hash, value);
+            return StableHash.Add(hash, FuelFactorByDifficulty ? 1 : 0);
         }
 
         internal static ulong AddList(ulong hash, IReadOnlyList<string> values)

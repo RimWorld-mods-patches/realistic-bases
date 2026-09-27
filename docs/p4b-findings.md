@@ -31,6 +31,8 @@ Every validation entry must distinguish pure test, build, runtime log, and obser
 
 P4B.3 eligibility checkpoint: `IndustrialLate` now includes Core's `SniperTurret` research (its prerequisites were already inherited), and the defense role can resolve `Turret_Sniper` beginning at that stage. The Core fixture pure suite confirms prerequisite closure, `IndustrialMid` rejection and `IndustrialLate` acceptance. This is catalog legality only; no turret placement, ammunition or power behavior is credited to it.
 
+P4B.3 resolved-facts checkpoint: the catalog now carries each autonomous turret's gun def, minimum/maximum range, power, finite refuel capacity/multiplier/initial load/per-shot use, difficulty-scaling flag, explosion radius and declared combat power. The generated Core 1.6 fixture and pure suite assert mini/autocannon/uranium facts, including the slug turret's 11.9–45.9 range, 150 W draw, 30 fuel capacity, 0.5 uranium multiplier and 5.9 explosion radius. The runtime adapter reads the same properties from resolved defs. This does not yet demonstrate runtime catalog parity under loaded mods, placement, firing or reload.
+
 ## P4B.1 physical wall layers and access
 
 The current prototype selects a seed-weighted 50/30/20 preference for one,

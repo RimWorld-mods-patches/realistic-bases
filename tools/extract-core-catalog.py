@@ -229,20 +229,42 @@ def main():
         power = None
         fuel = []
         fuel_rate = None
+        fuel_comp = None
+        explosive_comp = None
         for comp in d.findall("comps/li"):
             cls = comp.get("Class", "")
             if comp.find("basePowerConsumption") is not None:
                 power = number(comp.findtext("basePowerConsumption"))
             if cls == "CompProperties_Refuelable":
+                fuel_comp = comp
                 fuel = texts(comp, "fuelFilter/thingDefs/li")
                 if comp.findtext("fuelConsumptionRate"):
                     fuel_rate = number(comp.findtext("fuelConsumptionRate"))
+            if cls == "CompProperties_Explosive":
+                explosive_comp = comp
         if power:
             args.append("basePowerConsumption: %d" % int(round(power)))
         if fuel:
             args.append("fuel: " + strs(fuel))
         if fuel_rate:
             args.append("fuelPerDay: %r" % float(fuel_rate))
+        turret_gun = text(d, "building/turretGunDef")
+        if turret_gun:
+            gun = things.get(turret_gun)
+            verb = gun.find("verbs/li") if gun is not None else None
+            args.append('turretGunDefName: "%s"' % turret_gun)
+            for prop, path, source in [
+                    ("minimumRange", "minRange", verb), ("maximumRange", "range", verb),
+                    ("fuelCapacity", "fuelCapacity", fuel_comp), ("fuelMultiplier", "fuelMultiplier", fuel_comp),
+                    ("initialFuelPercent", "initialFuelPercent", fuel_comp),
+                    ("fuelPerShot", "consumeFuelPerShot", verb),
+                    ("explosionRadius", "explosiveRadius", explosive_comp),
+                    ("combatPower", "building/combatPower", d)]:
+                value = text(source, path) if source is not None else None
+                if value:
+                    args.append("%s: %r" % (prop, float(value)))
+            if fuel_comp is not None and is_true(text(fuel_comp, "factorByDifficulty")):
+                args.append("fuelFactorByDifficulty: true")
         if is_true(text(d, "hasInteractionCell")):
             args.append("hasInteractionCell: true")
             offset = text(d, "interactionCellOffset")

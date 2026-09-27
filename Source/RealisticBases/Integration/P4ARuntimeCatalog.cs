@@ -66,9 +66,12 @@ namespace RealisticBases.Integration
                 object comps = Member(thing, "comps");
                 object power = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Power");
                 object fuel = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Refuelable");
+                object explosive = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Explosive");
                 double value = Stat(thing, "MarketValue");
                 double work = Math.Max(Stat(thing, "WorkToMake"), Stat(thing, "WorkToBuild"));
                 object building = Member(thing, "building");
+                object turretGun = Member(building, "turretGunDef");
+                object turretVerb = Elements(Member(turretGun, "verbs")).FirstOrDefault();
                 HashSet<string> madeAt;
                 producers.TryGetValue(thing.defName, out madeAt);
                 defs.Add(new CatalogDef(thing.defName, category, Tier(Member(thing, "techLevel")), research,
@@ -82,7 +85,12 @@ namespace RealisticBases.Integration
                     Passability(Member(thing, "passability")), value,
                     Member(thing, "thingClass") is Type thingClass ? thingClass.Name : Member(thing, "thingClass")?.ToString() ?? string.Empty,
                     Name(Member(thing, "designationCategory")), Bool(Member(building, "isTrap")),
-                    madeAt, raw, Math.Max(1, Int(Member(thing, "stackLimit"), 1)), work));
+                    madeAt, raw, Math.Max(1, Int(Member(thing, "stackLimit"), 1)), work,
+                    Name(turretGun), Number(Member(turretVerb, "minRange")), Number(Member(turretVerb, "range")),
+                    Number(Member(fuel, "fuelCapacity")), Number(Member(fuel, "fuelMultiplier")),
+                    Number(Member(fuel, "initialFuelPercent")), Number(Member(turretVerb, "consumeFuelPerShot")),
+                    Bool(Member(fuel, "factorByDifficulty")), Number(Member(explosive, "explosiveRadius")),
+                    Number(Member(building, "combatPower"))));
             }
             List<CatalogResearch> projects = DefDatabase<ResearchProjectDef>.AllDefsListForReading
                 .Select(project => new CatalogResearch(project.defName, Tier(Member(project, "techLevel")),
