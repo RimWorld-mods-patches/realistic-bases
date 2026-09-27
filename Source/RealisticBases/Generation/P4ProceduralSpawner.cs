@@ -136,7 +136,7 @@ namespace RealisticBases.Generation
                         defended.Max(c => c.Z) - defended.Min(c => c.Z) + 1);
                     encounter = new EncounterPlan(layout.Digest, profile, encounter.Posts.Concat(
                         fieldWall.ExteriorPosts.Select((c, i) => new DefensivePost("field-outer-" + i,
-                            "field", c, 8, 38, true, true, true, false, false, true))),
+                            Sector(c, encounter.SupportCenter), c, 8, 38, true, true, true, false, false, true))),
                         bounds, encounter.SupportCenter, encounter.InnerFallback,
                         encounter.MortarCell, encounter.MortarInteractionCell, encounter.MagazineCell,
                         encounter.Supplies, defended);
@@ -607,6 +607,11 @@ namespace RealisticBases.Generation
         }
 
         private static ThingDef Require(string name) => DefDatabase<ThingDef>.GetNamed(name, true);
+        private static string Sector(GridPoint cell, GridPoint center)
+        {
+            int dx = cell.X - center.X, dz = cell.Z - center.Z;
+            return Math.Abs(dx) > Math.Abs(dz) ? (dx < 0 ? "west" : "east") : (dz < 0 ? "south" : "north");
+        }
         private static ThingDef ResolveStuff(string name) => string.IsNullOrEmpty(name) ? null : DefDatabase<ThingDef>.GetNamedSilentFail(name);
         private static Rot4 Rotation(string name) => name == "East" ? Rot4.East : name == "South" ? Rot4.South :
             name == "West" ? Rot4.West : Rot4.North;

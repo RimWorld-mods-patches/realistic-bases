@@ -424,6 +424,16 @@ namespace RealisticBases.Diagnostics
             Find.CurrentMap?.GetComponent<P3GarrisonController>()?.Audit("manual");
         }
 
+        [DebugAction(Category, "P4B stage field assault probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void StageP4BFieldAssault() =>
+            Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugStageFieldAssault();
+
+        [DebugAction(Category, "P4B audit field assault probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void AuditP4BFieldAssault() =>
+            Find.CurrentMap?.GetComponent<P3GarrisonController>()?.AuditFieldAssault("manual");
+
         [DebugAction(Category, "P3 breach one generated gate", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
         private static void P3BreachGate() => Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugBreachGate();

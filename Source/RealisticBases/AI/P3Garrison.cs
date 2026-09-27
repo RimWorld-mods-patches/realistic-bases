@@ -140,12 +140,111 @@ namespace RealisticBases.AI
         private int reassignmentCount;
         private int invalidPostRecoveries;
         private bool incendiarySafe;
+        // Opt-in disposable combat probe; never serialized or enabled in ordinary play.
+        private int fieldProbeUntilTick;
+        private int fieldProbeShots;
+        private readonly HashSet<int> fieldProbeProjectiles = new HashSet<int>();
 
         public P3GarrisonController(Map map) : base(map)
         {
         }
 
         public IntVec3 SupportCenter => supportCenter;
+
+        public override void MapComponentTick()
+        {
+            base.MapComponentTick();
+            if (fieldProbeUntilTick <= GenTicks.TicksGame || GenTicks.TicksGame % 5 != 0) return;
+            foreach (Projectile projectile in map.listerThings.AllThings.OfType<Projectile>())
+            {
+                Pawn launcher = projectile.Launcher as Pawn;
+                if (launcher == null || !defenders.Contains(launcher) ||
+                    !fieldProbeProjectiles.Add(projectile.thingIDNumber)) continue;
+                int postIndex = assignedPawnIds.IndexOf(launcher.thingIDNumber);
+                if (postIndex < 0 || postIndex >= assignedPostIds.Count ||
+                    !assignedPostIds[postIndex].StartsWith("field-outer-", StringComparison.Ordinal)) continue;
+                fieldProbeShots++;
+                P3Log.Message("FIELD_ASSAULT_SHOT", "map=" + map.uniqueID + " tick=" + GenTicks.TicksGame +
+                    " pawn=" + launcher.thingIDNumber + " post=" + assignedPostIds[postIndex] +
+                    " origin=" + launcher.Position + " projectile=" + projectile.def.defName);
+            }
+            if (GenTicks.TicksGame % 300 == 0) AuditFieldAssault("periodic");
+        }
+
+        public void DebugStageFieldAssault()
+        {
+            List<IntVec3> posts = postIds.Select((id, i) => new { id, i })
+                .Where(x => x.id.StartsWith("field-outer-", StringComparison.Ordinal) && x.i < postCells.Count)
+                .Select(x => postCells[x.i]).ToList();
+            Pawn targetPawn = map.mapPawns.FreeColonistsSpawned.OrderBy(p => p.thingIDNumber).FirstOrDefault();
+            if (posts.Count < 2 || targetPawn == null)
+            {
+                P3Log.Message("FIELD_ASSAULT_STAGE_REJECT", "map=" + map.uniqueID +
+                    " posts=" + posts.Count + " playerPawn=" + (targetPawn != null));
+                return;
+            }
+            int centerX = (int)Math.Round(posts.Average(c => c.x));
+            int centerZ = (int)Math.Round(posts.Average(c => c.z));
+            int dx = centerX - supportCenter.x, dz = centerZ - supportCenter.z;
+            IntVec3 outward = Math.Abs(dx) > Math.Abs(dz)
+                ? new IntVec3(Math.Sign(dx), 0, 0) : new IntVec3(0, 0, Math.Sign(dz));
+            IntVec3 lateral = outward.x != 0 ? new IntVec3(0, 0, 1) : new IntVec3(1, 0, 0);
+            IntVec3 destination = IntVec3.Invalid;
+            foreach (int distance in new[] { 14, 12, 16, 10, 18 })
+            {
+                foreach (int offset in new[] { 0, -1, 1, -2, 2 })
+                {
+                    IntVec3 candidate = new IntVec3(centerX + outward.x * distance + lateral.x * offset,
+                        0, centerZ + outward.z * distance + lateral.z * offset);
+                    if (!candidate.InBounds(map) || !candidate.Standable(map) || candidate.GetEdifice(map) != null ||
+                        !posts.Any(p => p.InHorDistOf(candidate, 35f))) continue;
+                    destination = candidate;
+                    break;
+                }
+                if (destination.IsValid) break;
+            }
+            if (!destination.IsValid)
+            {
+                P3Log.Message("FIELD_ASSAULT_STAGE_REJECT", "map=" + map.uniqueID + " no_clear_approach");
+                return;
+            }
+            targetPawn.DeSpawn();
+            GenSpawn.Spawn(targetPawn, destination, map);
+            targetPawn.drafter.Drafted = true;
+            targetPawn.jobs.StopAll();
+            fieldProbeShots = 0;
+            fieldProbeProjectiles.Clear();
+            fieldProbeUntilTick = GenTicks.TicksGame + 3600;
+            P3Log.Message("FIELD_ASSAULT_STAGE", "map=" + map.uniqueID + " target=" + targetPawn.thingIDNumber +
+                " cell=" + destination + " fieldPosts=" + string.Join(",", posts.Select(p => p.ToString()).ToArray()) +
+                " untilTick=" + fieldProbeUntilTick);
+            AuditFieldAssault("stage");
+        }
+
+        public void AuditFieldAssault(string phase)
+        {
+            Pawn targetPawn = map.mapPawns.FreeColonistsSpawned.OrderBy(p => p.thingIDNumber).FirstOrDefault();
+            List<string> postState = new List<string>();
+            for (int i = 0; i < postIds.Count && i < postCells.Count; i++)
+            {
+                if (!postIds[i].StartsWith("field-outer-", StringComparison.Ordinal)) continue;
+                Pawn assigned = defenders.FirstOrDefault(p => p != null && p.Spawned &&
+                    assignedPawnIds.IndexOf(p.thingIDNumber) is int assignment && assignment >= 0 &&
+                    assignment < assignedPostIds.Count && assignedPostIds[assignment] == postIds[i]);
+                bool cover = ownedThings.Any(t => t != null && t.Spawned &&
+                    (t.def.defName == "Sandbags" || t.def.defName == "Barricade") &&
+                    t.Position.AdjacentTo8WayOrInside(postCells[i]));
+                postState.Add(postIds[i] + ":cover=" + cover + ":pawn=" +
+                    (assigned?.thingIDNumber.ToString() ?? "none") + ":occupied=" +
+                    (assigned?.Position.InHorDistOf(postCells[i], 1.5f) ?? false) + ":job=" +
+                    (assigned?.CurJobDef?.defName ?? "none"));
+            }
+            P3Log.Message("FIELD_ASSAULT_AUDIT", "map=" + map.uniqueID + " phase=" + phase +
+                " tick=" + GenTicks.TicksGame + " shotsObserved=" + fieldProbeShots +
+                " target=" + (targetPawn?.thingIDNumber.ToString() ?? "none") +
+                " targetHealth=" + (targetPawn?.health?.summaryHealth?.SummaryHealthPercent.ToString("F3") ?? "none") +
+                " posts=" + string.Join(";", postState.ToArray()));
+        }
 
         public void Initialize(Settlement parent, PhysicalSettlementPlan settlementPlan, EncounterPlan plan, IEnumerable<Pawn> residents,
             IEnumerable<Thing> allOwnedThings, Thing mortarThing, IEnumerable<Thing> combatStocks)

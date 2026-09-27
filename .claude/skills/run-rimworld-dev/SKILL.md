@@ -51,6 +51,8 @@ ps -axo pid=,command= | rg -F 'RimWorld by Ludeon Studios' \
 
 If a process remains, verify its full command line matches this profile, then send `kill -TERM` to that exact PID and repeat the process-table check until no match remains. Do not use `killall`, a name-only match, or an unverified PID. Stop and verify the process before rebuilding, editing the profile, changing the active-mod list, restoring the save, or relaunching. After launching, verify exactly **one** process matches this profile. A second match invalidates that run's test evidence; stop both before trying again.
 
+If another RimWorld process is running, the macOS app-name/bundle-ID UI selector may switch to that unrelated window after the disposable process exits (including across a Codex turn boundary). Before every new UI session and after any unexpected screen change, recheck the exact disposable process query above and confirm the screenshot is the disposable game state. If its process is gone, **do not send any more UI input**: the visible window may belong to the user's normal game. Relaunch the disposable process first, then verify the exact profile and screen. An app binding by name alone is not proof of ownership.
+
 Verify startup from the log rather than assuming the visible map is ready:
 
 ```bash

@@ -141,7 +141,8 @@ namespace RealisticBases.Planning
         {
             GridPoint center = Center(enclosure);
             int dx = cell.X - center.X, dz = cell.Z - center.Z;
-            return Math.Abs(dx) > Math.Abs(dz) ? (dx < 0 ? "west" : "east") : (dz < 0 ? "north" : "south");
+            // RimWorld's positive Z points north, matching the live P3 threat-sector calculation.
+            return Math.Abs(dx) > Math.Abs(dz) ? (dx < 0 ? "west" : "east") : (dz < 0 ? "south" : "north");
         }
     }
 }

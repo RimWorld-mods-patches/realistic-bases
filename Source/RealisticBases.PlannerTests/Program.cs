@@ -732,11 +732,11 @@ internal static class Program
     {
         GridRect inside = new GridRect(5, 5, 10, 10);
         GridRect outside = new GridRect(4, 4, 12, 12);
-        GridPoint north = new GridPoint(9, 4), south = new GridPoint(9, 15);
+        GridPoint north = new GridPoint(9, 15), south = new GridPoint(9, 4);
         return new GeometryEncounterInput("irregular-layout", mortar ? P3EncounterProfiles.Industrial : P3EncounterProfiles.Tribal,
             inside.Points(), outside.Points().Where(c => !inside.Contains(c) && !c.Equals(north) && !c.Equals(south)),
-            new[] { new KeyValuePair<GridPoint, GridPoint>(north, new GridPoint(9, 5)),
-                new KeyValuePair<GridPoint, GridPoint>(south, new GridPoint(9, 14)) },
+            new[] { new KeyValuePair<GridPoint, GridPoint>(north, new GridPoint(9, 14)),
+                new KeyValuePair<GridPoint, GridPoint>(south, new GridPoint(9, 5)) },
             inside.Points(), new[] { new GridPoint(7, 8) },
             mortar ? (GridPoint?)new GridPoint(10, 10) : null,
             mortar ? (GridPoint?)new GridPoint(10, 9) : null);
@@ -748,6 +748,8 @@ internal static class Program
         EncounterPlan second = GeometryEncounterPlanner.Plan(GeometryInput());
         Equal(first.Digest, second.Digest, "geometry encounter replay");
         True(first.Posts.Count(p => p.Id.StartsWith("gate-", StringComparison.Ordinal)) >= 2, "gate posts");
+        True(first.Posts.Where(p => p.Id.StartsWith("gate-0-", StringComparison.Ordinal))
+            .All(p => p.SectorId == "north"), "positive Z gate matches live north threat sector");
         True(first.Posts.Count(p => p.Id.StartsWith("ranged-", StringComparison.Ordinal)) >= 4, "perimeter posts");
         True(first.Posts.Where(p => !p.Mortar).All(p => p.Inner),
             "enclosed inherited posts are fallback, not an exterior firing line");
