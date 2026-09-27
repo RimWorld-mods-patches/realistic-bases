@@ -29,6 +29,8 @@ These are code observations, not runtime results. The previous P3 and P4/P4A obs
 
 Every validation entry must distinguish pure test, build, runtime log, and observed game behavior. Screenshots may illustrate geometry but do not establish firing, cover, pathing or consumable depletion. A plan rejection with zero mutations is safe recovery evidence, not evidence that the fortification works. Do not mark P4B complete without the live matrix.
 
+P4B.3 eligibility checkpoint: `IndustrialLate` now includes Core's `SniperTurret` research (its prerequisites were already inherited), and the defense role can resolve `Turret_Sniper` beginning at that stage. The Core fixture pure suite confirms prerequisite closure, `IndustrialMid` rejection and `IndustrialLate` acceptance. This is catalog legality only; no turret placement, ammunition or power behavior is credited to it.
+
 ## P4B.1 physical wall layers and access
 
 The current prototype selects a seed-weighted 50/30/20 preference for one,

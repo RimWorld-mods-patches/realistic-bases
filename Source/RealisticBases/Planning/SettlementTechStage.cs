@@ -158,7 +158,7 @@ namespace RealisticBases.Planning
             "BiofuelRefining", "SmokepopBelt", "Firefoam"
         };
         // Prosthetics: prerequisite of Bionics, found by the prerequisite-closure check.
-        private static readonly string[] IndustrialLate = { "MultiAnalyzer", "VitalsMonitor", "MultibarrelWeapons", "HeavyTurrets", "Fabrication", "Prosthetics" };
+        private static readonly string[] IndustrialLate = { "MultiAnalyzer", "VitalsMonitor", "MultibarrelWeapons", "HeavyTurrets", "SniperTurret", "Fabrication", "Prosthetics" };
         private static readonly string[] Spacer = { "ShieldBelt", "ChargedShot", "ReconArmor", "PoweredArmor", "Bionics" };
 
         public static IReadOnlyList<SettlementTechStageLevel> Levels { get; } = new ReadOnlyCollection<SettlementTechStageLevel>(new[]

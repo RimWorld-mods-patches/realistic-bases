@@ -134,7 +134,7 @@ namespace RealisticBases.Planning
                     capped("GameOfUrBoard", medieval)
                 }),
                 new RoleDefinition(SettlementRole.Door, true, new[] { d("Door") }),
-                new RoleDefinition(SettlementRole.Defense, false, new[] { d("Turret_Autocannon"), d("Turret_MiniTurret"), d("Sandbags"), d("Barricade") }),
+                new RoleDefinition(SettlementRole.Defense, false, new[] { RoleOption.Def("Turret_Sniper", minStage: SettlementTechStageLevel.IndustrialLate), d("Turret_Autocannon"), d("Turret_MiniTurret"), d("Sandbags"), d("Barricade") }),
                 new RoleDefinition(SettlementRole.UtilityBelt, false, new[] { d("Apparel_ShieldBelt"), d("Apparel_SmokepopBelt"), d("Apparel_FirefoampopPack") })
             });
         }

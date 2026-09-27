@@ -1774,6 +1774,9 @@ internal static partial class Program
         True(early.HasResearch("Electricity") && early.HasResearch("Smithing") && !early.HasResearch("FlakArmor"), "early industrial set");
         True(TechStageModel.Create(SettlementTechStageLevel.IndustrialMid).HasResearch("SterileMaterials"), "HospitalBed prerequisite in mid");
         True(TechStageModel.Create(SettlementTechStageLevel.IndustrialLate).HasResearch("Prosthetics"), "Bionics prerequisite in late");
+        True(!TechStageModel.Create(SettlementTechStageLevel.IndustrialMid).HasResearch("SniperTurret") &&
+            TechStageModel.Create(SettlementTechStageLevel.IndustrialLate).HasResearch("SniperTurret"),
+            "uranium slug turret research begins at high industrial");
     }
 
     private static void TechStageAdaptations()
@@ -1987,7 +1990,7 @@ internal static partial class Program
             { SettlementTechStageLevel.Medieval, "Sleep=Bed Light=TorchLamp Cooking=FueledStove CraftSmithing=FueledSmithy CraftTailoring=HandTailoringBench CraftStonecutting=TableStonecutter Storage=Shelf Seat=DiningChair Recreation=ChessTable" },
             { SettlementTechStageLevel.IndustrialEarly, "Sleep=Bed Light=StandingLamp Cooking=ElectricStove CraftSmithing=ElectricSmithy CraftMachining=TableMachining Heat=Heater Cool=Cooler Defense=Sandbags MedicalBed=Bed" },
             { SettlementTechStageLevel.IndustrialMid, "MedicalBed=HospitalBed Defense=Turret_MiniTurret UtilityBelt=Apparel_SmokepopBelt" },
-            { SettlementTechStageLevel.IndustrialLate, "MedicalMonitor=VitalsMonitor CraftFabrication=FabricationBench Defense=Turret_Autocannon" },
+            { SettlementTechStageLevel.IndustrialLate, "MedicalMonitor=VitalsMonitor CraftFabrication=FabricationBench Defense=Turret_Sniper" },
             { SettlementTechStageLevel.Spacer, "UtilityBelt=Apparel_ShieldBelt Sleep=Bed Light=StandingLamp" }
         };
         foreach (SettlementTechStageLevel level in TechStageModel.Levels)
@@ -2005,6 +2008,9 @@ internal static partial class Program
             Equal(set.Digest, RoleResolver.Resolve(CoreCatalog, TechStageModel.Create(level)).Digest, level + " digest stable");
         }
         RoleResolutionSet tribal = RoleResolver.Resolve(CoreCatalog, TechStageModel.Create(SettlementTechStageLevel.Neolithic));
+        True(!CoreCatalog.IsLegal("Turret_Sniper", TechStageModel.Create(SettlementTechStageLevel.IndustrialMid)) &&
+            CoreCatalog.IsLegal("Turret_Sniper", TechStageModel.Create(SettlementTechStageLevel.IndustrialLate)),
+            "uranium slug turret def respects the high-industrial research boundary");
         string[] complexFurniture = { "Bed", "Shelf", "DiningChair", "ChessTable", "OrnateDoor", "Vent", "FueledSmithy", "HandTailoringBench" };
         True(!tribal.Resolutions.SelectMany(r => r.Candidates).Any(o => complexFurniture.Contains(o.DefName)), "tribal kit has no ComplexFurniture, smithy or tailoring bench");
         Contains(tribal.Diagnostics, "role_unresolved:CraftStonecutting");
