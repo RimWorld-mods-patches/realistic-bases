@@ -53,6 +53,7 @@ internal static class Program
         Run("P3 assignment is weapon and post aware", P3AssignmentIsWeaponAndPostAware);
         Run("P3 pursuit validates destination and full route", P3PursuitValidatesDestinationAndFullRoute);
         Run("P3 breach response remains local", P3BreachResponseRemainsLocal);
+        Run("P3 intact perimeter prioritizes an attacked corner front", P3IntactPerimeterPrioritizesFront);
         Run("P3 safe needs relief preserves minimum staffing", P3SafeNeedsReliefPreservesMinimumStaffing);
         Run("P3 invalid outer posts trigger inner fallback", P3InvalidOuterPostsTriggerInnerFallback);
         Run("P3 valid assignments resist oscillation", P3ValidAssignmentsResistOscillation);
@@ -592,6 +593,23 @@ internal static class Program
         True(plan.Assignments.Where(a => a.PostId.Length > 0).Take(2).All(a => a.SectorId == "north"),
             "threatened sector receives first compatible defenders");
         True(plan.Assignments.All(a => a.Role != GarrisonRole.Support), "combat response has no routine support assignment");
+    }
+
+    private static void P3IntactPerimeterPrioritizesFront()
+    {
+        List<DefensivePost> posts = P3Posts().Concat(new[] {
+            new DefensivePost("shore-corner", "south", new GridPoint(10, 18), 8, 25,
+                true, true, true, false, false, true, new[] { "south", "west" }) }).ToList();
+        GarrisonPlan plan = GarrisonDoctrine.Assign(P3Situation(posts: posts, gateBreached: false, threatenedSector: "west"));
+        Equal(GarrisonState.HoldSectors, plan.State, "an unbreached hostile approach still holds the perimeter");
+        Equal("shore-corner", plan.Assignments.Single(a => a.DefenderId == 1).PostId,
+            "verified west-facing corner attracts a ranged defender before breach");
+        Equal(1, plan.Assignments.Count(a => a.PostId == "shore-corner"),
+            "shared two-front position never receives duplicate assignments");
+        DefensivePost restored = new DefensivePost("shore-corner", "south", new GridPoint(10, 18), 8, 25,
+            true, true, true, false, false, true, "south|west".Split('|'));
+        True(restored.CoversSector("west") && restored.CoversSector("south"),
+            "existing string save field can round-trip multiple supported fronts");
     }
 
     private static void P3SafeNeedsReliefPreservesMinimumStaffing()

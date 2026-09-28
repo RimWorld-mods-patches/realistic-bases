@@ -114,7 +114,10 @@ namespace RealisticBases.Planning
             // Room packing needs circulation, gate returns and utility pockets in
             // addition to the minimum room-area count. A 30-cell square passed
             // site preflight but repeatedly ran out of room on live 160x160 maps.
-            int compoundSide = Math.Max(38, (int)Math.Ceiling(Math.Sqrt(minimumCompoundCells)) + 14);
+            // High-industrial demand needs more slack even on flat terrain:
+            // sparse ruins and rock can otherwise consume every room repair.
+            int compoundSide = Math.Max(38, (int)Math.Ceiling(Math.Sqrt(minimumCompoundCells)) +
+                (minimumCompoundCells >= 500 ? 22 : 14));
             Dictionary<string, int> rejected = new Dictionary<string, int>(StringComparer.Ordinal);
             List<P4BJointSite> accepted = new List<P4BJointSite>();
             int evaluated = 0;
@@ -153,8 +156,8 @@ namespace RealisticBases.Planning
                         GridPoint outward = side == 0 ? new GridPoint(0, 1) : side == 1 ? new GridPoint(-1, 0) :
                             side == 2 ? new GridPoint(0, -1) : new GridPoint(1, 0);
                         List<GridPoint> cover = posts.Select(p => new GridPoint(p.X + outward.X, p.Z + outward.Z)).ToList();
-                        if (posts.Count != 2 || posts.Concat(cover).Any(c => !grid.Passable(c) || grid.At(c) != LayoutCellClass.Open)) continue;
                         GridPoint tangent = new GridPoint(outward.Z, outward.X);
+                        if (posts.Count != 2 || posts.Concat(cover).Any(c => !grid.Passable(c) || grid.At(c) != LayoutCellClass.Open)) continue;
                         List<GridPoint> postAccess = new List<GridPoint>();
                         for (int forward = 1; forward <= 4; forward++)
                             for (int lateral = -6; lateral <= 6; lateral++)
@@ -200,6 +203,55 @@ namespace RealisticBases.Planning
                 rejected.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => kv.Key + ":" + kv.Value), evaluated);
 
             void Reject(string code) { int n; rejected.TryGetValue(code, out n); rejected[code] = n + 1; }
+        }
+
+        // A failed room pack does not prove that this field/compound pair is
+        // unusable. Keep the chosen field and its interfaces fixed while the
+        // compound grows outward into unused tile space. Growth never consumes
+        // the field or moves its gates, and the new anchor is still inside the
+        // same connected site rather than a new location search.
+        internal static IEnumerable<P4BJointSite> GrowthVariants(P4BJointSite site,
+            LayoutTerrainGrid grid, int margin)
+        {
+            if (site == null) throw new ArgumentNullException(nameof(site));
+            if (grid == null) throw new ArgumentNullException(nameof(grid));
+            yield return site;
+            int direction = site.Compound.MaxZ < site.Field.MinZ ? 0 :
+                site.Compound.MinX > site.Field.MaxX ? 1 :
+                site.Compound.MinZ > site.Field.MaxZ ? 2 : 3;
+            for (int extra = 12; extra <= 24; extra += 12)
+            {
+                GridRect grown = CompoundAt(site.Field, site.Compound.Width + extra, direction);
+                if (!Fits(grown, grid.Terrain, margin)) break;
+                GridPoint center = new GridPoint((grown.MinX + grown.MaxX) / 2,
+                    (grown.MinZ + grown.MaxZ) / 2);
+                // Do not "grow" across an impassable belt into a disconnected
+                // patch that would really be a different settlement site.
+                HashSet<GridPoint> connected = new HashSet<GridPoint> { site.Anchor };
+                Queue<GridPoint> frontier = new Queue<GridPoint>();
+                frontier.Enqueue(site.Anchor);
+                while (frontier.Count > 0)
+                {
+                    GridPoint here = frontier.Dequeue();
+                    foreach (GridPoint step in ProceduralLayoutPlanner.Cardinal)
+                    {
+                        GridPoint next = new GridPoint(here.X + step.X, here.Z + step.Z);
+                        if (grown.Contains(next) && grid.CanPlace(next) && connected.Add(next))
+                            frontier.Enqueue(next);
+                    }
+                }
+                GridPoint? anchor = connected
+                    .OrderBy(c => Math.Abs(c.X - center.X) + Math.Abs(c.Z - center.Z))
+                    .Take(64)
+                    .OrderByDescending(c => Math.Min(6, grid.OpenClearance[grid.Index(c)]))
+                    .ThenBy(c => Math.Abs(c.X - center.X) + Math.Abs(c.Z - center.Z))
+                    .ThenBy(c => c)
+                    .Cast<GridPoint?>().FirstOrDefault();
+                if (!anchor.HasValue) break;
+                yield return new P4BJointSite(site.Field, grown, anchor.Value, site.Crops,
+                    site.Lane, site.Wall, site.InnerGate, site.OuterGate,
+                    site.PostClearance, site.Score, site.Interfaces);
+            }
         }
 
         private static GridRect CompoundAt(GridRect field, int side, int direction)

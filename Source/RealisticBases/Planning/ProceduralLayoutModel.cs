@@ -318,7 +318,7 @@ namespace RealisticBases.Planning
 
     public sealed class LayoutSearchBudget
     {
-        public LayoutSearchBudget(int maxSites = 10, int attemptsPerSite = 3, int maxEvaluations = 200000,
+        public LayoutSearchBudget(int maxSites = 10, int attemptsPerSite = 3, int maxEvaluations = 400000,
             int maxCandidatesPerRoom = 3000, int maxRepairsPerAttempt = 8, int maxRouteNodes = 40000)
         {
             if (maxSites <= 0 || attemptsPerSite <= 0 || maxEvaluations <= 0 || maxCandidatesPerRoom <= 0 ||

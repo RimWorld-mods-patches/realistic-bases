@@ -21,7 +21,7 @@ mkdir -p "$RB_LOG_DIR"
 
 The working profile is `.runtime/rimworld-dev-profile`. It contains disposable `Config/`, `Saves/`, and mod runtime data and is excluded by the repository `.gitignore`. It is intentionally separate from the user's normal RimWorld data. Never launch a development test against the normal profile, copy the normal saves into this profile, or commit anything below `.runtime/`.
 
-The profile must have these active mods in `Config/ModsConfig.xml`, in dependency order: Harmony, Core, RIMAPI, and Realistic Bases. Optional-mod tests may temporarily add HugsLib, Geological Landforms, and Map Preview to this file; restore the four-mod baseline afterward. RIMAPI is test instrumentation, not a shipped dependency.
+The profile must have these active mods in `Config/ModsConfig.xml`, in dependency order: Harmony, Core, RIMAPI, RimWorld Debug Actions (`rimapi-debug-actions`), and Realistic Bases. The companion is a separate local mod at `/Users/roman_gr/Repositories/rimworld/rimapi-debug-actions`; its presence in `Mods/` does not activate it, so verify `ModsConfig.xml` and the game's loaded-mod log after every profile reset. Optional-mod tests may temporarily add HugsLib, Geological Landforms, and Map Preview to this file; restore the five-mod baseline afterward. RIMAPI and its companion are test instrumentation, not shipped dependencies.
 
 The immutable reset point is `Saves/RealisticBases-P0-Disposable.rws`. If the profile already exists, preserve that file. If the entire ignored profile is absent, create it explicitly with a Core developer quick-test run, enable only the baseline mods above, save the untouched colony as `RealisticBases-P0-Disposable`, stop the game, and only then begin scenario testing. Do not silently substitute a normal user save.
 
@@ -80,6 +80,18 @@ curl --noproxy '*' --fail --silent --show-error --max-time 4 \
   "$RB_RIMAPI_BASE/api/v1/game/state"
 ```
 
+The working debug-action route on installed RIMAPI 1.10.0 is
+`/api/v1/debug-actions/debug-actions`, **not** `/api/extensions/debug-actions/...`.
+Confirm the companion by listing/filtering actions and checking that the desired
+record has `is_runnable: true`. Run its returned ID with a JSON-body POST as
+specified in `use-rimapi-debug-actions`. A successful HTTP action invocation
+means the debug method ran, not that settlement generation accepted its plan;
+check the authoritative log separately. If HTTP times out while the game is
+backgrounded or the Mac is locked, bring the verified disposable game window
+forward and retry a read-only request. Before retrying a timed-out POST, check
+the log: the action may have executed later. One flat generation request in
+this profile did exactly that after the HTTP client timed out.
+
 The most useful endpoints for runtime tests are:
 
 - `GET /api/v1/game/state` — current tick, pause state, storyteller, wealth, and colonist count.
@@ -100,9 +112,12 @@ a body so that `Content-Length` is present; for an otherwise bodyless request us
 
 For this mod, use RIMAPI to confirm the game is alive, find the active map and pawns,
 poll positions, inspect screenshots, pause/restart the simulation, and perform
-vanilla setup actions when a test explicitly needs them. RIMAPI does not expose this
-mod's custom developer actions or `RealisticBases:*` log events automatically, so
-continue to use the authoritative runtime log for `GAME_LOADED`, `SPAWN_COMPLETE`,
+vanilla setup actions when a test explicitly needs them. The enabled companion
+exposes runnable parameterless `[DebugAction]` methods, including this mod's
+custom actions, at `/api/v1/debug-actions/debug-actions` and
+`/api/v1/debug-actions/debug-actions/run`; read the sibling
+`use-rimapi-debug-actions` skill before invoking one. Continue to use the
+authoritative runtime log for `GAME_LOADED`, `SPAWN_COMPLETE`,
 `PLAN_REJECT`, P3 audits, save/reload restoration, and exceptions. Prefer read-only
 GET requests during diagnosis; mutating endpoints such as game load/save, speed,
 building/map edits, pawn edits, and `/api/v1/dev/*` can change or corrupt the
@@ -177,7 +192,7 @@ Use the filtered action `Audit current P3 defensive encounter` for an on-demand 
 4. Restore `autostart.rws` from `RealisticBases-P0-Disposable.rws` for a clean scenario.
 5. Launch directly with the repository-local `-savedatafolder` and `-logFile` paths; verify exactly one matching process before interacting with the game.
 6. Confirm the expected active-mod list and `GAME_LOADED` in the log.
-7. Invoke the desired debug action with `slash`, exact label, `Tab`, `Return`.
+7. Prefer the companion debug-actions API for a supported action. Use `slash`, exact label, `Tab`, `Return` only if the API cannot serve it; the UI filter depends on the macOS keyboard input source being English.
 8. Confirm generation and runtime events in the log.
 9. Pause and stop RimWorld before editing code; after rebuilding, restart from step 3.
 

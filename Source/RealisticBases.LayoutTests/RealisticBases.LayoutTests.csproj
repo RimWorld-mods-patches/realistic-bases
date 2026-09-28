@@ -20,6 +20,9 @@
     <Compile Include="../RealisticBases/Planning/SettlementTechStage.cs" Link="Planning/SettlementTechStage.cs" />
     <Compile Include="../RealisticBases/Planning/P4BLayerPolicy.cs" Link="Planning/P4BLayerPolicy.cs" />
     <Compile Include="../RealisticBases/Planning/P4BFireLane.cs" Link="Planning/P4BFireLane.cs" />
+    <Compile Include="../RealisticBases/Planning/P4BTurretPlanner.cs" Link="Planning/P4BTurretPlanner.cs" />
+    <Compile Include="../RealisticBases/Planning/P4BFinalPathAuditScope.cs" Link="Planning/P4BFinalPathAuditScope.cs" />
+    <Compile Include="../RealisticBases/Planning/P4BApproachDefense.cs" Link="Planning/P4BApproachDefense.cs" />
     <Compile Include="../RealisticBases/Planning/P4BFieldWall.cs" Link="Planning/P4BFieldWall.cs" />
     <Compile Include="../RealisticBases/Planning/P4BFieldWallPlanner.cs" Link="Planning/P4BFieldWallPlanner.cs" />
     <Compile Include="../RealisticBases/Planning/P4BJointSite.cs" Link="Planning/P4BJointSite.cs" />

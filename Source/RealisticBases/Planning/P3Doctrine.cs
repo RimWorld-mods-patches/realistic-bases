@@ -33,13 +33,16 @@ namespace RealisticBases.Planning
     public sealed class DefensivePost
     {
         public DefensivePost(string id, string sectorId, GridPoint cell, int minimumRange, int maximumRange,
-            bool hasCover, bool hasLineOfFire, bool routeWithinBounds, bool mortar, bool inner, bool usable)
+            bool hasCover, bool hasLineOfFire, bool routeWithinBounds, bool mortar, bool inner, bool usable,
+            IEnumerable<string> supportedSectors = null)
         {
             if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(sectorId))
                 throw new ArgumentException("Post and sector ids are required.");
             if (minimumRange < 0 || maximumRange < minimumRange) throw new ArgumentOutOfRangeException(nameof(maximumRange));
             Id = id;
             SectorId = sectorId;
+            SupportedSectors = new ReadOnlyCollection<string>((supportedSectors ?? new[] { sectorId })
+                .Concat(new[] { sectorId }).Distinct(StringComparer.Ordinal).OrderBy(s => s, StringComparer.Ordinal).ToList());
             Cell = cell;
             MinimumRange = minimumRange;
             MaximumRange = maximumRange;
@@ -53,6 +56,8 @@ namespace RealisticBases.Planning
 
         public string Id { get; }
         public string SectorId { get; }
+        public IReadOnlyList<string> SupportedSectors { get; }
+        public bool CoversSector(string sector) => SupportedSectors.Contains(sector);
         public GridPoint Cell { get; }
         public int MinimumRange { get; }
         public int MaximumRange { get; }
@@ -277,7 +282,8 @@ namespace RealisticBases.Planning
             HashSet<string> occupied, string threatenedSector, GarrisonState state)
         {
             return posts.Where(p => !occupied.Contains(p.Id) && Compatible(defender, p))
-                .OrderByDescending(p => state == GarrisonState.LocalResponse && p.SectorId == threatenedSector)
+                .OrderByDescending(p => (state == GarrisonState.LocalResponse || state == GarrisonState.HoldSectors) &&
+                    p.CoversSector(threatenedSector))
                 .ThenByDescending(p => p.Mortar && defender.CanOperateMortar)
                 .ThenByDescending(p => p.HasCover)
                 .ThenBy(p => RangePenalty(defender, p))

@@ -5,13 +5,36 @@ using System.Linq;
 
 namespace RealisticBases.Planning
 {
+    public sealed class P4BPostAccessPlan
+    {
+        internal P4BPostAccessPlan(GridPoint post, IEnumerable<GridPoint> route,
+            IEnumerable<GridPoint> exposedCells, GridPoint wallReturn,
+            IEnumerable<GridPoint> screens, string omissionReason = null)
+        {
+            Post = post;
+            Route = new ReadOnlyCollection<GridPoint>(route.ToList());
+            ExposedCells = new ReadOnlyCollection<GridPoint>(exposedCells.ToList());
+            WallReturn = wallReturn;
+            Screens = new ReadOnlyCollection<GridPoint>(screens.Distinct().OrderBy(c => c).ToList());
+            OmissionReason = omissionReason ?? string.Empty;
+        }
+        public GridPoint Post { get; }
+        public IReadOnlyList<GridPoint> Route { get; }
+        // The open gate-axis crossing is deliberately not claimed as covered.
+        public IReadOnlyList<GridPoint> ExposedCells { get; }
+        public GridPoint WallReturn { get; }
+        public IReadOnlyList<GridPoint> Screens { get; }
+        public string OmissionReason { get; }
+        public bool Usable => OmissionReason.Length == 0;
+    }
+
     public sealed class P4BFieldWallPlan
     {
         internal P4BFieldWallPlan(int gateIndex, IEnumerable<GridPoint> fields,
             IEnumerable<GridPoint> walls, GridPoint outerGate, IEnumerable<GridPoint> exteriorPosts,
             GridPoint? innerGate = null, IEnumerable<GridPoint> access = null,
             IEnumerable<GridPoint> arrivalRoute = null, IEnumerable<GridPoint> coverCells = null,
-            string coverDefName = null)
+            string coverDefName = null, IEnumerable<P4BPostAccessPlan> postAccess = null)
         {
             GateIndex = gateIndex;
             Fields = new ReadOnlyCollection<GridPoint>(fields.OrderBy(c => c).ToList());
@@ -23,7 +46,9 @@ namespace RealisticBases.Planning
             ArrivalRoute = new ReadOnlyCollection<GridPoint>((arrivalRoute ?? Enumerable.Empty<GridPoint>()).ToList());
             CoverCells = new ReadOnlyCollection<GridPoint>((coverCells ?? Enumerable.Empty<GridPoint>()).Distinct().OrderBy(c => c).ToList());
             CoverDefName = coverDefName ?? string.Empty;
-            ulong hash = StableHash.Add(StableHash.Start, "p4b-field-wall-1");
+            PostAccess = new ReadOnlyCollection<P4BPostAccessPlan>((postAccess ??
+                Enumerable.Empty<P4BPostAccessPlan>()).OrderBy(p => p.Post).ToList());
+            ulong hash = StableHash.Add(StableHash.Start, "p4b-field-wall-2");
             hash = StableHash.Add(hash, gateIndex);
             hash = StableHash.Add(hash, outerGate.X); hash = StableHash.Add(hash, outerGate.Z);
             hash = StableHash.Add(hash, innerGate.HasValue ? innerGate.Value.X : -1);
@@ -31,6 +56,13 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, CoverDefName);
             foreach (GridPoint c in Fields.Concat(Walls).Concat(ExteriorPosts).Concat(Access).Concat(ArrivalRoute).Concat(CoverCells))
             { hash = StableHash.Add(hash, c.X); hash = StableHash.Add(hash, c.Z); }
+            foreach (P4BPostAccessPlan p in PostAccess)
+            {
+                hash = StableHash.Add(hash, p.OmissionReason);
+                foreach (GridPoint c in new[] { p.Post, p.WallReturn }.Concat(p.Route)
+                    .Concat(p.ExposedCells).Concat(p.Screens))
+                { hash = StableHash.Add(hash, c.X); hash = StableHash.Add(hash, c.Z); }
+            }
             Digest = hash.ToString("X16");
         }
 
@@ -44,6 +76,8 @@ namespace RealisticBases.Planning
         public IReadOnlyList<GridPoint> ArrivalRoute { get; }
         public IReadOnlyList<GridPoint> CoverCells { get; }
         public string CoverDefName { get; }
+        public IReadOnlyList<P4BPostAccessPlan> PostAccess { get; }
+        public IEnumerable<GridPoint> UsablePosts => PostAccess.Where(p => p.Usable).Select(p => p.Post);
         public string Digest { get; }
     }
 
@@ -53,6 +87,38 @@ namespace RealisticBases.Planning
     // This is a pure candidate generator, not yet a spawn authorization.
     public static class P4BFieldWallPlanner
     {
+        public static IReadOnlyList<string> ValidatePostAccess(TerrainSnapshot terrain,
+            P4BFieldWallPlan plan, GridPoint outward, IEnumerable<GridPoint> blocked)
+        {
+            List<string> errors = new List<string>();
+            HashSet<GridPoint> occupied = new HashSet<GridPoint>(blocked);
+            GridPoint tangent = new GridPoint(outward.Z, outward.X);
+            if (!plan.PostAccess.Select(p => p.Post).OrderBy(c => c).SequenceEqual(plan.ExteriorPosts))
+                errors.Add("post_access_assignment");
+            foreach (P4BPostAccessPlan p in plan.PostAccess.Where(p => p.Usable))
+            {
+                int flank = Math.Sign((p.Post.X - plan.OuterGate.X) * tangent.X +
+                    (p.Post.Z - plan.OuterGate.Z) * tangent.Z);
+                Func<int, int, GridPoint> local = (f, l) => new GridPoint(
+                    plan.OuterGate.X + outward.X * f + tangent.X * flank * l,
+                    plan.OuterGate.Z + outward.Z * f + tangent.Z * flank * l);
+                List<GridPoint> expected = new[] { plan.OuterGate, local(1, 0), local(2, 0) }
+                    .Concat(Enumerable.Range(1, 3).Select(l => local(2, l))).ToList();
+                List<GridPoint> screens = Enumerable.Range(1, 4).Select(l => local(3, l))
+                    .Concat(new[] { local(2, 4) }).OrderBy(c => c).ToList();
+                if (flank == 0 || !p.Post.Equals(local(2, 3)) || !p.Route.SequenceEqual(expected) ||
+                    !p.ExposedCells.SequenceEqual(new[] { local(1, 0), local(2, 0) }) ||
+                    !p.WallReturn.Equals(local(1, 4)) || !p.Screens.SequenceEqual(screens))
+                    errors.Add("post_access_geometry");
+                if (!plan.Walls.Contains(p.WallReturn) || !plan.Walls.Contains(local(0, 4)) ||
+                    !p.Screens.All(plan.CoverCells.Contains)) errors.Add("post_screen_disconnected_or_missing");
+                if (p.Route.Skip(1).Any(c => !Walkable(terrain, c) || occupied.Contains(c) ||
+                    plan.Walls.Contains(c) || plan.CoverCells.Contains(c) || !plan.Access.Contains(c)))
+                    errors.Add("post_access_blocked");
+            }
+            return errors;
+        }
+
         // Consume the preselected field rather than searching for leftover
         // farmland after the compound has already packed its rooms. A pair is
         // rejected, without mutation, if its actual gate/perimeter cannot join.
@@ -70,7 +136,7 @@ namespace RealisticBases.Planning
                 .Concat(layout.Gates.SelectMany(g => g.BandDoors)));
             HashSet<GridPoint> field = new HashSet<GridPoint>(site.Field.Points());
             CatalogDef coverDef;
-            string coverName = new[] { "Sandbags", "Barricade" }.FirstOrDefault(name =>
+            string coverName = new[] { "Barricade", "Sandbags" }.FirstOrDefault(name =>
                 input.Catalog.TryGet(name, out coverDef) &&
                 input.Catalog.IsLegal(coverDef, input.Equipment.Kit.Stage));
             if (coverName == null) { diagnostic = "cover_def_unavailable"; return null; }
@@ -139,7 +205,19 @@ namespace RealisticBases.Planning
                     for (int k = 1; k < (gate.Outward.X != 0 ? site.Field.Width : site.Field.Height); k++)
                         arrival.Add(new GridPoint(near.X + gate.Outward.X * k,
                             near.Z + gate.Outward.Z * k));
+                    // Route civilian arrival around the proposed screens only
+                    // after room packing; never reserve this whole footprint
+                    // against the room packer. The gate axis stays open.
+                    HashSet<GridPoint> arrivalBlocked = new HashSet<GridPoint>(blocked);
+                    foreach (int flank in new[] { -1, 1 })
+                        foreach (GridPoint local in Enumerable.Range(1, 4).Select(l => new GridPoint(3, l))
+                            .Concat(new[] { new GridPoint(1, 4), new GridPoint(2, 4) }))
+                            arrivalBlocked.Add(new GridPoint(option.OuterGate.X + gate.Outward.X * local.X +
+                                tangent.X * flank * local.Z, option.OuterGate.Z + gate.Outward.Z * local.X +
+                                tangent.Z * flank * local.Z));
                     List<GridPoint> outside = RouteOutside(option.OuterGate, gate.Outward,
+                        input.Terrain, arrivalBlocked, baseline, wall, doors);
+                    if (outside == null) outside = RouteOutside(option.OuterGate, gate.Outward,
                         input.Terrain, blocked, baseline, wall, doors);
                     if (outside == null || arrival.Any(c => !Walkable(input.Terrain, c) || wall.Contains(c) ||
                         baseline.Contains(c) || (blocked.Contains(c) && !c.Equals(gate.Staging))))
@@ -161,10 +239,42 @@ namespace RealisticBases.Planning
                         doors.Concat(new[] { option.InnerGate, option.OuterGate }), option.PostClearance,
                         gate.Inside, layout.ConstructedRoof);
                     if (errors.Count != 0) { rejected.Add("validate:" + errors[0]); continue; }
+                    // Fit connected returns and front/flank screens after
+                    // room generation, without consuming any existing access.
+                    List<GridPoint> extraCover = new List<GridPoint>();
+                    List<P4BPostAccessPlan> postAccess = new List<P4BPostAccessPlan>();
+                    foreach (int flank in new[] { -1, 1 })
+                    {
+                        Func<int, int, GridPoint> local = (f, l) => new GridPoint(
+                            option.OuterGate.X + gate.Outward.X * f + tangent.X * flank * l,
+                            option.OuterGate.Z + gate.Outward.Z * f + tangent.Z * flank * l);
+                        GridPoint rear = local(1, 4), post = local(2, 3);
+                        List<GridPoint> screens = Enumerable.Range(1, 4).Select(l => local(3, l))
+                            .Concat(new[] { local(2, 4) }).ToList();
+                        List<GridPoint> route = new[] { option.OuterGate, local(1, 0), local(2, 0) }
+                            .Concat(Enumerable.Range(1, 3).Select(l => local(2, l))).ToList();
+                        Func<GridPoint, bool> free = c => !blocked.Contains(c) && !baseline.Contains(c) && !wall.Contains(c) &&
+                                !doors.Contains(c) && !arrival.Contains(c) && !field.Contains(c) &&
+                                !option.PostClearance.Contains(c) &&
+                                !layout.Gates.Where((g, i) => i != gateIndex).Any(g => g.ExteriorRoute.Contains(c)) &&
+                                input.Terrain.InBounds(c) && input.Terrain[c].Has(TerrainTraits.Buildable) &&
+                                !input.Terrain[c].Has(TerrainTraits.MapEdge) &&
+                                Walkable(input.Terrain, c);
+                        bool legal = wall.Contains(local(0, 4)) && free(rear) && screens.All(free) &&
+                            route.Skip(1).All(c => Walkable(input.Terrain, c) && !blocked.Contains(c) &&
+                                !wall.Contains(c) && !baseline.Contains(c) && !doors.Contains(c));
+                        postAccess.Add(new P4BPostAccessPlan(post, route, new[] { local(1, 0), local(2, 0) },
+                            rear, screens, legal ? null : "screen_or_access_blocked"));
+                        if (!legal) continue; // Optional defense must not reject a valid base.
+                        wall.Add(rear);
+                        extraCover.AddRange(screens);
+                    }
+                    List<GridPoint> coverCells = option.CoverCells.Concat(extraCover).Distinct().ToList();
                     diagnostic = "accepted gate=" + gateIndex + " forward=" + forward + " inner=" + option.InnerGate;
                     return new P4BFieldWallPlan(gateIndex, option.Crops, wall, option.OuterGate,
-                        option.PostClearance, option.InnerGate, option.Lane.Concat(option.PostAccess),
-                        arrival, option.CoverCells, coverName);
+                        option.PostClearance, option.InnerGate,
+                        option.Lane.Concat(option.PostAccess).Except(coverCells).Except(wall),
+                        arrival, coverCells, coverName, postAccess);
                 }
             }
             diagnostic = "bestGateDistance=" + (bestDistance == int.MaxValue ? -1 : bestDistance) +

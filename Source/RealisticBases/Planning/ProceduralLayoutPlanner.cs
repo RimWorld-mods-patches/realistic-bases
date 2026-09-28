@@ -283,10 +283,13 @@ namespace RealisticBases.Planning
             IEnumerable<GridPoint> extraObstacles, IEnumerable<string> notes, SettlementTechStage techStage, string rolesDigest,
             string equipmentDigest, string wallStuff, LayoutMaterialLedger materials, LayoutPowerPlan power,
             IEnumerable<LayoutExhaustPocket> exhaustPockets = null, IEnumerable<LayoutWallSection> outerSections = null,
-            P4BJointSite jointSite = null, P4BFieldWallPlan fieldWall = null)
+            P4BJointSite jointSite = null, P4BFieldWallPlan fieldWall = null, P4BTurretPlan turret = null,
+            P4BApproachDefensePlan approachDefense = null)
         {
             JointSite = jointSite;
             FieldWall = fieldWall;
+            Turret = turret;
+            ApproachDefense = approachDefense;
             Power = power;
             OuterSections = new ReadOnlyCollection<LayoutWallSection>((outerSections ?? Enumerable.Empty<LayoutWallSection>())
                 .OrderBy(s => s.GateIndex).ThenBy(s => s.Layer).ToList());
@@ -347,6 +350,8 @@ namespace RealisticBases.Planning
         // legacy pure-layout fixtures and supported no-outdoor-field profiles.
         public P4BJointSite JointSite { get; }
         public P4BFieldWallPlan FieldWall { get; }
+        public P4BTurretPlan Turret { get; }
+        public P4BApproachDefensePlan ApproachDefense { get; }
         public IReadOnlyList<LayoutRelationship> Relationships { get; }
         // Test-only planned blockers used to prove the validator sees final obstacles.
         public IReadOnlyList<GridPoint> ExtraObstacles { get; }
@@ -388,7 +393,7 @@ namespace RealisticBases.Planning
             new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court, Enclosure, BuiltWalls,
                 NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof, WallLayers, FieldCellsRequired, Relationships,
                 ExtraObstacles.Concat(obstacles ?? Enumerable.Empty<GridPoint>()), Notes, TechStage, RolesDigest, EquipmentDigest, WallStuff, Materials, Power,
-                ExhaustPockets, OuterSections, JointSite, FieldWall);
+                ExhaustPockets, OuterSections, JointSite, FieldWall, Turret, ApproachDefense);
 
         public ProceduralLayout WithFieldWall(ProceduralLayoutInput input, P4BFieldWallPlan fieldWall)
         {
@@ -400,14 +405,48 @@ namespace RealisticBases.Planning
             LayoutMaterialLedger materials = input.Equipment.Count(Rooms,
                 BuiltWalls.Concat(gates.SelectMany(g => g.BandWalls)).Concat(OuterWalls)
                     .Concat(ExhaustPocketWalls).Concat(fieldWall.Walls),
-                gates.Sum(g => 1 + g.BandDoors.Count) + 2, Power,
-                Enumerable.Repeat(fieldWall.CoverDefName, fieldWall.CoverCells.Count));
+                gates.Sum(g => 1 + g.BandDoors.Count) + 2 + (ApproachDefense?.SallyPorts.Count ?? 0), Power,
+                Enumerable.Repeat(fieldWall.CoverDefName, fieldWall.CoverCells.Count +
+                    (ApproachDefense?.CoverCells.Count() ?? 0)));
             return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court,
                 Enclosure, BuiltWalls, NaturalWalls, gates, Excavation, RetainedThickRoof, ConstructedRoof,
                 WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
                 Notes.Concat(new[] { "fieldWall=" + fieldWall.Digest + " materials " + materials }),
                 TechStage, RolesDigest, EquipmentDigest, WallStuff, materials, Power,
-                ExhaustPockets, OuterSections, JointSite, fieldWall);
+                ExhaustPockets, OuterSections, JointSite, fieldWall, Turret, ApproachDefense);
+        }
+
+        public ProceduralLayout WithApproachDefense(ProceduralLayoutInput input, P4BApproachDefensePlan defense)
+        {
+            if (input == null || defense == null || Turret != null) throw new ArgumentException("Defense precedes turret selection");
+            LayoutMaterialLedger materials = P4BApproachDefensePlanner.Materials(input, this, defense.CoverCells.Count(),
+                defense.Posts, defense.SallyPorts);
+            return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court,
+                Enclosure, BuiltWalls.Except(defense.SallyPorts.Select(p => p.Cell)).Concat(defense.Posts.Select(p => p.WallReturn)),
+                NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof,
+                WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
+                Notes.Concat(new[] { "approachDefense=" + defense.Digest }), TechStage, RolesDigest,
+                EquipmentDigest, WallStuff, materials, Power, ExhaustPockets, OuterSections, JointSite, FieldWall, null, defense);
+        }
+
+        public ProceduralLayout WithTurret(ProceduralLayoutInput input, P4BTurretPlan turret)
+        {
+            if (input == null || turret == null || FieldWall == null) throw new ArgumentNullException(nameof(turret));
+            LayoutMaterialLedger materials = input.Equipment.Count(Rooms,
+                BuiltWalls.Concat(Gates.SelectMany(g => g.BandWalls)).Concat(OuterWalls)
+                    .Concat(ExhaustPocketWalls).Concat(FieldWall.Walls),
+                Gates.Sum(g => 1 + g.BandDoors.Count) + 2 + (ApproachDefense?.SallyPorts.Count ?? 0), Power,
+                Enumerable.Repeat(FieldWall.CoverDefName, FieldWall.CoverCells.Count +
+                    (ApproachDefense?.CoverCells.Count() ?? 0))
+                    .Concat(Enumerable.Repeat(FieldWall.CoverDefName, turret.All.Sum(t => t.CoverCells.Count)))
+                    .Concat(turret.All.Select(t => t.DefName)));
+            return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court,
+                Enclosure, BuiltWalls, NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof,
+                WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
+                Notes.Concat(new[] { "turret=" + turret.Digest + " import=" + turret.ImportValue }),
+                TechStage, RolesDigest, EquipmentDigest, WallStuff, materials, Power,
+                ExhaustPockets, OuterSections, JointSite, FieldWall, turret,
+                ApproachDefense?.WithoutTransit(turret.All.SelectMany(t => t.Footprint)));
         }
 
         private static IReadOnlyList<GridPoint> Sorted(IEnumerable<GridPoint> cells) =>
@@ -461,6 +500,8 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, WallLayers);
             hash = StableHash.Add(hash, JointSite == null ? string.Empty : JointSite.Digest);
             hash = StableHash.Add(hash, FieldWall == null ? string.Empty : FieldWall.Digest);
+            hash = StableHash.Add(hash, ApproachDefense == null ? string.Empty : ApproachDefense.Digest);
+            hash = StableHash.Add(hash, Turret == null ? string.Empty : Turret.Digest);
             hash = StableHash.Add(hash, TechStage == null ? string.Empty : TechStage.Digest);
             hash = StableHash.Add(hash, RolesDigest);
             hash = StableHash.Add(hash, EquipmentDigest);
@@ -731,59 +772,93 @@ namespace RealisticBases.Planning
                 if (anchors.Count == 0) diagnostics.Add(new LayoutDiagnostic("site", "no_anchor", doctrine.ToString()));
                 for (int siteIndex = 0; siteIndex < anchors.Count; siteIndex++)
                 {
-                    GridPoint anchor = anchors[siteIndex];
-                    P4BJointSite site = paired == null ? null : paired[siteIndex];
-                    LayoutTerrainGrid siteGrid = site == null ? grid : grid.RestrictTo(site.Compound);
                     if (stats.SitesTried >= siteLimit) break;
                     stats.SitesTried++;
-                    for (int attempt = 0; attempt < input.Budget.AttemptsPerSite; attempt++)
+                    P4BJointSite originalSite = paired == null ? null : paired[siteIndex];
+                    IEnumerable<P4BJointSite> variants = originalSite == null
+                        ? new P4BJointSite[] { null }
+                        : P4BJointSitePlanner.GrowthVariants(originalSite, grid, input.Fortification.PlacementMargin);
+                    foreach (P4BJointSite site in variants)
                     {
-                        if (stats.BudgetExhausted) return reject("search_budget_exhausted");
-                        stats.Attempts++;
-                        ulong attemptSeed = LayoutSeed.Key(LayoutSeed.Sub(input.Seed, "attempt"), anchor.X * 4099 + anchor.Z, attempt, (int)doctrine);
-                        LayoutAttempt run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics,
-                            jointSite: site);
-                        ProceduralLayout layout = run.Run();
-                        if (layout == null && run.NeedsPocketsOnly && !stats.BudgetExhausted)
+                        GridPoint anchor = site == null ? anchors[siteIndex] : site.Anchor;
+                        LayoutTerrainGrid siteGrid = site == null ? grid : grid.RestrictTo(site.Compound);
+                        if (site != null && site != originalSite)
+                            Note(diagnostics, "joint_site", "grow_compound",
+                                "field=" + site.Field + " compound=" + site.Compound + " anchor=" + anchor);
+                        for (int attempt = 0; attempt < input.Budget.AttemptsPerSite; attempt++)
                         {
-                            // The public room failed vanilla's outdoor rule: replan this attempt with pocket exhaust only.
+                            if (stats.BudgetExhausted) return reject("search_budget_exhausted");
                             stats.Attempts++;
-                            run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics, true, site);
-                            layout = run.Run();
-                        }
-                        if (stats.BudgetExhausted && layout == null) return reject("search_budget_exhausted");
-                        if (layout == null) continue;
-                        IReadOnlyList<string> violations = ProceduralLayoutValidator.Validate(input, layout);
-                        if (violations.Count == 0)
-                        {
-                            if (site != null)
+                            ulong attemptSeed = LayoutSeed.Key(LayoutSeed.Sub(input.Seed, "attempt"), anchor.X * 4099 + anchor.Z, attempt, (int)doctrine);
+                            LayoutAttempt run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics,
+                                jointSite: site);
+                            ProceduralLayout layout = run.Run();
+                            if (layout == null && run.NeedsPocketsOnly && !stats.BudgetExhausted)
                             {
-                                HashSet<GridPoint> occupied = new HashSet<GridPoint>(layout.Enclosure
-                                    .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
-                                    .Concat(layout.PowerYards.SelectMany(y => y.Cells))
-                                    .Concat(layout.AllFixtures.SelectMany(f => f.Cells))
-                                    .Concat(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex]))));
-                                string wallDiagnostic;
-                                P4BFieldWallPlan fieldWall = P4BFieldWallPlanner.PlanJoint(input, layout, occupied,
-                                    out wallDiagnostic);
-                                if (fieldWall == null)
-                                {
-                                    Note(diagnostics, "joint_site", "field_wall_rejected", anchor + " " + wallDiagnostic);
-                                    continue;
-                                }
-                                layout = layout.WithFieldWall(input, fieldWall);
-                                violations = ProceduralLayoutValidator.Validate(input, layout);
-                                if (violations.Count != 0)
-                                {
-                                    Note(diagnostics, "joint_site", "final_rejected", anchor + " " + string.Join("+", violations.Take(6)));
-                                    continue;
-                                }
+                                // The public room failed vanilla's outdoor rule: replan this attempt with pocket exhaust only.
+                                stats.Attempts++;
+                                run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics, true, site);
+                                layout = run.Run();
                             }
-                            if (input.Terrain.Digest != terrainDigest || input.Digest != inputDigest) throw new InvalidOperationException("P4A planner mutated its input.");
-                            diagnostics.Add(new LayoutDiagnostic("result", "accepted", stats + " digest=" + layout.Digest));
-                            return new ProceduralLayoutResult(layout, demand, diagnostics, stats);
+                            if (stats.BudgetExhausted && layout == null) return reject("search_budget_exhausted");
+                            if (layout == null) continue;
+                            IReadOnlyList<string> violations = ProceduralLayoutValidator.Validate(input, layout);
+                            if (violations.Count == 0)
+                            {
+                                if (site != null)
+                                {
+                                    HashSet<GridPoint> occupied = new HashSet<GridPoint>(layout.Enclosure
+                                        .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
+                                        .Concat(layout.PowerYards.SelectMany(y => y.Cells))
+                                        .Concat(layout.AllFixtures.SelectMany(f => f.Cells))
+                                        .Concat(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex]))));
+                                    string wallDiagnostic;
+                                    P4BFieldWallPlan fieldWall = P4BFieldWallPlanner.PlanJoint(input, layout, occupied,
+                                        out wallDiagnostic);
+                                    if (fieldWall == null)
+                                    {
+                                        Note(diagnostics, "joint_site", "field_wall_rejected", anchor + " " + wallDiagnostic);
+                                        continue;
+                                    }
+                                    layout = layout.WithFieldWall(input, fieldWall);
+                                    violations = ProceduralLayoutValidator.Validate(input, layout);
+                                    if (violations.Count != 0)
+                                    {
+                                        Note(diagnostics, "joint_site", "final_rejected", anchor + " " + string.Join("+", violations.Take(6)));
+                                        continue;
+                                    }
+                                    layout = layout.WithApproachDefense(input, P4BApproachDefensePlanner.Plan(input, layout));
+                                    violations = ProceduralLayoutValidator.Validate(input, layout);
+                                    if (violations.Count != 0)
+                                    {
+                                        Note(diagnostics, "defense", "final_rejected", anchor + " " + string.Join("+", violations.Take(6)));
+                                        continue;
+                                    }
+                                    string turretDiagnostic;
+                                    P4BTurretPlan turret = P4BTurretPlanner.Plan(input, layout, fieldWall,
+                                        occupied, out turretDiagnostic);
+                                    if (turret != null)
+                                    {
+                                        ProceduralLayout armed = layout.WithTurret(input, turret);
+                                        IReadOnlyList<string> armedErrors = ProceduralLayoutValidator.Validate(input, armed);
+                                        // One final equipment decision is retained beyond the
+                                        // search-detail cap; returning immediately bounds it.
+                                        if (armedErrors.Count == 0)
+                                        {
+                                            layout = armed;
+                                            diagnostics.Add(new LayoutDiagnostic("turret", "accepted", turretDiagnostic));
+                                        }
+                                        else diagnostics.Add(new LayoutDiagnostic("turret", "optional_rejected",
+                                            anchor + " " + string.Join("+", armedErrors.Take(6))));
+                                    }
+                                    else diagnostics.Add(new LayoutDiagnostic("turret", "unplaced", anchor + " " + turretDiagnostic));
+                                }
+                                if (input.Terrain.Digest != terrainDigest || input.Digest != inputDigest) throw new InvalidOperationException("P4A planner mutated its input.");
+                                diagnostics.Add(new LayoutDiagnostic("result", "accepted", stats + " digest=" + layout.Digest));
+                                return new ProceduralLayoutResult(layout, demand, diagnostics, stats);
+                            }
+                            Note(diagnostics, "validate", "rejected", anchor + " " + string.Join("+", violations.Take(6)));
                         }
-                        Note(diagnostics, "validate", "rejected", anchor + " " + string.Join("+", violations.Take(6)));
                     }
                 }
             }

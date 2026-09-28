@@ -7,6 +7,7 @@ using RealisticBases.Core;
 using RealisticBases.Generation;
 using RealisticBases.Integration;
 using RealisticBases.Persistence;
+using RealisticBases.Planning;
 using RimWorld;
 using RimWorld.Planet;
 using Verse;
@@ -21,6 +22,7 @@ namespace RealisticBases.Diagnostics
         private const string DisposableSaveName = "RealisticBases-P0-Disposable";
         private const string P3ActiveSaveName = "RealisticBases-P3-Active";
         private static int lastDebugSettlementId = -1;
+        private static bool captureNextFlatTerrain;
 
         [DebugAction(Category, "Save disposable P0 game", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.Playing)]
@@ -119,6 +121,14 @@ namespace RealisticBases.Diagnostics
             GenerateIsolatedHostileSettlement(movePlayerColonist: true, requireFlat: true);
         }
 
+        [DebugAction(Category, "Capture next flat P4 terrain fixture", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void CaptureNextFlatTerrainFixture()
+        {
+            captureNextFlatTerrain = true;
+            P0Log.Message("DEBUG_TERRAIN_CAPTURE_ARM", "nextFlat=true");
+        }
+
         private static void GenerateIsolatedHostileSettlement(bool movePlayerColonist, bool requireMountainous = false,
             bool requireFoothill = false, bool requireFlat = false)
         {
@@ -167,6 +177,11 @@ namespace RealisticBases.Diagnostics
             // terrain to find a real legal footprint rather than weakening it.
             IntVec3 mapSize = requireMountainous || requireFoothill || requireFlat ? new IntVec3(160, 1, 160) : new IntVec3(80, 1, 80);
             Map map = GetOrGenerateMapUtility.GetOrGenerateMap(tile, mapSize, null);
+            if (requireFlat && captureNextFlatTerrain)
+            {
+                captureNextFlatTerrain = false;
+                CaptureFlatTerrainFixture(map);
+            }
             Current.Game.CurrentMap = map;
             RevealDebugMap(map);
             if (arrivalPawn != null)
@@ -238,6 +253,45 @@ namespace RealisticBases.Diagnostics
             }
             P0Log.Message("DEBUG_MAP_REVEALED", "map=" + map.uniqueID + " cells=" + revealed +
                 " remainingFog=" + map.AllCells.Count(cell => cell.Fogged(map)));
+        }
+
+        private static void CaptureFlatTerrainFixture(Map map)
+        {
+            try
+            {
+                string saves = System.IO.Path.GetDirectoryName(GenFilePaths.FilePathForSavedGame(DisposableSaveName));
+                if (System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(saves)) != "rimworld-dev-profile")
+                {
+                    P0Log.Message("DEBUG_TERRAIN_CAPTURE_SKIPPED", "reason=not_disposable_profile");
+                    return;
+                }
+                TerrainSnapshot terrain = P1MapPlanner.Capture(map);
+                List<string> rows = new List<string>(terrain.Height);
+                for (int z = 0; z < terrain.Height; z++)
+                {
+                    List<string> runs = new List<string>();
+                    for (int x = 0; x < terrain.Width;)
+                    {
+                        TerrainTraits traits = terrain[new GridPoint(x, z)].Traits;
+                        int count = 1;
+                        while (x + count < terrain.Width && terrain[new GridPoint(x + count, z)].Traits == traits)
+                            count++;
+                        runs.Add(((ushort)traits).ToString("X3") + "*" + count);
+                        x += count;
+                    }
+                    rows.Add(string.Join(",", runs));
+                }
+                string path = System.IO.Path.Combine(saves,
+                    "P4-flat-terrain-" + map.uniqueID + "-" + terrain.Digest + ".rle");
+                System.IO.File.WriteAllLines(path, rows);
+                P0Log.Message("DEBUG_TERRAIN_CAPTURE", "map=" + map.uniqueID + " digest=" + terrain.Digest +
+                    " path=" + path + " width=" + terrain.Width + " height=" + terrain.Height +
+                    " active=" + (map.GetComponent<P0MapState>()?.Active ?? false));
+            }
+            catch (Exception ex)
+            {
+                P0Log.Message("DEBUG_TERRAIN_CAPTURE_FAILED", ex.ToString());
+            }
         }
 
         [DebugAction(Category, "Mark last isolated P0 settlement depleted/damaged", actionType = DebugActionType.Action,
@@ -317,6 +371,14 @@ namespace RealisticBases.Diagnostics
         {
             RealisticBasesMod.Settings.forceP2ProfileNext = "industrial";
             P2Log.Message("DEBUG_ARM", "forceP2ProfileNext=industrial");
+        }
+
+        [DebugAction(Category, "Use high-industrial P4 stage once", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void ForceHighIndustrialStage()
+        {
+            P4AMapPlanner.DebugStageNext = SettlementTechStageLevel.IndustrialLate;
+            P2Log.Message("DEBUG_ARM", "P4A stage=IndustrialLate once; faction stage unchanged");
         }
 
         [DebugAction(Category, "Use tribal profile for next generation", actionType = DebugActionType.Action,

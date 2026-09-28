@@ -270,7 +270,10 @@ namespace RealisticBases.AI
             boundsHeight = plan.DefendedBounds.Height;
             defendedCells = plan.DefendedCells.Select(ToCell).Distinct().ToList();
             postIds = plan.Posts.Select(p => p.Id).ToList();
-            postSectors = plan.Posts.Select(p => p.SectorId).ToList();
+            // Keep the existing string-list save field. Older single-sector
+            // records decode identically; corner posts can serve two fronts.
+            postSectors = plan.Posts.Select(p => string.Join("|", new[] { p.SectorId }
+                .Concat(p.SupportedSectors.Where(s => s != p.SectorId)))).ToList();
             postCells = plan.Posts.Select(p => ToCell(p.Cell)).ToList();
             postFlags = plan.Posts.Select(p => (p.Mortar ? 1 : 0) | (p.Inner ? 2 : 0) |
                 (p.MinimumRange <= 3 ? 4 : 0)).ToList();
@@ -601,9 +604,10 @@ namespace RealisticBases.AI
                 bool usable = cell.InBounds(map) && cell.Standable(map) && cell.GetEdifice(map) == null &&
                     cover && (reachPawn == null || map.reachability.CanReach(reachPawn.Position, cell, PathEndMode.OnCell, TraverseParms.For(reachPawn)));
                 if (!usable && PreviousPostAssigned(postIds[i])) invalidPostRecoveries++;
-                result.Add(new DefensivePost(postIds[i], postSectors[i], new GridPoint(cell.x, cell.z),
+                string[] sectors = postSectors[i].Split('|');
+                result.Add(new DefensivePost(postIds[i], sectors[0], new GridPoint(cell.x, cell.z),
                     melee ? 0 : 8, melee ? 3 : 48, cover, true, usable && InsideBounds(cell),
-                    mortarPost, inner, usable));
+                    mortarPost, inner, usable, sectors));
             }
             return result;
         }

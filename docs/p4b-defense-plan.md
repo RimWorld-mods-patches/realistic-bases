@@ -1,6 +1,6 @@
 # P4B — Defensive layout planner
 
-2026-09-27 · Active; P4B.0–P4B.1 complete, P4B.2 in progress · After P4/P4A, before P5
+2026-09-28 · Active; P4B.0–P4B.1 complete, P4B.2 in progress · After P4/P4A, before P5
 
 The user authorized a distinct defensive-layout milestone: extend the procedural settlement with actual outer-wall layers, gates, turrets, barricades and sandbags. Reuse the current procedural planner, transaction and P3 controller. This document specifies future work; it does not claim these defenses already work on the P4A path.
 
@@ -18,6 +18,22 @@ Carry explicit crop, hauling-lane, field-wall/gate, outside-post and compound-en
 
 This is a stage of the same generation transaction, not a post-spawn decoration pass. Produce explicit defense footprints and interaction/service routes, merge them with the settlement plan, and validate final occupancy before mutation. Update power/material/stock requirements from selected defenses; do not consume space or power invisibly. Bounded adjustment may move an emplacement, change a legal equipment choice or request layout replanning. Report adjustments and reject impossible combinations; never disable connectivity validation to force acceptance.
 
+2026-09-28 clarification: detailed defenses may be planned **after the base's rooms and main perimeter have been generated**. Reserve only necessary connection points (gates, field interface, essential access) before that pass. Fit cover/emplacements against the completed layout, then revalidate final pawn paths, maintenance access, arrival, occupancy and budgets before committing the same spawn transaction. Do not require a large speculative defense footprint during room packing; the initial attempt to do that regressed the flat-clutter acceptance corpus. Optional equipment may step down or be omitted without rejecting an otherwise usable settlement.
+
+### Attackable perimeter faces, not only the field gate
+
+The user's next clarification requires positions on every attackable side and turret placement against actual incoming approaches. The post-layout pass now floods conventional attacker ground from walkable map edges, excluding the planned enclosure and permanent obstacles, then samples firing ground outside actual south/east/north/west perimeter faces. Water does not automatically make a side safe: reachable ground across a shoreline can still supply ranged attacks. Intact rock blocks the sampled sightline; drop pods, sappers and later demolition are outside this initial exposure model.
+
+Each exposed side receives a usable existing field post, a new connected exterior position with forward/flank screens and short gate access, or a terrain/material omission reason. A dry corner position may serve two sides only when it is near both faces, has adjacent incoming-side cover and sees useful approach samples for both. Missing optional positions are reported, not disguised as defended sides or used to reject an otherwise viable base. Open-ground fixtures require all four sides to have posts.
+
+The user's near-gate clarification supersedes the first three-barricade side-post prototype and its long exterior routes. Fit the same small connected projection as the field posts: a cardinally attached rear wall return, four front screens, one exposed-flank screen and a six-cell route from the gate. Prefer a usable existing gate; otherwise an ordinary one-cell built perimeter wall can receive a defense-only sally port when the immediately inside cell belongs to the public circulation network. Do not cut rooms, natural rock or reinforced sections, bypass serial gate layers, assume bridges, or count a sally port as a reinforced civilian arrival gate. Charge its wall-to-door replacement and return/screens, include it in closed-wall/path validation, P3 breach detection and the spawn transaction. Report an omission rather than reverting to a long unprotected lap around the base.
+
+Turret candidates are generated from exposed-front connection points. Select a bounded network, not only the first heavy/mini pair: favor a new front, uncovered approach samples, and then a second firing source on singly covered samples. Prefer a shorter gate route for otherwise equivalent candidates. The exposed-face count bounds the number of groups (at most four); it is not a requirement to put a turret on each face. All groups share one construction/cover/loaded-ammunition/reserve budget and one dispatchable/total power allowance. A further group may step down to a mini-turret or be omitted with a reason without removing earlier valid defenses or rejecting the base.
+
+Revalidate the whole network after every addition: final opaque turret footprints, inter-group blast spacing, unobstructed advertised maintenance paths, pawn-post lanes and civilian arrival. Every group must share useful actual approach targets with another gun or a verified covered pawn position; proximity alone is not interlocking fire. A large gun still requires a separate mini-turret and at least one useful pawn position covering sampled reachable dead ground at that front; field posts behind the opposite opaque wall no longer count by assumption. Report uncovered, single-source and overlapping sampled approaches rather than claiming universal protection. This is geometric support eligibility, not proof that a compatible pawn is staffed or firing.
+
+P3 prioritizes the threatened side while holding an intact perimeter as well as responding to a breach, preserves the existing reassignment cooldown, and represents a shared corner as one physical post with multiple supported sectors. Each short post route still has two exposed gate-axis crossing cells; front screens do **not** prove mechanical cover for every movement direction. Protected turret maintenance, live fire/cover and reload remain exit gates.
+
 Code inspection at `783b826` found that `WallLayers` expands gatehouse bands, while the general enclosure boundary is not expanded into complete extra wall layers. Geometry-based P3 posts are chosen by proximity to gates/walls, without establishing usable firing lanes. Catalog entries alone do not demonstrate spawned, coordinated turret/cover placement. Earlier two-/three-layer reports must be read in this narrower sense, not as P4B completion evidence.
 
 ## Bounded implementation steps
@@ -26,7 +42,7 @@ Code inspection at `783b826` found that `WallLayers` expands gatehouse bands, wh
 |---|---|---|
 | P4B.0 | Establish contracts/reservations and the test checklist; inspect inherited implementation | Baseline facts and ownership recorded; existing validated behavior retained |
 | P4B.1 | Generate 1–3 layers along eligible exterior-wall sections, coherent material choices, serial gate crossings and service/retreat access | Final occupancy across irregular outlines, corners, narrow terrain and all thicknesses; every entrance connected to the same public network |
-| P4B.2 | Enclose the unroofed main field, then place defender posts, sandbags/barricades, and turret candidates **outside its field-facing wall** around actual approaches | Field/wall/gate/route/roof occupancy, range/line-of-fire and access checks; no ranged post accepted merely because it is next to a wall; final-map firing/cover observations |
+| P4B.2 | Enclose the unroofed main field; fit exterior posts/cover on every exposed perimeter face and rank turret candidates against actual attacker approaches | Field/wall/gate/route/roof occupancy, exposed-side inventory, range/line-of-fire and access checks; no ranged post accepted merely because it is next to a wall; final-map firing/cover observations |
 | P4B.3 | Integrate selected defenses with P3, actual power, finite reload inputs and the construction budget | Supported turrets fire and consume inputs; rearm/service access, loss of power, depletion and local fallback observed |
 | P4B.4 | Raid, reload, terrain compatibility and rollback matrix; closeout | Representative Core/GL procedural maps, forced recovery and player raid pass; no traps/IEDs; findings and tracker updated |
 
@@ -71,6 +87,16 @@ Our proposed game adaptation is deliberately small:
 - **Protect movement and supplies:** preserve service/retreat routes and avoid routing routine traffic through intended firing lanes where practical. Do not infer that pure geometric separation guarantees no friendly fire.
 
 These are design heuristics to test in RimWorld. Use current occupancy/pathing and actual weapon behavior as the authority. No global adversarial optimizer, complete star-fort generator, strategic siege simulator, terraformed moat, traps or IEDs. Keep exploitable tactical choices and difficulty budgets; the goal is a coherent, interesting settlement raid, not an invulnerable fortress.
+
+### Coherent defense groups, not scattered turrets
+
+The user's stronger fortification requirement supersedes optional close-blind-zone support for large guns: an autocannon/uranium emplacement must be accompanied by a legal mini-turret and useful pawn firing positions covering sampled dead ground. If that group cannot fit or be supplied, use a small emplacement or omit the gun; do not place an isolated large gun. Keep group members out of each other's explosion envelope, and use the resolved turret firing origin and ranges rather than granting a shot from any occupied footprint tile.
+
+Defender positions need adjacent forward cover, exposed-flank protection, and a covered route from their gate. Turret cover must be immediately adjacent on the incoming-fire side, not a remote decorative line. Post-layout fitting now provides small connected rear wall returns, forward/flank screens and explicit routes to the two field posts. The two open gate-axis crossing cells are explicitly exposed; the lateral approach runs adjacent to its forward cover. An incomplete terrain-constrained arrangement carries an omission reason and does not enter P3 as a usable post. Broader bastion-like projections and protected turret-maintenance/retreat corridors remain work to validate.
+
+The community wiki describes sandbags and barricades as equivalent 55% low cover, with cover supplied by adjacency to the defender. It also notes that in 1.6 enemies can stand and shoot on these objects, so they cannot be relied on to prevent enemy firing positions. [Sandbags](https://rimworldwiki.com/wiki/Sandbags), [Barricade](https://rimworldwiki.com/wiki/Barricade).
+
+The wiki reports minimum ranges of 8.9 for autocannons and 11.9 for uranium guns, and a direction-sensitive cover issue for 2×2 turrets based on older empirical testing. Resolved Core defs establish our range facts; live hit/cover tests must establish current 1.6 cover behavior instead of assuming a ring of bags protects a large turret equally from every side. [Autocannon turret](https://rimworldwiki.com/wiki/Autocannon_turret), [Uranium slug turret](https://rimworldwiki.com/wiki/Uranium_slug_turret).
 
 ## Exit and downstream responsibilities
 

@@ -138,6 +138,11 @@ namespace RealisticBases.Planning
             {
                 hash = StableHash.Add(hash, post.Id);
                 hash = StableHash.Add(hash, post.SectorId);
+                if (post.SupportedSectors.Count > 1)
+                {
+                    hash = StableHash.Add(hash, "supported-fronts");
+                    foreach (string sector in post.SupportedSectors) hash = StableHash.Add(hash, sector);
+                }
                 hash = StableHash.Add(hash, post.Cell.X);
                 hash = StableHash.Add(hash, post.Cell.Z);
                 hash = StableHash.Add(hash, post.Mortar ? 1 : 0);

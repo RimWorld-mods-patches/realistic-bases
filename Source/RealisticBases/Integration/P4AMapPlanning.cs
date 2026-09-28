@@ -22,6 +22,9 @@ namespace RealisticBases.Integration
     public static class P4AMapPlanner
     {
         private static TechCatalog cachedCatalog;
+        // Developer-action override for one disposable generation only. The
+        // faction's persisted stage remains unchanged for ordinary maps.
+        public static SettlementTechStageLevel? DebugStageNext;
 
         public static P4AMapPlanningRun Run(Map map, Settlement settlement, int requestedWallLayers)
         {
@@ -33,6 +36,13 @@ namespace RealisticBases.Integration
             string diagnostic;
             if (!worldState.TryGetOrCreateFactionStage(settlement.Faction, worldSeed, out stage, out diagnostic))
                 throw new InvalidOperationException(diagnostic);
+            string stageMode = "faction";
+            if (DebugStageNext.HasValue)
+            {
+                stage = TechStageModel.Create(DebugStageNext.Value);
+                DebugStageNext = null;
+                stageMode = "debug-once";
+            }
             ulong seed = worldState.GetOrCreateProceduralSeed(settlement, worldSeed, profile.Id, profile.Version);
             TerrainSnapshot terrain = P1MapPlanner.Capture(map);
             LayoutLocalResources resources = CaptureResources(map);
@@ -64,7 +74,7 @@ namespace RealisticBases.Integration
                 " naturalRock=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.NaturalRock)) +
                 " water=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Water));
             P2Log.Message("PROCEDURAL_PLAN", "map=" + map.uniqueID + " profile=" + profile.Id +
-                " stage=" + stage.Level + " seed=" + StableHash.Hex(seed) + " targetLayers=" + targetLayers +
+                " stage=" + stage.Level + " stageMode=" + stageMode + " seed=" + StableHash.Hex(seed) + " targetLayers=" + targetLayers +
                 " effectiveLayers=" + input.Fortification.WallLayers + " layerFallback=" + layerFallback +
                 " layerMode=" + (requestedWallLayers == 0 ? "tech-budget-weighted" : "debug-override") +
                 " catalogDefs=" + catalog.Defs.Count + " catalogResearch=" + catalog.Research.Count +
@@ -72,6 +82,9 @@ namespace RealisticBases.Integration
                 " river=" + resources.RiverCells.Count + " geysers=" + resources.SteamGeyserCells.Count +
                 " climate=" + climate + " success=" + result.Success + " input=" + input.Digest +
                 " layout=" + (result.Layout?.Digest ?? "none") + " stats=" + result.Stats +
+                " turret=" + (result.Layout?.Turret?.DefName ?? "none") +
+                " turretDecision=" + P1MapPlanner.Compact(result.Diagnostics.Where(d => d.Stage == "turret")
+                    .Select(d => d.ToString()).Take(2).ToArray()) +
                 terrainStats + " rejectionCode=" + (result.RejectionCode ?? "none") +
                 " rejected=" + RejectionSummary(result));
             return new P4AMapPlanningRun(input, result, profile.Id);
