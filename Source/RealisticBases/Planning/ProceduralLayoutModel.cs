@@ -148,12 +148,13 @@ namespace RealisticBases.Planning
         public LayoutRequirements(int residents, SettlementCapability capabilities, HousingStandard housing,
             LayoutClimate climate, int mortarBiasPercent, int excavationBudgetCells, int fieldCells,
             IEnumerable<KeyValuePair<LayoutRoomKind, int>> capacityFloors = null, SettlementTechStage stage = null, int importValueLimit = -1,
-            int equipmentValueLimit = -1)
+            int equipmentValueLimit = -1, int stockpileRoomCapacityTarget = 0)
         {
             if (residents <= 0) throw new ArgumentOutOfRangeException(nameof(residents));
             if (mortarBiasPercent < 0 || mortarBiasPercent > 100) throw new ArgumentOutOfRangeException(nameof(mortarBiasPercent));
             if (excavationBudgetCells < 0) throw new ArgumentOutOfRangeException(nameof(excavationBudgetCells));
             if (fieldCells < 0) throw new ArgumentOutOfRangeException(nameof(fieldCells));
+            if (stockpileRoomCapacityTarget < 0) throw new ArgumentOutOfRangeException(nameof(stockpileRoomCapacityTarget));
             Residents = residents;
             Capabilities = capabilities;
             Housing = housing;
@@ -172,6 +173,7 @@ namespace RealisticBases.Planning
             Stage = stage ?? DefaultStage(capabilities);
             ImportValueLimit = importValueLimit >= 0 ? importValueLimit : DefaultImportValueLimit(capabilities);
             EquipmentValueLimit = equipmentValueLimit >= 0 ? equipmentValueLimit : DefaultEquipmentValueLimit(residents, Stage, climate);
+            StockpileRoomCapacityTarget = stockpileRoomCapacityTarget;
             Digest = ComputeDigest();
         }
 
@@ -205,6 +207,10 @@ namespace RealisticBases.Planning
         public int ImportValueLimit { get; }
         // Resident gear, armoury and medicine/component stocks beyond this market value degrade, then reject.
         public int EquipmentValueLimit { get; }
+        // Zero retains the historical split policy; positive values prefer
+        // smaller connected stockpiles without discarding any capacity.
+        public int StockpileRoomCapacityTarget { get; }
+        public bool ReservePopulationCirculation => Residents > 4 || StockpileRoomCapacityTarget > 0;
         public string Digest { get; }
         public bool Electric => Has(SettlementCapability.Electricity);
         public bool Refrigerated => Has(SettlementCapability.Refrigeration);
@@ -229,7 +235,8 @@ namespace RealisticBases.Planning
 
         // P2 profile capacities act as floors; population rules may raise them.
         public static LayoutRequirements FromProfile(PhysicalSettlementProfile profile, LayoutClimate climate,
-            HousingStandard housing = HousingStandard.Barracks, SettlementTechStage stage = null)
+            HousingStandard housing = HousingStandard.Barracks, SettlementTechStage stage = null,
+            OrdinarySettlementBudget populationBudget = null)
         {
             if (profile == null) throw new ArgumentNullException(nameof(profile));
             List<KeyValuePair<LayoutRoomKind, int>> floors = new List<KeyValuePair<LayoutRoomKind, int>>();
@@ -241,10 +248,15 @@ namespace RealisticBases.Planning
             bool electric = profile.Has(SettlementCapability.Electricity);
             SettlementTechStage resolved = stage ?? DefaultStage(profile.Capabilities);
             // P2 budgets were set for P2's fixed kits; a staged kit gets at least the stage default.
-            int equipment = Math.Max(profile.Budget.EquipmentValue, DefaultEquipmentValueLimit(profile.Residents, resolved, climate));
-            return new LayoutRequirements(profile.Residents, profile.Capabilities, housing, climate,
-                electric ? 50 : 0, 60 + profile.Residents * (electric ? 70 : 35), profile.RequiredCropCells, floors, resolved,
-                profile.Budget.ImportValueLimit, equipment);
+            int residents = populationBudget?.Residents ?? profile.Residents;
+            int equipment = populationBudget?.EquipmentValue ??
+                Math.Max(profile.Budget.EquipmentValue, DefaultEquipmentValueLimit(residents, resolved, climate));
+            int fieldCells = (int)Math.Ceiling(residents * profile.DailyNutritionPerResident /
+                profile.EffectiveNutritionPerCropCellPerDay);
+            return new LayoutRequirements(residents, profile.Capabilities, housing, climate,
+                electric ? 50 : 0, 60 + residents * (electric ? 70 : 35), fieldCells, floors, resolved,
+                populationBudget?.ImportValue ?? profile.Budget.ImportValueLimit, equipment,
+                stockpileRoomCapacityTarget: populationBudget == null ? 0 : 48);
         }
 
         private static bool TryMap(FacilityKind kind, out LayoutRoomKind result)
@@ -283,6 +295,11 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, Stage.Digest);
             hash = StableHash.Add(hash, ImportValueLimit);
             hash = StableHash.Add(hash, EquipmentValueLimit);
+            if (StockpileRoomCapacityTarget > 0)
+            {
+                hash = StableHash.Add(hash, "stockpile-room-capacity-target");
+                hash = StableHash.Add(hash, StockpileRoomCapacityTarget);
+            }
             return StableHash.Hex(hash);
         }
     }
@@ -337,6 +354,17 @@ namespace RealisticBases.Planning
         public int MaxCandidatesPerRoom { get; }
         public int MaxRepairsPerAttempt { get; }
         public int MaxRouteNodes { get; }
+
+        public static LayoutSearchBudget ForPopulation(int residents)
+        {
+            if (residents <= 0) throw new ArgumentOutOfRangeException(nameof(residents));
+            if (residents > OrdinarySettlementPopulation.Maximum) return new LayoutSearchBudget();
+            // More rooms/field interfaces need proportionate bounded work, not
+            // a smaller roster. Explicit caller budgets still take precedence.
+            int population = Math.Max(4, Math.Min(12, residents));
+            return new LayoutSearchBudget(maxEvaluations: 25000 * population * population,
+                maxRepairsPerAttempt: population * 2);
+        }
     }
 
     public sealed class ProceduralLayoutInput
@@ -351,7 +379,7 @@ namespace RealisticBases.Planning
             Catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             Seed = seed;
             Fortification = fortification ?? new LayoutFortificationReservation();
-            Budget = budget ?? new LayoutSearchBudget();
+            Budget = budget ?? LayoutSearchBudget.ForPopulation(requirements.Residents);
             Resources = resources ?? LayoutLocalResources.Default;
             Digest = ComputeDigest();
         }
@@ -552,10 +580,16 @@ namespace RealisticBases.Planning
 
         private static int Ceil(int value, int divisor) => (value + divisor - 1) / divisor;
 
-        // A demand too large for one legal room splits into up to MaxSplit rooms of that kind.
+        // Large food/storage demand need not require one unusually large clear
+        // rectangle on a boulder-strewn tile. Keep every unit of capacity, but
+        // split it into bounded, connected rooms that the existing packer can fit.
         private static List<LayoutRoomDemand> Split(LayoutRoomKind kind, int capacity, LayoutRequirements requirements, LayoutKit kit, ulong roomSeed)
         {
-            for (int count = 1; count <= MaxSplit && count <= capacity; count++)
+            // Forty-eight is a packing preference, not a new capacity limit.
+            // At the bounded split count, larger legal rooms remain available.
+            int minimumCount = IsStockpile(kind) && requirements.StockpileRoomCapacityTarget > 0
+                ? Math.Min(MaxSplit, Ceil(capacity, requirements.StockpileRoomCapacityTarget)) : 1;
+            for (int count = minimumCount; count <= MaxSplit && count <= capacity; count++)
             {
                 List<LayoutRoomDemand> result = new List<LayoutRoomDemand>();
                 for (int i = 0; i < count; i++)

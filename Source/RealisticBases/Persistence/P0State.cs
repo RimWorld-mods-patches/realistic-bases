@@ -20,6 +20,8 @@ namespace RealisticBases.Persistence
         public string proceduralLayoutSeed;
         public string proceduralLayoutPlanner;
         public string proceduralLayoutDigest;
+        // -1 = unassigned, 0 = retain an already-generated legacy four-resident plan.
+        public int ordinaryWealthPercent = -1;
 
         public void ExposeData()
         {
@@ -33,6 +35,7 @@ namespace RealisticBases.Persistence
             Scribe_Values.Look(ref proceduralLayoutSeed, "proceduralLayoutSeed");
             Scribe_Values.Look(ref proceduralLayoutPlanner, "proceduralLayoutPlanner");
             Scribe_Values.Look(ref proceduralLayoutDigest, "proceduralLayoutDigest");
+            Scribe_Values.Look(ref ordinaryWealthPercent, "ordinaryWealthPercent", -1);
             if (Scribe.mode == LoadSaveMode.PostLoadInit && pawnIds == null)
             {
                 pawnIds = new List<int>();
@@ -87,6 +90,14 @@ namespace RealisticBases.Persistence
             state.proceduralLayoutSeed = seed.ToString("X16", System.Globalization.CultureInfo.InvariantCulture);
             state.proceduralLayoutPlanner = ProceduralLayoutVersions.Planner;
             return seed;
+        }
+
+        public int GetOrCreateOrdinaryWealthPercent(Settlement settlement, ulong settlementSeed)
+        {
+            P0SettlementState state = GetOrCreate(settlement.ID, settlement.Faction);
+            state.ordinaryWealthPercent = OrdinarySettlementPopulation.ResolveSavedWealth(state.ordinaryWealthPercent,
+                state.generationCount > 0 || !string.IsNullOrEmpty(state.proceduralLayoutDigest), settlementSeed);
+            return state.ordinaryWealthPercent;
         }
 
         public bool TryGetOrCreateFactionStage(Faction faction, string worldSeed, out SettlementTechStage stage, out string diagnostic)

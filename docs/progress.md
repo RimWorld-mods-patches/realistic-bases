@@ -1,12 +1,16 @@
 # Realistic Bases: progress tracker
 
-Updated: 2026-09-24
+Updated: 2026-09-29
 
 ## Current state
 
 Design, source review, and P0–P3 are complete. P4 and P4A are active together: the procedural planner is the target for terrain, facilities, equipment and runtime work. P4B is active; coordinated exterior layers, turrets and cover belong there. P5 remains unstarted. Earlier fixed-compound P4 observations are historical evidence only.
 
 Specification: [design and feasibility](design-feasibility.md). Delivery gates: [implementation plan](implementation-plan.md). Detailed evidence: [P0 findings](p0-findings.md).
+
+The 2026-09-29 ordinary-population update implements stable budget-funded rosters (expected average seven, low wealth four, rich cap twelve) and upfront facility/circulation/field-gate reservations. Already-generated legacy settlements retain their four-resident profile. Runtime supplies now pool all split rooms and fill legal shelves first, preserving finite counts and walkways. P4D is recorded as planned quest-location support, not enabled quest generation. See [population policy and verification evidence](ordinary-settlement-population.md); six-resident Core spawning and active save/reload were observed, while legacy save migration remains synthetic-only and the current P4/P4A/P4B milestones remain open.
+
+Verification: complete LayoutTests (132,637 ms) and PlannerTests suites pass with zero failures; Docker Release mod build has zero warnings/errors. The original 12/12 high-industrial clutter matrix and four/six-turret fixtures remain passing. New four/seven/twelve-resident attached-field fixtures, the original-bound clutter/fallback matrix, clear two/three-layer rich fixtures and four/seven/eight/twelve-resident pooled-storage regressions pass. A real obstacle on a protected shared crossing still rejects. Disposable Core runtime accepted a six-resident/two-layer base with 210 unroofed crops and eight stocked shelves, then preserved wealth/layout/pawn IDs/shelves/steel across active save/reload. The initial `Steel:10` stock-placement failure rolled back cleanly and was fixed. **An additional flat tile still rejects during rock-protected power-room packing/open-ground anchor selection** (seed `4C75E5314725D2A4`, zero mutations); capture a synthetic terrain fixture and fix this in the next placement pass. This checkpoint is not a P4 closeout or a claim of universal flat-map acceptance; no merge is performed by this verification request.
 
 ## Milestones
 
@@ -20,6 +24,8 @@ Specification: [design and feasibility](design-feasibility.md). Delivery gates: 
 | P4 — Terrain variety and environmental integration | In progress | Finish terrain/environment checks on the P4A procedural generator; defensive layout moves to P4B |
 | P4A — Procedural settlement layouts | In progress | Core flat/mountain/foothill, three-layer gate bands (not complete exterior layers), forced rollback, cooler-room audit, and P3 save/reload pass; lakeshore, climate, tribal, and optional-mod matrix remain |
 | P4B — Defensive layout planner | In progress | All four exposed sides have live placement/access evidence for short gate-side projections/shared corners. A Core live run accepted four turrets in two supported groups with shared power, finite stocks and legal pawn/service paths; pure richer fixtures select six guns. Both suites pass, retaining 12/12 flat-clutter acceptance. Actual mutual support, measured cover, protected maintenance and the full live matrix remain open. See [P4B findings](p4b-findings.md) |
+| P4C — Visually realistic bases | Planned | Existing milestone retained from `codex/p4-connectivity`: improve floors and polish rock walls; exit criteria still to be defined |
+| P4D — Quest-location support | Planned | Bounded quest-site adapters preserving threat points, occupants, objectives, rewards, signals and lifecycle; ordinary population policy must not override quest rosters. See [implementation plan](implementation-plan.md#p4d--quest-location-support) |
 | P5 — Encounter supplies, trade stock, and persistent consequences | Not started | Bounded reserves, trade consistency, no-duplication persistence, and accessible/separate hazardous stock placement where justified; full sustainability deferred |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage; add route diagnostics, evidence-driven soft-preference tuning, reproducibility and encounter-quality review |
 | P7 — Settlement specialization | Not started (post-MVP) | Final planned step: agriculture/industry first; evaluate mining, ranching, forestry, trading, military, medical and research profiles; verify trade-product influence feasibility |

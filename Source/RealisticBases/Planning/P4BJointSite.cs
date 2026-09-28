@@ -87,15 +87,18 @@ namespace RealisticBases.Planning
 
     public sealed class P4BJointSiteResult
     {
-        internal P4BJointSiteResult(IEnumerable<P4BJointSite> candidates, IEnumerable<string> rejections, int evaluated)
+        internal P4BJointSiteResult(IEnumerable<P4BJointSite> candidates, IEnumerable<string> rejections, int evaluated,
+            int fieldOriginsScanned = 0)
         {
             Candidates = new ReadOnlyCollection<P4BJointSite>(candidates.ToList());
             Rejections = new ReadOnlyCollection<string>(rejections.ToList());
             Evaluated = evaluated;
+            FieldOriginsScanned = fieldOriginsScanned;
         }
         public IReadOnlyList<P4BJointSite> Candidates { get; }
         public IReadOnlyList<string> Rejections { get; }
         public int Evaluated { get; }
+        public int FieldOriginsScanned { get; }
     }
 
     public static class P4BJointSitePlanner
@@ -103,11 +106,13 @@ namespace RealisticBases.Planning
         // Search a small fixed family of square field footprints. Gates and
         // hauling lanes are counted as exclusions, never as crop capacity.
         public static P4BJointSiteResult Find(TerrainSnapshot terrain, int requiredCrops,
-            int minimumCompoundCells, int margin, ulong seed, int maxCandidates = 16, int maxEvaluations = 4096)
+            int minimumCompoundCells, int margin, ulong seed, int maxCandidates = 16, int maxEvaluations = 4096,
+            int residents = 4, bool refineFieldOrigins = false)
         {
             if (terrain == null) throw new ArgumentNullException(nameof(terrain));
             if (requiredCrops <= 0) throw new ArgumentOutOfRangeException(nameof(requiredCrops));
             if (minimumCompoundCells <= 0) throw new ArgumentOutOfRangeException(nameof(minimumCompoundCells));
+            if (residents <= 0) throw new ArgumentOutOfRangeException(nameof(residents));
             if (maxCandidates <= 0 || maxEvaluations <= 0) throw new ArgumentOutOfRangeException(nameof(maxCandidates));
             LayoutTerrainGrid grid = LayoutTerrainGrid.Build(terrain, margin);
             int fieldSide = (int)Math.Ceiling(Math.Sqrt(requiredCrops)) + 5;
@@ -118,22 +123,52 @@ namespace RealisticBases.Planning
             // sparse ruins and rock can otherwise consume every room repair.
             int compoundSide = Math.Max(38, (int)Math.Ceiling(Math.Sqrt(minimumCompoundCells)) +
                 (minimumCompoundCells >= 500 ? 22 : 14));
+            // Reserve additional frontage/circulation from the start, not just
+            // additional bed area. Each extra resident
+            // adds two cells to both reservation axes (the land is not all built).
+            compoundSide += 2 * Math.Max(0, residents - 4);
             Dictionary<string, int> rejected = new Dictionary<string, int>(StringComparer.Ordinal);
             List<P4BJointSite> accepted = new List<P4BJointSite>();
             int evaluated = 0;
+            int fieldOriginsScanned = 0;
             // Seeded, well-spaced origins bound work on large maps without
             // privileging the original compound-only clearance maximum.
             List<GridPoint> origins = new List<GridPoint>();
-            for (int z = margin + 2; z + fieldSide + margin + 2 < terrain.Height; z += 4)
-                for (int x = margin + 2; x + fieldSide + margin + 2 < terrain.Width; x += 4)
+            // Larger population fields cannot rely on a four-cell sampling
+            // lattice: a legal long fence can fit between scattered boulders at
+            // an unsampled offset. Scan their field-only geometry once at cell
+            // resolution, bounded by map area, before the expensive pair budget.
+            // Refinement is attempted only after the coarse phase found no
+            // feasible pair, preserving successful established seeded layouts.
+            // Each phase has maxEvaluations pair work; at most two phases run.
+            bool denseFields = refineFieldOrigins;
+            int originStep = denseFields ? 1 : 4;
+            for (int z = margin + 2; z + fieldSide + margin + 2 < terrain.Height; z += originStep)
+                for (int x = margin + 2; x + fieldSide + margin + 2 < terrain.Width; x += originStep)
+                {
+                    GridRect possibleField = new GridRect(x, z, fieldSide, fieldSide);
+                    fieldOriginsScanned++;
+                    if (denseFields)
+                    {
+                        if (possibleField.Points().Where(c => Edge(possibleField, c))
+                            .Any(c => grid.At(c) != LayoutCellClass.Open || !grid.CanPlace(c)))
+                        { Reject("field_wall_terrain"); continue; }
+                        if (possibleField.Points().Where(c => !Edge(possibleField, c) &&
+                            (c.X == possibleField.MinX + 1 || c.X == possibleField.MaxX - 1 ||
+                             c.Z == possibleField.MinZ + 1 || c.Z == possibleField.MaxZ - 1))
+                            .Any(c => !grid.Passable(c)))
+                        { Reject("field_lane"); continue; }
+                    }
                     origins.Add(new GridPoint(x, z));
+                }
             foreach (GridPoint origin in origins.OrderBy(p => LayoutSeed.Key(seed, p.X, p.Z)).ThenBy(p => p))
             {
                 if (evaluated >= maxEvaluations) break;
                 GridRect field = new GridRect(origin.X, origin.Z, fieldSide, fieldSide);
                 foreach (int side in new[] { 0, 1, 2, 3 })
                 {
-                    if (evaluated++ >= maxEvaluations) break;
+                    if (evaluated >= maxEvaluations) break;
+                    evaluated++;
                     GridRect compound = CompoundAt(field, compoundSide, side);
                     if (!Fits(compound, terrain, margin)) { Reject("compound_bounds"); continue; }
                     List<GridPoint> wall = field.Points().Where(c => Edge(field, c)).ToList();
@@ -197,10 +232,20 @@ namespace RealisticBases.Planning
                         preferred.InnerGate, preferred.OuterGate, preferred.PostClearance, score, interfaces));
                 }
             }
+            if (accepted.Count == 0 && !refineFieldOrigins)
+            {
+                P4BJointSiteResult refined = Find(terrain, requiredCrops, minimumCompoundCells, margin, seed,
+                    maxCandidates, maxEvaluations, residents, refineFieldOrigins: true);
+                return new P4BJointSiteResult(refined.Candidates,
+                    rejected.OrderBy(kv => kv.Key).Select(kv => "coarse_" + kv.Key + ":" + kv.Value)
+                        .Concat(refined.Rejections.Select(r => "refined_" + r)),
+                    evaluated + refined.Evaluated, fieldOriginsScanned + refined.FieldOriginsScanned);
+            }
             return new P4BJointSiteResult(accepted.OrderByDescending(c => c.Score)
                 .ThenBy(c => LayoutSeed.Key(seed, c.Field.MinX, c.Field.MinZ, c.Compound.MinX + c.Compound.MinZ))
                 .ThenBy(c => c.Field.MinX).ThenBy(c => c.Field.MinZ).Take(maxCandidates),
-                rejected.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => kv.Key + ":" + kv.Value), evaluated);
+                rejected.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => kv.Key + ":" + kv.Value), evaluated,
+                fieldOriginsScanned);
 
             void Reject(string code) { int n; rejected.TryGetValue(code, out n); rejected[code] = n + 1; }
         }
@@ -211,7 +256,7 @@ namespace RealisticBases.Planning
         // the field or moves its gates, and the new anchor is still inside the
         // same connected site rather than a new location search.
         internal static IEnumerable<P4BJointSite> GrowthVariants(P4BJointSite site,
-            LayoutTerrainGrid grid, int margin)
+            LayoutTerrainGrid grid, int margin, bool allowClippedGrowth = false)
         {
             if (site == null) throw new ArgumentNullException(nameof(site));
             if (grid == null) throw new ArgumentNullException(nameof(grid));
@@ -222,7 +267,20 @@ namespace RealisticBases.Planning
             for (int extra = 12; extra <= 24; extra += 12)
             {
                 GridRect grown = CompoundAt(site.Field, site.Compound.Width + extra, direction);
-                if (!Fits(grown, grid.Terrain, margin)) break;
+                if (!Fits(grown, grid.Terrain, margin))
+                {
+                    if (!allowClippedGrowth) break;
+                    // Reaching one map edge does not forbid extending the same
+                    // settlement on its other free sides. Clip the proposed
+                    // outward growth to legal bounds instead of abandoning it.
+                    int minX = Math.Max(margin, grown.MinX), minZ = Math.Max(margin, grown.MinZ);
+                    int maxX = Math.Min(grid.Terrain.Width - margin - 1, grown.MaxX);
+                    int maxZ = Math.Min(grid.Terrain.Height - margin - 1, grown.MaxZ);
+                    if (minX > site.Compound.MinX || minZ > site.Compound.MinZ ||
+                        maxX < site.Compound.MaxX || maxZ < site.Compound.MaxZ) break;
+                    grown = new GridRect(minX, minZ, maxX - minX + 1, maxZ - minZ + 1);
+                    if (grown.Width == site.Compound.Width && grown.Height == site.Compound.Height) break;
+                }
                 GridPoint center = new GridPoint((grown.MinX + grown.MaxX) / 2,
                     (grown.MinZ + grown.MaxZ) / 2);
                 // Do not "grow" across an impassable belt into a disconnected

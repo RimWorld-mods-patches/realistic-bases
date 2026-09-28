@@ -10,6 +10,7 @@
     <Compile Include="../RealisticBases/Planning/P1Model.cs" Link="Planning/P1Model.cs" />
     <Compile Include="../RealisticBases/Planning/P1Planner.cs" Link="Planning/P1Planner.cs" />
     <Compile Include="../RealisticBases/Planning/P2Profiles.cs" Link="Planning/P2Profiles.cs" />
+    <Compile Include="../RealisticBases/Planning/OrdinarySettlementBudget.cs" Link="Planning/OrdinarySettlementBudget.cs" />
     <Compile Include="../RealisticBases/Planning/P2Layout.cs" Link="Planning/P2Layout.cs" />
     <Compile Include="../RealisticBases/Planning/P4Terrain.cs" Link="Planning/P4Terrain.cs" />
     <Compile Include="../RealisticBases/Planning/P4TerrainMutation.cs" Link="Planning/P4TerrainMutation.cs" />
@@ -32,5 +33,6 @@
     <Compile Include="../RealisticBases/Planning/LayoutPower.cs" Link="Planning/LayoutPower.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutRoomPartition.cs" Link="Planning/LayoutRoomPartition.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutLoadout.cs" Link="Planning/LayoutLoadout.cs" />
+    <Compile Include="../RealisticBases/Planning/LayoutStockCells.cs" Link="Planning/LayoutStockCells.cs" />
   </ItemGroup>
 </Project>

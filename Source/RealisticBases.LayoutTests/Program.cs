@@ -26,6 +26,13 @@ internal static partial class Program
         if (selected >= 0 && selected + 1 < args.Length) only = args[selected + 1];
         Stopwatch watch = Stopwatch.StartNew();
         Run("seed derivation is stable and purpose-separated", SeedDerivation);
+        Run("ordinary population follows wealth budgets with mean seven", OrdinaryPopulationBudgets);
+        Run("ordinary population remains stable and preserves legacy saves", OrdinaryPopulationPersistence);
+        Run("ordinary population reserves facility and circulation space upfront", OrdinaryPopulationReservation);
+        Run("ordinary population plans complete four seven and twelve resident sites", OrdinaryPopulationLayouts);
+        Run("ordinary population fits cluttered flat tiles without reducing residents", OrdinaryPopulationClutter);
+        Run("ordinary population reserves usable layered gate frontage", OrdinaryPopulationLayeredFrontage);
+        Run("ordinary population stocks use all split rooms and prefer shelves", OrdinaryPopulationStocks);
         Run("demand scales with population and splits barracks", DemandScalesWithPopulation);
         Run("rich settlements get personal bedrooms", PersonalRooms);
         Run("climate drives heating, cooling and lighting fixtures", ClimateFixtures);
@@ -138,7 +145,7 @@ internal static partial class Program
             int beds = demand.Rooms.Where(r => r.Kind == LayoutRoomKind.Barracks).Sum(r => r.Capacity);
             Equal(residents, beds, "beds cover residents");
             Equal((residents + 7) / 8, demand.Rooms.Count(r => r.Kind == LayoutRoomKind.Barracks), "barracks split at 8 beds");
-            int storage = demand.Rooms.Single(r => r.Kind == LayoutRoomKind.Storage).Capacity;
+            int storage = demand.Rooms.Where(r => r.Kind == LayoutRoomKind.Storage).Sum(r => r.Capacity);
             True(beds > previousBeds && storage > previousStorage, "capacities grow with population");
             True(demand.Rooms.All(r => r.CandidateSizes.Count > 0), "every room has proven sizes");
             True(demand.Rooms.Any(r => r.Kind == LayoutRoomKind.Power), "industrial power room");

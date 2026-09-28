@@ -157,7 +157,6 @@ namespace RealisticBases.Generation
             try
             {
                 IReadOnlyCollection<GridPoint> publicCells = ProceduralLayoutValidator.PublicCirculation(input, layout);
-                LayoutRoom storage = layout.Rooms.First(r => r.Kind == LayoutRoomKind.Storage);
                 EncounterProfile profile = layout.Court != null ? P3EncounterProfiles.Industrial :
                     input.Requirements.Capabilities.HasFlag(SettlementCapability.Electricity)
                         ? P3EncounterProfiles.IndustrialNoMortar : P3EncounterProfiles.Tribal;
@@ -166,7 +165,8 @@ namespace RealisticBases.Generation
                         new KeyValuePair<GridPoint, GridPoint>(g.Cell, g.Inside))
                         .Concat(approachDefense?.SallyPorts.Select(p => new KeyValuePair<GridPoint, GridPoint>(p.Cell, p.Inside)) ??
                             Enumerable.Empty<KeyValuePair<GridPoint, GridPoint>>()), publicCells,
-                    storage.Interior.Points(), layout.Court?.Cells.FirstOrDefault(), layout.Court?.Access.FirstOrDefault()));
+                    LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Storage),
+                    layout.Court?.Cells.FirstOrDefault(), layout.Court?.Access.FirstOrDefault()));
                 if (fieldWall != null)
                 {
                     // The compound reservation also covers the short exterior
@@ -305,10 +305,11 @@ namespace RealisticBases.Generation
                 if (forceFailure) throw new InvalidOperationException("forced procedural partial-spawn failure");
 
                 LayoutRoom food = layout.Rooms.First(r => r.Kind == LayoutRoomKind.Freezer || r.Kind == LayoutRoomKind.Pantry);
-                LayoutRoom storageRoom = layout.Rooms.First(r => r.Kind == LayoutRoomKind.Storage);
-                LayoutRoom medical = layout.Rooms.First(r => r.Kind == LayoutRoomKind.Medical);
+                IReadOnlyList<GridPoint> storageCells = LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Storage);
+                IReadOnlyList<GridPoint> foodCells = LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Freezer, LayoutRoomKind.Pantry);
+                IReadOnlyList<GridPoint> medicalCells = LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Medical);
                 SpawnStacks(tx, Require(food.Kind == LayoutRoomKind.Freezer ? "MealSimple" : "Pemmican"),
-                    input.Requirements.Residents * 12, food.Interior.Points(), map);
+                    input.Requirements.Residents * 12, foodCells, map);
                 int fuel = layout.Power?.FuelStock ?? 0;
                 int internalFuel = 0;
                 if (layout.Power != null)
@@ -322,18 +323,25 @@ namespace RealisticBases.Generation
                         fuel -= add;
                         internalFuel += add;
                     }
-                if (fuel > 0) SpawnStacks(tx, Require(layout.Power.FuelDef), fuel, storageRoom.Interior.Points(), map);
-                foreach (LoadoutItem item in loadout.Medicine) SpawnStacks(tx, Require(item.DefName), item.Count, medical.Interior.Points(), map);
+                if (fuel > 0) SpawnStacks(tx, Require(layout.Power.FuelDef), fuel, storageCells, map);
+                foreach (LoadoutItem item in loadout.Medicine) SpawnStacks(tx, Require(item.DefName), item.Count, medicalCells, map);
                 foreach (LoadoutItem item in loadout.Components.Concat(loadout.Armoury))
-                    SpawnStacks(tx, Require(item.DefName), item.Count, storageRoom.Interior.Points(), map, item.Stuff, item.Quality);
+                    SpawnStacks(tx, Require(item.DefName), item.Count, storageCells, map, item.Stuff, item.Quality);
                 foreach (CombatSupply supply in encounter.Supplies)
                 {
                     if (supply.DefName == "ReinforcedBarrel" && Find.Storyteller.difficulty.classicMortars) continue;
-                    combatStocks.AddRange(SpawnStacks(tx, Require(supply.DefName), supply.Count, storageRoom.Interior.Points(), map));
+                    combatStocks.AddRange(SpawnStacks(tx, Require(supply.DefName), supply.Count, storageCells, map));
                 }
                 foreach (IGrouping<string, P4BTurretPlan> group in turretPlans.GroupBy(t => t.FuelDefName))
                     combatStocks.AddRange(SpawnStacks(tx, Require(group.Key), group.Sum(t => t.ReserveFuelUnits),
-                        storageRoom.Interior.Points(), map));
+                        storageCells, map));
+                Thing[] shelfStocks = tx.OwnedThings.Where(t => t.def.category == ThingCategory.Item &&
+                    t.Position.GetEdifice(map) is Building_Storage).ToArray();
+                P2Log.Message("PROCEDURAL_STOCK_PLACEMENT", "map=" + map.uniqueID +
+                    " storageRooms=" + layout.Rooms.Count(r => r.Kind == LayoutRoomKind.Storage) +
+                    " storageCells=" + storageCells.Count +
+                    " shelves=" + tx.OwnedThings.Count(t => t is Building_Storage) + " shelfStacks=" + shelfStocks.Length +
+                    " shelfUnits=" + shelfStocks.Sum(t => t.stackCount));
 
                 // MapGenerator suppresses incremental path-cost updates. Flush
                 // final geometry before synchronous pawn/service audits, then
@@ -558,7 +566,7 @@ namespace RealisticBases.Generation
                 state.proceduralLayoutDigest = layout.Digest;
                 GridPoint marker = walls.First();
                 Thing woodStock = tx.OwnedThings.FirstOrDefault(t => t.def == ThingDefOf.WoodLog);
-                GridPoint stock = woodStock == null ? storageRoom.Interior.Points().First() :
+                GridPoint stock = woodStock == null ? storageCells.First() :
                     new GridPoint(woodStock.Position.x, woodStock.Position.z);
                 map.GetComponent<P0MapState>().Initialize(settlement, ToCell(layout.Anchor), ToCell(stock),
                     ToCell(marker), P0MapAudit.TerrainRoofChecksum(map));
@@ -682,14 +690,23 @@ namespace RealisticBases.Generation
             {
                 if (count <= 0) break;
                 IntVec3 cell = ToCell(point);
-                if (!cell.Standable(map) || cell.GetEdifice(map) != null ||
-                    cell.GetThingList(map).Any(t => t.def.category == ThingCategory.Item)) continue;
-                Thing thing = ThingMaker.MakeThing(def, def.MadeFromStuff ? ResolveStuff(stuff) ?? GenStuff.DefaultStuffFor(def) : null);
-                ApplyQuality(thing, quality);
-                thing.stackCount = Math.Min(def.stackLimit, count);
-                count -= thing.stackCount;
-                result.Add(GenSpawn.Spawn(thing, cell, map));
-                tx.Own(result[result.Count - 1]);
+                Building edifice = cell.GetEdifice(map);
+                Building_Storage shelf = edifice as Building_Storage;
+                // Shelves are PassThroughOnly, not Standable. They are valid
+                // item surfaces, but must never admit a stack their filters reject.
+                if (shelf == null ? !cell.Standable(map) || edifice != null :
+                    !cell.Walkable(map) || !shelf.GetStoreSettings().AllowedToAccept(def)) continue;
+                int occupied = cell.GetThingList(map).Count(t => t.def.category == ThingCategory.Item);
+                int slots = shelf == null ? 1 : cell.GetMaxItemsAllowedInCell(map);
+                while (count > 0 && occupied++ < slots)
+                {
+                    Thing thing = ThingMaker.MakeThing(def, def.MadeFromStuff ? ResolveStuff(stuff) ?? GenStuff.DefaultStuffFor(def) : null);
+                    ApplyQuality(thing, quality);
+                    thing.stackCount = Math.Min(def.stackLimit, count);
+                    count -= thing.stackCount;
+                    result.Add(GenSpawn.Spawn(thing, cell, map));
+                    tx.Own(result[result.Count - 1]);
+                }
             }
             if (count != 0) throw new InvalidOperationException("Insufficient stock cells for " + def.defName + ":" + count);
             return result;

@@ -1,6 +1,6 @@
 # Realistic Bases: implementation plan
 
-2026-09-14 · Scope revised 2026-09-24 · Implementation status is tracked in [progress](progress.md)
+2026-09-14 · Scope revised 2026-09-28 · Implementation status is tracked in [progress](progress.md)
 
 Read the [design and feasibility assessment](design-feasibility.md) for intended behavior and [research notes](research-notes.md) for evidence. Milestones below are release gates, not claims of completed work.
 
@@ -16,6 +16,8 @@ Read the [design and feasibility assessment](design-feasibility.md) for intended
 | Weapons, armor, turrets, barricades, sandbags, mortars and physical stocks | Planned P2–P3 |
 | Defensive NPC behavior and essential resupply | Planned P3 |
 | Mountain/lake placement, Geological Landforms compatibility | Planned P4; early terrain-order experiment in P0 |
+| Budget-driven ordinary populations; average 7, low wealth 4, wealthy up to 12 | P4A population/input integration; facilities, gear and finite reserves follow the funded roster |
+| Supported settlement-like quest locations | Planned P4D; preserve quest threat budgets, objectives, pawn roles and lifecycle contracts |
 | Encounter food/fuel/ammunition reserves and essential NPC support | P5; finite stocks and best-effort jobs over a declared short horizon |
 | Trade inventory reflected in physical supplies, distinct from operating reserves | P5; ordinary-item snapshot/ownership/transaction integration |
 | Long-term food/fuel/shell production balance and seasonal survival | Post-MVP; explicitly deferred in [supply scope](supply-and-mvp-scope.md) |
@@ -145,6 +147,10 @@ walls, doors, room fixtures, fields, utilities, equipment, and finite stocks;
 geometry-based P3; terrain and baseline gates plus P4B reservations; Core and Geological
 Landforms normal/rejection/recovery, save/reload, and visual/path/job evidence.
 
+**2026-09-28 population update:** Newly generated non-quest settlements derive their roster from a stable per-settlement relative spend capacity and the existing equipment/import budget model. Normal wealth funds seven residents, low wealth can fund four, and wealthy settlements are capped at twelve. The provisional wealth distribution has an expected population of seven across settlements, independently of player wealth and storyteller raid points. Tech/climate determine the standard resident-kit cost; equipment affordability determines population before housing, crops, storage, supplies and roles are planned. Keep gear and import allowances distinct, never inflate an insufficient budget after selecting a roster, and do not add a separate unfunded worker/mortar crew. Persist the wealth choice; preserve previously generated legacy four-resident plans. See [ordinary population policy](ordinary-settlement-population.md).
+
+**2026-09-29 upfront reservation:** Size the first envelope from full facility demand plus population-dependent circulation/frontage allowance. Protect the connected field approach and multi-layer gate frontage before room packing; distinguish protected walking lanes from physical occupancy. Retain hard geometry/material/path validation and the full funded roster through optional-defense fallback. A larger footprint alone is not proof of a connected, usable settlement; synthetic evidence and remaining limits are recorded in the population policy.
+
 ### P4B — Defensive layout planner
 
 **Depends on:** P4 terrain contracts and P4A procedural layout. **Status:** active; P4B.0 baseline recorded, implementation/live evidence pending. Detailed steps and evidence: [P4B defensive layout plan](p4b-defense-plan.md) and [findings](p4b-findings.md).
@@ -156,6 +162,23 @@ P4A reserves geometry; P4B plans defenses before the shared spawn transaction an
 Borrow only lightweight fortification ideas: coverage of approaches, reduced blind spots and overlapping support where feasible, an inner fallback, and connected service/retreat routes. Validate them against RimWorld behavior; no general tactical optimizer, mandatory star forts, traps or IEDs.
 
 **Exit:** demonstrated layered perimeter geometry and connected gates; usable ranged/turret positions and cover; finite supply/power operation including uranium depletion/rearm; representative raid, breach/fallback, save/reload, terrain/GL and transactional recovery evidence. Gatehouse bands alone do not prove layered outer walls. P5 budgets the resulting defense load; P6 balances it.
+
+### P4C — Visually realistic bases
+
+Currently the base doesn't have good floors, rock walls are not polished, we need to improve the look of the settlement.
+
+Exit: TBD by Astra
+
+### P4D — Quest-location support
+
+**Depends on:** P4/P4A terrain and procedural generation, P3 scoped AI/lifecycle, and P4B defenses where appropriate. **Status:** planned, not implemented. Ordinary settlement eligibility guards remain unchanged until a quest adapter is verified.
+
+1. Inventory settlement-like Core quest sites and their generation/`SitePart` contracts. Select a bounded supported list; ruins, mechanoid/insect sites, special DLC maps and third-party generators remain excluded unless separately verified.
+2. Adapt the shared planner to each supported quest's authoritative faction, threat points/expected defenders, objectives, required occupants and buildings, rewards and arrival constraints. Quest threat budgets determine the combat roster; do **not** apply the ordinary 4–12/mean-seven wealth distribution or silently weaken/replace scripted occupants. Separate prisoners, rescue targets and other protected identities from the controlled garrison.
+3. Preserve quest signals, success/failure checks, ownership, deadlines, reinforcement/escape behavior and map-removal rules. Add narrow integration hooks only after source inspection and a disposable reproduction; unsupported contracts retain original generation with a diagnostic.
+4. Prove deterministic planning and bounded recovery in synthetic fixtures, then test representative live normal/rejection/rollback, objective completion/failure, capture, departure and active save/reload cases. Reuse terrain, supply, defense and no-trap invariants without erasing quest-required content.
+
+**Exit:** a documented supported-quest matrix whose generated sites preserve their original threat/occupant/objective/reward/lifecycle contracts and pass both pure and live evidence gates. Unsupported quests and competing generators are left untouched; no blanket replacement of all quest maps.
 
 ### P5 — Encounter supplies, trade stock, and persistent consequences
 

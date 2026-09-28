@@ -719,9 +719,10 @@ namespace RealisticBases.Planning
             {
                 jointSites = P4BJointSitePlanner.Find(input.Terrain, requirements.FieldCells, requiredArea,
                     input.Fortification.PlacementMargin, LayoutSeed.Sub(input.Seed, "joint-site"),
-                    input.Budget.MaxSites, input.Budget.MaxSites * 1024);
+                    input.Budget.MaxSites, input.Budget.MaxSites * 1024, requirements.Residents);
                 diagnostics.Add(new LayoutDiagnostic("joint_site", "preflight", "pairs=" + jointSites.Candidates.Count +
-                    " evaluated=" + jointSites.Evaluated + " rejected=" + string.Join(",", jointSites.Rejections)));
+                    " evaluated=" + jointSites.Evaluated + " fieldOriginsScanned=" + jointSites.FieldOriginsScanned +
+                    " rejected=" + string.Join(",", jointSites.Rejections)));
                 if (jointSites.Candidates.Count == 0) return reject("no_feasible_field_compound_pair");
             }
             List<List<int>> components = Components(grid).Where(c => c.Count >= requiredArea).ToList();
@@ -777,7 +778,8 @@ namespace RealisticBases.Planning
                     P4BJointSite originalSite = paired == null ? null : paired[siteIndex];
                     IEnumerable<P4BJointSite> variants = originalSite == null
                         ? new P4BJointSite[] { null }
-                        : P4BJointSitePlanner.GrowthVariants(originalSite, grid, input.Fortification.PlacementMargin);
+                        : P4BJointSitePlanner.GrowthVariants(originalSite, grid, input.Fortification.PlacementMargin,
+                            allowClippedGrowth: input.Requirements.ReservePopulationCirculation);
                     foreach (P4BJointSite site in variants)
                     {
                         GridPoint anchor = site == null ? anchors[siteIndex] : site.Anchor;
@@ -1003,6 +1005,7 @@ namespace RealisticBases.Planning
         private const byte Pocket = 9;
         private const byte PocketWall = 10;
         private const byte PocketSeal = 11;
+        private const byte FieldApproachReserve = 12;
         private const int MainWidth = 2;
 
         private readonly ProceduralLayoutInput input;
@@ -1029,6 +1032,7 @@ namespace RealisticBases.Planning
         private LayoutPowerPlan power;
         private readonly bool pocketsOnly;
         private readonly P4BJointSite jointSite;
+        private GridPoint? reservedCompoundGate;
         private readonly int roofHoleBudget;
         private readonly Dictionary<GridPoint, PocketBuild> pockets = new Dictionary<GridPoint, PocketBuild>();
         private readonly HashSet<GridPoint> roomWalls = new HashSet<GridPoint>();
@@ -1050,6 +1054,7 @@ namespace RealisticBases.Planning
         {
             public string Id;
             public bool Main;
+            public bool Retain;
             public GridPoint Axis;
             public GridPoint Root;
             public List<List<GridPoint>> Sections = new List<List<GridPoint>>();
@@ -1107,6 +1112,7 @@ namespace RealisticBases.Planning
         public ProceduralLayout Run()
         {
             if (!BuildSpine()) return null;
+            if (jointSite != null && input.Requirements.ReservePopulationCirculation && !ReserveFieldApproach()) return null;
             int branches = LayoutSeed.Roll(seed, "branches", 3) + demand.Rooms.Count / 6;
             for (int i = 0; i < branches; i++) AddBranch("seed-branch-" + i);
             foreach (LayoutRoomDemand room in Order())
@@ -1349,6 +1355,88 @@ namespace RealisticBases.Planning
 
         private bool OkForStreet(GridPoint c) => grid.CanPlace(c) && occ[grid.Index(c)] == Free &&
             (grid.At(c) != LayoutCellClass.Rock || CanExcavate(c));
+
+        // Reserve the attachment before rooms are packed. A larger envelope
+        // alone cannot make a randomly chosen gate line up with the field.
+        // The terminal is public street; its outward continuation is kept
+        // empty rather than becoming a long, artificial enclosure projection.
+        private bool ReserveFieldApproach()
+        {
+            int setback = input.Fortification.Setback;
+            int terminalDistance = 2 * input.Fortification.WallLayers + setback + 4;
+            // Layered gate bands need a real straight frontage with returning
+            // arms, not just a narrow corridor whose walls form two piers.
+            int halfTip = input.Fortification.WallLayers > 1 ? 4 : 1;
+            int halfReserve = Math.Max(setback + 3, halfTip + setback + 1);
+            foreach (P4BFieldInterface option in jointSite.Interfaces.OrderBy(i => Manhattan(i.InnerGate, anchor)))
+            {
+                GridPoint outward = new GridPoint(Math.Sign(option.OuterGate.X - option.InnerGate.X),
+                    Math.Sign(option.OuterGate.Z - option.InnerGate.Z));
+                GridPoint tangent = new GridPoint(outward.Z, outward.X);
+                GridPoint terminal = new GridPoint(option.InnerGate.X - outward.X * terminalDistance,
+                    option.InnerGate.Z - outward.Z * terminalDistance);
+                List<GridPoint> tip = Enumerable.Range(-halfTip, 2 * halfTip + 1).Select(j => new GridPoint(
+                    terminal.X + tangent.X * j, terminal.Z + tangent.Z * j)).ToList();
+                if (tip.Any(c => !grid.CanPlace(c) || grid.At(c) != LayoutCellClass.Open ||
+                    occ[grid.Index(c)] != Free)) continue;
+                List<GridPoint> reserve = new List<GridPoint>();
+                bool clear = true;
+                for (int k = 1; k < terminalDistance && clear; k++)
+                    for (int j = -halfReserve; j <= halfReserve; j++)
+                    {
+                        GridPoint c = new GridPoint(terminal.X + outward.X * k + tangent.X * j,
+                            terminal.Z + outward.Z * k + tangent.Z * j);
+                        if (Math.Abs(j) <= 1 && (!input.Terrain.InBounds(c) ||
+                            LayoutTerrainGrid.Classify(input.Terrain[c]) != LayoutCellClass.Open))
+                        { clear = false; break; }
+                        if (!grid.InBounds(c)) continue;
+                        if (occ[grid.Index(c)] != Free) { clear = false; break; }
+                        if (k > setback) reserve.Add(c);
+                    }
+                if (!clear) continue;
+                Dictionary<GridPoint, GridPoint> previous = new Dictionary<GridPoint, GridPoint> { [terminal] = terminal };
+                Queue<GridPoint> queue = new Queue<GridPoint>();
+                queue.Enqueue(terminal);
+                GridPoint? joined = null;
+                int visited = 0;
+                HashSet<GridPoint> forbidden = new HashSet<GridPoint>(reserve);
+                while (queue.Count > 0 && visited < input.Budget.MaxRouteNodes)
+                {
+                    visited++;
+                    GridPoint here = queue.Dequeue();
+                    if (occ[grid.Index(here)] == Street) { joined = here; break; }
+                    foreach (GridPoint step in ProceduralLayoutPlanner.Cardinal)
+                    {
+                        GridPoint next = new GridPoint(here.X + step.X, here.Z + step.Z);
+                        if (!grid.CanPlace(next) || grid.At(next) != LayoutCellClass.Open ||
+                            forbidden.Contains(next) || previous.ContainsKey(next)) continue;
+                        byte use = occ[grid.Index(next)];
+                        if (use != Free && use != Street && use != Plaza) continue;
+                        previous[next] = here;
+                        queue.Enqueue(next);
+                    }
+                }
+                stats.RouteNodes += visited;
+                if (!joined.HasValue) continue;
+                List<GridPoint> path = new List<GridPoint>();
+                for (GridPoint c = joined.Value; !c.Equals(terminal); c = previous[c]) path.Add(c);
+                path.AddRange(tip);
+                Segment approach = new Segment { Id = "field-approach", Retain = true, Axis = outward, Root = joined.Value };
+                foreach (GridPoint c in path.Distinct())
+                {
+                    approach.Sections.Add(new List<GridPoint> { c });
+                    occ[grid.Index(c)] = Street;
+                }
+                segments.Add(approach);
+                foreach (GridPoint c in reserve) occ[grid.Index(c)] = FieldApproachReserve;
+                reservedCompoundGate = new GridPoint(terminal.X + outward.X * (setback + 1),
+                    terminal.Z + outward.Z * (setback + 1));
+                notes.Add("fieldApproachReserved=" + option.InnerGate + " terminal=" + terminal);
+                return true;
+            }
+            Fail("field_approach_unavailable");
+            return false;
+        }
 
         private bool BuildSpine()
         {
@@ -1777,7 +1865,7 @@ namespace RealisticBases.Planning
                 foreach (Segment branch in segments.Where(s => !s.Main && s.Sections.Count > 0)) used.Add(branch.Root);
                 foreach (Segment segment in segments)
                 {
-                    if (segment.Main) continue;
+                    if (segment.Main || segment.Retain) continue;
                     while (segment.Sections.Count > 1 && !segment.Sections[segment.Sections.Count - 1].Any(used.Contains))
                     { Release(segment.Sections[segment.Sections.Count - 1]); segment.Sections.RemoveAt(segment.Sections.Count - 1); changed = true; }
                     if (segment.Sections.Count == 1 && !segment.Sections[0].Any(used.Contains))
@@ -1801,7 +1889,7 @@ namespace RealisticBases.Planning
             int s = input.Fortification.Setback;
             bool[] inE = new bool[occ.Length];
             List<GridPoint> core = new List<GridPoint>();
-            for (int i = 0; i < occ.Length; i++) if (occ[i] != Free && occ[i] != GeyserReserve) { inE[i] = true; core.Add(new GridPoint(i % grid.Width, i / grid.Width)); }
+            for (int i = 0; i < occ.Length; i++) if (occ[i] != Free && occ[i] != GeyserReserve && occ[i] != FieldApproachReserve) { inE[i] = true; core.Add(new GridPoint(i % grid.Width, i / grid.Width)); }
             foreach (GridPoint c in core)
                 for (int dz = -s; dz <= s; dz++)
                     for (int dx = -s; dx <= s; dx++)
@@ -1977,6 +2065,18 @@ namespace RealisticBases.Planning
                     // around the gate-band corner; otherwise it is a pier.
                     if (left.Count + right.Count < 3) break;
                     List<GridPoint> leftReturn = Return(-1, left), rightReturn = Return(1, right);
+                    if (input.Requirements.ReservePopulationCirculation)
+                    {
+                        // A long run can finish beside an irregular baseline
+                        // corner. Shorten only that arm to the nearest legal
+                        // return instead of duplicating an existing wall or
+                        // discarding the entire populated settlement.
+                        while (leftReturn == null && left.Count > 0)
+                        { left.RemoveAt(left.Count - 1); leftReturn = Return(-1, left); }
+                        while (rightReturn == null && right.Count > 0)
+                        { right.RemoveAt(right.Count - 1); rightReturn = Return(1, right); }
+                        if (left.Count + right.Count < 3) break;
+                    }
                     if (leftReturn == null || rightReturn == null) break;
                     LayoutWallSection section = new LayoutWallSection(i, layer, left, right, leftReturn, rightReturn);
                     result.Add(section);
@@ -2045,7 +2145,8 @@ namespace RealisticBases.Planning
                             (sign < 0 ? inner.Left : inner.Right).Contains(parent))) return null;
                         foreach (GridPoint c in path)
                             if (!grid.InBounds(c) || grid.At(c) != LayoutCellClass.Open ||
-                                grid.Terrain[c].Has(TerrainTraits.MapEdge) || inE[grid.Index(c)] || reserved.Contains(c)) return null;
+                                grid.Terrain[c].Has(TerrainTraits.MapEdge) || inE[grid.Index(c)] || reserved.Contains(c) ||
+                                (input.Requirements.ReservePopulationCirculation && baseline.Contains(c))) return null;
                         return path;
                     }
                 }
@@ -2103,13 +2204,41 @@ namespace RealisticBases.Planning
                 bool rockFace = natural.Contains(new GridPoint(g.X + perp.X, g.Z + perp.Z)) || natural.Contains(new GridPoint(g.X - perp.X, g.Z - perp.Z));
                 double score = distance + (streets.Contains(inside) ? 0 : 3) + (doctrine == LayoutDoctrine.RockProtected && rockFace ? -20 : 0) +
                     (int)(LayoutSeed.Key(LayoutSeed.Sub(seed, "gate"), g.X, g.Z) % 6);
-                if (jointSite != null)
+                if (jointSite != null && !input.Requirements.ReservePopulationCirculation)
                 {
+                    // Retain the established legacy layout choices. Larger
+                    // rosters use the pre-reserved exact crossing below.
                     GridPoint fieldGate = jointSite.InnerGate;
                     int forward = (fieldGate.X - g.X) * outward.X + (fieldGate.Z - g.Z) * outward.Z;
                     int lateral = Math.Abs((fieldGate.X - g.X) * perp.X + (fieldGate.Z - g.Z) * perp.Z);
                     if (forward > 2 * layers && lateral <= jointSite.Field.Width / 2)
                         score -= 1000 - forward - lateral * 2;
+                }
+                else if (jointSite != null)
+                {
+                    // Prefer an actual reserved crossing, not an approximate
+                    // bearing toward the field's preferred gate. A large base
+                    // can otherwise choose an offset or rock-blocked gate even
+                    // when another aligned, clear crossing is available.
+                    foreach (P4BFieldInterface fieldInterface in jointSite.Interfaces)
+                    {
+                        GridPoint fieldGate = fieldInterface.InnerGate;
+                        int forward = (fieldGate.X - g.X) * outward.X + (fieldGate.Z - g.Z) * outward.Z;
+                        int lateral = Math.Abs((fieldGate.X - g.X) * perp.X + (fieldGate.Z - g.Z) * perp.Z);
+                        if (forward <= 2 * layers || lateral != 0 ||
+                            !fieldInterface.OuterGate.Equals(new GridPoint(fieldGate.X + outward.X * (jointSite.Field.Width - 1),
+                                fieldGate.Z + outward.Z * (jointSite.Field.Height - 1)))) continue;
+                        bool clearCrossing = Enumerable.Range(1, forward - 1).All(k =>
+                        {
+                            GridPoint cell = new GridPoint(g.X + k * outward.X, g.Z + k * outward.Z);
+                            return input.Terrain.InBounds(cell) &&
+                                LayoutTerrainGrid.Classify(input.Terrain[cell]) == LayoutCellClass.Open &&
+                                !built.Contains(cell) && !natural.Contains(cell) &&
+                                (occ[grid.Index(cell)] == Free || occ[grid.Index(cell)] == FieldApproachReserve);
+                        });
+                        if (clearCrossing) { score -= 1000 - forward; break; }
+                    }
+                    if (reservedCompoundGate.HasValue && g.Equals(reservedCompoundGate.Value)) score -= 10000;
                 }
                 HashSet<GridPoint> bandSet = new HashSet<GridPoint>(bandDoors.Concat(bandWalls));
                 List<GridPoint> outerVestibule = line.Where(c => !bandSet.Contains(c) && !c.Equals(staging)).ToList();
@@ -2125,6 +2254,7 @@ namespace RealisticBases.Planning
             }
             List<LayoutGate> chosen = new List<LayoutGate>();
             HashSet<GridPoint> reserved = new HashSet<GridPoint>();
+            HashSet<GridPoint> attempted = new HashSet<GridPoint>();
             foreach (KeyValuePair<double, LayoutGate> first in candidates.OrderBy(c => c.Key).ThenBy(c => c.Value.Cell))
             {
                 if (chosen.Count >= input.Fortification.DesiredGates) break;
@@ -2132,15 +2262,22 @@ namespace RealisticBases.Planning
                 if (chosen.Count > 0)
                 {
                     // Prefer separated gates: pick the best-scoring remaining candidate adjusted by separation.
-                    gate = candidates.Where(c => chosen.All(o => Manhattan(o.Cell, c.Value.Cell) >= 10) && !Footprint(c.Value).Any(reserved.Contains))
+                    gate = candidates.Where(c => (!input.Requirements.ReservePopulationCirculation || !attempted.Contains(c.Value.Cell)) &&
+                        chosen.All(o => Manhattan(o.Cell, c.Value.Cell) >= 10) && !Footprint(c.Value).Any(reserved.Contains))
                         .OrderBy(c => c.Key - Math.Min(40, chosen.Min(o => Manhattan(o.Cell, c.Value.Cell)))).ThenBy(c => c.Value.Cell)
                         .Select(c => c.Value).FirstOrDefault();
                     if (gate == null) break;
                 }
+                attempted.Add(gate.Cell);
                 List<GridPoint> route = Route(gate.Staging, exteriorFree, reserved, Footprint(gate));
                 if (route == null) continue;
                 LayoutGate routed = new LayoutGate(gate.Cell, gate.Inside, gate.Outward, gate.BandDoors, gate.BandWalls, gate.OuterVestibule,
                     gate.Staging, route, gate.InnerVestibule, gate.RockFace);
+                if (layers > 1 && input.Requirements.ReservePopulationCirculation)
+                {
+                    List<LayoutGate> proposed = chosen.Concat(new[] { routed }).ToList();
+                    if (ExtendGateBands(inE, built, natural, proposed).Count != proposed.Count * (layers - 1)) continue;
+                }
                 chosen.Add(routed);
                 reserved.UnionWith(Footprint(routed));
             }

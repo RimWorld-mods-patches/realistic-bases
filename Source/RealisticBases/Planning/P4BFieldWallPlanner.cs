@@ -130,6 +130,15 @@ namespace RealisticBases.Planning
             P4BJointSite site = layout.JointSite;
             if (site == null) { diagnostic = "joint_site_missing"; return null; }
             HashSet<GridPoint> blocked = new HashSet<GridPoint>(occupied ?? Enumerable.Empty<GridPoint>());
+            // Service lanes reserve space against new walls/furniture, but
+            // are not physical obstacles to the serial gate crossing. Keep
+            // real occupancy authoritative if it overlaps a reserved lane.
+            HashSet<GridPoint> crossingBlocked = new HashSet<GridPoint>(blocked);
+            crossingBlocked.ExceptWith(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex])));
+            crossingBlocked.UnionWith(layout.Enclosure.Concat(layout.ExtraObstacles)
+                .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
+                .Concat(layout.PowerYards.SelectMany(y => y.Cells))
+                .Concat(layout.AllFixtures.SelectMany(f => f.Cells)));
             HashSet<GridPoint> baseline = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.NaturalWalls)
                 .Concat(layout.OuterWalls).Concat(layout.Gates.SelectMany(g => g.BandWalls)));
             HashSet<GridPoint> doors = new HashSet<GridPoint>(layout.Gates.Select(g => g.Cell)
@@ -196,7 +205,7 @@ namespace RealisticBases.Planning
                     if (Enumerable.Range(1, forward - 1).Any(k =>
                     {
                         GridPoint c = At(gate, tangent, 0, k);
-                        return blocked.Contains(c) || baseline.Contains(c) || wall.Contains(c) ||
+                        return crossingBlocked.Contains(c) || baseline.Contains(c) || wall.Contains(c) ||
                             LayoutTerrainGrid.Classify(input.Terrain[c]) != LayoutCellClass.Open;
                     })) { rejected.Add("compound_field_crossing_blocked"); continue; }
                     List<GridPoint> arrival = new List<GridPoint>();

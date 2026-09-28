@@ -47,7 +47,11 @@ namespace RealisticBases.Integration
             TerrainSnapshot terrain = P1MapPlanner.Capture(map);
             LayoutLocalResources resources = CaptureResources(map);
             LayoutClimate climate = CaptureClimate(map);
-            LayoutRequirements requirements = LayoutRequirements.FromProfile(profile, climate, stage: stage);
+            int wealthPercent = worldState.GetOrCreateOrdinaryWealthPercent(settlement, seed);
+            OrdinarySettlementBudget populationBudget = wealthPercent == 0 ? null :
+                OrdinarySettlementPopulation.Create(profile, stage, climate, wealthPercent);
+            LayoutRequirements requirements = LayoutRequirements.FromProfile(profile, climate, stage: stage,
+                populationBudget: populationBudget);
             int targetLayers = requestedWallLayers >= 1 && requestedWallLayers <= 3 ? requestedWallLayers :
                 P4BLayerPolicy.Select(seed, stage.Level, requirements.EquipmentValueLimit,
                     requirements.ImportValueLimit, requirements.Residents);
@@ -75,6 +79,9 @@ namespace RealisticBases.Integration
                 " water=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Water));
             P2Log.Message("PROCEDURAL_PLAN", "map=" + map.uniqueID + " profile=" + profile.Id +
                 " stage=" + stage.Level + " stageMode=" + stageMode + " seed=" + StableHash.Hex(seed) + " targetLayers=" + targetLayers +
+                " residents=" + requirements.Residents + " populationMode=" + (populationBudget == null ? "legacy-profile" : OrdinarySettlementPopulation.Version) +
+                " wealthPercent=" + wealthPercent + " equipmentBudget=" + requirements.EquipmentValueLimit +
+                " importBudget=" + requirements.ImportValueLimit +
                 " effectiveLayers=" + input.Fortification.WallLayers + " layerFallback=" + layerFallback +
                 " layerMode=" + (requestedWallLayers == 0 ? "tech-budget-weighted" : "debug-override") +
                 " catalogDefs=" + catalog.Defs.Count + " catalogResearch=" + catalog.Research.Count +

@@ -35,7 +35,7 @@ For the MVP, “autonomous” means best-effort routine/support behavior backed 
 
 A tribal settlement on an ice sheet may have no viable local food/fuel economy. Reduce its population, classify it as dependent on supplies, or reject that layout. Do not invent tribal refrigeration, hydroponics, or unlimited food to hide the problem. The generator should report estimated encounter coverage, supply dependencies, and unverified production assumptions; reserve size alone must not be labelled proof of local self-sufficiency.
 
-The first release changes newly generated ordinary humanlike faction settlements. Existing loaded maps, player colonies, quest sites, ruins, mechanoid/insect settlements, and special DLC maps retain their own generation unless explicitly supported later. Multiplayer support, global faction warfare, vertical construction, and a new ammunition system are outside the initial release.
+The current generator changes newly generated ordinary humanlike faction settlements. Existing loaded maps, player colonies, quest sites, ruins, mechanoid/insect settlements, and special DLC maps retain their own generation unless explicitly supported later. The 2026-09-28 plan adds P4D for a bounded list of settlement-like quest sites, preserving quest-specific threat/occupant/objective/lifecycle contracts; this is planned support, not a changed eligibility guard. Newly generated ordinary settlements use budget-funded populations with average seven, low wealth four and wealthy up to twelve; see [population policy](ordinary-settlement-population.md). Multiplayer support, global faction warfare, vertical construction, and a new ammunition system remain outside the initial release.
 
 ## 3. What the reference mods establish
 
