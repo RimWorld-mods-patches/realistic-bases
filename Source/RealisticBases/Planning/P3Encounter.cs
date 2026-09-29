@@ -145,6 +145,12 @@ namespace RealisticBases.Planning
                 }
                 hash = StableHash.Add(hash, post.Cell.X);
                 hash = StableHash.Add(hash, post.Cell.Z);
+                if (post.AccessGate.HasValue)
+                {
+                    hash = StableHash.Add(hash, "access-gate");
+                    hash = StableHash.Add(hash, post.AccessGate.Value.X);
+                    hash = StableHash.Add(hash, post.AccessGate.Value.Z);
+                }
                 hash = StableHash.Add(hash, post.Mortar ? 1 : 0);
                 hash = StableHash.Add(hash, post.Inner ? 1 : 0);
             }

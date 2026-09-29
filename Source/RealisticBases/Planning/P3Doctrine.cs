@@ -34,7 +34,7 @@ namespace RealisticBases.Planning
     {
         public DefensivePost(string id, string sectorId, GridPoint cell, int minimumRange, int maximumRange,
             bool hasCover, bool hasLineOfFire, bool routeWithinBounds, bool mortar, bool inner, bool usable,
-            IEnumerable<string> supportedSectors = null)
+            IEnumerable<string> supportedSectors = null, GridPoint? accessGate = null)
         {
             if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(sectorId))
                 throw new ArgumentException("Post and sector ids are required.");
@@ -44,6 +44,7 @@ namespace RealisticBases.Planning
             SupportedSectors = new ReadOnlyCollection<string>((supportedSectors ?? new[] { sectorId })
                 .Concat(new[] { sectorId }).Distinct(StringComparer.Ordinal).OrderBy(s => s, StringComparer.Ordinal).ToList());
             Cell = cell;
+            AccessGate = accessGate;
             MinimumRange = minimumRange;
             MaximumRange = maximumRange;
             HasCover = hasCover;
@@ -59,6 +60,9 @@ namespace RealisticBases.Planning
         public IReadOnlyList<string> SupportedSectors { get; }
         public bool CoversSector(string sector) => SupportedSectors.Contains(sector);
         public GridPoint Cell { get; }
+        // Optional waypoint for an exterior post. Prevents vanilla's shortest
+        // path from bypassing the planned short gate-to-post access route.
+        public GridPoint? AccessGate { get; }
         public int MinimumRange { get; }
         public int MaximumRange { get; }
         public bool HasCover { get; }
@@ -68,6 +72,22 @@ namespace RealisticBases.Planning
         public bool Inner { get; }
         public bool Usable { get; }
         public bool IsValid => Usable && RouteWithinBounds && (Mortar || HasLineOfFire);
+    }
+
+    // Persisted in P3's existing postFlags list. Older saves have no sniper
+    // bit and retain their original ordinary-post interpretation.
+    public static class P3PostFlags
+    {
+        private const int Mortar = 1, Inner = 2, Melee = 4, SniperGuard = 8;
+        public static int Encode(DefensivePost post) =>
+            (post.Mortar ? Mortar : 0) | (post.Inner ? Inner : 0) |
+            (post.MinimumRange <= 3 ? Melee : 0) | (post.MinimumRange >= 35 ? SniperGuard : 0);
+        public static bool IsMortar(int flags) => (flags & Mortar) != 0;
+        public static bool IsInner(int flags) => (flags & Inner) != 0;
+        public static bool IsMelee(int flags) => (flags & Melee) != 0;
+        public static bool IsSniperGuard(int flags) => (flags & SniperGuard) != 0;
+        public static int MinimumRange(int flags) => IsMelee(flags) ? 0 : IsSniperGuard(flags) ? 35 : 8;
+        public static int MaximumRange(int flags) => IsMelee(flags) ? 3 : IsSniperGuard(flags) ? 44 : 48;
     }
 
     public sealed class DefenderCandidate

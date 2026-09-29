@@ -79,6 +79,10 @@ namespace RealisticBases.Planning
         public IReadOnlyList<P4BPostAccessPlan> PostAccess { get; }
         public IEnumerable<GridPoint> UsablePosts => PostAccess.Where(p => p.Usable).Select(p => p.Post);
         public string Digest { get; }
+
+        internal P4BFieldWallPlan WithoutWalls(IEnumerable<GridPoint> cells) =>
+            new P4BFieldWallPlan(GateIndex, Fields, Walls.Except(cells), OuterGate, ExteriorPosts,
+                InnerGate, Access, ArrivalRoute, CoverCells, CoverDefName, PostAccess);
     }
 
     // A small, bounded field bailey: two stepped returns join a gatehouse's

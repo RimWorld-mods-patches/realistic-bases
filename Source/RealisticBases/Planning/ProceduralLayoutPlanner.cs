@@ -421,12 +421,13 @@ namespace RealisticBases.Planning
             if (input == null || defense == null || Turret != null) throw new ArgumentException("Defense precedes turret selection");
             LayoutMaterialLedger materials = P4BApproachDefensePlanner.Materials(input, this, defense.CoverCells.Count(),
                 defense.Posts, defense.SallyPorts);
+            P4BFieldWallPlan fieldWall = FieldWall?.WithoutWalls(defense.SallyPorts.Where(p => p.Field).Select(p => p.Cell));
             return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court,
                 Enclosure, BuiltWalls.Except(defense.SallyPorts.Select(p => p.Cell)).Concat(defense.Posts.Select(p => p.WallReturn)),
                 NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof,
                 WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
                 Notes.Concat(new[] { "approachDefense=" + defense.Digest }), TechStage, RolesDigest,
-                EquipmentDigest, WallStuff, materials, Power, ExhaustPockets, OuterSections, JointSite, FieldWall, null, defense);
+                EquipmentDigest, WallStuff, materials, Power, ExhaustPockets, OuterSections, JointSite, fieldWall, null, defense);
         }
 
         public ProceduralLayout WithTurret(ProceduralLayoutInput input, P4BTurretPlan turret)
@@ -829,7 +830,15 @@ namespace RealisticBases.Planning
                                         Note(diagnostics, "joint_site", "final_rejected", anchor + " " + string.Join("+", violations.Take(6)));
                                         continue;
                                     }
+                                    layout = run.FitDefenseAccess(layout);
+                                    fieldWall = layout.FieldWall;
+                                    occupied = new HashSet<GridPoint>(layout.Enclosure
+                                        .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
+                                        .Concat(layout.PowerYards.SelectMany(y => y.Cells))
+                                        .Concat(layout.AllFixtures.SelectMany(f => f.Cells))
+                                        .Concat(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex]))));
                                     layout = layout.WithApproachDefense(input, P4BApproachDefensePlanner.Plan(input, layout));
+                                    fieldWall = layout.FieldWall;
                                     violations = ProceduralLayoutValidator.Validate(input, layout);
                                     if (violations.Count != 0)
                                     {
@@ -854,6 +863,18 @@ namespace RealisticBases.Planning
                                             anchor + " " + string.Join("+", armedErrors.Take(6))));
                                     }
                                     else diagnostics.Add(new LayoutDiagnostic("turret", "unplaced", anchor + " " + turretDiagnostic));
+                                }
+                                if (layout.ApproachDefense != null)
+                                {
+                                    HashSet<GridPoint> finalOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
+                                    finalOpaque.UnionWith(layout.Turret?.All.SelectMany(t => t.Footprint) ?? new GridPoint[0]);
+                                    foreach (P4BAttackSide side in layout.ApproachDefense.Sides.Where(s => s.Exposed))
+                                    {
+                                        int covered = P4BApproachDefensePlanner.CoveredSamples(side, finalOpaque);
+                                        diagnostics.Add(new LayoutDiagnostic("defense_front", covered >=
+                                            P4BApproachDefensePlanner.UsefulArc(side.Samples.Count) ? "useful" : "gap",
+                                            side.Id + " posts=" + side.Positions.Count + " samples=" + covered + "/" + side.Samples.Count));
+                                    }
                                 }
                                 if (input.Terrain.Digest != terrainDigest || input.Digest != inputDigest) throw new InvalidOperationException("P4A planner mutated its input.");
                                 diagnostics.Add(new LayoutDiagnostic("result", "accepted", stats + " digest=" + layout.Digest));
@@ -1127,6 +1148,92 @@ namespace RealisticBases.Planning
             }
             Trim();
             return Enclose();
+        }
+
+        internal ProceduralLayout FitDefenseAccess(ProceduralLayout layout)
+        {
+            P4BApproachDefensePlan defense = P4BApproachDefensePlanner.Plan(input, layout);
+            string[] sides = defense.Sides.Where(s => s.Exposed)
+                .OrderByDescending(s => s.OpenGroundArea).ThenBy(s => s.Id, StringComparer.Ordinal)
+                .Select(s => s.Id).ToArray();
+            foreach (string id in sides)
+            {
+                P4BAttackSide side = defense.Sides.Single(s => s.Id == id);
+                HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
+                int covered = P4BApproachDefensePlanner.CoveredSamples(side, opaque);
+                if (!side.Exposed || covered >= P4BApproachDefensePlanner.UsefulArc(side.Samples.Count)) continue;
+                bool fitted = false;
+                IReadOnlyList<P4BAccessFrontage> options = P4BAccessFrontagePlanner.Candidates(input, layout, side);
+                List<string> failures = new List<string>();
+                foreach (P4BAccessFrontage frontage in options)
+                {
+                    if (frontage.Cells.Any(c => occ[grid.Index(c)] != Free &&
+                        occ[grid.Index(c)] != Street && occ[grid.Index(c)] != Plaza)) continue;
+                    Dictionary<GridPoint, byte> before = frontage.Cells.ToDictionary(c => c, c => occ[grid.Index(c)]);
+                    Segment access = new Segment { Id = "defense-access-" + id, Retain = true,
+                        Axis = frontage.Outward, Root = frontage.Join };
+                    foreach (GridPoint c in frontage.Cells)
+                    {
+                        access.Sections.Add(new List<GridPoint> { c });
+                        occ[grid.Index(c)] = Street;
+                    }
+                    segments.Add(access);
+                    notes.Add("defenseAccess=" + id + " terminal=" + frontage.Terminal +
+                        " publicCells=" + frontage.Cells.Count);
+                    int diagnosticStart = diagnostics.Count;
+                    ProceduralLayout trial = Enclose();
+                    if (trial != null && layout.FieldWall != null)
+                    {
+                        HashSet<GridPoint> occupied = new HashSet<GridPoint>(trial.Enclosure
+                            .Concat(trial.Rooms.SelectMany(r => r.Bounds.Points()))
+                            .Concat(trial.PowerYards.SelectMany(y => y.Cells))
+                            .Concat(trial.AllFixtures.SelectMany(f => f.Cells))
+                            .Concat(trial.OuterSections.SelectMany(s => s.ServiceLane(trial.Gates[s.GateIndex]))));
+                        P4BFieldWallPlan fieldWall = P4BFieldWallPlanner.PlanJoint(input, trial, occupied, out string reason);
+                        if (fieldWall == null)
+                        { failures.Add("field_connection=" + reason); trial = null; }
+                        else trial = trial.WithFieldWall(input, fieldWall);
+                    }
+                    P4BApproachDefensePlan trialDefense = null;
+                    IReadOnlyList<string> errors = trial == null ? new string[0] : ProceduralLayoutValidator.Validate(input, trial);
+                    if (trial != null && errors.Count == 0)
+                    {
+                        trialDefense = P4BApproachDefensePlanner.Plan(input, trial);
+                        P4BAttackSide improved = trialDefense.Sides.Single(s => s.Id == id);
+                        HashSet<GridPoint> trialOpaque = P4BApproachDefensePlanner.Opaque(trial, input.Terrain);
+                        int shots = P4BApproachDefensePlanner.CoveredSamples(improved, trialOpaque);
+                        bool retainedCoverage = defense.Sides.Where(s => s.Exposed &&
+                            P4BApproachDefensePlanner.CoveredSamples(s, opaque) >= P4BApproachDefensePlanner.UsefulArc(s.Samples.Count))
+                            .All(s =>
+                            {
+                                P4BAttackSide next = trialDefense.Sides.Single(t => t.Id == s.Id);
+                                return !next.Exposed || P4BApproachDefensePlanner.CoveredSamples(next, trialOpaque) >=
+                                    P4BApproachDefensePlanner.UsefulArc(next.Samples.Count);
+                            });
+                        if (retainedCoverage && shots >= P4BApproachDefensePlanner.UsefulArc(improved.Samples.Count))
+                        {
+                            layout = trial; defense = trialDefense; fitted = true;
+                            ProceduralLayoutPlanner.Note(diagnostics, "defense_access", "frontage_fitted",
+                                id + " postSamples=" + shots + "/" + improved.Samples.Count +
+                                " publicCells=" + frontage.Cells.Count);
+                            break;
+                        }
+                        failures.Add("arc=" + shots + "/" + improved.Samples.Count +
+                            (retainedCoverage ? string.Empty : "/regresses_other_front"));
+                    }
+                    else failures.Add(trial == null ? string.Join("+", diagnostics.Skip(diagnosticStart).Select(d => d.Code).Distinct()) :
+                        string.Join("+", errors.Take(3)));
+                    // An optional frontage cannot discard a complete room
+                    // layout when terrain, gate layers or spending prevent it.
+                    foreach (KeyValuePair<GridPoint, byte> cell in before) occ[grid.Index(cell.Key)] = cell.Value;
+                    segments.Remove(access);
+                    notes.RemoveAt(notes.Count - 1);
+                }
+                if (!fitted) ProceduralLayoutPlanner.Note(diagnostics, "defense_access", "frontage_unavailable",
+                    id + " postSamples=" + covered + "/" + side.Samples.Count + " candidates=" + options.Count +
+                    " reasons=" + string.Join(";", failures));
+            }
+            return layout;
         }
 
         private bool PlaceWithRepairs(LayoutRoomDemand room)

@@ -37,6 +37,25 @@ namespace RealisticBases.Generation
             errors = ProceduralLayoutValidator.ValidateLoadout(input, layout, loadout);
             if (!loadout.Success || errors.Count != 0)
             { failure = "invalid_loadout:" + loadout.Rejection + ":" + string.Join(",", errors); return false; }
+            Dictionary<GridPoint, HashSet<string>> sniperGuardSectors = new Dictionary<GridPoint, HashSet<string>>();
+            if (approachDefense != null && turretPlans.Count > 0)
+            {
+                HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
+                opaque.UnionWith(turretPlans.SelectMany(t => t.Footprint));
+                foreach (P4BTurretPlan gun in turretPlans)
+                {
+                    P4BTurretPlanner.SniperGuardCoverage(approachDefense, gun, opaque,
+                        out int threats, out int answered, out GridPoint? guard);
+                    if (!guard.HasValue || threats == 0 || answered * 10 < threats * 9)
+                    { failure = "unanswered_turret_sniper_threat:" + gun.Origin; return false; }
+                    if (!sniperGuardSectors.TryGetValue(guard.Value, out HashSet<string> sectors))
+                        sniperGuardSectors.Add(guard.Value, sectors = new HashSet<string>(StringComparer.Ordinal));
+                    sectors.Add(gun.Side);
+                    P2Log.Message("PROCEDURAL_TURRET_GUARD_PLAN", "map=" + map.uniqueID +
+                        " gun=" + gun.DefName + "@" + gun.Origin + " side=" + gun.Side +
+                        " sniperPost=" + guard.Value + " answered=" + answered + "/" + threats);
+                }
+            }
 
             List<GridPoint> roofsToBuild = layout.ConstructedRoof.Except(layout.RetainedThickRoof).ToList();
             TerrainMutationFootprint footprint = new TerrainMutationFootprint(layout.Excavation,
@@ -129,13 +148,25 @@ namespace RealisticBases.Generation
                     " import=" + (plan.ImportValue - (plan.Support?.ImportValue ?? 0) -
                         plan.AdditionalGroups.Sum(g => g.ImportValue)) + " side=" + plan.Side + " accessGate=" + plan.AccessGate);
             if (approachDefense != null)
+            {
+                HashSet<GridPoint> attackOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
+                attackOpaque.UnionWith(turretPlans.SelectMany(t => t.Footprint));
                 foreach (P4BAttackSide side in approachDefense.Sides)
+                {
+                    int covered = P4BApproachDefensePlanner.CoveredSamples(side, attackOpaque);
                     P2Log.Message("PROCEDURAL_ATTACK_SIDE_PLAN", "map=" + map.uniqueID + " side=" + side.Id +
                         " exposed=" + side.Exposed + " approachSamples=" + side.Samples.Count +
-                        " post=" + (side.Post?.ToString() ?? "none") + " omission=" + side.OmissionReason);
+                        " openGroundArea=" + side.OpenGroundArea +
+                        " post=" + (side.Post?.ToString() ?? "none") + " positions=" + string.Join("|", side.Positions) +
+                        " postCoveredSamples=" + covered + " coverage=" + (!side.Exposed ? "not_exposed" :
+                            covered >= P4BApproachDefensePlanner.UsefulArc(side.Samples.Count) ? "useful" : "gap") +
+                        " omission=" + side.OmissionReason);
+                }
+            }
             foreach (P4BSallyPort port in approachDefense?.SallyPorts ?? Enumerable.Empty<P4BSallyPort>())
                 P2Log.Message("PROCEDURAL_SALLY_PORT_PLAN", "map=" + map.uniqueID + " gate=" + port.Cell +
-                    " inside=" + port.Inside + " outward=" + port.Outward + " reinforced=false");
+                    " inside=" + port.Inside + " outward=" + port.Outward + " field=" + port.Field +
+                    " interiorRouteCells=" + port.InteriorRoute.Count + " reinforced=false");
             foreach (GridPoint c in structures.Concat(fields).Concat(serviceCells)
                 .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() : fieldWall.ExteriorPosts).Distinct())
             {
@@ -163,7 +194,7 @@ namespace RealisticBases.Generation
                 encounter = GeometryEncounterPlanner.Plan(new GeometryEncounterInput(layout.Digest, profile,
                     layout.Enclosure, walls.Concat(natural), layout.Gates.Select(g =>
                         new KeyValuePair<GridPoint, GridPoint>(g.Cell, g.Inside))
-                        .Concat(approachDefense?.SallyPorts.Select(p => new KeyValuePair<GridPoint, GridPoint>(p.Cell, p.Inside)) ??
+                        .Concat(approachDefense?.SallyPorts.Where(p => !p.Field).Select(p => new KeyValuePair<GridPoint, GridPoint>(p.Cell, p.Inside)) ??
                             Enumerable.Empty<KeyValuePair<GridPoint, GridPoint>>()), publicCells,
                     LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Storage),
                     layout.Court?.Cells.FirstOrDefault(), layout.Court?.Access.FirstOrDefault()));
@@ -195,11 +226,17 @@ namespace RealisticBases.Generation
                     encounter = new EncounterPlan(layout.Digest, profile, encounter.Posts
                         .Where(p => approachDefense == null || p.Inner || p.Mortar || p.MaximumRange <= 4).Concat(
                         fieldWall.UsablePosts.Select((c, i) => new DefensivePost("field-outer-" + i,
-                            Sector(c, encounter.SupportCenter), c, 8, 38, true, true, true, false, false, true,
-                            approachDefense?.Sides.Where(s => s.Post.HasValue && s.Post.Value.Equals(c)).Select(s => s.Id))))
+                            Sector(c, encounter.SupportCenter), c, sniperGuardSectors.ContainsKey(c) ? 35 : 8,
+                            sniperGuardSectors.ContainsKey(c) ? 44 : 38, true, true, true, false, false, true,
+                            approachDefense?.Sides.Where(s => s.Positions.Contains(c)).Select(s => s.Id)
+                                .Concat(sniperGuardSectors.TryGetValue(c, out HashSet<string> fieldSectors)
+                                    ? fieldSectors : Enumerable.Empty<string>()), fieldWall.OuterGate)))
                         .Concat(approachDefense?.Posts.Select(p => new DefensivePost("perimeter-" + p.Side,
-                            p.Side, p.Cell, 8, 25, true, true, true, false, false, true,
-                            approachDefense.Sides.Where(s => s.Post.HasValue && s.Post.Value.Equals(p.Cell)).Select(s => s.Id)))
+                            p.Side, p.Cell, sniperGuardSectors.ContainsKey(p.Cell) ? 35 : 8,
+                            sniperGuardSectors.ContainsKey(p.Cell) ? 44 : 25, true, true, true, false, false, true,
+                            approachDefense.Sides.Where(s => s.Positions.Contains(p.Cell)).Select(s => s.Id)
+                                .Concat(sniperGuardSectors.TryGetValue(p.Cell, out HashSet<string> perimeterSectors)
+                                    ? perimeterSectors : Enumerable.Empty<string>()), p.AccessGate))
                             ?? Enumerable.Empty<DefensivePost>()),
                         bounds, encounter.SupportCenter, encounter.InnerFallback,
                         encounter.MortarCell, encounter.MortarInteractionCell, encounter.MagazineCell,
@@ -397,8 +434,12 @@ namespace RealisticBases.Generation
                 {
                     HashSet<IntVec3> defendedCells = new HashSet<IntVec3>(encounter.DefendedCells.Select(ToCell));
                     int longestPostPath = 0;
+                    int viaGatePaths = 0;
                     foreach (GridPoint post in fieldWall.UsablePosts.Concat(approachDefense?.AllPosts ?? new GridPoint[0]).Distinct())
                     {
+                        GridPoint gate = approachDefense?.Posts.FirstOrDefault(p => p.Cell.Equals(post))?.AccessGate ??
+                            fieldWall.PostAccess.FirstOrDefault(p => p.Post.Equals(post))?.Route.FirstOrDefault() ??
+                            fieldWall.OuterGate;
                         int eligibleDefenders = 0;
                         List<string> routeDiagnostics = new List<string>();
                         foreach (Pawn pawn in defenders)
@@ -407,18 +448,35 @@ namespace RealisticBases.Generation
                             {
                                 IntVec3 firstOutside = path.Found
                                     ? path.NodesReversed.FirstOrDefault(c => !defendedCells.Contains(c)) : IntVec3.Invalid;
-                                // P3 constrains patrol/response to defended
-                                // cells, not an arbitrary 64-node path cap.
-                                // Larger compounds legitimately need longer
-                                // routes through the two field gates.
-                                bool legal = path.Found && path.NodesReversed.All(defendedCells.Contains);
+                                bool legal = path.Found && path.NodesReversed.Count <= 160 &&
+                                    path.NodesReversed.All(defendedCells.Contains);
+                                int length = path.NodesReversed.Count;
+                                if (!legal && defendedCells.Contains(ToCell(gate)))
+                                {
+                                    // Vanilla's shortest direct path can cut through open ground
+                                    // outside the declared corridor. The live controller will use
+                                    // this same access gate as a waypoint instead of broadening
+                                    // its movement authority to include that shortcut.
+                                    using (PawnPath toGate = map.pathFinder.FindPathNow(pawn.Position, ToCell(gate),
+                                        TraverseParms.For(pawn), null, PathEndMode.OnCell))
+                                    using (PawnPath fromGate = map.pathFinder.FindPathNow(ToCell(gate), ToCell(post),
+                                        TraverseParms.For(pawn), null, PathEndMode.OnCell))
+                                    {
+                                        length = toGate.NodesReversed.Count + fromGate.NodesReversed.Count - 1;
+                                        legal = toGate.Found && fromGate.Found && length <= 160 &&
+                                            toGate.NodesReversed.All(defendedCells.Contains) &&
+                                            fromGate.NodesReversed.All(defendedCells.Contains);
+                                        if (legal) viaGatePaths++;
+                                    }
+                                }
                                 if (legal)
                                 {
                                     eligibleDefenders++;
-                                    longestPostPath = Math.Max(longestPostPath, path.NodesReversed.Count);
+                                    longestPostPath = Math.Max(longestPostPath, length);
                                 }
                                 else routeDiagnostics.Add(pawn.LabelShort + ":found=" + path.Found +
-                                    "/nodes=" + path.NodesReversed.Count + "/firstOutside=" + firstOutside);
+                                    "/nodes=" + path.NodesReversed.Count + "/firstOutside=" + firstOutside +
+                                    "/via=" + gate);
                             }
                         if (eligibleDefenders < 2)
                             throw new InvalidOperationException("Outside field post lacks two P3-legal pawn paths: " +
@@ -437,6 +495,7 @@ namespace RealisticBases.Generation
                         " omittedPosts=" + fieldWall.PostAccess.Count(p => !p.Usable) +
                         " exposedGateCrossingCells=2" +
                         " longestLegalPathNodes=" + longestPostPath +
+                        " viaGatePaths=" + viaGatePaths +
                         " cropsUnroofed=" + fieldWall.Fields.Count + " wildPlantsInField=0");
                 }
                 if (map.listerThings.AllThings.Any(P0MapAudit.IsProhibitedDefense))
@@ -485,6 +544,7 @@ namespace RealisticBases.Generation
                             ToCell(port.Inside), ToCell(port.Cell), PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)))
                             throw new InvalidOperationException("Defense sally port realization failed: " + port.Cell);
                 }
+                P4BRealizedCoverAudit.Run(map, approachDefense, turrets);
                 int realizedOuterWalls = layout.OuterWalls.Count(c => ToCell(c).GetEdifice(map)?.def == ThingDefOf.Wall);
                 int plannedOuterWalls = layout.OuterWalls.Count();
                 int plannedReturnCells = layout.OuterSections.Sum(section => section.LeftReturn.Count + section.RightReturn.Count);

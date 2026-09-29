@@ -128,6 +128,15 @@ namespace RealisticBases.Planning
             if (layout.Power == null || AvailableWatts(layout) < turret.TotalWatts) errors.Add("network_power_budget");
             if (!PowerTerminalsConnected(input, layout, turret)) errors.Add("network_power_access");
             HashSet<GridPoint> finalOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
+            if (layout.ApproachDefense != null)
+            {
+                HashSet<GridPoint> beforeGuns = new HashSet<GridPoint>(finalOpaque);
+                finalOpaque.UnionWith(guns.SelectMany(t => t.Footprint));
+                if (layout.ApproachDefense.Sides.Any(s => s.Exposed &&
+                    P4BApproachDefensePlanner.CoveredSamples(s, beforeGuns) >= P4BApproachDefensePlanner.UsefulArc(s.Samples.Count) &&
+                    P4BApproachDefensePlanner.CoveredSamples(s, finalOpaque) < P4BApproachDefensePlanner.UsefulArc(s.Samples.Count)))
+                    errors.Add("turret_obstructs_defender_frontage");
+            }
             finalOpaque.UnionWith(guns.SelectMany(t => t.Footprint));
             IEnumerable<GridPoint> posts = (layout.FieldWall.UsablePosts ?? new GridPoint[0])
                 .Concat(layout.ApproachDefense?.AllPosts ?? new GridPoint[0]).Distinct();
@@ -140,7 +149,53 @@ namespace RealisticBases.Planning
                      posts.Any(p => P4BFireLane.CanEngage(p, c, 0, 25, finalOpaque))));
                 if (sharedShots < 4) errors.Add("network_isolated_group");
             }
+            // Interlocking gun fire is not enough: attackers can close on an
+            // isolated emplacement while its defenders stand out of range.
+            // Require each physical gun (including a heavy gun's mini-turret)
+            // to be near a post that can shoot edge-reachable ground around it.
+            if (layout.ApproachDefense != null && guns.Any(g =>
+                !NearbyPawnSupport(layout.ApproachDefense, g, finalOpaque)))
+                errors.Add("turret_without_nearby_pawn_support");
+            if (layout.ApproachDefense != null && guns.Any(g =>
+            {
+                int threats, answered;
+                SniperGuardCoverage(layout.ApproachDefense, g, finalOpaque, out threats, out answered, out _);
+                return threats == 0 || answered * 10 < threats * 9;
+            })) errors.Add("turret_exposed_to_unanswered_sniper_fire");
             return errors.Distinct().ToList();
+        }
+
+        internal static bool NearbyPawnSupport(P4BApproachDefensePlan defense,
+            P4BTurretPlan gun, HashSet<GridPoint> opaque)
+        {
+            P4BAttackSide side = defense.Sides.FirstOrDefault(s => s.Id == gun.Side && s.Exposed);
+            return side != null && side.Positions.Any(post => gun.Footprint.Min(c => Distance(post, c)) <= 14 &&
+                side.Samples.Count(target => gun.Footprint.Min(c => Distance(c, target)) <= 18 &&
+                    P4BFireLane.CanEngage(post, target, 0, 25, opaque)) >= 2);
+        }
+
+        // Core 1.6 sniper rifles have 44.9 range. The check is geometric: it
+        // assumes a sniper is assigned to this post and is verified separately
+        // against the realized equipment and P3 assignment.
+        internal static void SniperGuardCoverage(P4BApproachDefensePlan defense, P4BTurretPlan gun,
+            HashSet<GridPoint> opaque, out int threats, out int answered, out GridPoint? guardPost)
+        {
+            threats = 0; answered = 0; guardPost = null;
+            P4BAttackSide side = defense.Sides.FirstOrDefault(s => s.Id == gun.Side && s.Exposed);
+            if (side == null) return;
+            HashSet<GridPoint> incoming = new HashSet<GridPoint>(opaque);
+            incoming.ExceptWith(gun.Footprint);
+            List<GridPoint> threatCells = side.Samples.Where(sample =>
+                P4BFireLane.CanEngage(sample, gun.Origin, 0, 44, incoming)).ToList();
+            threats = threatCells.Count;
+            foreach (GridPoint post in side.Positions.Where(p =>
+                gun.Footprint.Min(c => Distance(p, c)) <= 14 &&
+                side.Samples.Count(sample => P4BFireLane.CanEngage(p, sample, 8, 44, opaque)) >= 4))
+            {
+                int shots = threatCells.Count(sample => P4BFireLane.CanEngage(post, sample, 0, 44, opaque));
+                if (shots <= answered) continue;
+                answered = shots; guardPost = post;
+            }
         }
 
         private static IReadOnlyList<string> ValidateGroup(ProceduralLayoutInput input, ProceduralLayout layout,
@@ -203,6 +258,13 @@ namespace RealisticBases.Planning
             List<GridPoint> front = footprint.Where(c => !footprint.Contains(new GridPoint(
                 c.X + outward.X, c.Z + outward.Z))).Select(c => new GridPoint(
                 c.X + outward.X, c.Z + outward.Z)).Distinct().ToList();
+            GridPoint tangent = new GridPoint(-outward.Z, outward.X);
+            List<GridPoint> flanks = new[] { -1, 1 }.SelectMany(sign => footprint.Where(c =>
+                !footprint.Contains(new GridPoint(c.X + sign * tangent.X, c.Z + sign * tangent.Z)))
+                .Select(c => new GridPoint(c.X + sign * tangent.X, c.Z + sign * tangent.Z)))
+                .Distinct().ToList();
+            if (front.Any(c => !turret.CoverCells.Contains(c)) ||
+                flanks.Any(c => !turret.CoverCells.Contains(c))) errors.Add("adjacent_flank_cover");
             if (front.Any(c => !turret.CoverCells.Contains(c)) ||
                 turret.CoverCells.Any(c => occupied.Contains(c) || opaque.Contains(c) ||
                     footprint.Contains(c) || turret.ServiceRoute.Contains(c) ||
@@ -260,6 +322,12 @@ namespace RealisticBases.Planning
             P4BFieldWallPlan fieldWall, IEnumerable<GridPoint> occupied, out string diagnostic)
         {
             if (input == null || layout == null || fieldWall == null) throw new ArgumentNullException();
+            SettlementLoadout garrison = LayoutLoadoutModel.Build(input, layout);
+            if (!garrison.Success || !garrison.Residents.Any(r => r.Weapon?.DefName == "Gun_SniperRifle"))
+            {
+                diagnostic = "unplaced: no_equipped_sniper_guard";
+                return null;
+            }
             List<P4BTurretPlan> groups = new List<P4BTurretPlan>();
             List<string> decisions = new List<string>();
             int fronts = layout.ApproachDefense?.Sides.Count(s => s.Exposed) ?? 1;
@@ -315,12 +383,15 @@ namespace RealisticBases.Planning
             GridPoint tangent = new GridPoint(-outward.Z, outward.X);
             List<Frame> frames = new List<Frame>();
             string fieldSide = outward.X != 0 ? (outward.X < 0 ? "west" : "east") : (outward.Z < 0 ? "south" : "north");
-            if (layout.ApproachDefense == null || layout.ApproachDefense.Sides.Any(s => s.Id == fieldSide && s.Exposed))
+            if (layout.ApproachDefense == null)
                 frames.Add(new Frame { Anchor = outer, Gate = outer, Outward = outward, Side = fieldSide });
             if (layout.ApproachDefense != null)
-                frames.AddRange(layout.ApproachDefense.Posts.Select(p => new Frame
-                    { Anchor = p.Face, Gate = p.AccessGate, Outward = p.Outward,
-                        Side = p.Outward.X != 0 ? (p.Outward.X < 0 ? "west" : "east") : (p.Outward.Z < 0 ? "south" : "north") }));
+                frames.AddRange(layout.ApproachDefense.Sides.Where(s => s.Exposed).SelectMany(s => s.Positions.Select(post =>
+                {
+                    P4BPerimeterPost built = layout.ApproachDefense.Posts.FirstOrDefault(p => p.Cell.Equals(post));
+                    return new Frame { Anchor = post, Gate = built?.AccessGate ?? fieldWall.OuterGate,
+                        Outward = s.Outward, Side = s.Id };
+                })));
             List<GridPoint> targets = ApproachTargets(input, layout).ToList();
             Dictionary<GridPoint, int> coverage = targets.ToDictionary(c => c, c => previous.Count(t =>
                 CanShoot(t, c, opaque)));
@@ -350,7 +421,7 @@ namespace RealisticBases.Planning
                 // A deterministic bounded candidate set replaces the old
                 // field-gate-first rule. No gun is needed on every side.
                 var candidates = frames.SelectMany(frame => new[] { -1, 1 }.SelectMany(side =>
-                    new[] { 7, 9, 11, 13, 15 }.SelectMany(forward => new[] { 8, 11, 14, 17, 20 }.Select(lateral => new
+                    new[] { 1, 2, 3, 4, 5, 7, 9, 11, 13, 15 }.SelectMany(forward => new[] { 8, 11, 14, 17, 20 }.Select(lateral => new
                     { Frame = frame, Side = side, Origin = At(frame.Anchor, frame.Outward,
                         new GridPoint(-frame.Outward.Z, frame.Outward.X), forward, side * lateral) }))))
                     .Select(c => new { c.Frame, c.Side, c.Origin,
@@ -364,11 +435,19 @@ namespace RealisticBases.Planning
                             .Where(s => s.Id == c.Frame.Side).SelectMany(s => s.Samples).Count(t =>
                                 P4BFireLane.CanEngage(c.Origin, t, (int)Math.Ceiling(def.MinimumRange),
                                     (int)Math.Floor(def.MaximumRange), opaque)),
+                        FrontExposure = layout.ApproachDefense == null ? 0 : layout.ApproachDefense.Sides
+                            .Where(s => s.Id == c.Frame.Side).Sum(s => s.Samples.Count),
+                        FrontOpenGround = layout.ApproachDefense == null ? 0 : layout.ApproachDefense.Sides
+                            .Where(s => s.Id == c.Frame.Side).Sum(s => s.OpenGroundArea),
                         Sides = layout.ApproachDefense == null ? 1 : layout.ApproachDefense.Sides.Count(s =>
                             s.Samples.Count(t => P4BFireLane.CanEngage(c.Origin, t,
                                 (int)Math.Ceiling(def.MinimumRange), (int)Math.Floor(def.MaximumRange), opaque)) >= 4) })
                     .Where(c => c.Shots >= 4 && c.FrontShots >= 4 && c.Gain >= 4)
-                    .OrderByDescending(c => c.NewFront).ThenByDescending(c => c.Gain)
+                    .Where(c => layout.ApproachDefense == null || layout.ApproachDefense.Sides.Any(s =>
+                        s.Id == c.Frame.Side && s.Positions.Any(p => Distance(p, c.Origin) <= 14)))
+                    .OrderByDescending(c => c.NewFront).ThenByDescending(c => c.FrontOpenGround)
+                    .ThenByDescending(c => c.FrontExposure)
+                    .ThenByDescending(c => c.FrontShots).ThenByDescending(c => c.Gain)
                     .ThenByDescending(c => c.Sides).ThenByDescending(c => c.Shots)
                     .ThenBy(c => Manhattan(c.Origin, c.Frame.Gate))
                     .ThenBy(c => c.Frame.Side, StringComparer.Ordinal).ThenBy(c => c.Origin).ThenBy(c => c.Side);
@@ -484,6 +563,9 @@ namespace RealisticBases.Planning
                         previous.Any(t => t.ServiceRoute.Contains(c)) ||
                         (layout.ApproachDefense?.Posts.Any(p => p.Route.Contains(c)) ?? false) ||
                         !Buildable(input.Terrain, c))) continue;
+                    if (layout.ApproachDefense != null && !layout.ApproachDefense.Sides.Any(s =>
+                        s.Id == frame.Side && s.Positions.Any(p => footprint.Any(c => Distance(p, c) <= 14))))
+                        continue;
                     if (DefendedAssets(layout)
                         .Any(c => footprint.Any(f => Distance(c, f) < mini.ExplosionRadius + 2)) ||
                         footprint.Any(f => heavy.Any(h => Distance(f, h) <
@@ -562,12 +644,15 @@ namespace RealisticBases.Planning
                 !fieldWall.ExteriorPosts.Contains(c) && Buildable(terrain, c);
             if (front.Count == 0 || front.Any(c => !legal(c))) return null;
             List<GridPoint> cover = new List<GridPoint>(front);
-            GridPoint exposed = footprint.OrderByDescending(c =>
-                c.X * outward.X + c.Z * outward.Z).ThenByDescending(c =>
-                side * (c.X * tangent.X + c.Z * tangent.Z)).First();
-            GridPoint flank = new GridPoint(exposed.X + tangent.X * side,
-                exposed.Z + tangent.Z * side);
-            if (!cover.Contains(flank) && legal(flank)) cover.Add(flank);
+            foreach (int sign in new[] { side, -side })
+                foreach (GridPoint flank in footprint.Where(c => !footprint.Contains(new GridPoint(
+                    c.X + sign * tangent.X, c.Z + sign * tangent.Z))).Select(c => new GridPoint(
+                    c.X + sign * tangent.X, c.Z + sign * tangent.Z)))
+                {
+                    if (cover.Contains(flank)) continue;
+                    if (!legal(flank)) return null;
+                    cover.Add(flank);
+                }
             return cover;
         }
 
@@ -663,6 +748,7 @@ namespace RealisticBases.Planning
         // connection, not whichever prefix the civilian arrival route happens to use.
         public static HashSet<GridPoint> PowerAccessCells(ProceduralLayout layout, P4BTurretPlan network = null) => new HashSet<GridPoint>(layout.Enclosure
             .Concat(layout.ApproachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0])
+            .Concat(layout.ApproachDefense?.SallyPorts.SelectMany(p => p.InteriorRoute) ?? new GridPoint[0])
             .Concat(layout.Gates.Select(g => g.Cell))
             .Concat(layout.Gates.SelectMany(g => g.BandDoors.Concat(g.OuterVestibule)))
             .Concat(layout.FieldWall == null ? Enumerable.Empty<GridPoint>() : layout.FieldWall.Access

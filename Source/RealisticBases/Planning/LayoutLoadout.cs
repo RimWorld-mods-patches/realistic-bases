@@ -205,7 +205,7 @@ namespace RealisticBases.Planning
             switch (role)
             {
                 case LoadoutRole.Marksman:
-                    return Options("Gun_ChargeRifle", "Gun_SniperRifle", "Gun_BoltActionRifle", Capped("Bow_Great"), Capped("Bow_Recurve"), Capped("Bow_Short"));
+                    return Options("Gun_SniperRifle", "Gun_ChargeRifle", "Gun_BoltActionRifle", Capped("Bow_Great"), Capped("Bow_Recurve"), Capped("Bow_Short"));
                 case LoadoutRole.CloseDefense:
                     return Options("Gun_ChainShotgun", "Gun_HeavySMG", "Gun_PumpShotgun", "MeleeWeapon_LongSword", "MeleeWeapon_Spear", Capped("MeleeWeapon_Club"));
                 case LoadoutRole.Heavy:

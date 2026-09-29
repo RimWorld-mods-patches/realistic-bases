@@ -4,6 +4,94 @@
 
 The [P4B plan](p4b-defense-plan.md) is the scope authority. P4 and P4A remain open independently: their lakeshore, climate, tribal, optional-mod and exact rejected-flat-tile checks are not credited to P4B or silently closed. P5–P7 are not part of this implementation.
 
+## 2026-09-29 turret/post mutual-support investigation (in progress)
+
+### Public access and long-front coverage repair
+
+The defense pass now registers all physically eligible positions for a side,
+including both field flanks and covered corner positions. It adds up to three
+separated short gate-side projections per side until their combined arc reaches
+the useful threshold (35% of conventional 8–25-cell samples, minimum four).
+Extra projections must add actual firing opportunities and still pass their
+material, terrain, cover, return-wall and access constraints. This threshold
+means useful coverage on a front, not complete coverage or simultaneous staffing.
+
+When the packed compound lacks public access to a weak front, a bounded optional
+extension can grow its public network and rebuild the enclosure on the same
+site. Rooms, field and crop reservations remain intact, and already-useful fronts
+must remain useful. A field-wall sally port can instead connect through the
+existing unroofed field entrance; it replaces a wall cell with a budgeted door,
+preserves crop cells, and reserves its interior path for wiring/access. Synthetic
+tests check that route, a blocked interior connection, crop preservation, dry
+frontage extension and refusal to assume a bridge. New turrets cannot reduce an
+already-useful pawn firing arc below the threshold. Final per-side diagnostics
+are retained even when the search-detail log cap is exhausted.
+
+The first disposable run of the access repair (`seed=B112F10795D6A8A3`, layout
+`821B7280BAFB9F37`, `.runtime/logs/p4b-all-frontage-live.log`) spawned ten residents,
+twelve rooms, 313 unroofed crops and four mini-turrets. Five physical positions
+each had at least two legal defender paths; longest path was 89 nodes and one
+used the new gate waypoint. Actual turret cover/power/fuel/service audits passed.
+However south covered only 31/115 samples and west 21/65, so this run was **not**
+an all-side coverage success. The then-current one-position-per-side restriction
+was reproduced independently with a 95-cell-wide pure rectangle: south covered
+40/145 and north 34/145. Multiple separated projections raised those to 73/145
+and 65/145. This is a geometry regression, not exact replay of the live terrain;
+its pre-construction snapshot was not captured. The updated P4B suite passes,
+including six final-occupancy flat seeds and the field-sally case. Complete-suite
+and fresh live verification of the multiple-position change are recorded below.
+
+The complete updated LayoutTests passed (301.1 seconds, zero failures), as did
+PlannerTests; Docker Release built with zero warnings/errors and `git diff --check`
+is clean. The first fresh multiple-position live map was rock-bearing despite its
+flat world-tile label (`seed=801760066A1D98B8`, layout `7A0F63283125CFC1`). East,
+north and west had useful arcs; south had only one reachable approach sample and
+no legal short gate position, so it remained explicitly `coverage=gap`. Two field
+sally ports, with 16- and seven-cell interior paths, passed actual door/access
+audits. The map spawned six residents and 189 unroofed crops, with one heavy gun
+and three mini-turrets, but is not universal all-side defense evidence.
+
+After reloading the untouched disposable baseline, the next flat-labeled map
+(`seed=7F4ED988E8769383`, layout `F9CF910C84770D02`) spawned eight residents, ten
+rooms and 270 unroofed rice cells. Final pawn firing arcs were south 12/27, east
+66/134, north 6/9 and west 53/146: every exposed side met the useful threshold.
+East used a second dedicated projection beside a field sally gate, with a
+12-cell interior route from the compound entrance. Six distinct positions each
+had at least two real legal defender paths (longest 72 nodes); all four new
+projections had connected returns, five screens and six-cell exterior routes.
+The uranium turret and close-support mini passed actual power, initial fuel,
+adjacent cover and service-access audits. Additional guns were stopped by power
+headroom, not an artificial two-gun cap. P3 later reported two occupied posts,
+eight living defenders, zero outside its bounds and zero controlled player pawns.
+Actual alternate-front firing, simultaneous guard staffing, universal cover,
+depletion and active reload are still not established. P4B remains open.
+
+Both fresh runs are in the ignored `.runtime/logs/p4b-multi-frontage-live.log`,
+separated by `DISPOSABLE_RELOAD_REQUEST`. The final encounter was left paused
+in the single verified disposable process for inspection; no normal save was
+read or written. This is fresh-map validation, not exact replay of the earlier
+south-heavy tile.
+
+The disposable process from the first run was stopped and verified absent before
+rebuilding. No normal profile, Steam startup, mod installation or postponed
+automatic-assault debug work was used.
+
+The user's south-heavy map exposed a directional-planning fault, not a shortage of buildable terrain. On the rejected flat run below the south had 92 edge-reachable firing samples, but the assigned eastern corner post could engage only 5. Four turrets were put on north/west/east. Post selection previously ranked an existing gate and the number of fronts before the quality of its named front, so a five-shot perpendicular position could beat a useful southern sally port. Candidate ranking now requires a substantial arc (at least 35% of that side's samples) before applying the existing-gate preference; when none is substantial it selects the best available arc. A pure regression explicitly ranks a 38/92 southern position ahead of a 5/92 corner while retaining a good 49/58 existing gate over a marginally better new port. This improves selection where a legal position exists; it does **not** manufacture missing public access through room-packed perimeter walls.
+
+Turret ranking also now records edge-connected open ground in an exterior strip up to 80 cells deep and prefers larger attackable fronts before sampled firing-line count. A pure offset-rectangle test distinguishes a wider southern approach from the shorter north side. The focused P4B layout suite passed with zero failures, including the 12/12 high-industrial flat-clutter matrix and a heavy-turret/mini support fixture. After a later test-helper extraction, the focused approach case also passed; a fresh complete suite is still required. Docker Release built with zero warnings/errors before that test-helper extraction, which changed only pure ranking placement, not runtime integration.
+
+A disposable Core+RIMAPI flat run with the new ground-area ranking (`seed=EFAEEA604B30FE5F`, layout `9F5B0B56446BF969`) completed spawn: eight residents, ten rooms, 260 unroofed crops, two mini-turrets. Its southern post engaged 32/52 sampled approaches, and a nearby southern turret was placed; the field-post path audit passed and the realized vanilla cover audit ran. This map had *more* open ground to the north (6,147 counted cells versus 1,161 south), yet its northern post engaged only 19/110 samples and received no turret. It therefore proves that the code can place a supported southern turret, **not** that every large exposed side is covered or that the user's original map is corrected. The ignored log is `.runtime/logs/p4b-south-open-ground-live.log`; the exact disposable process was stopped and verified absent. The unresolved design work is to reserve public perimeter access to threatened fronts before room packing and treat weak shared posts as a reported defense gap, without rejecting an otherwise placeable settlement.
+
+The user identified a real failure mode: a turret may see attacker ground yet sit too far from pawn positions, so an attacking sniper can fight it alone. A synthetic replay of the former flat network measured only 60 answered positions out of 79 modeled sniper firing positions against one large gun from its nominated post. The turret planner now requires every physical gun to sit within 14 cells of a same-front usable post with nearby attacker-ground shots, and selects a nearby guard post able to answer at least 90% of the sampled conventional sniper firing positions on that side. These are geometric 44-cell Core 1.6 sniper-range samples, **not** guarantees of a hit, a staffed post, or protection from other sides. Candidates may be omitted rather than reject the whole settlement. The loadout prefers an actual sniper rifle for the marksman role, and turret planning omits optional guns without an equipped sniper. A persisted P3 post-flag bit preserves the sniper-only minimum range through runtime post reconstruction and old flags retain their legacy interpretation.
+
+The first disposable high-industrial flat test (`seed=8EA28CD98C1AE806`, layout `8C4E158658A4C9EF`) spawned eight residents and two western mini-turrets with guard sample ratios 75/80 and 68/70. The new realized-map vanilla `CoverUtility` audit showed why adjacent screens alone were insufficient: from southern visible approach samples both turrets had **0%** cover, and from the west one gun had zero cover on 25 of 80 visible samples. That accepted map is evidence of spawn and of the cover defect, not a P4B success. Its ignored log is `.runtime/logs/p4b-sniper-guard-live.log`.
+
+The turret planner now requests forward **and both flank** cover cells, validates their occupancy and cost, and ranks candidates from each exposed side's real post, including a side that shares a corner post. Weak perpendicular post sharing is no longer preferred over a dedicated same-facing gate-side position, though it remains a fallback if no new legal connection fits. In the synthetic 160×160 fixture this changed the south from sharing the western field post `(75,103)` to its own post `(107,89)`, and the network placed guarded groups on south, north and east; a corner fixture still retains its necessary perpendicular fallback. The new runtime attack-side log includes `postCoveredSamples` to expose weak fallback claims.
+
+The next disposable high-industrial flat test (`seed=6B463643602B0D39`, layout `C3BFD6C4DFB8401D`) planned four mini-turrets with three cover cells each on north, west and east, but still gave the south side only 5/92 covered samples from a shared eastern post. It rolled back 1,041 owned things and restored 474/474 plants because shortest pawn paths to one field post left P3's declared defended-cell mask at `(78,58)`; no cover audit or accepted spawn followed. This is a **newly observed live gap**: optional side posts cannot be advertised as strong defense from a four-shot threshold, and P3's exact corridor/pathfinder mismatch can reject or strand otherwise reachable defenders. The ignored log is `.runtime/logs/p4b-south-defense-live.log`. The P3 hold-job route cap was raised from 64 to 160 cells, but that does **not** fix paths that leave the controlled mask. Do not count this run as validation of the latest flank-cover or persisted-sniper-flag changes.
+
+Focused pure turret, corner-post, and P3 flag/assignment tests pass; a complete layout rerun and a clean accepted live replay remain necessary. The sniper rule still allows up to 10% unanswered sampled positions and does not yet model staff availability, real shot timing, or incoming fire across other attack sides. P4B.2–P4B.4 remain open.
+
 ## 2026-09-28 multiple coordinated turret groups checkpoint
 
 The user identified the remaining one-group cap and reiterated the [NPS bastion principles](https://www.nps.gov/casa/learn/historyculture/bastions.htm): projecting positions should reduce blind ground and create interlocking fire. The turret output now holds a root group plus immutable peer groups; each heavy retains its own close-support mini-turret. Group count is bounded by exposed fronts (at most four), not a prescribed gun count. Selection favors new fronts, newly covered reachable approach samples and second-source overlap. Each group must share at least four sampled targets with another gun or a verified covered pawn post; this is conservative planned geometry, not measured live crossfire.

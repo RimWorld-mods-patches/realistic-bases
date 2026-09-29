@@ -49,7 +49,7 @@ namespace RealisticBases.Planning
                        solid.Contains(new GridPoint(door.X, door.Z + 1)))))
                     errors.Add("field_gate_not_in_wall");
             }
-            HashSet<GridPoint> attached = Flood(baseline, c => solid.Contains(c));
+            HashSet<GridPoint> attached = Flood(baseline, c => solid.Contains(c) || doors.Contains(c));
             if (fieldWall.Any(c => !attached.Contains(c))) errors.Add("field_wall_detached");
             HashSet<GridPoint> closed = new HashSet<GridPoint>(solid);
             closed.UnionWith(doors);

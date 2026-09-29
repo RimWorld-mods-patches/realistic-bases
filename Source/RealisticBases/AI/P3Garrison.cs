@@ -116,6 +116,7 @@ namespace RealisticBases.AI
         private List<string> postIds = new List<string>();
         private List<string> postSectors = new List<string>();
         private List<IntVec3> postCells = new List<IntVec3>();
+        private List<IntVec3> postAccessGates = new List<IntVec3>();
         private List<int> postFlags = new List<int>();
         private List<IntVec3> gateCells = new List<IntVec3>();
         private List<IntVec3> defendedCells = new List<IntVec3>();
@@ -275,8 +276,9 @@ namespace RealisticBases.AI
             postSectors = plan.Posts.Select(p => string.Join("|", new[] { p.SectorId }
                 .Concat(p.SupportedSectors.Where(s => s != p.SectorId)))).ToList();
             postCells = plan.Posts.Select(p => ToCell(p.Cell)).ToList();
-            postFlags = plan.Posts.Select(p => (p.Mortar ? 1 : 0) | (p.Inner ? 2 : 0) |
-                (p.MinimumRange <= 3 ? 4 : 0)).ToList();
+            postAccessGates = plan.Posts.Select(p => p.AccessGate.HasValue
+                ? ToCell(p.AccessGate.Value) : IntVec3.Invalid).ToList();
+            postFlags = plan.Posts.Select(P3PostFlags.Encode).ToList();
             gateCells = gates.Select(ToCell).ToList();
             initialHe = CountStock("Shell_HighExplosive");
             initialIncendiary = CountStock("Shell_Incendiary");
@@ -300,6 +302,7 @@ namespace RealisticBases.AI
             Scribe_Collections.Look(ref postIds, "p3PostIds", LookMode.Value);
             Scribe_Collections.Look(ref postSectors, "p3PostSectors", LookMode.Value);
             Scribe_Collections.Look(ref postCells, "p3PostCells", LookMode.Value);
+            Scribe_Collections.Look(ref postAccessGates, "p3PostAccessGates", LookMode.Value);
             Scribe_Collections.Look(ref postFlags, "p3PostFlags", LookMode.Value);
             Scribe_Collections.Look(ref gateCells, "p3GateCells", LookMode.Value);
             Scribe_Collections.Look(ref defendedCells, "p3DefendedCells", LookMode.Value);
@@ -330,6 +333,8 @@ namespace RealisticBases.AI
                 ownedThings = ownedThings?.Where(t => t != null).ToList() ?? new List<Thing>();
                 operatingStocks = operatingStocks?.Where(t => t != null).ToList() ?? new List<Thing>();
                 defendedCells = defendedCells?.Distinct().ToList() ?? new List<IntVec3>();
+                if (postAccessGates == null || postAccessGates.Count != postCells.Count)
+                    postAccessGates = Enumerable.Repeat(IntVec3.Invalid, postCells.Count).ToList();
                 P3Log.Message("CONTROLLER_RELOADED", "map=" + map.uniqueID + " state=" + currentState +
                     " defenders=" + defenders.Count + " assignments=" + assignedPawnIds.Count +
                     " mortarLoaded=" + MortarLoadedShell() + " heRemaining=" + CountStock("Shell_HighExplosive"));
@@ -433,8 +438,15 @@ namespace RealisticBases.AI
             if (!destination.IsValid || !InsideBounds(destination) || !destination.Standable(map)) return null;
             if (!pawn.Position.InHorDistOf(destination, 1.5f))
             {
-                if (!RouteAllowed(pawn, destination, 64)) return null;
-                Job go = JobMaker.MakeJob(JobDefOf.Goto, destination);
+                IntVec3 next = destination;
+                if (!RouteAllowed(pawn, destination, 160))
+                {
+                    IntVec3 gate = AssignedAccessGate(pawn);
+                    if (!gate.IsValid || pawn.Position.InHorDistOf(gate, 1f) ||
+                        !RouteAllowed(pawn, gate, 160)) return null;
+                    next = gate;
+                }
+                Job go = JobMaker.MakeJob(JobDefOf.Goto, next);
                 go.expiryInterval = 600;
                 go.checkOverrideOnExpire = true;
                 return go;
@@ -595,9 +607,9 @@ namespace RealisticBases.AI
             List<DefensivePost> result = new List<DefensivePost>();
             for (int i = 0; i < postIds.Count && i < postCells.Count && i < postFlags.Count; i++)
             {
-                bool mortarPost = (postFlags[i] & 1) != 0;
-                bool inner = (postFlags[i] & 2) != 0;
-                bool melee = (postFlags[i] & 4) != 0;
+                bool mortarPost = P3PostFlags.IsMortar(postFlags[i]);
+                bool inner = P3PostFlags.IsInner(postFlags[i]);
+                bool melee = P3PostFlags.IsMelee(postFlags[i]);
                 IntVec3 cell = mortarPost && mortar != null ? mortar.InteractionCell : postCells[i];
                 bool cover = mortarPost || melee || ownedThings.Any(t => t != null && t.Spawned &&
                     (t.def.defName == "Sandbags" || t.def.defName == "Barricade") && t.Position.AdjacentTo8WayOrInside(cell));
@@ -606,7 +618,8 @@ namespace RealisticBases.AI
                 if (!usable && PreviousPostAssigned(postIds[i])) invalidPostRecoveries++;
                 string[] sectors = postSectors[i].Split('|');
                 result.Add(new DefensivePost(postIds[i], sectors[0], new GridPoint(cell.x, cell.z),
-                    melee ? 0 : 8, melee ? 3 : 48, cover, true, usable && InsideBounds(cell),
+                    P3PostFlags.MinimumRange(postFlags[i]), P3PostFlags.MaximumRange(postFlags[i]),
+                    cover, true, usable && InsideBounds(cell),
                     mortarPost, inner, usable, sectors));
             }
             return result;
@@ -707,6 +720,14 @@ namespace RealisticBases.AI
             if (index < 0 || index >= assignedPostIds.Count) return IntVec3.Invalid;
             int post = postIds.IndexOf(assignedPostIds[index]);
             return post >= 0 && post < postCells.Count ? postCells[post] : IntVec3.Invalid;
+        }
+
+        private IntVec3 AssignedAccessGate(Pawn pawn)
+        {
+            int index = assignedPawnIds.IndexOf(pawn.thingIDNumber);
+            if (index < 0 || index >= assignedPostIds.Count) return IntVec3.Invalid;
+            int post = postIds.IndexOf(assignedPostIds[index]);
+            return post >= 0 && post < postAccessGates.Count ? postAccessGates[post] : IntVec3.Invalid;
         }
 
         private bool PreviousPostAssigned(string id) => assignedPostIds.Contains(id);

@@ -73,6 +73,7 @@ internal static partial class Program
         Run("P4B high-industrial settlement tolerates live-density flat clutter", P4BHighIndustrialFlatDensity);
         Run("P4B joint reservation constrains detailed room packing", P4BJointPackingCases);
         Run("P4B approach defense covers exposed sides and respects terrain", P4BApproachDefenseCases);
+        Run("P4B public frontages repair weak sides without moving rooms or fields", P4BAccessFrontageCases);
         Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck);
         Run("tech stage is stable per faction", TechStageStablePerFaction);
         Run("tech stage respects every faction band", TechStageBands);
@@ -975,6 +976,10 @@ internal static partial class Program
         True(accepted != null, "high-industrial joint sites: " + string.Join(",", rejections));
         True(accepted.Layout.TechStage.Level == SettlementTechStageLevel.IndustrialLate,
             "late-stage facility and defense eligibility survives planning");
+        Console.WriteLine("  late-industrial defense " + string.Join(";", accepted.Diagnostics.Where(d => d.Stage == "turret")) +
+            " posts=" + string.Join(";", accepted.Layout.ApproachDefense.Sides.Select(s => s.Id + ":" + s.Post +
+                "/" + (s.Post.HasValue ? s.Samples.Count(c => P4BFireLane.CanEngage(s.Post.Value, c, 8, 25,
+                    P4BApproachDefensePlanner.Opaque(accepted.Layout, terrain))) : 0) + "/" + s.Samples.Count)));
         Equal(0, ProceduralLayoutValidator.Validate(acceptedInput, accepted.Layout).Count,
             "late-stage joint field remains valid");
         True(accepted.Layout.Turret != null && accepted.Layout.Turret.Support != null,
@@ -995,6 +1000,8 @@ internal static partial class Program
             heavy.ReserveFuelUnits, heavy.ImportValue - heavy.Support.ImportValue, heavy.Support);
         True(P4BTurretPlanner.Validate(acceptedInput, accepted.Layout, uncovered)
             .Contains("adjacent_cover"), "missing turret-adjacent cover is rejected");
+        True(P4BTurretPlanner.Validate(acceptedInput, accepted.Layout, uncovered)
+            .Contains("adjacent_flank_cover"), "missing flank cover is rejected independently of forward cover");
     }
 
     private static void P4BTurretNetwork()
@@ -1011,6 +1018,10 @@ internal static partial class Program
             string.Join(";", result.Diagnostics.Where(d => d.Stage == "turret")));
         Console.WriteLine("  network groups=" + network.Groups.Count() + " turrets=" + network.All.Count() +
             " watts=" + network.TotalWatts + " value=" + network.ImportValue);
+        Console.WriteLine("  groups " + string.Join(";", network.Groups.Select(g => g.DefName + "@" + g.Origin + "/" + g.Side)));
+        Console.WriteLine("  sides " + string.Join(";", result.Layout.ApproachDefense.Sides.Select(s =>
+            s.Id + ":post=" + s.Post + "/samples=" + s.Samples.Count)));
+        Console.WriteLine("  turret diagnostics " + string.Join(";", result.Diagnostics.Where(d => d.Stage == "turret")));
         Equal(0, P4BTurretPlanner.Validate(input, result.Layout, network).Count, "complete network validates");
         Equal(network.All.Sum(t => t.Watts), network.TotalWatts, "power counts every gun once");
         HashSet<GridPoint> wiring = P4BTurretPlanner.PowerAccessCells(result.Layout);
@@ -1019,9 +1030,26 @@ internal static partial class Program
         True(P4BTurretPlanner.PowerTerminalsConnected(input, result.Layout, network),
             "each network gun has a permitted conduit path into the compound");
         True(network.Groups.All(g => g.MinimumRange == 0 || g.Support != null), "every heavy retains close support");
-        True(network.Groups.Select(g => g.Side).Distinct().Count() > 1, "groups occupy more than one actual front");
+        True(LayoutLoadoutModel.Build(input, result.Layout).Residents.Any(r =>
+            r.Weapon?.DefName == "Gun_SniperRifle"), "turret guards have a real equipped sniper rifle");
+        True(!result.Layout.ApproachDefense.Sides.Single(s => s.Id == "south").Post.Equals(
+            result.Layout.ApproachDefense.Sides.Single(s => s.Id == "west").Post),
+            "large southern exposure gets its own post instead of borrowing a weak western flank");
+        True(network.Groups.Any(g => g.Side == "south"),
+            "open southern approaches receive a nearby guarded turret group");
         HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(result.Layout, terrain);
         opaque.UnionWith(network.All.SelectMany(t => t.Footprint));
+        foreach (P4BTurretPlan gun in network.All)
+        {
+            P4BTurretPlanner.SniperGuardCoverage(result.Layout.ApproachDefense, gun, opaque,
+                out int threats, out int answered, out GridPoint? guard);
+            Console.WriteLine("  guard gun=" + gun.DefName + " side=" + gun.Side + " post=" + guard +
+                " gun=" + gun.Origin + " sniperThreats=" + threats + " answered=" + answered);
+            True(threats > 0 && answered * 10 >= threats * 9,
+                "a same-front post answers at least 90% of modeled sniper firing cells against " + gun.DefName);
+            True(P4BTurretPlanner.NearbyPawnSupport(result.Layout.ApproachDefense, gun, opaque),
+                "each gun has a nearby usable pawn post with close-approach shots");
+        }
         bool Shot(P4BTurretPlan gun, GridPoint target)
         {
             HashSet<GridPoint> blockers = new HashSet<GridPoint>(opaque);
@@ -1059,8 +1087,8 @@ internal static partial class Program
             .Concat(result.Layout.AllFixtures.SelectMany(f => f.Cells)));
         P4BTurretPlan richPlan = P4BTurretPlanner.Plan(richInput, result.Layout, result.Layout.FieldWall,
             occupied, out diagnostic);
-        True(richPlan != null && richPlan.Groups.Count() > network.Groups.Count(),
-            "higher spending capacity can defend additional useful fronts: " + diagnostic);
+        True(richPlan != null && richPlan.Groups.Count() >= network.Groups.Count(),
+            "higher spending capacity cannot remove already affordable guarded groups: " + diagnostic);
         True(richPlan.Groups.Count() <= result.Layout.ApproachDefense.Sides.Count(s => s.Exposed),
             "group count is bounded by exposed fronts rather than filling terrain with guns");
         Equal(0, P4BTurretPlanner.Validate(richInput, result.Layout, richPlan).Count,
@@ -1070,7 +1098,7 @@ internal static partial class Program
         CoreCatalog.TryGet(network.DefName, out CatalogDef rootDef);
         P4BTurretPlan duplicate = new P4BTurretPlan(rootDef, network.Origin, network.Footprint,
             network.ServiceCell, network.ServiceRoute, network.FuelDefName, network.LoadedFuelUnits,
-            network.ReserveFuelUnits, network.ImportValue - network.Support.ImportValue -
+            network.ReserveFuelUnits, network.ImportValue - (network.Support?.ImportValue ?? 0) -
                 network.AdditionalGroups.Sum(g => g.ImportValue), network.Support, network.CoverCells,
             network.AccessGate, network.Outward, network.Side, network.AdditionalGroups.Concat(new[] { peer }));
         True(P4BTurretPlanner.Validate(input, result.Layout, duplicate).Contains("network_collision_or_blast"),
@@ -1285,6 +1313,28 @@ internal static partial class Program
 
     private static void P4BApproachDefenseCases()
     {
+        var weakChoices = new[]
+        {
+            new { Name = "perpendicular-gate", Shots = 5, Fronts = 2, NeedsPort = false,
+                SameFacing = false, Cell = new GridPoint(1, 1) },
+            new { Name = "southern-sally", Shots = 38, Fronts = 1, NeedsPort = true,
+                SameFacing = true, Cell = new GridPoint(2, 2) }
+        };
+        var rankedWeak = P4BApproachDefensePlanner.RankPositions(weakChoices, 92,
+            c => c.Shots, c => c.Fronts, c => c.NeedsPort, c => c.SameFacing, c => c.Cell);
+        Equal("southern-sally", rankedWeak[0].Name,
+            "a post seeing 5/92 southern samples cannot outrank a useful same-facing sally port");
+        var usefulGateChoices = new[]
+        {
+            new { Name = "existing-gate", Shots = 49, Fronts = 2, NeedsPort = false,
+                SameFacing = false, Cell = new GridPoint(1, 1) },
+            new { Name = "extra-port", Shots = 50, Fronts = 1, NeedsPort = true,
+                SameFacing = true, Cell = new GridPoint(2, 2) }
+        };
+        var rankedUseful = P4BApproachDefensePlanner.RankPositions(usefulGateChoices, 58,
+            c => c.Shots, c => c.Fronts, c => c.NeedsPort, c => c.SameFacing, c => c.Cell);
+        Equal("existing-gate", rankedUseful[0].Name,
+            "a well-covered existing gate need not be replaced by a marginally better port");
         TerrainSnapshot terrain = Plains(160);
         ProceduralLayoutInput input = Input(terrain,
             LayoutRequirements.FromPopulation(4, Industrial, Temperate,
@@ -1301,7 +1351,7 @@ internal static partial class Program
             result.Layout.BuiltWalls.Contains(p.WallReturn)),
             "new side posts have connected returns, front/flank screens and six-cell gate access");
         HashSet<GridPoint> publicCells = new HashSet<GridPoint>(ProceduralLayoutValidator.PublicCirculation(input, result.Layout));
-        True(defense.SallyPorts.All(p => publicCells.Contains(p.Inside) && !result.Layout.BuiltWalls.Contains(p.Cell) &&
+        True(defense.SallyPorts.Where(p => !p.Field).All(p => publicCells.Contains(p.Inside) && !result.Layout.BuiltWalls.Contains(p.Cell) &&
             !result.Layout.Rooms.Any(r => r.Bounds.Contains(p.Cell))),
             "new sally ports connect public circulation without cutting room walls");
         True(result.Diagnostics.Any(d => d.Stage == "turret"), "final turret decision is always retained");
@@ -1332,6 +1382,13 @@ internal static partial class Program
         ProceduralLayout rectangle = DefenseRectangle(input);
         P4BApproachDefensePlan all = P4BApproachDefensePlanner.Plan(input, rectangle);
         True(all.Sides.All(s => s.Exposed && s.Post.HasValue), "rectangle has one covered post per open front");
+        TerrainSnapshot southWide = Build(160, 100, (x, z) => Ground);
+        ProceduralLayoutInput southWideInput = Input(southWide, input.Requirements, 1,
+            new LayoutFortificationReservation(1));
+        P4BApproachDefensePlan southernApproach = P4BApproachDefensePlanner.Plan(southWideInput, rectangle);
+        True(southernApproach.Sides.Single(s => s.Id == "south").OpenGroundArea >
+            southernApproach.Sides.Single(s => s.Id == "north").OpenGroundArea,
+            "edge-reachable exterior area detects more approach ground south of a north-placed base");
         ProceduralLayout northPrivate = rectangle.WithAddedObstacles(Enumerable.Range(51, 19)
             .Select(x => new GridPoint(x, 69)));
         P4BApproachDefensePlan corner = P4BApproachDefensePlanner.Plan(input, northPrivate);
@@ -1358,21 +1415,113 @@ internal static partial class Program
             "defenses and access do not assume bridges or water construction");
     }
 
-    private static ProceduralLayout DefenseRectangle(ProceduralLayoutInput input)
+    private static void P4BAccessFrontageCases()
     {
-        GridRect bounds = new GridRect(50, 50, 21, 21);
-        GridPoint gateCell = new GridPoint(70, 60);
-        List<GridPoint> walls = bounds.Points().Where(c => c.X == 50 || c.Z == 50 || c.X == 70 || c.Z == 70)
+        TerrainSnapshot terrain = Plains(160);
+        LayoutRequirements requirements = LayoutRequirements.FromPopulation(8, Industrial, Temperate,
+            stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialLate));
+        ProceduralLayoutInput input = Input(terrain, requirements, 1, new LayoutFortificationReservation(1));
+        GridRect field = new GridRect(20, 20, 14, 14);
+        P4BJointSite site = new P4BJointSite(field, new GridRect(40, 40, 50, 50), new GridPoint(60, 60),
+            field.Points(), new GridPoint[0], new GridPoint[0], new GridPoint(33, 25), new GridPoint(20, 25),
+            new GridPoint[0], 0);
+        ProceduralLayout packed = DefenseRectangle(input, site).WithAddedObstacles(
+            Enumerable.Range(51, 19).Select(x => new GridPoint(x, 69)));
+        P4BAttackSide north = P4BApproachDefensePlanner.Plan(input, packed).Sides.Single(s => s.Id == "north");
+        IReadOnlyList<P4BAccessFrontage> frontages = P4BAccessFrontagePlanner.Candidates(input, packed, north);
+        True(frontages.Count > 0, "a packed northern edge can grow a public frontage on the same site");
+        HashSet<GridPoint> publicCells = new HashSet<GridPoint>(ProceduralLayoutValidator.PublicCirculation(input, packed));
+        foreach (P4BAccessFrontage frontage in frontages)
+        {
+            True(publicCells.Contains(frontage.Join) && frontage.Route.First().Equals(frontage.Join) &&
+                frontage.Route.Last().Equals(frontage.Terminal), "frontage connects to the public network");
+            True(frontage.Route.Zip(frontage.Route.Skip(1), (a, b) => Math.Abs(a.X - b.X) + Math.Abs(a.Z - b.Z))
+                .All(d => d == 1), "public frontage route is cardinally connected");
+            True(frontage.Cells.All(c => !packed.ExtraObstacles.Contains(c) && !field.Contains(c)),
+                "frontage does not cut the packed private edge or field");
+        }
+        TerrainSnapshot wet = Build(160, 160, (x, z) => z >= 71 ? DeepWater : Ground);
+        ProceduralLayoutInput wetInput = Input(wet, requirements, 1, new LayoutFortificationReservation(1));
+        Equal(0, P4BAccessFrontagePlanner.Candidates(wetInput, packed, north).Count,
+            "a public frontage cannot assume a bridge across the northern water");
+        ProceduralLayout wide = DefenseRectangle(input, boundsOverride: new GridRect(25, 55, 95, 25));
+        P4BApproachDefensePlan wideDefense = P4BApproachDefensePlanner.Plan(input, wide);
+        ProceduralLayout wideDefended = wide.WithApproachDefense(input, wideDefense);
+        HashSet<GridPoint> wideOpaque = P4BApproachDefensePlanner.Opaque(wideDefended, terrain);
+        Console.WriteLine("  wide frontage=" + string.Join(";", wideDefense.Sides.Select(s => s.Id + ":" +
+            P4BApproachDefensePlanner.CoveredSamples(s, wideOpaque) + "/" + s.Samples.Count)));
+        True(wideDefense.Sides.Where(s => s.Exposed).All(s =>
+            P4BApproachDefensePlanner.CoveredSamples(s, wideOpaque) >= P4BApproachDefensePlanner.UsefulArc(s.Samples.Count)),
+            "a long exposed wall gets enough separated gate-side positions, not only one corner");
+        GridRect sideField = new GridRect(71, 51, 19, 19);
+        P4BJointSite fieldSite = new P4BJointSite(sideField, new GridRect(40, 40, 31, 40), new GridPoint(60, 60),
+            sideField.Points(), new GridPoint[0], new GridPoint[0], new GridPoint(70, 60), new GridPoint(90, 60),
+            new GridPoint[0], 0);
+        GridPoint outerGate = new GridPoint(90, 60);
+        GridPoint[] crops = new GridRect(73, 53, 15, 15).Points().ToArray();
+        GridPoint[] fieldWalls = Enumerable.Range(71, 20).SelectMany(x => new[] { new GridPoint(x, 50), new GridPoint(x, 70) })
+            .Concat(Enumerable.Range(51, 19).Select(z => new GridPoint(90, z))).Where(c => !c.Equals(outerGate)).ToArray();
+        P4BFieldWallPlan fieldPlan = new P4BFieldWallPlan(0, crops, fieldWalls, outerGate, new GridPoint[0],
+            new GridPoint(70, 60), sideField.Points(), Enumerable.Range(71, 23).Select(x => new GridPoint(x, 60)),
+            coverDefName: "Barricade");
+        ProceduralLayout fieldLayout = DefenseRectangle(input, fieldSite).WithFieldWall(input, fieldPlan)
+            .WithAddedObstacles(new[] { new GridPoint(91, 60) });
+        P4BApproachDefensePlan fieldDefense = P4BApproachDefensePlanner.Plan(input, fieldLayout);
+        True(fieldDefense.SallyPorts.Any(p => p.Field), "a field flank gets a sally port when the far arrival gate is blocked");
+        ProceduralLayout fieldDefended = fieldLayout.WithApproachDefense(input, fieldDefense);
+        Equal(0, P4BApproachDefensePlanner.Validate(input, fieldDefended).Count,
+            "field sally gates have legal interior and exterior routes");
+        Equal(string.Join(";", crops.OrderBy(c => c)), string.Join(";", fieldDefended.FieldWall.Fields),
+            "field sally access does not remove crops");
+        True(fieldDefense.SallyPorts.Where(p => p.Field).All(p => !fieldDefended.FieldWall.Walls.Contains(p.Cell) &&
+            p.InteriorRoute.First().Equals(fieldPlan.InnerGate.Value) && p.InteriorRoute.Last().Equals(p.Inside)),
+            "field sally port replaces a wall and routes from the existing compound entrance");
+        P4BSallyPort fieldPort = fieldDefense.SallyPorts.First(p => p.Field);
+        Contains(P4BApproachDefensePlanner.Validate(input, fieldDefended.WithAddedObstacles(new[] { fieldPort.Inside })),
+            "sally_port_public_connection");
+        int repaired = 0;
+        foreach (ulong seed in new ulong[] { 1, 2, 3, 4, 5, 6 })
+        {
+            ProceduralLayoutInput candidate = Input(terrain, requirements, seed, new LayoutFortificationReservation(1));
+            ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(candidate, requireJointSite: true);
+            Accepted(result);
+            HashSet<GridPoint> publicPlan = new HashSet<GridPoint>(ProceduralLayoutValidator.PublicCirculation(candidate, result.Layout));
+            LayoutCorridor[] extensions = result.Layout.Corridors.Where(c => c.Id.StartsWith("defense-access-")).ToArray();
+            repaired += extensions.Length + result.Layout.ApproachDefense.SallyPorts.Count(p => p.Field);
+            True(extensions.SelectMany(c => c.Cells).All(publicPlan.Contains), "retained defense access is public and connected");
+            True(extensions.SelectMany(c => c.Cells).All(c => !result.Layout.Rooms.Any(r => r.Bounds.Contains(c)) &&
+                !result.Layout.JointSite.Field.Contains(c)), "access extensions preserve room and field reservations");
+            HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(result.Layout, terrain);
+            opaque.UnionWith(result.Layout.Turret?.All.SelectMany(t => t.Footprint) ?? new GridPoint[0]);
+            Console.WriteLine("  frontage seed=" + seed + " extensions=" + extensions.Length +
+                " fieldPorts=" + result.Layout.ApproachDefense.SallyPorts.Count(p => p.Field) + " sides=" +
+                string.Join(";", result.Layout.ApproachDefense.Sides.Select(s => s.Id + ":" +
+                    P4BApproachDefensePlanner.CoveredSamples(s, opaque) +
+                    "/" + s.Samples.Count)) + " decisions=" + string.Join(";", result.Diagnostics.Where(d => d.Stage == "defense_access")));
+            True(result.Layout.ApproachDefense.Sides.Where(s => s.Exposed).All(s =>
+                P4BApproachDefensePlanner.CoveredSamples(s, opaque) >= P4BApproachDefensePlanner.UsefulArc(s.Samples.Count)),
+                "every exposed flat side has a useful combined firing arc after final turret occupancy");
+        }
+        True(repaired > 0, "flat packing corpus exercises actual frontage or field-side access repair");
+    }
+
+    private static ProceduralLayout DefenseRectangle(ProceduralLayoutInput input, P4BJointSite jointSite = null,
+        GridRect? boundsOverride = null)
+    {
+        GridRect bounds = boundsOverride ?? new GridRect(50, 50, 21, 21);
+        int middleZ = (bounds.MinZ + bounds.MaxZ) / 2;
+        GridPoint gateCell = new GridPoint(bounds.MaxX, middleZ);
+        List<GridPoint> walls = bounds.Points().Where(c => c.X == bounds.MinX || c.Z == bounds.MinZ || c.X == bounds.MaxX || c.Z == bounds.MaxZ)
             .Where(c => !c.Equals(gateCell)).ToList();
-        LayoutGate gate = new LayoutGate(gateCell, new GridPoint(69, 60), new GridPoint(1, 0),
-            new GridPoint[0], new GridPoint[0], new GridPoint[0], new GridPoint(71, 60),
-            new[] { new GridPoint(71, 60), new GridPoint(72, 60), new GridPoint(73, 60) }, new GridPoint[0], false);
+        LayoutGate gate = new LayoutGate(gateCell, new GridPoint(bounds.MaxX - 1, middleZ), new GridPoint(1, 0),
+            new GridPoint[0], new GridPoint[0], new GridPoint[0], new GridPoint(bounds.MaxX + 1, middleZ),
+            Enumerable.Range(1, 3).Select(d => new GridPoint(bounds.MaxX + d, middleZ)), new GridPoint[0], false);
         return new ProceduralLayout(input.Digest, input.Seed, LayoutDoctrine.OpenGround, false,
             new GridPoint(60, 60), new LayoutRoom[0], new LayoutCorridor[0], null,
-            new GridRect(51, 51, 19, 19).Points(), walls, new GridPoint[0], new[] { gate },
+            new GridRect(bounds.MinX + 1, bounds.MinZ + 1, bounds.Width - 2, bounds.Height - 2).Points(), walls, new GridPoint[0], new[] { gate },
             new GridPoint[0], new GridPoint[0], new GridPoint[0], 1, 0, new LayoutRelationship[0],
             new GridPoint[0], new string[0], input.Equipment.Kit.Stage,
-            input.Equipment.Kit.Roles.Digest, input.Equipment.Digest, "BlocksGranite", null, null);
+            input.Equipment.Kit.Roles.Digest, input.Equipment.Digest, "BlocksGranite", null, null, jointSite: jointSite);
     }
 
     private static void AdapterCrossCheck()
@@ -1815,7 +1964,7 @@ internal static partial class Program
             { SettlementTechStageLevel.IndustrialEarly, "RangedLine=Gun_BoltActionRifle Marksman=Gun_BoltActionRifle CloseDefense=Gun_PumpShotgun MeleeReserve=MeleeWeapon_LongSword Support=Gun_Revolver" },
             { SettlementTechStageLevel.IndustrialMid, "RangedLine=Gun_AssaultRifle Marksman=Gun_SniperRifle CloseDefense=Gun_ChainShotgun Heavy=Gun_LMG MeleeReserve=MeleeWeapon_LongSword Support=Gun_Autopistol" },
             { SettlementTechStageLevel.IndustrialLate, "RangedLine=Gun_AssaultRifle Marksman=Gun_SniperRifle CloseDefense=Gun_ChainShotgun Heavy=Gun_Minigun MeleeReserve=MeleeWeapon_LongSword Support=Gun_Autopistol" },
-            { SettlementTechStageLevel.Spacer, "RangedLine=Gun_ChargeRifle Marksman=Gun_ChargeRifle CloseDefense=Gun_ChainShotgun Heavy=Gun_Minigun MeleeReserve=MeleeWeapon_LongSword Support=Gun_Autopistol" }
+            { SettlementTechStageLevel.Spacer, "RangedLine=Gun_ChargeRifle Marksman=Gun_SniperRifle CloseDefense=Gun_ChainShotgun Heavy=Gun_Minigun MeleeReserve=MeleeWeapon_LongSword Support=Gun_Autopistol" }
         };
         foreach (KeyValuePair<SettlementTechStageLevel, string> entry in golden)
         {

@@ -54,6 +54,7 @@ internal static class Program
         Run("P3 pursuit validates destination and full route", P3PursuitValidatesDestinationAndFullRoute);
         Run("P3 breach response remains local", P3BreachResponseRemainsLocal);
         Run("P3 intact perimeter prioritizes an attacked corner front", P3IntactPerimeterPrioritizesFront);
+        Run("P3 sniper guard posts require long-range defenders", P3SniperGuardRequiresRange);
         Run("P3 safe needs relief preserves minimum staffing", P3SafeNeedsReliefPreservesMinimumStaffing);
         Run("P3 invalid outer posts trigger inner fallback", P3InvalidOuterPostsTriggerInnerFallback);
         Run("P3 valid assignments resist oscillation", P3ValidAssignmentsResistOscillation);
@@ -610,6 +611,29 @@ internal static class Program
             true, true, true, false, false, true, "south|west".Split('|'));
         True(restored.CoversSector("west") && restored.CoversSector("south"),
             "existing string save field can round-trip multiple supported fronts");
+    }
+
+    private static void P3SniperGuardRequiresRange()
+    {
+        List<DefensivePost> posts = new List<DefensivePost> {
+            new DefensivePost("east-sniper-guard", "east", new GridPoint(20, 10), 35, 44,
+                true, true, true, false, false, true),
+            new DefensivePost("east-line", "east", new GridPoint(18, 10), 8, 25,
+                true, true, true, false, false, true) };
+        List<DefenderCandidate> defenders = new List<DefenderCandidate> {
+            new DefenderCandidate(1, DefenderWeaponClass.LongRanged, 30, false, false, false, false, false),
+            new DefenderCandidate(2, DefenderWeaponClass.LongRanged, 45, false, false, false, false, false) };
+        GarrisonPlan plan = GarrisonDoctrine.Assign(P3Situation(defenders: defenders, posts: posts,
+            threatenedSector: "east"));
+        Equal("east-line", plan.Assignments.Single(a => a.DefenderId == 1).PostId,
+            "a shorter-ranged defender cannot occupy the sniper guard position");
+        Equal("east-sniper-guard", plan.Assignments.Single(a => a.DefenderId == 2).PostId,
+            "the equipped long-range defender takes the turret guard position");
+        int savedGuard = P3PostFlags.Encode(posts[0]);
+        Equal(35, P3PostFlags.MinimumRange(savedGuard), "sniper eligibility survives the saved post flag");
+        Equal(44, P3PostFlags.MaximumRange(savedGuard), "sniper range survives the saved post flag");
+        Equal(8, P3PostFlags.MinimumRange(0), "older ordinary post flags retain legacy eligibility");
+        Equal(48, P3PostFlags.MaximumRange(0), "older ordinary post flags retain legacy range");
     }
 
     private static void P3SafeNeedsReliefPreservesMinimumStaffing()
