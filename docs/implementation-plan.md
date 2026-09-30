@@ -194,7 +194,20 @@ Implement P4C.0 definition/transaction inspection, P4C.1 pure finish policy, P4C
 2. Add a missing laboratory room for each eligible level with reasonable equipment (should be based on the research tree levels).
 3. The workshop desks (and possibly others) do not have a chair or a stool by their side.
 4. Medicine should also be stored on a shelf.
-5. The shells should be stored in a separate micro warehouse near the mortair post. It should be 1x1 warehouse with a small cabinet and a door (roofed). This is is safety measure plus reduces reload time.
+5. Mortar position improvements. The shells should be stored in a separate micro warehouse near the mortar post. It should be 1x1 warehouse with a small cabinet and a door (roofed). TThis is a safety measure plus it reduces reload time.
+```
+Mortar position
+
+____
+_XX_
+_OX_
+#@__
+
+# — shell storage
+
+@ — pawn
+O — tile indicating the mortar's operating-side orientation
+```
 
 ### P5 — Encounter supplies, trade stock, and persistent consequences
 
