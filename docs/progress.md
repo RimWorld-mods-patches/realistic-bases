@@ -147,7 +147,7 @@ Detailed requirements and acceptance: [P4C visual plan](p4c-visual-plan.md). Thi
 
 | Step | Scope | Validation gate | Status |
 |---|---|---|---|
-| P4C.0 | Resolve Core finish/smoothing definitions and transaction/ownership contract | Supported palette, legality/cost assumptions, baseline and recovery design documented | Pending |
+| P4C.0 | Resolve Core finish/smoothing definitions and transaction/ownership contract | Supported palette, legality/cost assumptions, baseline and recovery design documented | Complete; see [findings](p4c-findings.md) |
 | P4C.1 | Deterministic room/path palette, smoothing selections and bounded finish accounting | Protected cells, stage/material/budget legality, unchanged layout/loadout, deterministic downgrade/omission fixtures | Pending |
 | P4C.2 | Transactional terrain-layer/rock mutations and final audits | Relevant pure suites/build; exact forced rollback after floors and smoothing, successful retry; paths/roofs/crops preserved | Pending |
 | P4C.3 | Visual/live/reload/compatibility closeout | Industrial flat, mountain and tribal examples; crop/water boundary, screenshots, active reload and representative available GL evidence | Pending |
