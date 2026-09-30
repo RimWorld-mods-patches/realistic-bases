@@ -200,6 +200,8 @@ namespace RealisticBases.Generation
                     layout.Court?.Cells.FirstOrDefault(), layout.Court?.Access.FirstOrDefault()));
                 if (fieldWall != null)
                 {
+                    HashSet<GridPoint> postOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
+                    postOpaque.UnionWith(turretPlans.SelectMany(t => t.Footprint));
                     // The compound reservation also covers the short exterior
                     // crossing to the field. Vanilla pathfinding may leave the
                     // literal wall interior through a different compound gate.
@@ -230,13 +232,16 @@ namespace RealisticBases.Generation
                             sniperGuardSectors.ContainsKey(c) ? 44 : 38, true, true, true, false, false, true,
                             approachDefense?.Sides.Where(s => s.Positions.Contains(c)).Select(s => s.Id)
                                 .Concat(sniperGuardSectors.TryGetValue(c, out HashSet<string> fieldSectors)
-                                    ? fieldSectors : Enumerable.Empty<string>()), fieldWall.OuterGate)))
-                        .Concat(approachDefense?.Posts.Select(p => new DefensivePost("perimeter-" + p.Side,
-                            p.Side, p.Cell, sniperGuardSectors.ContainsKey(p.Cell) ? 35 : 8,
-                            sniperGuardSectors.ContainsKey(p.Cell) ? 44 : 25, true, true, true, false, false, true,
-                            approachDefense.Sides.Where(s => s.Positions.Contains(p.Cell)).Select(s => s.Id)
-                                .Concat(sniperGuardSectors.TryGetValue(p.Cell, out HashSet<string> perimeterSectors)
-                                    ? perimeterSectors : Enumerable.Empty<string>()), p.AccessGate))
+                                    ? fieldSectors : Enumerable.Empty<string>()), fieldWall.InnerGate.Value)))
+                        .Concat(approachDefense?.Posts.SelectMany(p =>
+                            P4BApproachDefensePlanner.FiringSlots(p, approachDefense.Sides, postOpaque)
+                            .Select(c => new DefensivePost("perimeter-" + p.Side + "-" + c.X + "-" + c.Z,
+                                p.Side, c, c.Equals(p.Cell) && sniperGuardSectors.ContainsKey(p.Cell) ? 35 : 8,
+                                c.Equals(p.Cell) && sniperGuardSectors.ContainsKey(p.Cell) ? 44 : 25,
+                                true, true, true, false, false, true,
+                                approachDefense.Sides.Where(s => s.Positions.Contains(c)).Select(s => s.Id)
+                                    .Concat(sniperGuardSectors.TryGetValue(p.Cell, out HashSet<string> perimeterSectors)
+                                        ? perimeterSectors : Enumerable.Empty<string>()), p.AccessGate)))
                             ?? Enumerable.Empty<DefensivePost>()),
                         bounds, encounter.SupportCenter, encounter.InnerFallback,
                         encounter.MortarCell, encounter.MortarInteractionCell, encounter.MagazineCell,

@@ -160,6 +160,7 @@ namespace RealisticBases.AI
         private bool garrisonEverDefeated;
         private bool fieldIntrusionNow;
         private bool compoundIntrusionNow;
+        private bool postInventoryNeedsUpgrade;
         // Opt-in disposable combat probe; never serialized or enabled in ordinary play.
         private int fieldProbeUntilTick;
         private int fieldProbeShots;
@@ -278,6 +279,7 @@ namespace RealisticBases.AI
             IEnumerable<GridPoint> fieldRegion = null, IEnumerable<GridPoint> compoundRegion = null,
             IEnumerable<string> fieldFallbackPosts = null)
         {
+            postInventoryNeedsUpgrade = false;
             settlement = parent;
             faction = parent.Faction;
             defenders = residents.OrderBy(p => p.thingIDNumber).ToList();
@@ -407,6 +409,8 @@ namespace RealisticBases.AI
                 }
                 if (postAccessGates == null || postAccessGates.Count != postCells.Count)
                     postAccessGates = Enumerable.Repeat(IntVec3.Invalid, postCells.Count).ToList();
+                // Thing references and map reachability are not final yet.
+                postInventoryNeedsUpgrade = true;
                 if (assignedDestinations == null || assignedDestinations.Count != assignedPawnIds.Count)
                     assignedDestinations = assignedPostIds.Select(id =>
                     {
@@ -433,6 +437,11 @@ namespace RealisticBases.AI
                     P3Log.Message("GARRISON_DEFEAT", "map=" + map.uniqueID + " remainingMobile=0");
                 }
                 return;
+            }
+            if (postInventoryNeedsUpgrade)
+            {
+                UpgradeLegacyPerimeterPosts();
+                postInventoryNeedsUpgrade = false;
             }
             bool threat = map.mapPawns.AllPawnsSpawned.Any(p => p.Faction != null && p.HostileTo(faction) && !p.Dead);
             List<Pawn> enemies = map.mapPawns.AllPawnsSpawned.Where(p => p.Faction != null &&
@@ -548,7 +557,9 @@ namespace RealisticBases.AI
             else if (!destination.IsValid)
                 destination = AssignedDestination(pawn);
             if (!destination.IsValid || !InsideBounds(destination) || !destination.Standable(map)) return null;
-            if (!pawn.Position.InHorDistOf(destination, 1.5f))
+            // Adjacent posts can share a 1.5-cell wait radius. Requiring the
+            // assigned cell keeps gate reserves from stacking in a chokepoint.
+            if (pawn.Position != destination)
             {
                 IntVec3 next = destination;
                 if (!ResponseRouteAllowed(pawn, pawn.Position, destination, RuntimeOpaqueCells()).Allowed)
@@ -576,10 +587,24 @@ namespace RealisticBases.AI
             int occupied = 0;
             int outside = 0;
             List<string> outsideDetails = new List<string>();
+            List<string> distantPostRoutes = new List<string>();
+            HashSet<GridPoint> opaque = RuntimeOpaqueCells();
             foreach (Pawn pawn in defenders.Where(p => p != null && p.Spawned && !p.Dead))
             {
                 IntVec3 post = AssignedPost(pawn);
                 if (post.IsValid && pawn.Position.InHorDistOf(post, 1.5f)) occupied++;
+                if (post.IsValid && pawn.Position.DistanceToSquared(post) > 64)
+                {
+                    IntVec3 gate = AssignedAccessGate(pawn);
+                    P3DefenderRouteAudit direct = ResponseRouteAllowed(pawn, pawn.Position, post, opaque);
+                    P3DefenderRouteAudit toGate = gate.IsValid ?
+                        ResponseRouteAllowed(pawn, pawn.Position, gate, opaque) : null;
+                    P3DefenderRouteAudit fromGate = gate.IsValid ?
+                        ResponseRouteAllowed(pawn, gate, post, opaque) : null;
+                    distantPostRoutes.Add(pawn.thingIDNumber + ":" + pawn.Position + ">" + post +
+                        ":job=" + (pawn.CurJobDef?.defName ?? "none") + ":direct=" + direct.Reason +
+                        ":gate=" + (toGate?.Reason ?? "none") + "/" + (fromGate?.Reason ?? "none"));
+                }
                 if (!InsideBounds(pawn.Position))
                 {
                     outside++;
@@ -601,7 +626,9 @@ namespace RealisticBases.AI
                 " profile=" + profileId + " state=" + currentState + " sector=" + currentSector + " defendersAlive=" +
                 defenders.Count(p => p != null && !p.Dead) + " assigned=" + assignedPawnIds.Count +
                 " occupiedPosts=" + occupied + " outsideBounds=" + outside + " outsideDetails=" +
-                (outsideDetails.Count == 0 ? "none" : string.Join(",", outsideDetails.ToArray())) + " mortarPresent=" +
+                (outsideDetails.Count == 0 ? "none" : string.Join(",", outsideDetails.ToArray())) +
+                " distantPostRoutes=" + (distantPostRoutes.Count == 0 ? "none" :
+                    string.Join(",", distantPostRoutes.ToArray())) + " mortarPresent=" +
                 (turret != null && turret.Spawned) + " mortarManned=" + (mannable?.MannedNow ?? false) +
                 " mortarLoaded=" + MortarLoadedShell() + " he=" + he + "/" + initialHe +
                 " incendiary=" + incendiary + "/" + initialIncendiary + " barrels=" + barrels +
@@ -842,14 +869,75 @@ namespace RealisticBases.AI
             List<IntVec3> targets = perimeterCells.Where((c, i) => perimeterSectors[i] == sector).ToList();
             IntVec3 target = targets.Count == 0 ? supportCenter : targets
                 .OrderBy(c => c.DistanceToSquared(supportCenter)).First();
-            IntVec3? found = gateCells.SelectMany(g => directions.Select(d => g + d))
-                .Where(c => c.InBounds(map) && interiorCells.Contains(c) && c.Standable(map) &&
-                    c.GetEdifice(map) == null && ResponseRouteAllowed(pawn, supportCenter, c, opaque).Allowed)
-                .Distinct().OrderBy(c => c.DistanceToSquared(target))
-                .ThenBy(c => c.DistanceToSquared(supportCenter)).Cast<IntVec3?>().FirstOrDefault();
+            IEnumerable<IntVec3> staging = compoundRegionCells.Count > 0 ? compoundRegionCells : interiorCells;
+            IntVec3? found = staging.Where(c => c.InBounds(map) && c.Standable(map) &&
+                    c.GetEdifice(map) == null && !postCells.Contains(c) && !gateCells.Contains(c) &&
+                    directions.Count(d =>
+                    {
+                        IntVec3 next = c + d;
+                        return next.InBounds(map) && interiorCells.Contains(next) && next.Standable(map) &&
+                            next.GetEdifice(map) == null;
+                    }) >= 3)
+                .OrderBy(c => c.DistanceToSquared(target)).ThenBy(c => c.DistanceToSquared(supportCenter))
+                .Take(64).Where(c => ResponseRouteAllowed(pawn, supportCenter, c, opaque).Allowed)
+                .Cast<IntVec3?>().FirstOrDefault();
             IntVec3 stage = found ?? supportCenter;
             if (!stage.IsValid || !InsideBounds(stage)) stage = supportCenter;
             return new GridPoint(stage.x, stage.z);
+        }
+
+        private void UpgradeLegacyPerimeterPosts()
+        {
+            if (postIds == null || postSectors == null || postCells == null || postFlags == null ||
+                postAccessGates == null || postSectors.Count != postIds.Count ||
+                postCells.Count != postIds.Count || postFlags.Count != postIds.Count ||
+                postAccessGates.Count != postIds.Count) return;
+            int originalCount = postIds.Count, renamed = 0, added = 0;
+            HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < originalCount; i++)
+            {
+                if (seen.Add(postIds[i])) continue;
+                string unique = postIds[i] + "-" + postCells[i].x + "-" + postCells[i].z;
+                if (!seen.Add(unique)) continue;
+                postIds[i] = unique;
+                renamed++;
+            }
+            HashSet<GridPoint> cover = new HashSet<GridPoint>(ownedThings.Where(t => t != null && t.Spawned &&
+                (t.def.defName == "Sandbags" || t.def.defName == "Barricade"))
+                .Select(t => new GridPoint(t.Position.x, t.Position.z)));
+            int fieldRoutes = 0;
+            IntVec3[] cardinals = { new IntVec3(0, 0, 1), new IntVec3(1, 0, 0),
+                new IntVec3(0, 0, -1), new IntVec3(-1, 0, 0) };
+            IntVec3? fieldEntry = gateCells.Where(g => g.IsValid && cardinals.Any(d =>
+                    fieldRegionCells.Contains(g + d)))
+                .OrderBy(g => g.DistanceToSquared(supportCenter)).Cast<IntVec3?>().FirstOrDefault();
+            if (fieldEntry.HasValue)
+                for (int i = 0; i < originalCount; i++)
+                    if (postIds[i].StartsWith("field-outer-", StringComparison.Ordinal) &&
+                        postAccessGates[i] != fieldEntry.Value)
+                    { postAccessGates[i] = fieldEntry.Value; fieldRoutes++; }
+            for (int i = 0; i < originalCount; i++)
+            {
+                if (!postIds[i].StartsWith("perimeter-", StringComparison.Ordinal) ||
+                    !postAccessGates[i].IsValid || !postCells[i].IsValid) continue;
+                foreach (GridPoint candidate in P4BApproachDefensePlanner.RecoverLegacySlots(
+                    new GridPoint(postAccessGates[i].x, postAccessGates[i].z),
+                    new GridPoint(postCells[i].x, postCells[i].z), cover))
+                {
+                    IntVec3 cell = ToCell(candidate);
+                    if (postCells.Contains(cell) || !InsideBounds(cell) || !cell.Standable(map) ||
+                        cell.GetEdifice(map) != null) continue;
+                    string id = "perimeter-" + postSectors[i].Split('|')[0] + "-" + candidate.X + "-" + candidate.Z;
+                    if (!seen.Add(id)) continue;
+                    postIds.Add(id); postSectors.Add(postSectors[i]); postCells.Add(cell);
+                    postAccessGates.Add(postAccessGates[i]); postFlags.Add(P3PostFlags.SecondaryScreen(postFlags[i]));
+                    added++;
+                }
+            }
+            if (renamed > 0 || added > 0 || fieldRoutes > 0)
+                P3Log.Message("POST_INVENTORY_UPGRADE", "map=" + map.uniqueID + " old=" + originalCount +
+                    " renamed=" + renamed + " added=" + added + " fieldRoutes=" + fieldRoutes +
+                    " total=" + postIds.Count);
         }
 
         private P3DefenderRouteAudit ResponseRouteAllowed(Pawn pawn, IntVec3 from, IntVec3 destination,

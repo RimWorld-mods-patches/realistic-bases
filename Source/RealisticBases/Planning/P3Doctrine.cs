@@ -88,6 +88,7 @@ namespace RealisticBases.Planning
         public static bool IsSniperGuard(int flags) => (flags & SniperGuard) != 0;
         public static int MinimumRange(int flags) => IsMelee(flags) ? 0 : IsSniperGuard(flags) ? 35 : 8;
         public static int MaximumRange(int flags) => IsMelee(flags) ? 3 : IsSniperGuard(flags) ? 44 : 48;
+        public static int SecondaryScreen(int flags) => flags & ~SniperGuard;
     }
 
     public sealed class DefenderCandidate
@@ -238,9 +239,11 @@ namespace RealisticBases.Planning
         {
             if (situation == null) throw new ArgumentNullException(nameof(situation));
             GarrisonState state = SelectState(situation);
+            // Keep the exterior line primary, but staff the already-funded inner
+            // gate positions before leaving additional defenders idle at one
+            // support cell. Full fallback still abandons exterior posts.
             List<DefensivePost> validPosts = situation.Posts.Where(p => p.IsValid &&
-                (state == GarrisonState.InnerFallback ? p.Inner : !p.Inner ||
-                    (situation.FieldPenetrated && situation.FieldFallbackPosts.Contains(p.Id)))).ToList();
+                (state != GarrisonState.InnerFallback || p.Inner)).ToList();
             if (state != GarrisonState.Routine && validPosts.Count == 0) state = GarrisonState.InnerFallback;
 
             HashSet<string> occupied = new HashSet<string>(StringComparer.Ordinal);
@@ -378,7 +381,9 @@ namespace RealisticBases.Planning
             HashSet<string> occupied, GarrisonSituation situation, GarrisonState state)
         {
             return posts.Where(p => !occupied.Contains(p.Id) && Compatible(defender, p))
-                .OrderByDescending(p => situation.FieldPenetrated && state == GarrisonState.LocalResponse &&
+                .OrderBy(p => state != GarrisonState.InnerFallback && p.Inner &&
+                    !(situation.FieldPenetrated && situation.FieldFallbackPosts.Contains(p.Id)))
+                .ThenByDescending(p => situation.FieldPenetrated && state == GarrisonState.LocalResponse &&
                     defender.WeaponRange <= 30 && situation.FieldFallbackPosts.Contains(p.Id))
                 .ThenByDescending(p => Engagements(defender, p, situation))
                 .ThenByDescending(p => (state == GarrisonState.LocalResponse || state == GarrisonState.HoldSectors) &&
