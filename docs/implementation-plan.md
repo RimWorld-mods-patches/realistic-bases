@@ -179,14 +179,17 @@ Implement P4C.0 definition/transaction inspection, P4C.1 pure finish policy, P4C
 
 ### P4D — Quest-location support
 
-**Depends on:** P4/P4A terrain and procedural generation, P3 scoped AI/lifecycle, and P4B defenses where appropriate. **Status:** planned, not implemented. Ordinary settlement eligibility guards remain unchanged until a quest adapter is verified.
+**Depends on:** P4/P4A procedural generation, P3 scoped AI/lifecycle, P4B defenses and merged P4C finishes. **Status:** planned and authorized for implementation. Detailed contracts/checkpoints: [P4D quest-location plan](p4d-quest-plan.md). Preserve ordinary settlement eligibility guards.
 
-1. Inventory settlement-like Core quest sites and their generation/`SitePart` contracts. Select a bounded supported list; ruins, mechanoid/insect sites, special DLC maps and third-party generators remain excluded unless separately verified.
-2. Adapt the shared planner to each supported quest's authoritative faction, threat points/expected defenders, objectives, required occupants and buildings, rewards and arrival constraints. Quest threat budgets determine the combat roster; do **not** apply the ordinary 4–12/mean-seven wealth distribution or silently weaken/replace scripted occupants. Separate prisoners, rescue targets and other protected identities from the controlled garrison.
-3. Preserve quest signals, success/failure checks, ownership, deadlines, reinforcement/escape behavior and map-removal rules. Add narrow integration hooks only after source inspection and a disposable reproduction; unsupported contracts retain original generation with a diagnostic.
-4. Prove deterministic planning and bounded recovery in synthetic fixtures, then test representative live normal/rejection/rollback, objective completion/failure, capture, departure and active save/reload cases. Reuse terrain, supply, defense and no-trap invariants without erasing quest-required content.
+Implement Core bandit-camp elimination first, then guarded prisoner rescue (`PrisonerWillingToJoin` with `Outpost`). Allow only verified whole site-part/faction/generator combinations; unknown threats, special DLC sites and third-party generators retain native behavior. Guarded item stashes are a documented follow-on candidate, not required initial scope.
 
-**Exit:** a documented supported-quest matrix whose generated sites preserve their original threat/occupant/objective/reward/lifecycle contracts and pass both pure and live evidence gates. Unsupported quests and competing generators are left untouched; no blanket replacement of all quest maps.
+Adapt authoritative quest threat points, pawn-group seed/kinds/occupants, loot allowance and objective references to the shared planner. Never apply ordinary population/wealth rolls, cap a quest roster at twelve, reroll it to fit, or add unfunded defenders. Use compact camp requirements and deliberate finite-supply/no-field support only where the contract allows it. Reserve objective space before packing; preserve the actual prisoner/items and native custody, tags and rescue behavior. P3 controls only admitted combatants.
+
+Replace only verified generation steps and preserve native callbacks, arrival/fog/bookkeeping, signals, rewards, timeouts and removal rules. Extend transactional ownership to borrowed quest objects: rejection changes nothing, and late failure restores holders, identities, generation context and P4C terrain/rock/finish state before native fallback runs once. Do not emit irreversible quest outcomes during provisional generation. Site-scoped state and active reload must not duplicate pawns, loot or rewards; verify native departure/re-entry/removal behavior rather than applying ordinary settlement regeneration.
+
+Commit P4D.0 source/native baselines, P4D.1 pure contracts, P4D.2 bandit integration, P4D.3 protected-prisoner integration and P4D.4 validation/closeout separately. Test real native quests through success/failure/expiry as applicable, target rescue/death, rewards, departure, active reload and forced rollback, plus relevant terrain/GL and unsupported-site regression. Keep P4E changes separate.
+
+**Exit:** both initial contracts have a documented support matrix and pure/build/live normal, rejection, late recovery and lifecycle evidence. Original threat inputs, objective identities, rewards and signals survive; unsupported/competing generators and ordinary settlements retain their routing. A generated screenshot or bandit-only pass does not close P4D.
 
 ### P4E — Small adjustments
 
