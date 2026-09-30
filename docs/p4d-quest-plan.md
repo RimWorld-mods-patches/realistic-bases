@@ -1,6 +1,6 @@
 # P4D — Quest-location support
 
-2026-10-01 · Planned and authorized for implementation · Next assignment after the P4C merge
+2026-10-01 · Implementation active · P4D.0 native baseline recorded
 
 ## Outcome and initial support set
 
@@ -14,6 +14,8 @@ Implement two initial contracts in sequence, after inspecting their resolved def
 | Guarded prisoner rescue | Core `PrisonerWillingToJoin` plus `Outpost` | Place the existing protected prisoner in a reachable, enclosed prison area, separately from the hostile garrison; preserve identity, custody, rescue/join behavior and quest ownership. |
 
 Support means an explicitly verified **whole site-part combination**, faction/generator contract and arrival path, not any site containing one familiar part. In P4D.0 record the actual quest script, ordered parts, workers, gen steps, parameter sources and lifecycle callbacks for each supported combination. A plain `Outpost` may reuse the implementation, but enable it only for a documented verified contract. Guarded `ItemStash` is a follow-on candidate to document, not a third required adapter. Unknown markers, ambushes, extra turret/threat parts, downed-refugee sites, natural-resource sites, ruins, nonhuman forces, DLC-specific objectives/maps and third-party generators stay native unless separately included and validated. Do not reveal hidden threat details in player-facing diagnostics.
+
+Source/native-baseline correction authorized by the user on 2026-10-01: Core rescue always appends `PossibleUnknownThreatMarker`. Its verified worker has no generation work. Admit that exact marker only in `[PrisonerWillingToJoin, visible Outpost, PossibleUnknownThreatMarker]`, with no extra or hidden threats. Other markers remain native. Use a small strategy pattern for objective-specific eligibility/reservations/placement, with shared planning and transaction services. See [P4D findings](p4d-findings.md).
 
 Deliver at least the camp-elimination adapter with real end-to-end evidence. Prisoner rescue is part of the authorized work; if it encounters a genuine identity/lifecycle blocker, retain native behavior and record the exact blocker, leaving that checkpoint open rather than marking all P4D complete. Do not broaden the support list merely to claim coverage. No blanket `Site` replacement or new general quest framework.
 
@@ -56,7 +58,7 @@ Commit each validated step and record source findings, supported combinations an
 
 | Step | Scope | Evidence before completion | Status |
 |---|---|---|---|
-| P4D.0 | Native quest reproductions, exact support matrix, generation/holder/signal inventory and adapter boundary | Core bandit and guarded-rescue baseline; parameter/step/lifecycle sources documented; unsupported combinations enumerated | Pending |
+| P4D.0 | Native quest reproductions, exact support matrix, generation/holder/signal inventory and adapter boundary | Real Core bandit success/departure and guarded-rescue arrival/original-holder transfer; source/step/lifecycle inventory in findings; Release build 0 warnings/errors | Complete |
 | P4D.1 | Pure quest contract, deterministic requirements, authoritative roster/loot sizing and objective reservations | No ordinary wealth leakage, no roster truncation/resampling, protected objectives, low/high-point bounds and explicit native fallback fixtures | Pending |
 | P4D.2 | Bandit-camp integration, scoped garrison and reversible generation | Real quest accepts/arrives/completes/rewards/leaves; rejection and partial rollback run native fallback once; active reload preserves state | Pending |
 | P4D.3 | Guarded prisoner-rescue integration and borrowed-object recovery | Original prisoner identity/ownership and rescue/failure behavior; no second prison/target; late rollback returns holder exactly; reload and departure behavior | Pending |
