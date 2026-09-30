@@ -192,6 +192,7 @@ Commit P4D.0 source/native baselines, P4D.1 pure contracts, P4D.2 bandit integra
 **Exit:** both initial contracts have a documented support matrix and pure/build/live normal, rejection, late recovery and lifecycle evidence. Original threat inputs, objective identities, rewards and signals survive; unsupported/competing generators and ordinary settlements retain their routing. A generated screenshot or bandit-only pass does not close P4D.
 
 ### P4E — Small adjustments
+To be detailed by Astra High.
 
 1. Check which rooms are still missing the temperature control. For example, a workshop.
 2. Add a missing laboratory room for each eligible level with reasonable equipment (should be based on the research tree levels).
