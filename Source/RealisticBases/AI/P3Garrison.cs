@@ -119,6 +119,14 @@ namespace RealisticBases.AI
         private List<IntVec3> postAccessGates = new List<IntVec3>();
         private List<int> postFlags = new List<int>();
         private List<IntVec3> gateCells = new List<IntVec3>();
+        private List<IntVec3> perimeterCells = new List<IntVec3>();
+        private List<string> perimeterSectors = new List<string>();
+        private List<int> perimeterRegions = new List<int>();
+        private List<bool> perimeterGates = new List<bool>();
+        private List<int> perimeterHitPoints = new List<int>();
+        private List<int> perimeterLastHitTicks = new List<int>();
+        private List<int> perimeterLastHitDamage = new List<int>();
+        private List<int> perimeterLastBreachTicks = new List<int>();
         private List<IntVec3> defendedCells = new List<IntVec3>();
         private IntVec3 supportCenter = IntVec3.Invalid;
         private IntVec3 innerFallback = IntVec3.Invalid;
@@ -254,7 +262,8 @@ namespace RealisticBases.AI
         }
 
         public void Initialize(Settlement parent, IEnumerable<GridPoint> gates, EncounterPlan plan, IEnumerable<Pawn> residents,
-            IEnumerable<Thing> allOwnedThings, Thing mortarThing, IEnumerable<Thing> combatStocks)
+            IEnumerable<Thing> allOwnedThings, Thing mortarThing, IEnumerable<Thing> combatStocks,
+            IEnumerable<P3PerimeterSegment> perimeter = null)
         {
             settlement = parent;
             faction = parent.Faction;
@@ -280,6 +289,16 @@ namespace RealisticBases.AI
                 ? ToCell(p.AccessGate.Value) : IntVec3.Invalid).ToList();
             postFlags = plan.Posts.Select(P3PostFlags.Encode).ToList();
             gateCells = gates.Select(ToCell).ToList();
+            List<P3PerimeterSegment> segments = (perimeter ?? Enumerable.Empty<P3PerimeterSegment>())
+                .GroupBy(s => s.Cell).Select(g => g.First()).OrderBy(s => s.Cell).ToList();
+            perimeterCells = segments.Select(s => ToCell(s.Cell)).ToList();
+            perimeterSectors = segments.Select(s => s.Sector).ToList();
+            perimeterRegions = segments.Select(s => (int)s.Region).ToList();
+            perimeterGates = segments.Select(s => s.Gate).ToList();
+            perimeterHitPoints = perimeterCells.Select(c => c.GetEdifice(map)?.HitPoints ?? 0).ToList();
+            perimeterLastHitTicks = Enumerable.Repeat(-1, segments.Count).ToList();
+            perimeterLastHitDamage = Enumerable.Repeat(0, segments.Count).ToList();
+            perimeterLastBreachTicks = Enumerable.Repeat(-1, segments.Count).ToList();
             initialHe = CountStock("Shell_HighExplosive");
             initialIncendiary = CountStock("Shell_Incendiary");
             initialBarrels = CountStock("ReinforcedBarrel") + (mortar?.TryGetComp<CompRefuelable>()?.HasFuel == true ? 1 : 0);
@@ -305,6 +324,14 @@ namespace RealisticBases.AI
             Scribe_Collections.Look(ref postAccessGates, "p3PostAccessGates", LookMode.Value);
             Scribe_Collections.Look(ref postFlags, "p3PostFlags", LookMode.Value);
             Scribe_Collections.Look(ref gateCells, "p3GateCells", LookMode.Value);
+            Scribe_Collections.Look(ref perimeterCells, "p3PerimeterCells", LookMode.Value);
+            Scribe_Collections.Look(ref perimeterSectors, "p3PerimeterSectors", LookMode.Value);
+            Scribe_Collections.Look(ref perimeterRegions, "p3PerimeterRegions", LookMode.Value);
+            Scribe_Collections.Look(ref perimeterGates, "p3PerimeterGates", LookMode.Value);
+            Scribe_Collections.Look(ref perimeterHitPoints, "p3PerimeterHitPoints", LookMode.Value);
+            Scribe_Collections.Look(ref perimeterLastHitTicks, "p3PerimeterLastHitTicks", LookMode.Value);
+            Scribe_Collections.Look(ref perimeterLastHitDamage, "p3PerimeterLastHitDamage", LookMode.Value);
+            Scribe_Collections.Look(ref perimeterLastBreachTicks, "p3PerimeterLastBreachTicks", LookMode.Value);
             Scribe_Collections.Look(ref defendedCells, "p3DefendedCells", LookMode.Value);
             Scribe_Values.Look(ref supportCenter, "p3SupportCenter", IntVec3.Invalid);
             Scribe_Values.Look(ref innerFallback, "p3InnerFallback", IntVec3.Invalid);
@@ -333,6 +360,21 @@ namespace RealisticBases.AI
                 ownedThings = ownedThings?.Where(t => t != null).ToList() ?? new List<Thing>();
                 operatingStocks = operatingStocks?.Where(t => t != null).ToList() ?? new List<Thing>();
                 defendedCells = defendedCells?.Distinct().ToList() ?? new List<IntVec3>();
+                if (perimeterCells == null) perimeterCells = new List<IntVec3>();
+                int perimeterCount = perimeterCells.Count;
+                if (perimeterSectors?.Count != perimeterCount || perimeterRegions?.Count != perimeterCount ||
+                    perimeterGates?.Count != perimeterCount || perimeterHitPoints?.Count != perimeterCount ||
+                    perimeterLastHitTicks?.Count != perimeterCount || perimeterLastHitDamage?.Count != perimeterCount ||
+                    perimeterLastBreachTicks?.Count != perimeterCount)
+                {
+                    // Older saves did not persist a perimeter. They retain the
+                    // gate-only response until a newly generated plan supplies it.
+                    perimeterCells.Clear();
+                    perimeterSectors = new List<string>(); perimeterRegions = new List<int>();
+                    perimeterGates = new List<bool>(); perimeterHitPoints = new List<int>();
+                    perimeterLastHitTicks = new List<int>(); perimeterLastHitDamage = new List<int>();
+                    perimeterLastBreachTicks = new List<int>();
+                }
                 if (postAccessGates == null || postAccessGates.Count != postCells.Count)
                     postAccessGates = Enumerable.Repeat(IntVec3.Invalid, postCells.Count).ToList();
                 P3Log.Message("CONTROLLER_RELOADED", "map=" + map.uniqueID + " state=" + currentState +
@@ -349,17 +391,26 @@ namespace RealisticBases.AI
                 .OrderBy(p => p.thingIDNumber).ToList();
             if (active.Count == 0) return;
             bool threat = map.mapPawns.AllPawnsSpawned.Any(p => p.Faction != null && p.HostileTo(faction) && !p.Dead);
-            string sector = ThreatSector();
-            bool breached = gateCells.Any(c => c.IsValid && !(c.GetEdifice(map) is Building_Door));
+            string sector = ObserveThreatSector(threat);
+            bool breached = perimeterCells.Count > 0
+                ? perimeterCells.Where((c, i) => perimeterHitPoints[i] > 0 || perimeterLastBreachTicks[i] >= 0)
+                    .Any(c => c.GetEdifice(map) == null)
+                : gateCells.Any(c => c.IsValid && !(c.GetEdifice(map) is Building_Door));
             List<DefensivePost> posts = RuntimePosts(active[0]);
             bool outerViable = posts.Count(p => p.IsValid && !p.Inner && !p.Mortar) >= 2;
             bool safeNeeds = !map.mapPawns.AllPawnsSpawned.Any(p => p.Faction != null && p.HostileTo(faction) &&
                 p.Position.InHorDistOf(supportCenter, 12f));
             List<DefenderCandidate> candidates = active.Select(ToCandidate).ToList();
+            List<GridPoint> hostileCells = map.mapPawns.AllPawnsSpawned.Where(p => p.Faction != null &&
+                p.HostileTo(faction) && !p.Dead && !p.Downed)
+                .Select(p => new GridPoint(p.Position.x, p.Position.z)).ToList();
+            HashSet<GridPoint> opaqueCells = new HashSet<GridPoint>(map.listerThings.AllThings
+                .Where(t => t.Spawned && t is Building && t.def.Fillage == FillCategory.Full)
+                .Select(t => new GridPoint(t.Position.x, t.Position.z)));
             GarrisonPlan plan = GarrisonDoctrine.Assign(new GarrisonSituation(GenTicks.TicksGame, candidates, posts,
                 threat, sector, breached, outerViable, safeNeeds,
                 new GridPoint(supportCenter.x, supportCenter.z), new GridPoint(innerFallback.x, innerFallback.z),
-                routineSupportWorkers));
+                routineSupportWorkers, hostileCells, opaqueCells));
             UpdateIncendiaryGate(lord, threat);
             bool changed = force || plan.State != currentState || plan.ActiveSector != currentSector || AssignmentsChanged(plan);
             currentState = plan.State;
@@ -599,7 +650,7 @@ namespace RealisticBases.AI
             bool tend = pawn.health?.HasHediffsNeedingTend() ?? false;
             return new DefenderCandidate(pawn.thingIDNumber, weaponClass, (int)Math.Round(range),
                 mortar != null && weaponClass != DefenderWeaponClass.Melee, true, food, rest, tend,
-                previousPost, previousRole, previousTick);
+                previousPost, previousRole, previousTick, new GridPoint(pawn.Position.x, pawn.Position.z));
         }
 
         private List<DefensivePost> RuntimePosts(Pawn reachPawn)
@@ -627,8 +678,11 @@ namespace RealisticBases.AI
 
         private void ApplyAssignments(Lord lord, GarrisonPlan plan)
         {
-            Dictionary<int, string> previous = assignedPawnIds.Select((id, i) => new { id, i })
-                .ToDictionary(x => x.id, x => x.i < assignedPostIds.Count ? assignedPostIds[x.i] : string.Empty);
+            Dictionary<int, Tuple<string, int, int>> previous = assignedPawnIds.Select((id, i) => new { id, i })
+                .ToDictionary(x => x.id, x => Tuple.Create(
+                    x.i < assignedPostIds.Count ? assignedPostIds[x.i] : string.Empty,
+                    x.i < assignedRoles.Count ? assignedRoles[x.i] : -1,
+                    x.i < assignedTicks.Count ? assignedTicks[x.i] : GenTicks.TicksGame));
             assignedPawnIds.Clear();
             assignedPostIds.Clear();
             assignedRoles.Clear();
@@ -640,9 +694,11 @@ namespace RealisticBases.AI
                 assignedPawnIds.Add(assignment.DefenderId);
                 assignedPostIds.Add(assignment.PostId);
                 assignedRoles.Add((int)assignment.Role);
-                assignedTicks.Add(assignment.AssignedTick);
-                string oldPost;
-                if (previous.TryGetValue(assignment.DefenderId, out oldPost) && oldPost != assignment.PostId) reassignmentCount++;
+                Tuple<string, int, int> old;
+                bool retained = previous.TryGetValue(assignment.DefenderId, out old) &&
+                    old.Item1 == assignment.PostId && old.Item2 == (int)assignment.Role;
+                assignedTicks.Add(retained ? old.Item3 : assignment.AssignedTick);
+                if (old != null && old.Item1 != assignment.PostId) reassignmentCount++;
                 DutyDef duty = DutyFor(assignment.Role);
                 pawn.mindState.duty = new PawnDuty(duty, ToCell(assignment.Destination),
                     assignment.Role == GarrisonRole.RangedPost ? 7f : 4f);
@@ -706,6 +762,45 @@ namespace RealisticBases.AI
             int dx = threat.Position.x - supportCenter.x;
             int dz = threat.Position.z - supportCenter.z;
             return Math.Abs(dx) > Math.Abs(dz) ? (dx < 0 ? "west" : "east") : (dz < 0 ? "south" : "north");
+        }
+
+        private string ObserveThreatSector(bool hostileThreat)
+        {
+            if (perimeterCells.Count == 0) return ThreatSector();
+            List<GridPoint> enemies = map.mapPawns.AllPawnsSpawned.Where(p => p.Faction != null &&
+                faction != null && p.HostileTo(faction) && !p.Dead && !p.Downed)
+                .Select(p => new GridPoint(p.Position.x, p.Position.z)).ToList();
+            for (int i = 0; i < perimeterCells.Count; i++)
+            {
+                IntVec3 cell = perimeterCells[i];
+                int current = cell.GetEdifice(map)?.HitPoints ?? 0;
+                int previous = perimeterHitPoints[i];
+                if (previous > 0 && current == 0) perimeterLastBreachTicks[i] = GenTicks.TicksGame;
+                else if (previous == 0 && current > 0) perimeterLastBreachTicks[i] = -1;
+                if (hostileThreat && previous > current && enemies.Any(e =>
+                    (e.X - cell.x) * (e.X - cell.x) + (e.Z - cell.z) * (e.Z - cell.z) <= 55 * 55))
+                {
+                    perimeterLastHitTicks[i] = GenTicks.TicksGame;
+                    perimeterLastHitDamage[i] = previous - current;
+                }
+                perimeterHitPoints[i] = current;
+            }
+            List<P3PerimeterSegment> segments = new List<P3PerimeterSegment>();
+            List<P3PerimeterObservation> observations = new List<P3PerimeterObservation>();
+            for (int i = 0; i < perimeterCells.Count; i++)
+            {
+                GridPoint cell = new GridPoint(perimeterCells[i].x, perimeterCells[i].z);
+                segments.Add(new P3PerimeterSegment(cell, perimeterSectors[i],
+                    (P3PerimeterRegion)perimeterRegions[i], perimeterGates[i]));
+                if (perimeterLastHitTicks[i] >= 0)
+                    observations.Add(new P3PerimeterObservation(cell, perimeterLastHitTicks[i], false,
+                        perimeterLastHitDamage[i]));
+                if (perimeterLastBreachTicks[i] >= 0)
+                    observations.Add(new P3PerimeterObservation(cell, perimeterLastBreachTicks[i], true, 0));
+            }
+            P3SectorThreat first = P3PerimeterThreat.Rank(GenTicks.TicksGame, segments, observations,
+                enemies, currentSector).FirstOrDefault();
+            return first == null || first.Score == 0 ? ThreatSector() : first.Sector;
         }
 
         private GarrisonRole AssignedRole(Pawn pawn)

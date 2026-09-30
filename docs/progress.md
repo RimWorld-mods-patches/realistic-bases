@@ -131,7 +131,7 @@ The [simulation-review additions](p4b-defense-plan.md#adopted-simulation-review-
 
 | Parent step | Added task | Status |
 |---|---|---|
-| P4B.3 | Detect attacked wall/gate segments and breaches; resist decoy-driven reassignment and retain cooldowns | Pending |
+| P4B.3 | Detect attacked wall/gate segments and breaches; resist decoy-driven reassignment and retain cooldowns | Pure/runtime implementation checkpoint: planned wall and gate HP snapshots, breach memory, decoy-resistant sector ranking, weapon-range/opaque-lane post preference and corrected assignment-tick retention pass pure tests/build. Focused live wall/split assault and route-time evidence remain open. |
 | P4B.3 | Stage a funded mobile reserve and reinforce through bounded, protected routes; retain safe relief and fallback | Pending |
 | P4B.2–P4B.3 | Allocate actual compatible defenders, mortar crew and reserve; distinguish concurrent staffing from alternative posts and handle staff loss | Pending |
 | P4B.2 | Rank turret groups by staffed mutual support and vulnerable approaches; compare concentration/spread at fixed budget without weakening blast/path rules | Pending |
@@ -151,6 +151,7 @@ P7 is the final planned milestone, after the P6 MVP release: agriculture/industr
 
 | Date | Update |
 |---|---|
+| 2026-09-30 | Began adopted P4B segment threat response. The P4 procedural spawner now passes planned field/compound wall and gate cells to the saved P3 controller. At each duty refresh it observes structural HP loss and missing edifices, ranks recent damage/breaches ahead of nearby undamaging hostiles, and prefers compatible covered posts with a clear weapon-range lane. Assignment timestamps remain stable when posts are retained. Three focused pure fixtures, the full PlannerTests suite, and Docker Release build pass. Live wall assault/decoy behavior remains unverified. |
 | 2026-09-30 | Adopted the bounded defense-simulation review ideas into P4B.2–P4B.4: segment threats, mobile reserve, actual staffing, supporting-group scoring, compound fallback and live long-range validation. Added pending tracker tasks and matched/live acceptance checks; no implementation or completion claim, population/budget change or new simulator prerequisite. |
 | 2026-09-14 | Completed design/feasibility work and started P0 on baseline `0f12114`. |
 | 2026-09-14 | Added the P0 scaffold and probes; Docker build and isolated startup smoke tests passed. |

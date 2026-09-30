@@ -94,7 +94,8 @@ namespace RealisticBases.Planning
     {
         public DefenderCandidate(int id, DefenderWeaponClass weaponClass, int weaponRange,
             bool canOperateMortar, bool canSupport, bool needsFood, bool needsRest, bool needsTending,
-            string previousPostId = null, GarrisonRole? previousRole = null, int lastAssignmentTick = int.MinValue)
+            string previousPostId = null, GarrisonRole? previousRole = null, int lastAssignmentTick = int.MinValue,
+            GridPoint? currentCell = null)
         {
             if (id <= 0 || weaponRange < 0) throw new ArgumentOutOfRangeException();
             Id = id;
@@ -108,6 +109,7 @@ namespace RealisticBases.Planning
             PreviousPostId = previousPostId;
             PreviousRole = previousRole;
             LastAssignmentTick = lastAssignmentTick;
+            CurrentCell = currentCell;
         }
 
         public int Id { get; }
@@ -121,6 +123,7 @@ namespace RealisticBases.Planning
         public string PreviousPostId { get; }
         public GarrisonRole? PreviousRole { get; }
         public int LastAssignmentTick { get; }
+        public GridPoint? CurrentCell { get; }
         public bool NeedsRelief => NeedsFood || NeedsRest || NeedsTending;
     }
 
@@ -173,7 +176,8 @@ namespace RealisticBases.Planning
     {
         public GarrisonSituation(int tick, IEnumerable<DefenderCandidate> defenders, IEnumerable<DefensivePost> posts,
             bool hostileThreat, string threatenedSector, bool gateBreached, bool outerDefenseViable,
-            bool needsRouteSafe, GridPoint supportCenter, GridPoint innerFallback, int routineSupportWorkers = 1)
+            bool needsRouteSafe, GridPoint supportCenter, GridPoint innerFallback, int routineSupportWorkers = 1,
+            IEnumerable<GridPoint> hostileCells = null, IEnumerable<GridPoint> opaqueCells = null)
         {
             if (routineSupportWorkers < 0) throw new ArgumentOutOfRangeException(nameof(routineSupportWorkers));
             Tick = tick;
@@ -189,6 +193,8 @@ namespace RealisticBases.Planning
             SupportCenter = supportCenter;
             InnerFallback = innerFallback;
             RoutineSupportWorkers = routineSupportWorkers;
+            HostileCells = new ReadOnlyCollection<GridPoint>((hostileCells ?? Enumerable.Empty<GridPoint>()).ToList());
+            OpaqueCells = new HashSet<GridPoint>(opaqueCells ?? Enumerable.Empty<GridPoint>());
         }
 
         public int Tick { get; }
@@ -202,6 +208,8 @@ namespace RealisticBases.Planning
         public GridPoint SupportCenter { get; }
         public GridPoint InnerFallback { get; }
         public int RoutineSupportWorkers { get; }
+        public IReadOnlyList<GridPoint> HostileCells { get; }
+        public IReadOnlyCollection<GridPoint> OpaqueCells { get; }
     }
 
     public static class GarrisonDoctrine
@@ -252,7 +260,7 @@ namespace RealisticBases.Planning
                     continue;
                 }
 
-                DefensivePost selected = SelectPost(defender, validPosts, occupied, situation.ThreatenedSector, state);
+                DefensivePost selected = SelectPost(defender, validPosts, occupied, situation, state);
                 if (selected != null)
                 {
                     occupied.Add(selected.Id);
@@ -299,17 +307,31 @@ namespace RealisticBases.Planning
         }
 
         private static DefensivePost SelectPost(DefenderCandidate defender, IEnumerable<DefensivePost> posts,
-            HashSet<string> occupied, string threatenedSector, GarrisonState state)
+            HashSet<string> occupied, GarrisonSituation situation, GarrisonState state)
         {
             return posts.Where(p => !occupied.Contains(p.Id) && Compatible(defender, p))
-                .OrderByDescending(p => (state == GarrisonState.LocalResponse || state == GarrisonState.HoldSectors) &&
-                    p.CoversSector(threatenedSector))
+                .OrderByDescending(p => Engagements(defender, p, situation))
+                .ThenByDescending(p => (state == GarrisonState.LocalResponse || state == GarrisonState.HoldSectors) &&
+                    p.CoversSector(situation.ThreatenedSector))
                 .ThenByDescending(p => p.Mortar && defender.CanOperateMortar)
                 .ThenByDescending(p => p.HasCover)
+                .ThenBy(p => defender.CurrentCell.HasValue ? Manhattan(defender.CurrentCell.Value, p.Cell) : 0)
                 .ThenBy(p => RangePenalty(defender, p))
                 .ThenBy(p => p.Id, StringComparer.Ordinal)
                 .FirstOrDefault();
         }
+
+        private static int Engagements(DefenderCandidate defender, DefensivePost post, GarrisonSituation situation)
+        {
+            if (post.Mortar || defender.WeaponClass == DefenderWeaponClass.Melee || situation.HostileCells.Count == 0)
+                return 0;
+            int maximum = Math.Min(defender.WeaponRange, post.MaximumRange);
+            if (maximum < post.MinimumRange) return 0;
+            return situation.HostileCells.Count(target => P4BFireLane.CanEngage(post.Cell, target,
+                post.MinimumRange, maximum, situation.OpaqueCells));
+        }
+
+        private static int Manhattan(GridPoint a, GridPoint b) => Math.Abs(a.X - b.X) + Math.Abs(a.Z - b.Z);
 
         private static bool Compatible(DefenderCandidate defender, DefensivePost post)
         {

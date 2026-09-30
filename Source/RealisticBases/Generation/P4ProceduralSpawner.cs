@@ -618,7 +618,7 @@ namespace RealisticBases.Generation
                     .Concat(approachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0])
                     .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() :
                         new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }), encounter,
-                    defenders, tx.OwnedThings, mortar, combatStocks);
+                    defenders, tx.OwnedThings, mortar, combatStocks, PerimeterSegments(layout, encounter.SupportCenter));
                 LordMaker.MakeNewLord(settlement.Faction, new LordJob_P3Garrison(settlement.ID), map, defenders);
                 P0SettlementState state = Current.Game.GetComponent<P0WorldState>().GetOrCreate(settlement.ID, settlement.Faction);
                 state.generationCount++;
@@ -852,6 +852,26 @@ namespace RealisticBases.Generation
         }
 
         private static ThingDef Require(string name) => DefDatabase<ThingDef>.GetNamed(name, true);
+        private static IEnumerable<P3PerimeterSegment> PerimeterSegments(ProceduralLayout layout, GridPoint center)
+        {
+            HashSet<GridPoint> field = new HashSet<GridPoint>(layout.FieldWall?.Walls ?? new GridPoint[0]);
+            HashSet<GridPoint> gates = new HashSet<GridPoint>(layout.Gates.SelectMany(g =>
+                new[] { g.Cell }.Concat(g.BandDoors)));
+            gates.UnionWith(layout.ApproachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0]);
+            if (layout.FieldWall != null)
+            {
+                field.Add(layout.FieldWall.InnerGate.Value);
+                field.Add(layout.FieldWall.OuterGate);
+                gates.Add(layout.FieldWall.InnerGate.Value);
+                gates.Add(layout.FieldWall.OuterGate);
+            }
+            HashSet<GridPoint> cells = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.OuterWalls)
+                .Concat(layout.Gates.SelectMany(g => g.BandWalls)).Concat(field).Concat(gates));
+            return cells.OrderBy(c => c).Select(c => new P3PerimeterSegment(c,
+                layout.ApproachDefense?.Sides.FirstOrDefault(s => s.Faces.Contains(c))?.Id ?? Sector(c, center),
+                field.Contains(c) ? P3PerimeterRegion.Field : P3PerimeterRegion.Compound,
+                gates.Contains(c)));
+        }
         private static string Sector(GridPoint cell, GridPoint center)
         {
             int dx = cell.X - center.X, dz = cell.Z - center.Z;

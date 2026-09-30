@@ -59,6 +59,9 @@ internal static class Program
         Run("P3 invalid outer posts trigger inner fallback", P3InvalidOuterPostsTriggerInnerFallback);
         Run("P3 valid assignments resist oscillation", P3ValidAssignmentsResistOscillation);
         Run("P3 routine reserves a support worker", P3RoutineReservesSupportWorker);
+        Run("P3 wall damage outranks a decoy", P3WallDamageOutranksDecoy);
+        Run("P3 breached wall and threat memory rank deterministically", P3WallBreachAndMemory);
+        Run("P3 wall-threat assignment requires an actual firing lane", P3WallThreatUsesFiringLane);
         Run("P3 industrial encounter plan is deterministic and valid", P3IndustrialEncounterPlanIsDeterministicAndValid);
         Run("P3 posts avoid opaque walls and cover approaches", P3PostsAvoidOpaqueWallsAndCoverApproaches);
         Run("P3 mortar court is unroofed reachable and supplied", P3MortarCourtIsUnroofedReachableAndSupplied);
@@ -680,6 +683,60 @@ internal static class Program
             "support-capable short-range defender selected");
         GarrisonPlan combat = GarrisonDoctrine.Assign(P3Situation(hostileThreat: true));
         True(combat.Assignments.All(a => a.Role != GarrisonRole.Support), "support worker returns to combat");
+    }
+
+    private static void P3WallDamageOutranksDecoy()
+    {
+        P3PerimeterSegment[] segments = {
+            new P3PerimeterSegment(new GridPoint(10, 20), "north", P3PerimeterRegion.Compound, false),
+            new P3PerimeterSegment(new GridPoint(20, 10), "east", P3PerimeterRegion.Compound, true)
+        };
+        P3PerimeterObservation[] hits = {
+            new P3PerimeterObservation(new GridPoint(10, 20), 900, false, 18)
+        };
+        GridPoint[] enemies = { new GridPoint(10, 22), new GridPoint(20, 11), new GridPoint(21, 10) };
+        IReadOnlyList<P3SectorThreat> ranked = P3PerimeterThreat.Rank(1000, segments, hits, enemies, "east");
+        Equal("north", ranked[0].Sector, "real attacked segment beats two undamaging decoys");
+        Equal(1, ranked[0].Attacks, "actual wall hit is recorded");
+    }
+
+    private static void P3WallBreachAndMemory()
+    {
+        P3PerimeterSegment[] segments = {
+            new P3PerimeterSegment(new GridPoint(10, 20), "north", P3PerimeterRegion.Field, false),
+            new P3PerimeterSegment(new GridPoint(20, 10), "east", P3PerimeterRegion.Compound, true)
+        };
+        P3PerimeterObservation[] hits = {
+            new P3PerimeterObservation(new GridPoint(10, 20), 999, true, 0)
+        };
+        IReadOnlyList<P3SectorThreat> ranked = P3PerimeterThreat.Rank(1000, segments, hits,
+            new[] { new GridPoint(20, 11) });
+        Equal("north", ranked[0].Sector, "ordinary field wall breach outranks lone hostile at intact gate");
+        Equal(1, ranked[0].Breaches, "breach counted");
+        IReadOnlyList<P3SectorThreat> expired = P3PerimeterThreat.Rank(1901, segments, hits,
+            new[] { new GridPoint(20, 11) });
+        Equal("east", expired[0].Sector, "old breach no longer dominates live threat");
+        Equal("east", P3PerimeterThreat.Rank(1901, segments, hits,
+            new[] { new GridPoint(20, 11) })[0].Sector, "ranking is stable");
+    }
+
+    private static void P3WallThreatUsesFiringLane()
+    {
+        DefenderCandidate[] defenders = {
+            new DefenderCandidate(1, DefenderWeaponClass.LongRanged, 30, false, false,
+                false, false, false, currentCell: new GridPoint(0, 0))
+        };
+        DefensivePost[] posts = {
+            new DefensivePost("blocked", "north", new GridPoint(0, 0), 8, 25,
+                true, true, true, false, false, true),
+            new DefensivePost("clear", "north", new GridPoint(0, 2), 8, 25,
+                true, true, true, false, false, true)
+        };
+        GarrisonSituation situation = new GarrisonSituation(1000, defenders, posts,
+            true, "north", false, true, true, new GridPoint(0, 0), new GridPoint(1, 1),
+            hostileCells: new[] { new GridPoint(0, 20) }, opaqueCells: new[] { new GridPoint(0, 1) });
+        Equal("clear", GarrisonDoctrine.Assign(situation).Assignments.Single().PostId,
+            "opaque wall blocks the nearer post despite matching sector and cover");
     }
 
     private static GarrisonSituation P3Situation(int tick = 1000, IEnumerable<DefenderCandidate> defenders = null,
