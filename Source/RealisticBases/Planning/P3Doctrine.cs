@@ -177,7 +177,8 @@ namespace RealisticBases.Planning
         public GarrisonSituation(int tick, IEnumerable<DefenderCandidate> defenders, IEnumerable<DefensivePost> posts,
             bool hostileThreat, string threatenedSector, bool gateBreached, bool outerDefenseViable,
             bool needsRouteSafe, GridPoint supportCenter, GridPoint innerFallback, int routineSupportWorkers = 1,
-            IEnumerable<GridPoint> hostileCells = null, IEnumerable<GridPoint> opaqueCells = null)
+            IEnumerable<GridPoint> hostileCells = null, IEnumerable<GridPoint> opaqueCells = null,
+            IEnumerable<string> safeTransferPosts = null, int threatSeverity = 0, GridPoint? reserveStage = null)
         {
             if (routineSupportWorkers < 0) throw new ArgumentOutOfRangeException(nameof(routineSupportWorkers));
             Tick = tick;
@@ -195,6 +196,9 @@ namespace RealisticBases.Planning
             RoutineSupportWorkers = routineSupportWorkers;
             HostileCells = new ReadOnlyCollection<GridPoint>((hostileCells ?? Enumerable.Empty<GridPoint>()).ToList());
             OpaqueCells = new HashSet<GridPoint>(opaqueCells ?? Enumerable.Empty<GridPoint>());
+            SafeTransferPosts = new HashSet<string>(safeTransferPosts ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
+            ThreatSeverity = Math.Max(0, threatSeverity);
+            ReserveStage = reserveStage ?? supportCenter;
         }
 
         public int Tick { get; }
@@ -210,6 +214,9 @@ namespace RealisticBases.Planning
         public int RoutineSupportWorkers { get; }
         public IReadOnlyList<GridPoint> HostileCells { get; }
         public IReadOnlyCollection<GridPoint> OpaqueCells { get; }
+        public IReadOnlyCollection<string> SafeTransferPosts { get; }
+        public int ThreatSeverity { get; }
+        public GridPoint ReserveStage { get; }
     }
 
     public static class GarrisonDoctrine
@@ -233,6 +240,22 @@ namespace RealisticBases.Planning
                     .ThenBy(d => d.Id)
                     .Take(situation.RoutineSupportWorkers).Select(d => d.Id)
                 : Enumerable.Empty<int>());
+            DefensivePost mortarPost = state == GarrisonState.InnerFallback ? null :
+                validPosts.FirstOrDefault(p => p.Mortar);
+            DefenderCandidate mortarOperator = mortarPost == null ? null : situation.Defenders
+                .Where(d => !routineSupport.Contains(d.Id) && !d.NeedsRelief && Compatible(d, mortarPost))
+                .OrderBy(d => d.PreviousRole == GarrisonRole.MortarOperator ? 0 : 1)
+                .ThenBy(d => d.WeaponClass == DefenderWeaponClass.LongRanged)
+                .ThenBy(d => d.WeaponRange).ThenBy(d => d.Id).FirstOrDefault();
+            DefenderCandidate mobileReserve = state == GarrisonState.Routine || state == GarrisonState.InnerFallback ||
+                situation.Defenders.Count(d => !d.NeedsRelief) < 5 ? null : situation.Defenders
+                .Where(d => d.Id != mortarOperator?.Id && !routineSupport.Contains(d.Id) && !d.NeedsRelief &&
+                    d.WeaponClass != DefenderWeaponClass.Melee)
+                .OrderBy(d => d.WeaponClass == DefenderWeaponClass.LongRanged)
+                .ThenBy(d => d.WeaponRange).ThenBy(d => d.Id).FirstOrDefault();
+            if (mobileReserve != null && situation.Defenders.Count(d => !d.NeedsRelief &&
+                d.WeaponClass != DefenderWeaponClass.Melee && d.Id != mortarOperator?.Id) < 3)
+                mobileReserve = null;
             List<GarrisonAssignment> assignments = new List<GarrisonAssignment>();
             foreach (DefenderCandidate defender in situation.Defenders)
             {
@@ -249,6 +272,15 @@ namespace RealisticBases.Planning
                         string.Empty, situation.SupportCenter, situation.Tick, "routine_support"));
                     continue;
                 }
+
+                if (defender.Id == mortarOperator?.Id)
+                {
+                    occupied.Add(mortarPost.Id);
+                    assignments.Add(PostAssignment(defender, mortarPost, state, situation.Tick,
+                        "funded_mortar_operator"));
+                    continue;
+                }
+                if (defender.Id == mobileReserve?.Id) continue;
 
                 DefensivePost previous = validPosts.FirstOrDefault(p => p.Id == defender.PreviousPostId &&
                     Compatible(defender, p) && !occupied.Contains(p.Id));
@@ -274,6 +306,22 @@ namespace RealisticBases.Planning
                 GridPoint destination = state == GarrisonState.InnerFallback ? situation.InnerFallback : situation.SupportCenter;
                 assignments.Add(new GarrisonAssignment(defender.Id, role, situation.ThreatenedSector,
                     string.Empty, destination, situation.Tick, "no_compatible_post"));
+            }
+            if (mobileReserve != null)
+            {
+                DefensivePost reinforcement = situation.ThreatSeverity >= 15 ?
+                    SelectPost(mobileReserve, validPosts.Where(p => !p.Mortar &&
+                        p.CoversSector(situation.ThreatenedSector) && situation.SafeTransferPosts.Contains(p.Id)),
+                        occupied, situation, state) : null;
+                if (reinforcement != null)
+                {
+                    occupied.Add(reinforcement.Id);
+                    assignments.Add(PostAssignment(mobileReserve, reinforcement, state, situation.Tick,
+                        "mobile_reserve_reinforcement"));
+                }
+                else assignments.Add(new GarrisonAssignment(mobileReserve.Id, GarrisonRole.GateReserve,
+                    situation.ThreatenedSector, string.Empty, situation.ReserveStage, situation.Tick,
+                    "funded_mobile_reserve_staging"));
             }
             return new GarrisonPlan(state, assignments, situation.ThreatenedSector, situation.Tick,
                 state == GarrisonState.LocalResponse ? "local_breach_response" : state.ToString());

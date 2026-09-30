@@ -618,7 +618,8 @@ namespace RealisticBases.Generation
                     .Concat(approachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0])
                     .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() :
                         new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }), encounter,
-                    defenders, tx.OwnedThings, mortar, combatStocks, PerimeterSegments(layout, encounter.SupportCenter));
+                    defenders, tx.OwnedThings, mortar, combatStocks, PerimeterSegments(layout, encounter.SupportCenter),
+                    layout.JointSite.Compound.Points().Concat(layout.JointSite.Field.Points()));
                 LordMaker.MakeNewLord(settlement.Faction, new LordJob_P3Garrison(settlement.ID), map, defenders);
                 P0SettlementState state = Current.Game.GetComponent<P0WorldState>().GetOrCreate(settlement.ID, settlement.Faction);
                 state.generationCount++;

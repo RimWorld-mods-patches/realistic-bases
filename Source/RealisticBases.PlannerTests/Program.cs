@@ -62,6 +62,8 @@ internal static class Program
         Run("P3 wall damage outranks a decoy", P3WallDamageOutranksDecoy);
         Run("P3 breached wall and threat memory rank deterministically", P3WallBreachAndMemory);
         Run("P3 wall-threat assignment requires an actual firing lane", P3WallThreatUsesFiringLane);
+        Run("P3 funded mortar and mobile reserve staffing remains exclusive", P3FundedReserveAndMortar);
+        Run("P3 reinforcement audits the whole route under fire", P3ReinforcementRouteUnderFire);
         Run("P3 industrial encounter plan is deterministic and valid", P3IndustrialEncounterPlanIsDeterministicAndValid);
         Run("P3 posts avoid opaque walls and cover approaches", P3PostsAvoidOpaqueWallsAndCoverApproaches);
         Run("P3 mortar court is unroofed reachable and supplied", P3MortarCourtIsUnroofedReachableAndSupplied);
@@ -737,6 +739,64 @@ internal static class Program
             hostileCells: new[] { new GridPoint(0, 20) }, opaqueCells: new[] { new GridPoint(0, 1) });
         Equal("clear", GarrisonDoctrine.Assign(situation).Assignments.Single().PostId,
             "opaque wall blocks the nearer post despite matching sector and cover");
+    }
+
+    private static void P3FundedReserveAndMortar()
+    {
+        DefenderCandidate[] roster = {
+            new DefenderCandidate(1, DefenderWeaponClass.LongRanged, 45, true, false, false, false, false),
+            new DefenderCandidate(2, DefenderWeaponClass.LongRanged, 30, true, false, false, false, false),
+            new DefenderCandidate(3, DefenderWeaponClass.LongRanged, 25, true, false, false, false, false),
+            new DefenderCandidate(4, DefenderWeaponClass.ShortRanged, 15, true, false, false, false, false),
+            new DefenderCandidate(5, DefenderWeaponClass.ShortRanged, 12, true, false, false, false, false)
+        };
+        DefensivePost[] posts = {
+            new DefensivePost("north-sniper", "north", new GridPoint(10, 10), 35, 44, true, true, true, false, false, true),
+            new DefensivePost("north-a", "north", new GridPoint(11, 10), 8, 25, true, true, true, false, false, true),
+            new DefensivePost("north-b", "north", new GridPoint(12, 10), 8, 25, true, true, true, false, false, true),
+            new DefensivePost("north-c", "north", new GridPoint(13, 10), 8, 25, true, true, true, false, false, true),
+            new DefensivePost("mortar", "center", new GridPoint(20, 20), 0, 100, false, true, true, true, false, true)
+        };
+        GarrisonSituation stage = new GarrisonSituation(1000, roster, posts, true, "north", false, true, true,
+            new GridPoint(20, 18), new GridPoint(21, 18), hostileCells: new[] { new GridPoint(12, 20) },
+            safeTransferPosts: new[] { "north-a", "north-b", "north-c", "north-sniper" },
+            reserveStage: new GridPoint(19, 17));
+        GarrisonPlan staged = GarrisonDoctrine.Assign(stage);
+        Equal(1, staged.Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "one funded mortar operator");
+        Equal(1, staged.Assignments.Count(a => a.Role == GarrisonRole.GateReserve), "one funded mobile reserve staged");
+        Equal(new GridPoint(19, 17), staged.Assignments.Single(a => a.Role == GarrisonRole.GateReserve).Destination,
+            "reserve stages near an internal route");
+        GarrisonSituation assault = new GarrisonSituation(1000, roster, posts, true, "north", false, true, true,
+            new GridPoint(20, 18), new GridPoint(21, 18), safeTransferPosts: new[] { "north-c" },
+            threatSeverity: 20);
+        GarrisonPlan reinforced = GarrisonDoctrine.Assign(assault);
+        Equal(5, reinforced.Assignments.Count, "no unfunded pawn added");
+        Equal(1, reinforced.Assignments.Count(a => a.Reason == "mobile_reserve_reinforcement"),
+            "observed wall assault activates one reserve");
+        True(reinforced.Assignments.Where(a => a.PostId.Length > 0).GroupBy(a => a.PostId)
+            .All(g => g.Count() == 1), "mortar, sniper and line posts have exclusive staff");
+        GarrisonPlan lost = GarrisonDoctrine.Assign(new GarrisonSituation(1200, roster.Where(d => d.Id != 4),
+            posts, true, "north", false, true, true, new GridPoint(20, 18), new GridPoint(21, 18)));
+        Equal(4, lost.Assignments.Count, "operator loss does not create a replacement pawn");
+        Equal(1, lost.Assignments.Count(a => a.Role == GarrisonRole.MortarOperator),
+            "another compatible funded defender takes the mortar");
+    }
+
+    private static void P3ReinforcementRouteUnderFire()
+    {
+        GridPoint[] route = Enumerable.Range(0, 16).Select(x => new GridPoint(x, 0)).ToArray();
+        GridPoint[] defended = route;
+        GridPoint[] interior = route.Take(12).ToArray();
+        True(P3DefenderRoute.Audit(route, defended, interior, new GridPoint[0], new GridPoint[0]).Allowed,
+            "short exterior crossing on a bounded internal route is legal");
+        True(!P3DefenderRoute.Audit(route, defended, route.Take(2).ToArray(),
+            new GridPoint[0], new GridPoint[0]).Allowed, "long exterior lap is refused");
+        P3DefenderRouteAudit underFire = P3DefenderRoute.Audit(route, defended, interior,
+            new[] { new GridPoint(7, 6) }, new GridPoint[0]);
+        Equal("route_under_fire", underFire.Reason,
+            "covered endpoints do not excuse a long exposed middle route");
+        True(!P3DefenderRoute.Audit(route, route.Take(14).ToArray(), interior,
+            new GridPoint[0], new GridPoint[0]).Allowed, "path cannot leave defended area");
     }
 
     private static GarrisonSituation P3Situation(int tick = 1000, IEnumerable<DefenderCandidate> defenders = null,
