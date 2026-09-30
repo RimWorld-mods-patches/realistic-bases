@@ -159,7 +159,7 @@ Scope and acceptance: [P4D quest-location plan](p4d-quest-plan.md). Start from m
 | Step | Scope | Validation gate | Status |
 |---|---|---|---|
 | P4D.0 | Native bandit/rescue baselines and exact support/generation/holder/signal inventory | Real native bandit success/removal and guarded-rescue arrival with original target/holder, source inventory; harmless Core rescue marker explicitly authorized; Release build clean | Complete |
-| P4D.1 | Pure quest contract and authoritative roster/loot/objective planning | Deterministic inputs, no ordinary wealth/roster override, reservations, capacity rejection and native fallback fixtures | Pending |
+| P4D.1 | Pure quest contract and authoritative roster/loot/objective planning | Five focused fixtures pass: exact strategies, immutable actual roster/native gear, explicit quest allowances, original Jail reservation and deterministic finite/no-field camp geometry; ordinary population unchanged; Release clean | Complete |
 | P4D.2 | Bandit elimination adapter and scoped garrison | Actual arrival/combat/success/reward/departure, active reload, rejection and reversible fallback | Pending |
 | P4D.3 | Guarded rescue adapter with protected pawn ownership | Original target identity/custody/rescue/failure, late holder rollback, reload and departure | Pending |
 | P4D.4 | Compatibility/lifecycle matrix and closeout | Both contracts; relevant pure suites/build, terrain/GL, unsupported routing, no duplicate content/signals/rewards | Pending |

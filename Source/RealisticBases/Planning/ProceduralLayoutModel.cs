@@ -148,7 +148,7 @@ namespace RealisticBases.Planning
         public LayoutRequirements(int residents, SettlementCapability capabilities, HousingStandard housing,
             LayoutClimate climate, int mortarBiasPercent, int excavationBudgetCells, int fieldCells,
             IEnumerable<KeyValuePair<LayoutRoomKind, int>> capacityFloors = null, SettlementTechStage stage = null, int importValueLimit = -1,
-            int equipmentValueLimit = -1, int stockpileRoomCapacityTarget = 0)
+            int equipmentValueLimit = -1, int stockpileRoomCapacityTarget = 0, bool compactQuestCamp = false)
         {
             if (residents <= 0) throw new ArgumentOutOfRangeException(nameof(residents));
             if (mortarBiasPercent < 0 || mortarBiasPercent > 100) throw new ArgumentOutOfRangeException(nameof(mortarBiasPercent));
@@ -156,6 +156,7 @@ namespace RealisticBases.Planning
             if (fieldCells < 0) throw new ArgumentOutOfRangeException(nameof(fieldCells));
             if (stockpileRoomCapacityTarget < 0) throw new ArgumentOutOfRangeException(nameof(stockpileRoomCapacityTarget));
             Residents = residents;
+            CompactQuestCamp = compactQuestCamp;
             Capabilities = capabilities;
             Housing = housing;
             Climate = climate ?? throw new ArgumentNullException(nameof(climate));
@@ -194,6 +195,7 @@ namespace RealisticBases.Planning
             (capabilities & SettlementCapability.Electricity) != 0 ? DefaultImportValueLimitElectric : DefaultImportValueLimitNonElectric;
 
         public int Residents { get; }
+        public bool CompactQuestCamp { get; }
         public SettlementCapability Capabilities { get; }
         public HousingStandard Housing { get; }
         public LayoutClimate Climate { get; }
@@ -300,6 +302,7 @@ namespace RealisticBases.Planning
                 hash = StableHash.Add(hash, "stockpile-room-capacity-target");
                 hash = StableHash.Add(hash, StockpileRoomCapacityTarget);
             }
+            if (CompactQuestCamp) hash = StableHash.Add(hash, "compact-finite-quest-camp-v1");
             return StableHash.Hex(hash);
         }
     }
@@ -372,9 +375,13 @@ namespace RealisticBases.Planning
         private LayoutEquipment equipment;
 
         public ProceduralLayoutInput(LayoutRequirements requirements, TerrainSnapshot terrain, ulong seed, TechCatalog catalog,
-            LayoutFortificationReservation fortification = null, LayoutSearchBudget budget = null, LayoutLocalResources resources = null)
+            LayoutFortificationReservation fortification = null, LayoutSearchBudget budget = null, LayoutLocalResources resources = null,
+            P4DQuestContract questContract = null)
         {
             Requirements = requirements ?? throw new ArgumentNullException(nameof(requirements));
+            QuestContract = questContract;
+            if (requirements.CompactQuestCamp != (questContract != null))
+                throw new ArgumentException("A compact quest camp requires its explicit native contract");
             Terrain = terrain ?? throw new ArgumentNullException(nameof(terrain));
             Catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             Seed = seed;
@@ -385,6 +392,7 @@ namespace RealisticBases.Planning
         }
 
         public LayoutRequirements Requirements { get; }
+        public P4DQuestContract QuestContract { get; }
         public TerrainSnapshot Terrain { get; }
         public TechCatalog Catalog { get; }
         public ulong Seed { get; }
@@ -400,6 +408,7 @@ namespace RealisticBases.Planning
             ulong hash = StableHash.Start;
             hash = StableHash.Add(hash, ProceduralLayoutVersions.Planner);
             hash = StableHash.Add(hash, Requirements.Digest);
+            if (QuestContract != null) hash = StableHash.Add(hash, QuestContract.Digest);
             hash = StableHash.Add(hash, Terrain.Digest);
             hash = StableHash.Add(hash, Catalog.Digest);
             hash = StableHash.Add(hash, Resources.Digest);
@@ -523,13 +532,15 @@ namespace RealisticBases.Planning
                 for (int i = 0; i < barracks; i++)
                     wanted.Add(new KeyValuePair<LayoutRoomKind, int>(LayoutRoomKind.Barracks, r / barracks + (i < r % barracks ? 1 : 0)));
             }
-            Add(wanted, requirements, LayoutRoomKind.Jail, Math.Max(1, Ceil(r, 8)));
+            if (!requirements.CompactQuestCamp || requirements.Floor(LayoutRoomKind.Jail) > 0)
+                Add(wanted, requirements, LayoutRoomKind.Jail, requirements.CompactQuestCamp ? 1 : Math.Max(1, Ceil(r, 8)));
             Add(wanted, requirements, LayoutRoomKind.Medical, Math.Max(1, Ceil(r, 6)));
             Add(wanted, requirements, LayoutRoomKind.Kitchen, Ceil(r, 8));
             Add(wanted, requirements, kit.Refrigerated ? LayoutRoomKind.Freezer : LayoutRoomKind.Pantry, Math.Max(12, 6 * r));
             Add(wanted, requirements, LayoutRoomKind.Dining, r);
             // Every distinct craft bench once, then more benches up to the population target.
-            Add(wanted, requirements, LayoutRoomKind.Workshop, Math.Max(Math.Max(1, Ceil(r, 6)), kit.WorkshopDefs.Count));
+            if (!requirements.CompactQuestCamp)
+                Add(wanted, requirements, LayoutRoomKind.Workshop, Math.Max(Math.Max(1, Ceil(r, 6)), kit.WorkshopDefs.Count));
             // Generator fuel stock is stored physically: its stacks raise the storage demand.
             Add(wanted, requirements, LayoutRoomKind.Storage, Math.Max(12, 6 * r) + extraStorageCells);
 

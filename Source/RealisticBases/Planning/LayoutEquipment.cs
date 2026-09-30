@@ -89,7 +89,7 @@ namespace RealisticBases.Planning
             Powered = FurnishingRoles.Select(DefFor).Any(d => d != null && d.BasePowerConsumption > 0);
             CatalogDef cool = DefFor(SettlementRole.Cool);
             Refrigerated = requirements.Refrigerated && cool != null && cool.ThingClass == CoolerThingClass;
-            MortarCapable = requirements.Electric && catalog.IsLegal(MortarDefName, roles.Stage);
+            MortarCapable = !requirements.CompactQuestCamp && requirements.Electric && catalog.IsLegal(MortarDefName, roles.Stage);
             List<CatalogDef> workshop = new List<CatalogDef>();
             foreach (SettlementRole role in CraftRoles)
             {

@@ -59,7 +59,7 @@ Commit each validated step and record source findings, supported combinations an
 | Step | Scope | Evidence before completion | Status |
 |---|---|---|---|
 | P4D.0 | Native quest reproductions, exact support matrix, generation/holder/signal inventory and adapter boundary | Real Core bandit success/departure and guarded-rescue arrival/original-holder transfer; source/step/lifecycle inventory in findings; Release build 0 warnings/errors | Complete |
-| P4D.1 | Pure quest contract, deterministic requirements, authoritative roster/loot sizing and objective reservations | No ordinary wealth leakage, no roster truncation/resampling, protected objectives, low/high-point bounds and explicit native fallback fixtures | Pending |
+| P4D.1 | Pure quest contract, deterministic requirements, authoritative roster/loot sizing and objective reservations | Five focused pure fixtures, shared deterministic finite camp geometry, 17-pawn/no-minimum-four preservation, exact strategy boundaries and objective reservation; Release clean | Complete |
 | P4D.2 | Bandit-camp integration, scoped garrison and reversible generation | Real quest accepts/arrives/completes/rewards/leaves; rejection and partial rollback run native fallback once; active reload preserves state | Pending |
 | P4D.3 | Guarded prisoner-rescue integration and borrowed-object recovery | Original prisoner identity/ownership and rescue/failure behavior; no second prison/target; late rollback returns holder exactly; reload and departure behavior | Pending |
 | P4D.4 | Supported-combination matrix, regression, documentation and closeout | Representative terrain/tech and available GL, unsupported/competing generators untouched, lifecycle outcomes, full relevant suites/build and recorded limitations | Pending |

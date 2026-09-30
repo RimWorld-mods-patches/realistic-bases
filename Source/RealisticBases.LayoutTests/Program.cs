@@ -26,6 +26,11 @@ internal static partial class Program
         if (selected >= 0 && selected + 1 < args.Length) only = args[selected + 1];
         Stopwatch watch = Stopwatch.StartNew();
         Run("seed derivation is stable and purpose-separated", SeedDerivation);
+        Run("P4D strategies require whole native compositions", QuestStrategies);
+        Run("P4D preserves authoritative roster and deterministic budgets", QuestRosterContracts);
+        Run("P4D reserves the original prisoner separately", QuestObjectiveContracts);
+        Run("P4D compact camps use shared geometry without ordinary gear", QuestCampLayouts);
+        Run("P4D unusable terrain rejects without changing inputs", QuestCampRejection);
         Run("P4C finishes are deterministic, whole-room, protected and budgeted", P4CFinishPolicy);
         Run("ordinary population follows wealth budgets with mean seven", OrdinaryPopulationBudgets);
         Run("ordinary population remains stable and preserves legacy saves", OrdinaryPopulationPersistence);

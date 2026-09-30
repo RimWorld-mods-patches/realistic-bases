@@ -233,6 +233,7 @@ namespace RealisticBases.Planning
         public static SettlementLoadout Build(ProceduralLayoutInput input, ProceduralLayout layout)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
+            if (input.QuestContract != null) return input.QuestContract.DescribeLoadout(input.Equipment.Kit.Stage);
             return Build(input.Requirements, input.Equipment.Kit, input.Catalog, LayoutSeed.Sub(input.Seed, "loadout"),
                 layout == null || layout.Power == null ? 0 : layout.Power.Generators, layout != null && layout.Court != null);
         }

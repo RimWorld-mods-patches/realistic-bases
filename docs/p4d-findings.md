@@ -1,6 +1,6 @@
 # P4D quest-location findings
 
-2026-10-01 · P4D.0 baseline complete; P4D.1–P4D.4 open
+2026-10-01 · P4D.0–P4D.1 complete; P4D.2–P4D.4 open
 
 ## Native Core baseline
 
@@ -86,3 +86,34 @@ threats and all other unknown compositions still stay native.
 
 P4D.0 adds only disposable native-validation tools and this evidence; production
 quest routing remains native until the subsequent checkpoints.
+
+## P4D.1 pure contracts and camp requirements
+
+Added `IQuestLayoutStrategy` with exact bandit and guarded-rescue strategies.
+The immutable contract contains complete native roster/gear facts, site and
+group seed, actual loot stack reservation and protected-target identity facts.
+It rejects unsupported owners/compositions/arrivals, missing holders, duplicate
+roster IDs and target inclusion. `expectedEnemyCount` remains descriptive;
+the actual roster sets all housing and supply capacities. Counts below four and
+above twelve are retained. The explicit implementation bound is32, beyond which
+native routing is required without resampling/truncation.
+
+The deliberate compact finite camp profile removes fields, workshops and
+unneeded elimination prison cells. Guarded rescue reserves the existing Jail
+and PrisonBed. It disallows mortar courts and added static defenses in v1.
+Construction/import allowance is explicitly `ceil(threatPoints ×12)`; finite
+operating-stock allowance is `ceil(threatPoints ×2)`. Those provisional numbers
+are separate from the original loot allowance and native gear value, with no
+ordinary wealth roll. Runtime must enforce them; P6 balance remains open.
+Native equipment is described by the actual roster and is not recreated,
+rerolled or graded against ordinary gear-role/climate rules. Ordinary input
+digests and requirements keep their existing behavior when no quest contract
+is supplied.
+
+Five focused P4D fixtures passed, including complete deterministic bandit/rescue
+geometry through the shared planner, native seventeen-pawn/no-minimum-four
+contracts, unsupported composition/arrival/faction, original-prisoner reservation,
+and zero-mutation unusable terrain fallback. The ordinary population-budget test
+also passed. Production Docker Release build: zero warnings/errors. Full suites
+and live adapters are later checkpoints; P4D.1 does not enable production quest
+generation.
