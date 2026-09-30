@@ -195,19 +195,20 @@ Implement P4C.0 definition/transaction inspection, P4C.1 pure finish policy, P4C
 3. The workshop desks (and possibly others) do not have a chair or a stool by their side. Chairs and stools should be correctly oriented. Currently for dining tables they are not.
 4. Medicine should also be stored on a shelf.
 5. Mortar position improvements. The shells should be stored in a separate micro warehouse near the mortar post. It should be 1x1 warehouse with a small cabinet and a door (roofed). This is a safety measure plus it reduces reload time. Settlements with more than 8 pawns can have up to 3 mortars (9 -> <=2, 10+ -> <=3).
-```
-Mortar position
-
-____
-_XX_
-_OX_
-#@__
-
-# — shell storage
-
-@ — pawn
-O — tile indicating the mortar's operating-side orientation
-```
+    ```
+    Mortar position
+    
+    ____
+    _XX_
+    _OX_
+    #@__
+    
+    # — shell storage
+    
+    @ — pawn
+    O — tile indicating the mortar's operating-side orientation
+    ```
+6. Increase the defense budget, we need more turrets. Also make big auto turret available for the relevant settlements.
 
 ### P5 — Encounter supplies, trade stock, and persistent consequences
 
