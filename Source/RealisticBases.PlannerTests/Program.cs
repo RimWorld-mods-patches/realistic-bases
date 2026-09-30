@@ -63,6 +63,7 @@ internal static class Program
         Run("P3 breached wall and threat memory rank deterministically", P3WallBreachAndMemory);
         Run("P3 wall-threat assignment requires an actual firing lane", P3WallThreatUsesFiringLane);
         Run("P3 funded mortar and mobile reserve staffing remains exclusive", P3FundedReserveAndMortar);
+        Run("P3 reserves a mortar post before earlier pawn ids are assigned", P3MortarPostReservation);
         Run("P3 reinforcement audits the whole route under fire", P3ReinforcementRouteUnderFire);
         Run("P3 field penetration holds compound entrances before inner defeat", P3FieldToCompoundFallback);
         Run("P3 industrial encounter plan is deterministic and valid", P3IndustrialEncounterPlanIsDeterministicAndValid);
@@ -781,6 +782,26 @@ internal static class Program
         Equal(4, lost.Assignments.Count, "operator loss does not create a replacement pawn");
         Equal(1, lost.Assignments.Count(a => a.Role == GarrisonRole.MortarOperator),
             "another compatible funded defender takes the mortar");
+    }
+
+    private static void P3MortarPostReservation()
+    {
+        DefenderCandidate[] defenders = {
+            new DefenderCandidate(1, DefenderWeaponClass.LongRanged, 30, true, false, false, false, false),
+            new DefenderCandidate(2, DefenderWeaponClass.ShortRanged, 12, true, false, false, false, false)
+        };
+        DefensivePost[] posts = {
+            new DefensivePost("mortar", "center", new GridPoint(20, 20), 0, 100,
+                false, true, true, true, false, true),
+            new DefensivePost("north", "north", new GridPoint(15, 10), 8, 25,
+                true, true, true, false, false, true)
+        };
+        GarrisonPlan plan = GarrisonDoctrine.Assign(new GarrisonSituation(1000, defenders, posts,
+            true, "center", false, true, true, new GridPoint(16, 16), new GridPoint(17, 17)));
+        Equal("mortar", plan.Assignments.Single(a => a.DefenderId == 2).PostId,
+            "funded short-range operator retains reserved mortar post");
+        True(plan.Assignments.Single(a => a.DefenderId == 1).PostId != "mortar",
+            "earlier pawn id cannot claim the same physical mortar post");
     }
 
     private static void P3ReinforcementRouteUnderFire()

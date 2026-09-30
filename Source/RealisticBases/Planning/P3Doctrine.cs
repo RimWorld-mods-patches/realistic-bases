@@ -163,6 +163,9 @@ namespace RealisticBases.Planning
             Reason = reason ?? string.Empty;
             if (Assignments.GroupBy(a => a.DefenderId).Any(g => g.Count() != 1))
                 throw new ArgumentException("A defender may have only one assignment.");
+            if (Assignments.Where(a => a.PostId.Length > 0).GroupBy(a => a.PostId, StringComparer.Ordinal)
+                .Any(g => g.Count() != 1))
+                throw new ArgumentException("A post may have only one simultaneous defender.");
         }
 
         public GarrisonState State { get; }
@@ -256,6 +259,7 @@ namespace RealisticBases.Planning
                 .OrderBy(d => d.PreviousRole == GarrisonRole.MortarOperator ? 0 : 1)
                 .ThenBy(d => d.WeaponClass == DefenderWeaponClass.LongRanged)
                 .ThenBy(d => d.WeaponRange).ThenBy(d => d.Id).FirstOrDefault();
+            if (mortarOperator != null) occupied.Add(mortarPost.Id);
             DefenderCandidate mobileReserve = state == GarrisonState.Routine || state == GarrisonState.InnerFallback ||
                 situation.Defenders.Count(d => !d.NeedsRelief) < 5 ? null : situation.Defenders
                 .Where(d => d.Id != mortarOperator?.Id && !routineSupport.Contains(d.Id) && !d.NeedsRelief &&
