@@ -167,9 +167,15 @@ Borrow only lightweight fortification ideas: coverage of approaches, reduced bli
 
 ### P4C — Visually realistic bases
 
-Currently the base doesn't have good floors, rock walls are not polished, we need to improve the look of the settlement.
+**Depends on:** the production P4/P4A layout and P4B's final geometry/route contracts. **Status:** planned and authorized as the next assignment after P4B; preserve its completed implementation and behavior. Detailed scope and checkpoints: [P4C visual plan](p4c-visual-plan.md).
 
-Exit: TBD by Astra
+Add a bounded finishing pass: coherent floors by room function, a small faction/stage/local-material/wealth palette, selected existing circulation paths and thresholds, and safe smoothing of eligible retained rock walls and floors inside excavated rooms. Prioritize practical interiors before optional domestic accents; sterile floors and luxury finishes require actual legality and budget. Keep crops, water, exterior mountain faces and unrelated terrain intact. Preserve generated geometry, population, equipment, defenses, roof support and job/public/service access.
+
+Plan finishes deterministically after geometry is fixed and apply them within the shared spawn transaction. Account for construction/import value without consuming operating/trade reserves twice. Extend explicit mutation ownership and rollback to terrain layers and retained-rock conversions; audit approved changes without disabling unowned terrain/rock preservation. Unsupported or unaffordable finishes downgrade or omit with reasons. P4E retains laboratories, temperature-control gaps, seating and storage adjustments; P4C does not add a new decorating framework or economy simulator.
+
+Implement P4C.0 definition/transaction inspection, P4C.1 pure finish policy, P4C.2 transactional integration/recovery and P4C.3 visual/live/reload validation, committing each validated checkpoint. Record before/after or same-layout overlay evidence for industrial open ground, mountain interiors and a modest tribal settlement, plus protected crop/water boundaries and representative available GL compatibility.
+
+**Exit:** visibly coherent, affordable room/path finishes and safe interior rock smoothing on the production generator; preserved terrain, crops, roofs, circulation and defense behavior; deterministic planning, exact forced rollback/retry and active save/reload; representative visual/mechanical evidence and documented omissions. Full unload/revisit persistence remains P5. P4C does not close incomplete neighboring milestones.
 
 ### P4D — Quest-location support
 

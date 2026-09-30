@@ -1,6 +1,6 @@
 # Realistic Bases: progress tracker
 
-Updated: 2026-09-29
+Updated: 2026-09-30
 
 ## Current state
 
@@ -24,7 +24,7 @@ Verification: complete LayoutTests (132,637 ms) and PlannerTests suites pass wit
 | P4 — Terrain variety and environmental integration | In progress | Finish terrain/environment checks on the P4A procedural generator; defensive layout moves to P4B |
 | P4A — Procedural settlement layouts | In progress | Core flat/mountain/foothill, three-layer gate bands (not complete exterior layers), forced rollback, cooler-room audit, and P3 save/reload pass; lakeshore, climate, tribal, and optional-mod matrix remain |
 | P4B — Defensive layout planner | In progress | All four exposed sides have live placement/access evidence for short gate-side projections/shared corners. A Core live run accepted four turrets in two supported groups with shared power, finite stocks and legal pawn/service paths; pure richer fixtures select six guns. Both suites pass, retaining 12/12 flat-clutter acceptance. Actual mutual support, measured cover, protected maintenance and the full live matrix remain open. See [P4B findings](p4b-findings.md) |
-| P4C — Visually realistic bases | Planned | Existing milestone retained from `codex/p4-connectivity`: improve floors and polish rock walls; exit criteria still to be defined |
+| P4C — Visually realistic bases | Planned; implementation authorized | Coherent room/path finishes and selected interior rock smoothing, bounded materials, transactional terrain/rock recovery, visual and live validation. See [P4C visual plan](p4c-visual-plan.md); no implementation evidence yet |
 | P4D — Quest-location support | Planned | Bounded quest-site adapters preserving threat points, occupants, objectives, rewards, signals and lifecycle; ordinary population policy must not override quest rosters. See [implementation plan](implementation-plan.md#p4d--quest-location-support) |
 | P5 — Encounter supplies, trade stock, and persistent consequences | Not started | Bounded reserves, trade consistency, no-duplication persistence, and accessible/separate hazardous stock placement where justified; full sustainability deferred |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage; add route diagnostics, evidence-driven soft-preference tuning, reproducibility and encounter-quality review |
@@ -141,6 +141,17 @@ The [simulation-review additions](p4b-defense-plan.md#adopted-simulation-review-
 
 Preserve the population policy and existing resource limits. The simulation's eight-gun threshold, blanket spending increase, unlimited intercept walks and reduced shell reserves are not adopted. P5/P6 retain supply sizing and balance; simulator expansion is not a new P4B release prerequisite.
 
+## P4C committed checklist
+
+Detailed requirements and acceptance: [P4C visual plan](p4c-visual-plan.md). This finishing pass preserves P4A/P4B geometry and leaves P4E's facility additions separate. Commit each validated checkpoint and record findings; retain prior milestone evidence and preserve the completed P4B implementation.
+
+| Step | Scope | Validation gate | Status |
+|---|---|---|---|
+| P4C.0 | Resolve Core finish/smoothing definitions and transaction/ownership contract | Supported palette, legality/cost assumptions, baseline and recovery design documented | Pending |
+| P4C.1 | Deterministic room/path palette, smoothing selections and bounded finish accounting | Protected cells, stage/material/budget legality, unchanged layout/loadout, deterministic downgrade/omission fixtures | Pending |
+| P4C.2 | Transactional terrain-layer/rock mutations and final audits | Relevant pure suites/build; exact forced rollback after floors and smoothing, successful retry; paths/roofs/crops preserved | Pending |
+| P4C.3 | Visual/live/reload/compatibility closeout | Industrial flat, mountain and tribal examples; crop/water boundary, screenshots, active reload and representative available GL evidence | Pending |
+
 ## Future planning update — 2026-09-24
 
 The user accepted the bounded ideas from the [colleague-design review](colleague-design-review.md) for future milestones. P5 handles justified hazardous-stock separation while preserving reserve/trade ownership. P6 measures important actual routes before changing soft preferences or bounded candidate scoring, and reviews encounter quality with reproducible inputs. Existing connectivity and functional constraints remain mandatory; no global optimizer, new broad room catalog or Multiplayer work is added.
@@ -151,6 +162,7 @@ P7 is the final planned milestone, after the P6 MVP release: agriculture/industr
 
 | Date | Update |
 |---|---|
+| 2026-09-30 | Expanded and authorized P4C: coherent room and path finishes, small legal material palettes, selected interior rock smoothing, explicit terrain/rock ownership and rollback, visual/live/reload acceptance and separate commit checkpoints. P4E facility changes remain separate; the user reports P4B done and its implementation is merged at `49da3a4`, making P4C the next assignment. |
 | 2026-09-30 | Added field-to-compound fallback using existing accessible main-gate posts, with a pure firing-lane check through the opened crossing. P3 distinguishes present field and compound intruders, assigns short-range defenders to the relevant compound gate after field entry without abandoning other viable outer posts, and enters inner fallback only after compound entry or loss of outer posts. It persists and logs field penetration, compound penetration and garrison defeat as separate outcomes. Synthetic doctrine and real generated-layout fallback fixtures, full PlannerTests and Docker Release build pass; live gate/raid/reload evidence remains open. |
 | 2026-09-30 | P4B turret scoring now accounts for actual resident weapon ranges and exclusive staffed sniper/line posts. The bounded candidate sort values useful uncovered and overlapping shots, exposure and gate response before a new-front tie break; the existing budget, blast, power, path, cover and heavy blind-zone checks still run. On the same four-resident IndustrialLate flat fixture, the old four-group/five-gun plan required one marksman at separate east, south and north posts; the new two-group/three-gun plan shares one eastern marksman position and passes concurrent guard/close-support checks. It spends 3364 rather than 4580 import value, covers fewer approach samples (318 uncovered versus 160), and leaves south/north/west to their pawn posts. This is an honest staffing tradeoff, not a stronger overall defense claim. Focused placement/network/high-industrial flat-clutter tests and Docker Release build pass. |
 | 2026-09-30 | Added a route-wide reinforcement audit with 100-cell total, 12-cell exterior and eight-cell hostile-exposure limits, including opened gates on the route. P3 now stages one funded mobile reserve near an internal gate when staffing permits, sends it to a free threatened post after observed wall pressure and a safe route check, and reserves a separate compatible mortar operator. Persisted assignment destinations fix reserve and fallback hold jobs; retained assignments keep their original cooldown tick. Pure route/staffing/casualty fixtures and Docker Release build pass; live movement and mortar operation remain open. |
