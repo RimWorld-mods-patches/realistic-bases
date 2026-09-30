@@ -125,6 +125,22 @@ The 2026-09-23 scope change supersedes the earlier ordering that deferred P4A un
 | P4B.3 | P3 positions, power, finite turret reloads and budget integration | Stage legality; runtime fire, outage, depletion/rearm, breach/fallback and reload evidence | In progress: the one-group cap is replaced with a bounded coordinated network sharing power/construction/loaded-ammunition/reserve budgets and preserving earlier paths/lanes. Pure default/rich fixtures select four/six guns; a Core live run accepted four guns on one power net with finite stocks and legal pawn/service routes. Final path-data synchronization and shared field-conduit reservation are in place; exact earlier-rejection replay remains unproved. Firing, cover, outage, depletion/rearm, breach/fallback and save/reload remain open. |
 | P4B.4 | Core/GL terrain, player raid and recovery closeout | Representative live matrix, forced rollback, no traps/IEDs, separate remaining P4/P4A gates | Pending |
 
+### P4B adopted review tasks — 2026-09-30
+
+The [simulation-review additions](p4b-defense-plan.md#adopted-simulation-review-work--2026-09-30) extend the open P4B steps. Existing evidence above does not complete these tasks. Commit each validated implementation step separately.
+
+| Parent step | Added task | Status |
+|---|---|---|
+| P4B.3 | Detect attacked wall/gate segments and breaches; resist decoy-driven reassignment and retain cooldowns | Pending |
+| P4B.3 | Stage a funded mobile reserve and reinforce through bounded, protected routes; retain safe relief and fallback | Pending |
+| P4B.2–P4B.3 | Allocate actual compatible defenders, mortar crew and reserve; distinguish concurrent staffing from alternative posts and handle staff loss | Pending |
+| P4B.2 | Rank turret groups by staffed mutual support and vulnerable approaches; compare concentration/spread at fixed budget without weakening blast/path rules | Pending |
+| P4B.2–P4B.4 | Provide field-to-compound fallback and report field penetration, compound penetration and garrison defeat separately | Pending |
+| P4B.3–P4B.4 | Validate staffed mortar/long-range support against stationary attackers, finite stocks and operator loss | Pending |
+| P4B.4 | Run matched comparisons and live wall-assault, feint/split-front, sniper, reinforcement-under-fire and fallback/reload cases | Pending |
+
+Preserve the population policy and existing resource limits. The simulation's eight-gun threshold, blanket spending increase, unlimited intercept walks and reduced shell reserves are not adopted. P5/P6 retain supply sizing and balance; simulator expansion is not a new P4B release prerequisite.
+
 ## Future planning update — 2026-09-24
 
 The user accepted the bounded ideas from the [colleague-design review](colleague-design-review.md) for future milestones. P5 handles justified hazardous-stock separation while preserving reserve/trade ownership. P6 measures important actual routes before changing soft preferences or bounded candidate scoring, and reviews encounter quality with reproducible inputs. Existing connectivity and functional constraints remain mandatory; no global optimizer, new broad room catalog or Multiplayer work is added.
@@ -135,6 +151,7 @@ P7 is the final planned milestone, after the P6 MVP release: agriculture/industr
 
 | Date | Update |
 |---|---|
+| 2026-09-30 | Adopted the bounded defense-simulation review ideas into P4B.2–P4B.4: segment threats, mobile reserve, actual staffing, supporting-group scoring, compound fallback and live long-range validation. Added pending tracker tasks and matched/live acceptance checks; no implementation or completion claim, population/budget change or new simulator prerequisite. |
 | 2026-09-14 | Completed design/feasibility work and started P0 on baseline `0f12114`. |
 | 2026-09-14 | Added the P0 scaffold and probes; Docker build and isolated startup smoke tests passed. |
 | 2026-09-19 | Corrected the Harmony reference to the installed 2.4.1 runtime; observed hostile work, save/load, Core generation, recovery, re-entry, and defeat behavior. |
