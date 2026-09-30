@@ -1400,6 +1400,20 @@ internal static partial class Program
         True(defense.Posts.All(p => p.CoverCells.Count == 5 && p.Route.Count == 6 &&
             result.Layout.BuiltWalls.Contains(p.WallReturn)),
             "new side posts have connected returns, front/flank screens and six-cell gate access");
+        HashSet<GridPoint> slotOpaque = P4BApproachDefensePlanner.Opaque(result.Layout, terrain);
+        True(defense.Posts.Any(p => P4BApproachDefensePlanner.FiringSlots(p, defense.Sides, slotOpaque).Count > 1),
+            "the same long barricade offers multiple distinct firing cells");
+        True(defense.Posts.All(p => P4BApproachDefensePlanner.FiringSlots(p, defense.Sides, slotOpaque)
+            .All(c => p.Route.Contains(c) && p.CoverCells.Contains(new GridPoint(
+                c.X + p.Outward.X, c.Z + p.Outward.Z)))),
+            "every added firing cell is on the protected, reserved access lane");
+        P4BPerimeterPost recoverable = defense.Posts.First();
+        IReadOnlyList<GridPoint> recovered = P4BApproachDefensePlanner.RecoverLegacySlots(
+            recoverable.AccessGate, recoverable.Cell, recoverable.CoverCells);
+        Equal(2, recovered.Count, "an old saved terminal post recovers two screened route cells");
+        Equal(0, P4BApproachDefensePlanner.RecoverLegacySlots(recoverable.AccessGate,
+            new GridPoint(recoverable.Cell.X + 1, recoverable.Cell.Z), recoverable.CoverCells).Count,
+            "unrecognized legacy geometry invents no firing positions");
         HashSet<GridPoint> publicCells = new HashSet<GridPoint>(ProceduralLayoutValidator.PublicCirculation(input, result.Layout));
         True(defense.SallyPorts.Where(p => !p.Field).All(p => publicCells.Contains(p.Inside) && !result.Layout.BuiltWalls.Contains(p.Cell) &&
             !result.Layout.Rooms.Any(r => r.Bounds.Contains(p.Cell))),

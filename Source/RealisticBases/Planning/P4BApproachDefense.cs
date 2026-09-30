@@ -394,7 +394,8 @@ namespace RealisticBases.Planning
             // A side may be supported by both field flanks or a neighboring
             // corner. Register every real, covered position with useful shots,
             // so the garrison and gun planner use the same physical inventory.
-            var available = posts.Select(p => new { p.Cell, Cover = p.CoverCells.AsEnumerable() })
+            var available = posts.SelectMany(p => FiringSlots(p, sides, opaque)
+                    .Select(c => new { Cell = c, Cover = p.CoverCells.AsEnumerable() }))
                 .Concat((layout.FieldWall?.UsablePosts ?? new GridPoint[0]).Select(c =>
                     new { Cell = c, Cover = layout.FieldWall.CoverCells.AsEnumerable() })).ToList();
             sides = sides.Select(s => new P4BAttackSide(s.Id, s.Outward, s.Faces, s.Samples, s.Post,
@@ -432,6 +433,43 @@ namespace RealisticBases.Planning
         }
 
         internal static int UsefulArc(int sampleCount) => Math.Max(4, (int)Math.Ceiling(sampleCount * 0.35));
+
+        // A five-cell screen protects three already-reserved, traversable
+        // standing cells. The former garrison exposed only its terminal cell,
+        // leaving funded shooters piled up at the support center.
+        public static IReadOnlyList<GridPoint> FiringSlots(P4BPerimeterPost post,
+            IEnumerable<P4BAttackSide> sides, IReadOnlyCollection<GridPoint> opaque)
+        {
+            List<P4BAttackSide> fronts = (sides ?? Enumerable.Empty<P4BAttackSide>())
+                .Where(s => s.Exposed && (s.Id == post.Side || s.Positions.Contains(post.Cell))).ToList();
+            return post.Route.Skip(Math.Max(0, post.Route.Count - 3))
+                .Where(c => post.CoverCells.Contains(new GridPoint(c.X + post.Outward.X,
+                    c.Z + post.Outward.Z)) && fronts.Any(s => s.Samples.Count(target =>
+                    P4BFireLane.CanEngage(c, target, 8, 25, opaque)) >= 4))
+                .Distinct().OrderBy(c => c.Equals(post.Cell) ? 0 : 1)
+                .ThenBy(c => Math.Abs(c.X - post.Cell.X) + Math.Abs(c.Z - post.Cell.Z))
+                .ThenBy(c => c).ToList();
+        }
+
+        // The old save format kept only the terminal post, access gate and
+        // physical screen. Recover the two earlier covered cells only when
+        // those facts match the exact six-cell sally-port geometry.
+        public static IReadOnlyList<GridPoint> RecoverLegacySlots(GridPoint gate, GridPoint post,
+            IReadOnlyCollection<GridPoint> cover)
+        {
+            foreach (GridPoint outward in Directions)
+            {
+                GridPoint tangent = new GridPoint(-outward.Z, outward.X);
+                foreach (int flank in new[] { -1, 1 })
+                {
+                    if (!post.Equals(At(gate, outward, tangent, 2, flank * 3))) continue;
+                    return Enumerable.Range(1, 2).Select(n => At(gate, outward, tangent, 2, flank * n))
+                        .Where(c => cover.Contains(new GridPoint(c.X + outward.X, c.Z + outward.Z)))
+                        .ToList();
+                }
+            }
+            return new GridPoint[0];
+        }
 
         internal static int CoveredSamples(P4BAttackSide side, HashSet<GridPoint> opaque) =>
             side.Samples.Count(c => side.Positions.Any(p => P4BFireLane.CanEngage(p, c, 8, 25, opaque)));
@@ -548,7 +586,8 @@ namespace RealisticBases.Planning
                 if (side.Post.HasValue && side.Samples.Count(c =>
                     P4BFireLane.CanEngage(side.Post.Value, c, 8, 25, opaque)) < 4)
                     errors.Add("attack_side_post_no_fire");
-                if (side.Positions.Any(p => (!plan.Posts.Any(post => post.Cell.Equals(p)) &&
+                if (side.Positions.Any(p => (!plan.Posts.Any(post =>
+                    FiringSlots(post, plan.Sides, opaque).Contains(p)) &&
                     !(layout.FieldWall?.UsablePosts.Contains(p) ?? false)) ||
                     !side.Faces.Any(face => Math.Abs(face.X - p.X) + Math.Abs(face.Z - p.Z) <= 6) ||
                     !plan.CoverCells.Concat(layout.FieldWall?.CoverCells ?? new GridPoint[0])

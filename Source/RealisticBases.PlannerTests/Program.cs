@@ -63,6 +63,7 @@ internal static class Program
         Run("P3 breached wall and threat memory rank deterministically", P3WallBreachAndMemory);
         Run("P3 wall-threat assignment requires an actual firing lane", P3WallThreatUsesFiringLane);
         Run("P3 funded mortar and mobile reserve staffing remains exclusive", P3FundedReserveAndMortar);
+        Run("P3 fills distinct inner gate posts before idling extra defenders", P3InnerGatePostsBeforeIdleReserve);
         Run("P3 reserves a mortar post before earlier pawn ids are assigned", P3MortarPostReservation);
         Run("P3 reinforcement audits the whole route under fire", P3ReinforcementRouteUnderFire);
         Run("P3 field penetration holds compound entrances before inner defeat", P3FieldToCompoundFallback);
@@ -639,6 +640,8 @@ internal static class Program
         int savedGuard = P3PostFlags.Encode(posts[0]);
         Equal(35, P3PostFlags.MinimumRange(savedGuard), "sniper eligibility survives the saved post flag");
         Equal(44, P3PostFlags.MaximumRange(savedGuard), "sniper range survives the saved post flag");
+        Equal(8, P3PostFlags.MinimumRange(P3PostFlags.SecondaryScreen(savedGuard)),
+            "adjacent screened cells accept ordinary shooters without claiming sniper coverage");
         Equal(8, P3PostFlags.MinimumRange(0), "older ordinary post flags retain legacy eligibility");
         Equal(48, P3PostFlags.MaximumRange(0), "older ordinary post flags retain legacy range");
     }
@@ -802,6 +805,28 @@ internal static class Program
             "funded short-range operator retains reserved mortar post");
         True(plan.Assignments.Single(a => a.DefenderId == 1).PostId != "mortar",
             "earlier pawn id cannot claim the same physical mortar post");
+    }
+
+    private static void P3InnerGatePostsBeforeIdleReserve()
+    {
+        DefenderCandidate[] defenders = Enumerable.Range(1, 8)
+            .Select(id => new DefenderCandidate(id, DefenderWeaponClass.ShortRanged, 25,
+                false, false, false, false, false)).ToArray();
+        DefensivePost[] posts = Enumerable.Range(0, 3)
+            .Select(i => new DefensivePost("outer-" + i, "west", new GridPoint(i, 10), 8, 25,
+                true, true, true, false, false, true))
+            .Concat(Enumerable.Range(0, 4).Select(i => new DefensivePost("gate-" + i,
+                "west", new GridPoint(i, 12), 0, 3, false, true, true, false, true, true)))
+            .ToArray();
+        GarrisonPlan plan = GarrisonDoctrine.Assign(new GarrisonSituation(1000, defenders, posts,
+            true, "west", false, true, true, new GridPoint(4, 11), new GridPoint(4, 12),
+            reserveStage: new GridPoint(5, 11)));
+        Equal(3, plan.Assignments.Count(a => a.PostId.StartsWith("outer-", StringComparison.Ordinal)),
+            "all exterior posts are staffed first");
+        Equal(4, plan.Assignments.Count(a => a.PostId.StartsWith("gate-", StringComparison.Ordinal)),
+            "spare shooters take distinct funded inner gate posts");
+        Equal(1, plan.Assignments.Count(a => a.Role == GarrisonRole.GateReserve && a.PostId.Length == 0),
+            "only the deliberate mobile reserve remains unposted");
     }
 
     private static void P3ReinforcementRouteUnderFire()
