@@ -26,6 +26,7 @@ internal static partial class Program
         if (selected >= 0 && selected + 1 < args.Length) only = args[selected + 1];
         Stopwatch watch = Stopwatch.StartNew();
         Run("seed derivation is stable and purpose-separated", SeedDerivation);
+        Run("P4C finishes are deterministic, whole-room, protected and budgeted", P4CFinishPolicy);
         Run("ordinary population follows wealth budgets with mean seven", OrdinaryPopulationBudgets);
         Run("ordinary population remains stable and preserves legacy saves", OrdinaryPopulationPersistence);
         Run("ordinary population reserves facility and circulation space upfront", OrdinaryPopulationReservation);
@@ -2225,6 +2226,77 @@ internal static partial class Program
     }
 
     // ---- helpers ----
+
+    private static void P4CFinishPolicy()
+    {
+        P4CFloorDef[] finishes =
+        {
+            new P4CFloorDef("WoodPlankFloor", 4, 3), new P4CFloorDef("Concrete", 2),
+            new P4CFloorDef("PavedTile", 4), new P4CFloorDef("TileGranite", 12),
+            new P4CFloorDef("SterileTile", 35)
+        };
+        TerrainSnapshot ground = Plains(120);
+        ProceduralLayoutInput input = new ProceduralLayoutInput(
+            LayoutRequirements.FromPopulation(7, Industrial, Temperate,
+                stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialMid)), ground, 0x4cUL,
+            CoreCatalog, resources: new LayoutLocalResources(1200, new[] { "BlocksGranite" }));
+        ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+        Accepted(result);
+        string layoutDigest = result.Layout.Digest, inputDigest = input.Digest;
+        GridPoint water = new GridPoint(2, 2);
+        HashSet<GridPoint> eligible = new HashSet<GridPoint>(ground.Points().Where(c => !c.Equals(water)));
+        P4CFinishSite site = new P4CFinishSite(eligible);
+        P4CFinishPlan first = P4CFinishPlanner.Plan(input, result.Layout, site, finishes);
+        P4CFinishPlan again = P4CFinishPlanner.Plan(input, result.Layout, site, finishes);
+        Equal(first.Digest, again.Digest, "same input replays finish digest");
+        Equal(layoutDigest, result.Layout.Digest, "finish plan leaves geometry and equipment digest unchanged");
+        Equal(inputDigest, input.Digest, "finish plan does not mutate its input");
+        True(first.ImportValue <= first.Allowance, "finishes do not consume defense/facility funds");
+        True(!first.Floors.ContainsKey(water), "unsupported/protected terrain stays untouched");
+        True(!first.Floors.Keys.Intersect(result.Layout.FieldWall?.Fields ?? new GridPoint[0]).Any(),
+            "unroofed crops remain ground");
+        True(first.Floors.Keys.Intersect(result.Layout.Corridors.SelectMany(c => c.Cells)).Any(),
+            "planned outdoor paths inside the perimeter receive floor");
+        List<GridPoint> fieldRoute = result.Layout.FieldWall.ArrivalRoute
+            .TakeWhile(c => !c.Equals(result.Layout.FieldWall.OuterGate))
+            .Concat(new[] { result.Layout.FieldWall.OuterGate }).ToList();
+        True(fieldRoute.All(first.Floors.ContainsKey),
+            "every supported cell on the gate-to-gate field path receives floor");
+        True(first.Floors.ContainsKey(result.Layout.Gates[result.Layout.FieldWall.GateIndex].Cell),
+            "the compound gate has no unfloored seam in the field approach");
+        HashSet<GridPoint> gateCrossings = new HashSet<GridPoint>(result.Layout.Gates.SelectMany(g =>
+            g.OuterVestibule.Concat(g.BandDoors).Concat(new[] { g.Cell })));
+        True(first.Floors.Keys.All(c => result.Layout.Enclosure.Contains(c) || fieldRoute.Contains(c) || gateCrossings.Contains(c)),
+            "outside paths beyond both wall perimeters stay natural");
+        True(!first.Floors.Keys.Intersect(result.Layout.FieldWall.Fields).Any(),
+            "the field path does not pave crop cells");
+        foreach (LayoutRoom room in result.Layout.Rooms)
+        {
+            int count = room.Interior.Points().Count(first.Floors.ContainsKey);
+            True(count == 0 || count == room.Interior.Points().Count(),
+                "room " + room.Id + " is finished coherently or omitted");
+        }
+        P4CFinishPlan unavailable = P4CFinishPlanner.Plan(input, result.Layout, site, new P4CFloorDef[0]);
+        Equal(0, unavailable.Floors.Count, "unsupported definitions cause omission, not rejection");
+        True(unavailable.Reasons.Any(r => r.Contains("no_legal_affordable_finish")), "omission is diagnosed");
+
+        TerrainSnapshot mountain = Mountain(130, 110);
+        ProceduralLayoutInput tribal = Input(mountain, LayoutRequirements.FromPopulation(6, Tribal, Cold), 4);
+        ProceduralLayoutResult tribalResult = ProceduralLayoutPlanner.Plan(tribal);
+        Accepted(tribalResult);
+        P4CFinishSite mountainSite = new P4CFinishSite(mountain.Points().Where(c =>
+            mountain[c].Has(TerrainTraits.SupportsHeavy) && !mountain[c].Has(TerrainTraits.Water)),
+            smoothWalls: tribalResult.Layout.NaturalWalls.Select(c =>
+                new KeyValuePair<GridPoint, string>(c, "SmoothedGranite")));
+        P4CFinishPlan tribalFinish = P4CFinishPlanner.Plan(tribal, tribalResult.Layout, mountainSite, finishes);
+        True(tribalFinish.Floors.Values.All(name => name == "WoodPlankFloor"),
+            "poor tribal profile gets no industrial or luxury floor");
+        True(tribalFinish.ImportValue <= tribalFinish.Allowance, "tribal finishes remain bounded");
+        True(tribalFinish.Walls.Keys.All(tribalResult.Layout.NaturalWalls.Contains),
+            "only retained planned natural boundaries are smoothed");
+        True(tribalFinish.Walls.Keys.All(c => !tribalResult.Layout.Excavation.Contains(c)),
+            "excavated rock is never converted twice");
+    }
 
     private static ProceduralLayoutInput Input(TerrainSnapshot terrain, LayoutRequirements requirements, ulong seed,
         LayoutFortificationReservation fortification = null) => new ProceduralLayoutInput(requirements, terrain, seed, CoreCatalog, fortification);
