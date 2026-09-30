@@ -182,6 +182,14 @@ Exit: TBD by Astra
 
 **Exit:** a documented supported-quest matrix whose generated sites preserve their original threat/occupant/objective/reward/lifecycle contracts and pass both pure and live evidence gates. Unsupported quests and competing generators are left untouched; no blanket replacement of all quest maps.
 
+### P4E — Small adjustments
+
+1. Check which rooms are still missing the temperature control. For example, a workshop.
+2. Add a missing laboratory room for each eligible level with reasonable equipment (should be based on the research tree levels).
+3. The workshop desks (and possibly others) do not have a chair or a stool by their side.
+4. Medicine should also be stored on a shelf.
+5. The shells should be stored in a separate micro warehouse near the mortair post. It should be 1x1 warehouse with a small cabinet and a door (roofed). This is is safety measure plus reduces reload time.
+
 ### P5 — Encounter supplies, trade stock, and persistent consequences
 
 **Depends on:** P3, P4, P4A and P4B. Revised by the user on 2026-09-20; [supply and MVP scope](supply-and-mvp-scope.md) defines the detailed contract.
