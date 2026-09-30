@@ -68,6 +68,7 @@ internal static partial class Program
         Run("P4B turret emplacement respects stage, geometry and finite stocks", P4BTurretPlacementCases);
         Run("P4B high-industrial field pair fits its facilities", P4BHighIndustrialJointSite);
         Run("P4B turret network adds coordinated budgeted groups", P4BTurretNetwork);
+        Run("P4B staffing does not borrow one marksman across separated fronts", P4BStaffingIsExclusive);
         Run("P4B final path audit flushes deferred grids and restores batching", P4BFinalPathAuditSynchronization);
         Run("P4B high-industrial settlement packs on a captured flat tile", P4BHighIndustrialCapturedFlat);
         Run("P4B high-industrial settlement tolerates live-density flat clutter", P4BHighIndustrialFlatDensity);
@@ -1035,8 +1036,15 @@ internal static partial class Program
         True(!result.Layout.ApproachDefense.Sides.Single(s => s.Id == "south").Post.Equals(
             result.Layout.ApproachDefense.Sides.Single(s => s.Id == "west").Post),
             "large southern exposure gets its own post instead of borrowing a weak western flank");
-        True(network.Groups.Any(g => g.Side == "south"),
-            "open southern approaches receive a nearby guarded turret group");
+        P4BStaffingAudit staffing = P4BStaffing.Audit(input, result.Layout, network);
+        Equal(network.All.Count(), staffing.GuardedGuns,
+            "every selected gun is guarded by a concurrently staffed sniper post");
+        Equal(network.All.Count(), staffing.CloseSupportedGuns,
+            "every selected gun has a concurrently staffed close defender");
+        Equal(1, staffing.SniperPosts.Count,
+            "the four-resident loadout funds one marksman and cannot borrow that pawn across separated fronts");
+        True(result.Layout.ApproachDefense.Sides.Single(s => s.Id == "south").Positions.Count > 0,
+            "the exposed southern approach retains usable pawn positions when its turret group is omitted");
         HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(result.Layout, terrain);
         opaque.UnionWith(network.All.SelectMany(t => t.Footprint));
         foreach (P4BTurretPlan gun in network.All)
@@ -1105,6 +1113,21 @@ internal static partial class Program
             "reusing a peer emplacement is rejected even when each individual group is legal");
         Equal(result.Layout.Digest, ProceduralLayoutPlanner.Plan(input, requireJointSite: true).Layout.Digest,
             "network replay is deterministic");
+    }
+
+    private static void P4BStaffingIsExclusive()
+    {
+        GridPoint east = new GridPoint(20, 10), south = new GridPoint(10, 20);
+        IReadOnlyList<IReadOnlyCollection<GridPoint>> separated = new IReadOnlyCollection<GridPoint>[] {
+            new[] { east }, new[] { east }, new[] { south }
+        };
+        List<GridPoint> one = P4BStaffing.GreedyCover(separated, 1);
+        Equal(1, one.Count, "one funded sniper occupies one post");
+        Equal(2, separated.Count(options => options.Contains(one[0])),
+            "two same-front guns can share a real guard while the separate front stays responder-dependent");
+        List<GridPoint> two = P4BStaffing.GreedyCover(separated, 2);
+        Equal(2, two.Count, "a second funded sniper can guard the other front concurrently");
+        True(separated.All(options => options.Any(two.Contains)), "both fronts have staffed guard coverage");
     }
 
     private static void P4BFinalPathAuditSynchronization()

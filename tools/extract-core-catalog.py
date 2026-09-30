@@ -265,6 +265,12 @@ def main():
                     args.append("%s: %r" % (prop, float(value)))
             if fuel_comp is not None and is_true(text(fuel_comp, "factorByDifficulty")):
                 args.append("fuelFactorByDifficulty: true")
+        elif kind == "Weapon":
+            verb = d.find("verbs/li")
+            for prop, path in (("minimumRange", "minRange"), ("maximumRange", "range")):
+                value = text(verb, path) if verb is not None else None
+                if value:
+                    args.append("%s: %r" % (prop, float(value)))
         if is_true(text(d, "hasInteractionCell")):
             args.append("hasInteractionCell: true")
             offset = text(d, "interactionCellOffset")

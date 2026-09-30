@@ -72,6 +72,8 @@ namespace RealisticBases.Integration
                 object building = Member(thing, "building");
                 object turretGun = Member(building, "turretGunDef");
                 object turretVerb = Elements(Member(turretGun, "verbs")).FirstOrDefault();
+                object weaponVerb = Elements(Member(thing, "verbs")).FirstOrDefault();
+                object combatVerb = turretVerb ?? weaponVerb;
                 HashSet<string> madeAt;
                 producers.TryGetValue(thing.defName, out madeAt);
                 defs.Add(new CatalogDef(thing.defName, category, Tier(Member(thing, "techLevel")), research,
@@ -86,7 +88,7 @@ namespace RealisticBases.Integration
                     Member(thing, "thingClass") is Type thingClass ? thingClass.Name : Member(thing, "thingClass")?.ToString() ?? string.Empty,
                     Name(Member(thing, "designationCategory")), Bool(Member(building, "isTrap")),
                     madeAt, raw, Math.Max(1, Int(Member(thing, "stackLimit"), 1)), work,
-                    Name(turretGun), Number(Member(turretVerb, "minRange")), Number(Member(turretVerb, "range")),
+                    Name(turretGun), Number(Member(combatVerb, "minRange")), Number(Member(combatVerb, "range")),
                     Number(Member(fuel, "fuelCapacity")), Number(Member(fuel, "fuelMultiplier")),
                     Number(Member(fuel, "initialFuelPercent")), Number(Member(turretVerb, "consumeFuelPerShot")),
                     Bool(Member(fuel, "factorByDifficulty")), Number(Member(explosive, "explosiveRadius")),
