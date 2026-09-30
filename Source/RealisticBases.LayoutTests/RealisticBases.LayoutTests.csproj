@@ -23,6 +23,10 @@
     <Compile Include="../RealisticBases/Planning/P4BFireLane.cs" Link="Planning/P4BFireLane.cs" />
     <Compile Include="../RealisticBases/Planning/P4BTurretPlanner.cs" Link="Planning/P4BTurretPlanner.cs" />
     <Compile Include="../RealisticBases/Planning/P4BStaffing.cs" Link="Planning/P4BStaffing.cs" />
+    <Compile Include="../RealisticBases/Planning/P4BFieldFallback.cs" Link="Planning/P4BFieldFallback.cs" />
+    <Compile Include="../RealisticBases/Planning/P3Doctrine.cs" Link="Planning/P3Doctrine.cs" />
+    <Compile Include="../RealisticBases/Planning/P3Encounter.cs" Link="Planning/P3Encounter.cs" />
+    <Compile Include="../RealisticBases/Planning/P4GeometryEncounter.cs" Link="Planning/P4GeometryEncounter.cs" />
     <Compile Include="../RealisticBases/Planning/P4BFinalPathAuditScope.cs" Link="Planning/P4BFinalPathAuditScope.cs" />
     <Compile Include="../RealisticBases/Planning/P4BApproachDefense.cs" Link="Planning/P4BApproachDefense.cs" />
     <Compile Include="../RealisticBases/Planning/P4BAccessFrontage.cs" Link="Planning/P4BAccessFrontage.cs" />

@@ -272,6 +272,14 @@ namespace RealisticBases.Generation
                     " fieldApproachesCovered=" + coveredFieldApproaches + "/" + fieldApproaches.Count);
             }
             catch (Exception ex) { failure = "geometry_encounter_rejected:" + ex.Message; return false; }
+            IReadOnlyList<string> fieldFallbackPosts = fieldWall == null ? new string[0] :
+                P4BFieldFallback.Select(input, layout, encounter);
+            if (fieldWall != null)
+                P2Log.Message("PROCEDURAL_FIELD_FALLBACK_PLAN", "map=" + map.uniqueID +
+                    " fieldGate=" + fieldWall.InnerGate + " compoundGate=" +
+                    layout.Gates[fieldWall.GateIndex].Cell + " usablePosts=" +
+                    string.Join(",", fieldFallbackPosts.ToArray()) +
+                    " omission=" + (fieldFallbackPosts.Count == 0 ? "no_compound_gate_firing_lane" : "none"));
 
             P4SpawnTransaction tx;
             try { tx = new P4SpawnTransaction(map, footprint); }
@@ -619,7 +627,10 @@ namespace RealisticBases.Generation
                     .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() :
                         new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }), encounter,
                     defenders, tx.OwnedThings, mortar, combatStocks, PerimeterSegments(layout, encounter.SupportCenter),
-                    layout.JointSite.Compound.Points().Concat(layout.JointSite.Field.Points()));
+                    layout.JointSite.Compound.Points().Concat(layout.JointSite.Field.Points()),
+                    fieldWall == null ? Enumerable.Empty<GridPoint>() : layout.JointSite.Field.Points()
+                        .Except(fieldWall.Walls).Except(new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }),
+                    layout.Enclosure, fieldFallbackPosts);
                 LordMaker.MakeNewLord(settlement.Faction, new LordJob_P3Garrison(settlement.ID), map, defenders);
                 P0SettlementState state = Current.Game.GetComponent<P0WorldState>().GetOrCreate(settlement.ID, settlement.Faction);
                 state.generationCount++;

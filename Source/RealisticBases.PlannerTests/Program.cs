@@ -64,6 +64,7 @@ internal static class Program
         Run("P3 wall-threat assignment requires an actual firing lane", P3WallThreatUsesFiringLane);
         Run("P3 funded mortar and mobile reserve staffing remains exclusive", P3FundedReserveAndMortar);
         Run("P3 reinforcement audits the whole route under fire", P3ReinforcementRouteUnderFire);
+        Run("P3 field penetration holds compound entrances before inner defeat", P3FieldToCompoundFallback);
         Run("P3 industrial encounter plan is deterministic and valid", P3IndustrialEncounterPlanIsDeterministicAndValid);
         Run("P3 posts avoid opaque walls and cover approaches", P3PostsAvoidOpaqueWallsAndCoverApproaches);
         Run("P3 mortar court is unroofed reachable and supplied", P3MortarCourtIsUnroofedReachableAndSupplied);
@@ -797,6 +798,43 @@ internal static class Program
             "covered endpoints do not excuse a long exposed middle route");
         True(!P3DefenderRoute.Audit(route, route.Take(14).ToArray(), interior,
             new GridPoint[0], new GridPoint[0]).Allowed, "path cannot leave defended area");
+    }
+
+    private static void P3FieldToCompoundFallback()
+    {
+        DefenderCandidate[] defenders = {
+            new DefenderCandidate(1, DefenderWeaponClass.LongRanged, 30, false, false, false, false,
+                false, "field-outer", GarrisonRole.RangedPost, 950),
+            new DefenderCandidate(2, DefenderWeaponClass.Melee, 2, false, false, false, false, false),
+            new DefenderCandidate(3, DefenderWeaponClass.ShortRanged, 16, false, false, false, false, false),
+            new DefenderCandidate(4, DefenderWeaponClass.ShortRanged, 16, false, false, false, false, false)
+        };
+        DefensivePost[] posts = {
+            new DefensivePost("field-outer", "north", new GridPoint(10, 20), 8, 30,
+                true, true, true, false, false, true),
+            new DefensivePost("south-outer", "south", new GridPoint(10, 5), 8, 30,
+                true, true, true, false, false, true),
+            new DefensivePost("gate-0-a", "north", new GridPoint(10, 12), 0, 4,
+                true, true, true, false, true, true),
+            new DefensivePost("gate-0-b", "north", new GridPoint(11, 12), 0, 4,
+                true, true, true, false, true, true)
+        };
+        GarrisonSituation field = new GarrisonSituation(1000, defenders, posts, true, "north",
+            false, true, true, new GridPoint(10, 10), new GridPoint(10, 9),
+            fieldPenetrated: true, fieldFallbackPosts: new[] { "gate-0-a", "gate-0-b" });
+        GarrisonPlan held = GarrisonDoctrine.Assign(field);
+        Equal(GarrisonState.LocalResponse, held.State, "field intrusion prompts local compound defense");
+        True(held.Assignments.Any(a => a.PostId.StartsWith("gate-0-")),
+            "actual field gate receives a defender even inside reassignment cooldown");
+        True(held.Assignments.Any(a => a.PostId == "south-outer" || a.PostId == "field-outer"),
+            "field intrusion does not empty every viable exterior position");
+        GarrisonPlan compound = GarrisonDoctrine.Assign(new GarrisonSituation(1000, defenders, posts, true,
+            "north", true, true, true, new GridPoint(10, 10), new GridPoint(10, 9),
+            fieldPenetrated: true, compoundPenetrated: true,
+            fieldFallbackPosts: new[] { "gate-0-a", "gate-0-b" }));
+        Equal(GarrisonState.InnerFallback, compound.State, "compound intrusion crosses the second defense boundary");
+        True(compound.Assignments.All(a => a.PostId.Length == 0 || a.PostId.StartsWith("gate-0-")),
+            "compound fallback no longer staffs exterior positions");
     }
 
     private static GarrisonSituation P3Situation(int tick = 1000, IEnumerable<DefenderCandidate> defenders = null,

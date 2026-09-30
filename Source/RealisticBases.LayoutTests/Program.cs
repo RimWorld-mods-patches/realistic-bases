@@ -69,6 +69,7 @@ internal static partial class Program
         Run("P4B high-industrial field pair fits its facilities", P4BHighIndustrialJointSite);
         Run("P4B turret network adds coordinated budgeted groups", P4BTurretNetwork);
         Run("P4B staffing does not borrow one marksman across separated fronts", P4BStaffingIsExclusive);
+        Run("P4B field breach has compound gate fallback firing posts", P4BFieldFallbackPosts);
         Run("P4B final path audit flushes deferred grids and restores batching", P4BFinalPathAuditSynchronization);
         Run("P4B high-industrial settlement packs on a captured flat tile", P4BHighIndustrialCapturedFlat);
         Run("P4B high-industrial settlement tolerates live-density flat clutter", P4BHighIndustrialFlatDensity);
@@ -1128,6 +1129,32 @@ internal static partial class Program
         List<GridPoint> two = P4BStaffing.GreedyCover(separated, 2);
         Equal(2, two.Count, "a second funded sniper can guard the other front concurrently");
         True(separated.All(options => options.Any(two.Contains)), "both fronts have staffed guard coverage");
+    }
+
+    private static void P4BFieldFallbackPosts()
+    {
+        TerrainSnapshot terrain = Plains(160);
+        LayoutRequirements needs = LayoutRequirements.FromPopulation(4, Industrial, Temperate,
+            stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialLate));
+        ProceduralLayoutInput input = Input(terrain, needs, 1, new LayoutFortificationReservation(1));
+        ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+        Accepted(result);
+        ProceduralLayout layout = result.Layout;
+        IReadOnlyCollection<GridPoint> publicCells = ProceduralLayoutValidator.PublicCirculation(input, layout);
+        EncounterProfile profile = layout.Court != null ? P3EncounterProfiles.Industrial :
+            P3EncounterProfiles.IndustrialNoMortar;
+        EncounterPlan encounter = GeometryEncounterPlanner.Plan(new GeometryEncounterInput(layout.Digest, profile,
+            layout.Enclosure, layout.BuiltWalls.Concat(layout.NaturalWalls).Concat(layout.OuterWalls)
+                .Concat(layout.FieldWall.Walls),
+            layout.Gates.Select(g => new KeyValuePair<GridPoint, GridPoint>(g.Cell, g.Inside))
+                .Concat(layout.ApproachDefense.SallyPorts.Where(p => !p.Field)
+                    .Select(p => new KeyValuePair<GridPoint, GridPoint>(p.Cell, p.Inside))),
+            publicCells, LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Storage),
+            layout.Court?.Cells.FirstOrDefault(), layout.Court?.Access.FirstOrDefault()));
+        IReadOnlyList<string> fallback = P4BFieldFallback.Select(input, layout, encounter);
+        True(fallback.Count > 0, "compound gate has a real firing position after its crossing opens");
+        True(fallback.All(id => encounter.Posts.Any(p => p.Id == id && p.Inner &&
+            publicCells.Contains(p.Cell))), "fallback posts are inside accessible public compound geometry");
     }
 
     private static void P4BFinalPathAuditSynchronization()

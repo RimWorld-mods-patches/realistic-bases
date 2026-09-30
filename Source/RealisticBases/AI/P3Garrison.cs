@@ -129,6 +129,9 @@ namespace RealisticBases.AI
         private List<int> perimeterLastBreachTicks = new List<int>();
         private List<IntVec3> defendedCells = new List<IntVec3>();
         private List<IntVec3> interiorCells = new List<IntVec3>();
+        private List<IntVec3> fieldRegionCells = new List<IntVec3>();
+        private List<IntVec3> compoundRegionCells = new List<IntVec3>();
+        private List<string> fieldFallbackPostIds = new List<string>();
         private IntVec3 supportCenter = IntVec3.Invalid;
         private IntVec3 innerFallback = IntVec3.Invalid;
         private IntVec3 boundsMin = IntVec3.Invalid;
@@ -152,6 +155,11 @@ namespace RealisticBases.AI
         private int reassignmentCount;
         private int invalidPostRecoveries;
         private bool incendiarySafe;
+        private bool fieldEverPenetrated;
+        private bool compoundEverPenetrated;
+        private bool garrisonEverDefeated;
+        private bool fieldIntrusionNow;
+        private bool compoundIntrusionNow;
         // Opt-in disposable combat probe; never serialized or enabled in ordinary play.
         private int fieldProbeUntilTick;
         private int fieldProbeShots;
@@ -266,7 +274,9 @@ namespace RealisticBases.AI
 
         public void Initialize(Settlement parent, IEnumerable<GridPoint> gates, EncounterPlan plan, IEnumerable<Pawn> residents,
             IEnumerable<Thing> allOwnedThings, Thing mortarThing, IEnumerable<Thing> combatStocks,
-            IEnumerable<P3PerimeterSegment> perimeter = null, IEnumerable<GridPoint> interior = null)
+            IEnumerable<P3PerimeterSegment> perimeter = null, IEnumerable<GridPoint> interior = null,
+            IEnumerable<GridPoint> fieldRegion = null, IEnumerable<GridPoint> compoundRegion = null,
+            IEnumerable<string> fieldFallbackPosts = null)
         {
             settlement = parent;
             faction = parent.Faction;
@@ -283,6 +293,10 @@ namespace RealisticBases.AI
             boundsHeight = plan.DefendedBounds.Height;
             defendedCells = plan.DefendedCells.Select(ToCell).Distinct().ToList();
             interiorCells = (interior ?? plan.DefendedCells).Select(ToCell).Distinct().ToList();
+            fieldRegionCells = (fieldRegion ?? Enumerable.Empty<GridPoint>()).Select(ToCell).Distinct().ToList();
+            compoundRegionCells = (compoundRegion ?? Enumerable.Empty<GridPoint>()).Select(ToCell).Distinct().ToList();
+            fieldFallbackPostIds = (fieldFallbackPosts ?? Enumerable.Empty<string>()).Distinct()
+                .OrderBy(id => id, StringComparer.Ordinal).ToList();
             postIds = plan.Posts.Select(p => p.Id).ToList();
             // Keep the existing string-list save field. Older single-sector
             // records decode identically; corner posts can serve two fronts.
@@ -338,6 +352,9 @@ namespace RealisticBases.AI
             Scribe_Collections.Look(ref perimeterLastBreachTicks, "p3PerimeterLastBreachTicks", LookMode.Value);
             Scribe_Collections.Look(ref defendedCells, "p3DefendedCells", LookMode.Value);
             Scribe_Collections.Look(ref interiorCells, "p3InteriorCells", LookMode.Value);
+            Scribe_Collections.Look(ref fieldRegionCells, "p3FieldRegionCells", LookMode.Value);
+            Scribe_Collections.Look(ref compoundRegionCells, "p3CompoundRegionCells", LookMode.Value);
+            Scribe_Collections.Look(ref fieldFallbackPostIds, "p3FieldFallbackPostIds", LookMode.Value);
             Scribe_Values.Look(ref supportCenter, "p3SupportCenter", IntVec3.Invalid);
             Scribe_Values.Look(ref innerFallback, "p3InnerFallback", IntVec3.Invalid);
             Scribe_Values.Look(ref boundsMin, "p3BoundsMin", IntVec3.Invalid);
@@ -360,6 +377,9 @@ namespace RealisticBases.AI
             Scribe_Values.Look(ref reassignmentCount, "p3Reassignments", 0);
             Scribe_Values.Look(ref invalidPostRecoveries, "p3InvalidPostRecoveries", 0);
             Scribe_Values.Look(ref incendiarySafe, "p3IncendiarySafe", false);
+            Scribe_Values.Look(ref fieldEverPenetrated, "p3FieldEverPenetrated", false);
+            Scribe_Values.Look(ref compoundEverPenetrated, "p3CompoundEverPenetrated", false);
+            Scribe_Values.Look(ref garrisonEverDefeated, "p3GarrisonEverDefeated", false);
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
                 defenders = defenders?.Where(p => p != null).ToList() ?? new List<Pawn>();
@@ -367,6 +387,9 @@ namespace RealisticBases.AI
                 operatingStocks = operatingStocks?.Where(t => t != null).ToList() ?? new List<Thing>();
                 defendedCells = defendedCells?.Distinct().ToList() ?? new List<IntVec3>();
                 interiorCells = interiorCells?.Distinct().ToList() ?? defendedCells.ToList();
+                fieldRegionCells = fieldRegionCells?.Distinct().ToList() ?? new List<IntVec3>();
+                compoundRegionCells = compoundRegionCells?.Distinct().ToList() ?? new List<IntVec3>();
+                fieldFallbackPostIds = fieldFallbackPostIds?.Distinct().ToList() ?? new List<string>();
                 if (perimeterCells == null) perimeterCells = new List<IntVec3>();
                 int perimeterCount = perimeterCells.Count;
                 if (perimeterSectors?.Count != perimeterCount || perimeterRegions?.Count != perimeterCount ||
@@ -402,8 +425,32 @@ namespace RealisticBases.AI
             EnforceDefendedBounds(lord);
             List<Pawn> active = lord.ownedPawns.Where(p => p != null && p.Spawned && !p.Dead && !p.Downed)
                 .OrderBy(p => p.thingIDNumber).ToList();
-            if (active.Count == 0) return;
+            if (active.Count == 0)
+            {
+                if (!garrisonEverDefeated)
+                {
+                    garrisonEverDefeated = true;
+                    P3Log.Message("GARRISON_DEFEAT", "map=" + map.uniqueID + " remainingMobile=0");
+                }
+                return;
+            }
             bool threat = map.mapPawns.AllPawnsSpawned.Any(p => p.Faction != null && p.HostileTo(faction) && !p.Dead);
+            List<Pawn> enemies = map.mapPawns.AllPawnsSpawned.Where(p => p.Faction != null &&
+                p.HostileTo(faction) && !p.Dead && !p.Downed).ToList();
+            fieldIntrusionNow = enemies.Any(p => fieldRegionCells.Contains(p.Position));
+            compoundIntrusionNow = enemies.Any(p => compoundRegionCells.Contains(p.Position));
+            if (fieldIntrusionNow && !fieldEverPenetrated)
+            {
+                fieldEverPenetrated = true;
+                P3Log.Message("FIELD_PENETRATION", "map=" + map.uniqueID + " hostiles=" +
+                    enemies.Count(p => fieldRegionCells.Contains(p.Position)));
+            }
+            if (compoundIntrusionNow && !compoundEverPenetrated)
+            {
+                compoundEverPenetrated = true;
+                P3Log.Message("COMPOUND_PENETRATION", "map=" + map.uniqueID + " hostiles=" +
+                    enemies.Count(p => compoundRegionCells.Contains(p.Position)));
+            }
             string sector = ObserveThreatSector(threat);
             bool breached = perimeterCells.Count > 0
                 ? perimeterCells.Where((c, i) => perimeterHitPoints[i] > 0 || perimeterLastBreachTicks[i] >= 0)
@@ -426,7 +473,7 @@ namespace RealisticBases.AI
                 threat, sector, breached, outerViable, safeNeeds,
                 new GridPoint(supportCenter.x, supportCenter.z), new GridPoint(innerFallback.x, innerFallback.z),
                 routineSupportWorkers, hostileCells, opaqueCells, safeTransferPosts, currentThreatSeverity,
-                reserveStage));
+                reserveStage, fieldIntrusionNow, compoundIntrusionNow, fieldFallbackPostIds));
             UpdateIncendiaryGate(lord, threat);
             bool changed = force || plan.State != currentState || plan.ActiveSector != currentSector || AssignmentsChanged(plan);
             currentState = plan.State;
@@ -560,6 +607,9 @@ namespace RealisticBases.AI
                 " incendiary=" + incendiary + "/" + initialIncendiary + " barrels=" + barrels +
                 "/" + initialBarrels + " physicalConsumed=" + ((initialHe - he) + (initialIncendiary - incendiary)) +
                 " reassignments=" + reassignmentCount + " invalidPostRecoveries=" + invalidPostRecoveries +
+                " fieldPenetrated=" + fieldEverPenetrated + " compoundPenetrated=" + compoundEverPenetrated +
+                " garrisonDefeated=" + garrisonEverDefeated + " fieldIntrusionNow=" + fieldIntrusionNow +
+                " compoundIntrusionNow=" + compoundIntrusionNow +
                 " incendiarySafe=" + incendiarySafe + " bounds=" + boundsMin + "+" + boundsWidth + "x" + boundsHeight +
                 " netGainWatts=" + netGainWatts.ToString("F1") + " addedMortarContinuousWatts=0" +
                 " playerPawnsControlled=" + defenders.Count(p => p?.Faction == Faction.OfPlayer));

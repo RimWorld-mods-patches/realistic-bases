@@ -178,7 +178,9 @@ namespace RealisticBases.Planning
             bool hostileThreat, string threatenedSector, bool gateBreached, bool outerDefenseViable,
             bool needsRouteSafe, GridPoint supportCenter, GridPoint innerFallback, int routineSupportWorkers = 1,
             IEnumerable<GridPoint> hostileCells = null, IEnumerable<GridPoint> opaqueCells = null,
-            IEnumerable<string> safeTransferPosts = null, int threatSeverity = 0, GridPoint? reserveStage = null)
+            IEnumerable<string> safeTransferPosts = null, int threatSeverity = 0, GridPoint? reserveStage = null,
+            bool fieldPenetrated = false, bool compoundPenetrated = false,
+            IEnumerable<string> fieldFallbackPosts = null)
         {
             if (routineSupportWorkers < 0) throw new ArgumentOutOfRangeException(nameof(routineSupportWorkers));
             Tick = tick;
@@ -199,6 +201,9 @@ namespace RealisticBases.Planning
             SafeTransferPosts = new HashSet<string>(safeTransferPosts ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
             ThreatSeverity = Math.Max(0, threatSeverity);
             ReserveStage = reserveStage ?? supportCenter;
+            FieldPenetrated = fieldPenetrated;
+            CompoundPenetrated = compoundPenetrated;
+            FieldFallbackPosts = new HashSet<string>(fieldFallbackPosts ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
         }
 
         public int Tick { get; }
@@ -217,6 +222,9 @@ namespace RealisticBases.Planning
         public IReadOnlyCollection<string> SafeTransferPosts { get; }
         public int ThreatSeverity { get; }
         public GridPoint ReserveStage { get; }
+        public bool FieldPenetrated { get; }
+        public bool CompoundPenetrated { get; }
+        public IReadOnlyCollection<string> FieldFallbackPosts { get; }
     }
 
     public static class GarrisonDoctrine
@@ -228,7 +236,8 @@ namespace RealisticBases.Planning
             if (situation == null) throw new ArgumentNullException(nameof(situation));
             GarrisonState state = SelectState(situation);
             List<DefensivePost> validPosts = situation.Posts.Where(p => p.IsValid &&
-                (state == GarrisonState.InnerFallback ? p.Inner : !p.Inner)).ToList();
+                (state == GarrisonState.InnerFallback ? p.Inner : !p.Inner ||
+                    (situation.FieldPenetrated && situation.FieldFallbackPosts.Contains(p.Id)))).ToList();
             if (state != GarrisonState.Routine && validPosts.Count == 0) state = GarrisonState.InnerFallback;
 
             HashSet<string> occupied = new HashSet<string>(StringComparer.Ordinal);
@@ -285,7 +294,12 @@ namespace RealisticBases.Planning
                 DefensivePost previous = validPosts.FirstOrDefault(p => p.Id == defender.PreviousPostId &&
                     Compatible(defender, p) && !occupied.Contains(p.Id));
                 bool cooldown = situation.Tick - defender.LastAssignmentTick < ReassignmentCooldownTicks;
-                if (previous != null && cooldown && !MustRelieve(defender, situation, state))
+                bool urgentFieldFallback = situation.FieldPenetrated && state == GarrisonState.LocalResponse &&
+                    defender.WeaponRange <= 30 && (previous == null ||
+                        !situation.FieldFallbackPosts.Contains(previous.Id)) && validPosts.Any(p =>
+                            !occupied.Contains(p.Id) && situation.FieldFallbackPosts.Contains(p.Id) &&
+                            Compatible(defender, p));
+                if (previous != null && cooldown && !urgentFieldFallback && !MustRelieve(defender, situation, state))
                 {
                     occupied.Add(previous.Id);
                     assignments.Add(PostAssignment(defender, previous, state, situation.Tick, "stable_assignment"));
@@ -342,7 +356,9 @@ namespace RealisticBases.Planning
         private static GarrisonState SelectState(GarrisonSituation situation)
         {
             if (!situation.HostileThreat) return GarrisonState.Routine;
+            if (situation.CompoundPenetrated) return GarrisonState.InnerFallback;
             if (!situation.OuterDefenseViable) return GarrisonState.InnerFallback;
+            if (situation.FieldPenetrated) return GarrisonState.LocalResponse;
             if (situation.GateBreached) return GarrisonState.LocalResponse;
             return GarrisonState.HoldSectors;
         }
@@ -358,7 +374,9 @@ namespace RealisticBases.Planning
             HashSet<string> occupied, GarrisonSituation situation, GarrisonState state)
         {
             return posts.Where(p => !occupied.Contains(p.Id) && Compatible(defender, p))
-                .OrderByDescending(p => Engagements(defender, p, situation))
+                .OrderByDescending(p => situation.FieldPenetrated && state == GarrisonState.LocalResponse &&
+                    defender.WeaponRange <= 30 && situation.FieldFallbackPosts.Contains(p.Id))
+                .ThenByDescending(p => Engagements(defender, p, situation))
                 .ThenByDescending(p => (state == GarrisonState.LocalResponse || state == GarrisonState.HoldSectors) &&
                     p.CoversSector(situation.ThreatenedSector))
                 .ThenByDescending(p => p.Mortar && defender.CanOperateMortar)
