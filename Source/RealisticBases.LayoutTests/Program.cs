@@ -2240,7 +2240,7 @@ internal static partial class Program
             LayoutRequirements.FromPopulation(7, Industrial, Temperate,
                 stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialMid)), ground, 0x4cUL,
             CoreCatalog, resources: new LayoutLocalResources(1200, new[] { "BlocksGranite" }));
-        ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
+        ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
         Accepted(result);
         string layoutDigest = result.Layout.Digest, inputDigest = input.Digest;
         GridPoint water = new GridPoint(2, 2);
@@ -2255,6 +2255,21 @@ internal static partial class Program
         True(!first.Floors.ContainsKey(water), "unsupported/protected terrain stays untouched");
         True(!first.Floors.Keys.Intersect(result.Layout.FieldWall?.Fields ?? new GridPoint[0]).Any(),
             "unroofed crops remain ground");
+        True(first.Floors.Keys.Intersect(result.Layout.Corridors.SelectMany(c => c.Cells)).Any(),
+            "planned outdoor paths inside the perimeter receive floor");
+        List<GridPoint> fieldRoute = result.Layout.FieldWall.ArrivalRoute
+            .TakeWhile(c => !c.Equals(result.Layout.FieldWall.OuterGate))
+            .Concat(new[] { result.Layout.FieldWall.OuterGate }).ToList();
+        True(fieldRoute.All(first.Floors.ContainsKey),
+            "every supported cell on the gate-to-gate field path receives floor");
+        True(first.Floors.ContainsKey(result.Layout.Gates[result.Layout.FieldWall.GateIndex].Cell),
+            "the compound gate has no unfloored seam in the field approach");
+        HashSet<GridPoint> gateCrossings = new HashSet<GridPoint>(result.Layout.Gates.SelectMany(g =>
+            g.OuterVestibule.Concat(g.BandDoors).Concat(new[] { g.Cell })));
+        True(first.Floors.Keys.All(c => result.Layout.Enclosure.Contains(c) || fieldRoute.Contains(c) || gateCrossings.Contains(c)),
+            "outside paths beyond both wall perimeters stay natural");
+        True(!first.Floors.Keys.Intersect(result.Layout.FieldWall.Fields).Any(),
+            "the field path does not pave crop cells");
         foreach (LayoutRoom room in result.Layout.Rooms)
         {
             int count = room.Interior.Points().Count(first.Floors.ContainsKey);

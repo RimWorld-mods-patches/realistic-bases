@@ -20,6 +20,7 @@ namespace RealisticBases.Persistence
         public string proceduralLayoutSeed;
         public string proceduralLayoutPlanner;
         public string proceduralLayoutDigest;
+        public string proceduralFinishDigest;
         // -1 = unassigned, 0 = retain an already-generated legacy four-resident plan.
         public int ordinaryWealthPercent = -1;
 
@@ -35,6 +36,7 @@ namespace RealisticBases.Persistence
             Scribe_Values.Look(ref proceduralLayoutSeed, "proceduralLayoutSeed");
             Scribe_Values.Look(ref proceduralLayoutPlanner, "proceduralLayoutPlanner");
             Scribe_Values.Look(ref proceduralLayoutDigest, "proceduralLayoutDigest");
+            Scribe_Values.Look(ref proceduralFinishDigest, "proceduralFinishDigest");
             Scribe_Values.Look(ref ordinaryWealthPercent, "ordinaryWealthPercent", -1);
             if (Scribe.mode == LoadSaveMode.PostLoadInit && pawnIds == null)
             {

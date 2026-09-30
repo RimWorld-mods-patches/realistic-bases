@@ -112,8 +112,19 @@ namespace RealisticBases.Planning
             Dictionary<GridPoint, string> floors = new Dictionary<GridPoint, string>();
             Dictionary<GridPoint, string> walls = new Dictionary<GridPoint, string>();
             List<string> reasons = new List<string>();
+            // The field bailey is joined to the compound, but its gate-to-gate
+            // arrival lane is outside layout.Enclosure. Finish that named path,
+            // never the rest of the field or the road beyond its outer gate.
+            List<GridPoint> fieldRoute = layout.FieldWall == null ? new List<GridPoint>() :
+                layout.FieldWall.ArrivalRoute.TakeWhile(c => !c.Equals(layout.FieldWall.OuterGate))
+                    .Concat(new[] { layout.FieldWall.OuterGate })
+                    .Concat(layout.FieldWall.InnerGate.HasValue ?
+                        new[] { layout.FieldWall.InnerGate.Value } : new GridPoint[0])
+                    .Distinct().ToList();
             HashSet<GridPoint> protectedCells = new HashSet<GridPoint>(layout.FieldWall?.Fields ?? new GridPoint[0]);
             protectedCells.UnionWith(layout.JointSite?.Field.Points() ?? Enumerable.Empty<GridPoint>());
+            protectedCells.ExceptWith(fieldRoute);
+            protectedCells.UnionWith(layout.FieldWall?.Fields ?? new GridPoint[0]);
             protectedCells.UnionWith(layout.PowerYards.SelectMany(y => y.Cells));
             protectedCells.UnionWith(layout.Court?.Cells ?? new GridPoint[0]);
             HashSet<GridPoint> excavation = new HashSet<GridPoint>(layout.Excavation);
@@ -126,6 +137,10 @@ namespace RealisticBases.Planning
             string stone = input.Resources.LocalStoneStuffs
                 .Select(s => s.StartsWith("Blocks", StringComparison.Ordinal) ? "Tile" + s.Substring(6) : null)
                 .Where(s => s != null && defs.ContainsKey(s)).OrderBy(s => s, StringComparer.Ordinal).FirstOrDefault();
+            string flagstone = input.Resources.LocalStoneStuffs
+                .Select(s => s.StartsWith("Blocks", StringComparison.Ordinal) ? "Flagstone" + s.Substring(6) : null)
+                .Where(s => s != null && defs.ContainsKey(s) && layout.TechStage.HasResearch("Stonecutting"))
+                .OrderBy(s => s, StringComparer.Ordinal).FirstOrDefault();
 
             int Priority(LayoutRoomKind kind)
             {
@@ -190,22 +205,49 @@ namespace RealisticBases.Planning
                 if (!placed) reasons.Add("room:" + room.Id + ":no_legal_affordable_finish");
             }
 
-            if (industrial)
+            P4CFloorDef pathDef = null;
+            foreach (string name in industrial ? new[] { "Concrete" } :
+                new[] { flagstone, "WoodPlankFloor" })
+                if (name != null && defs.TryGetValue(name, out pathDef)) break;
+            if (pathDef != null)
             {
-                P4CFloorDef pathDef;
-                if (defs.TryGetValue("Concrete", out pathDef))
-                    foreach (LayoutCorridor corridor in layout.Corridors.Where(c => c.Main).OrderBy(c => c.Id, StringComparer.Ordinal))
-                    {
-                        if (corridor.Cells.Any(c => !floorable.Contains(c) || floors.ContainsKey(c)))
-                        { reasons.Add("corridor:" + corridor.Id + ":unsupported_ground"); continue; }
-                        List<GridPoint> cells = corridor.Cells.Where(c => floorable.Contains(c) && !floors.ContainsKey(c))
-                            .Distinct().OrderBy(c => c).ToList();
-                        if (cells.Count < 2) continue;
-                        int cost = checked(cells.Count * pathDef.ValuePerCell);
-                        if (cost > allowance - spent) { reasons.Add("corridor:" + corridor.Id + ":budget"); continue; }
-                        foreach (GridPoint c in cells) floors.Add(c, pathDef.DefName);
-                        spent += cost;
-                    }
+                HashSet<GridPoint> enclosure = new HashSet<GridPoint>(layout.Enclosure);
+                enclosure.UnionWith(fieldRoute);
+                // Door cells lie on the perimeter rather than inside
+                // Enclosure; leaving them out creates a one-cell dirt seam.
+                enclosure.UnionWith(layout.Gates.SelectMany(g => g.OuterVestibule
+                    .Concat(g.BandDoors).Concat(new[] { g.Cell })));
+                List<KeyValuePair<string, IReadOnlyList<GridPoint>>> routes = layout.Corridors
+                    .OrderByDescending(c => c.Main).ThenBy(c => c.Id, StringComparer.Ordinal)
+                    .Select(c => new KeyValuePair<string, IReadOnlyList<GridPoint>>("corridor:" + c.Id, c.Cells))
+                    .ToList();
+                routes.AddRange(layout.Gates.Select((g, i) =>
+                    new KeyValuePair<string, IReadOnlyList<GridPoint>>("gate:" + i,
+                        g.InnerVestibule.Concat(g.OuterVestibule).Concat(g.BandDoors)
+                            .Concat(new[] { g.Inside, g.Cell }).Distinct().OrderBy(c => c).ToList())));
+                routes.AddRange(layout.Rooms.OrderBy(r => r.Id, StringComparer.Ordinal).Select(r =>
+                    new KeyValuePair<string, IReadOnlyList<GridPoint>>("threshold:" + r.Id,
+                        new[] { r.DoorOutside, r.Door })));
+                if (fieldRoute.Count != 0)
+                    routes.Add(new KeyValuePair<string, IReadOnlyList<GridPoint>>("field:arrival", fieldRoute));
+                foreach (KeyValuePair<string, IReadOnlyList<GridPoint>> route in routes)
+                {
+                    List<GridPoint> cells = route.Value.Where(enclosure.Contains).Distinct().OrderBy(c => c).ToList();
+                    if (cells.Count == 0) continue;
+                    if (cells.Any(c => !floorable.Contains(c) ||
+                        (floors.TryGetValue(c, out string already) && already != pathDef.DefName)))
+                    { reasons.Add(route.Key + ":unsupported_ground"); continue; }
+                    List<GridPoint> missing = cells.Where(c => !floors.ContainsKey(c)).ToList();
+                    int wood = Math.Min(localWoodLeft, checked(missing.Count * pathDef.WoodPerCell));
+                    int cost = pathDef.WoodPerCell == 0 ? checked(missing.Count * pathDef.ValuePerCell) :
+                        (int)Math.Ceiling((missing.Count * pathDef.WoodPerCell - wood) *
+                            (double)pathDef.ValuePerCell / pathDef.WoodPerCell);
+                    if (cost > allowance - spent) { reasons.Add(route.Key + ":budget"); continue; }
+                    foreach (GridPoint c in missing) floors.Add(c, pathDef.DefName);
+                    spent += cost;
+                    localWood += wood;
+                    localWoodLeft -= wood;
+                }
             }
 
             // Smooth interior-facing retained stone only. Whole-cell changes on
@@ -228,8 +270,13 @@ namespace RealisticBases.Planning
                         input.Terrain[n].Has(TerrainTraits.Standable) &&
                         !input.Terrain[n].Has(TerrainTraits.NaturalRock);
                 })) { reasons.Add("rock:" + c + ":exterior_face"); continue; }
+                List<GridPoint> proposed = walls.Keys.Concat(new[] { c }).ToList();
+                IReadOnlyList<GridPoint> nearbyRoof = input.Terrain.Points().Where(roof =>
+                    input.Terrain[roof].Has(TerrainTraits.Roofed) && proposed.Any(wall =>
+                        (roof.X - wall.X) * (roof.X - wall.X) + (roof.Z - wall.Z) * (roof.Z - wall.Z) <=
+                        LayoutRoofSupport.MaxSupportDistance * LayoutRoofSupport.MaxSupportDistance)).ToList();
                 if (LayoutRoofSupport.Unsupported(input.Terrain,
-                    layout.Excavation.Concat(walls.Keys).Concat(new[] { c }), layout.RetainedThickRoof).Count != 0)
+                    layout.Excavation.Concat(proposed), nearbyRoof).Count != 0)
                 { reasons.Add("rock:" + c + ":roof_support"); continue; }
                 walls.Add(c, target);
             }

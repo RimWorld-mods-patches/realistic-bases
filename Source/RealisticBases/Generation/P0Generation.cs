@@ -46,6 +46,26 @@ namespace RealisticBases.Generation
             }
         }
 
+        public static string TerrainLayerRoofChecksum(Map map, IEnumerable<IntVec3> excludedCells = null)
+        {
+            HashSet<IntVec3> excluded = excludedCells == null ? new HashSet<IntVec3>() : new HashSet<IntVec3>(excludedCells);
+            unchecked
+            {
+                ulong hash = 1469598103934665603UL;
+                foreach (IntVec3 cell in map.AllCells)
+                {
+                    if (excluded.Contains(cell)) continue;
+                    hash ^= map.terrainGrid.TerrainAt(cell)?.shortHash ?? 0;
+                    hash *= 1099511628211UL;
+                    hash ^= map.terrainGrid.UnderTerrainAt(cell)?.shortHash ?? 0;
+                    hash *= 1099511628211UL;
+                    hash ^= map.roofGrid.RoofAt(cell)?.shortHash ?? 0;
+                    hash *= 1099511628211UL;
+                }
+                return hash.ToString("X16");
+            }
+        }
+
         public static string NaturalRockChecksum(Map map, IEnumerable<IntVec3> excludedCells = null)
         {
             HashSet<IntVec3> excluded = excludedCells == null ? new HashSet<IntVec3>() : new HashSet<IntVec3>(excludedCells);
@@ -82,6 +102,7 @@ namespace RealisticBases.Generation
         public override void Generate(Map map, GenStepParams parms)
         {
             string before = P0MapAudit.TerrainRoofChecksum(map);
+            string layersBefore = P0MapAudit.TerrainLayerRoofChecksum(map);
             Settlement settlement = map.Parent as Settlement;
             P0Log.Message("GEN_STEP", "name=RB_P0_Settlement order=" + def.order + " map=" + map.uniqueID +
                 " terrainBefore=" + before + " parent=" + map.Parent?.GetType().Name);
@@ -114,15 +135,25 @@ namespace RealisticBases.Generation
                 if (RealisticBasesMod.Settings.forcePartialFailureNext)
                 {
                     RealisticBasesMod.Settings.forcePartialFailureNext = false;
-                    string forced;
-                    P4ProceduralSpawner.TrySpawn(map, settlement, run, out forced, true);
-                    P2Log.Message("PROCEDURAL_FORCED_RECOVERY", "map=" + map.uniqueID + " forcedFailure=" + forced +
-                        " checksumRestored=" + (before == P0MapAudit.TerrainRoofChecksum(map)));
+                    foreach (P4ProceduralSpawner.P4CFailurePoint phase in new[]
+                    {
+                        P4ProceduralSpawner.P4CFailurePoint.AfterFloors,
+                        P4ProceduralSpawner.P4CFailurePoint.AfterSmoothing
+                    })
+                    {
+                        string forced;
+                        P4ProceduralSpawner.TrySpawn(map, settlement, run, out forced, finishFailure: phase);
+                        P2Log.Message("PROCEDURAL_FORCED_RECOVERY", "map=" + map.uniqueID + " phase=" + phase +
+                            " forcedFailure=" + forced + " checksumRestored=" +
+                            (before == P0MapAudit.TerrainRoofChecksum(map)) + " layersRestored=" +
+                            (layersBefore == P0MapAudit.TerrainLayerRoofChecksum(map)));
+                    }
                 }
                 string failure;
                 if (!P4ProceduralSpawner.TrySpawn(map, settlement, run, out failure))
                     P2Log.Error("PROCEDURAL_SPAWN_REJECT", "map=" + map.uniqueID + " reason=" + failure +
-                        " terrainPreserved=" + (before == P0MapAudit.TerrainRoofChecksum(map)));
+                        " terrainPreserved=" + (before == P0MapAudit.TerrainRoofChecksum(map)) +
+                        " layersPreserved=" + (layersBefore == P0MapAudit.TerrainLayerRoofChecksum(map)));
             }
             catch (Exception ex)
             {

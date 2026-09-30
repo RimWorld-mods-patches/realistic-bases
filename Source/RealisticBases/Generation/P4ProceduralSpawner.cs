@@ -18,8 +18,10 @@ namespace RealisticBases.Generation
     // plan and its adapter are deliberately absent from this mutation boundary.
     public static class P4ProceduralSpawner
     {
+        public enum P4CFailurePoint { None, AfterFloors, AfterSmoothing }
+
         public static bool TrySpawn(Map map, Settlement settlement, P4AMapPlanningRun run, out string failure,
-            bool forceFailure = false)
+            bool forceFailure = false, P4CFailurePoint finishFailure = P4CFailurePoint.None)
         {
             failure = null;
             if (run?.Result?.Layout == null) { failure = "missing_procedural_layout"; return false; }
@@ -286,8 +288,21 @@ namespace RealisticBases.Generation
                     string.Join(",", fieldFallbackPosts.ToArray()) +
                     " omission=" + (fieldFallbackPosts.Count == 0 ? "no_compound_gate_firing_lane" : "none"));
 
+            P4CFinishPlan finishPlan;
+            try { finishPlan = P4CMapFinishes.Plan(map, input, layout); }
+            catch (Exception ex)
+            {
+                P2Log.Error("PROCEDURAL_FINISH_OMITTED", "map=" + map.uniqueID + " reason=" + ex.GetType().Name + ":" + ex.Message);
+                finishPlan = new P4CFinishPlan(new KeyValuePair<GridPoint, string>[0],
+                    new KeyValuePair<GridPoint, string>[0], new[] { "runtime_capture_failed" }, 0, 0, 0);
+            }
+            P2Log.Message("PROCEDURAL_FINISH_PLAN", "map=" + map.uniqueID + " version=" + P4CFinishPlan.Version +
+                " digest=" + finishPlan.Digest + " floors=" + finishPlan.Floors.Count +
+                " smoothedWalls=" + finishPlan.Walls.Count + " import=" + finishPlan.ImportValue +
+                "/" + finishPlan.Allowance + " localWood=" + finishPlan.LocalWood +
+                " omissions=" + string.Join("|", finishPlan.Reasons.Take(8).ToArray()));
             P4SpawnTransaction tx;
-            try { tx = new P4SpawnTransaction(map, footprint); }
+            try { tx = new P4SpawnTransaction(map, footprint, finishPlan); }
             catch (Exception ex) { failure = "mutation_preflight_rejected:" + ex.Message; return false; }
             List<Pawn> defenders = new List<Pawn>();
             List<Thing> combatStocks = new List<Thing>();
@@ -302,6 +317,10 @@ namespace RealisticBases.Generation
                     .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() :
                         layout.JointSite.Field.Points().Concat(fieldWall.ExteriorPosts).Concat(fieldWall.Access)).Distinct())
                     tx.ClearPlant(c);
+                foreach (GridPoint c in finishPlan.Floors.Keys) tx.ClearPlant(c);
+                tx.ApplyFloors();
+                if (finishFailure == P4CFailurePoint.AfterFloors)
+                    throw new InvalidOperationException("forced P4C failure after floors");
                 ThingDef wallStuff = Require(layout.WallStuff);
                 foreach (GridPoint c in walls.OrderBy(c => c)) Spawn(tx, ThingDefOf.Wall, wallStuff, c, map, settlement.Faction, Rot4.North);
                 foreach (GridPoint c in doors.OrderBy(c => c)) Spawn(tx, ThingDefOf.Door, wallStuff, c, map, settlement.Faction, Rot4.North);
@@ -313,6 +332,9 @@ namespace RealisticBases.Generation
                         Spawn(tx, coverDef, wallStuff, c, map, settlement.Faction, Rot4.North);
                 }
                 foreach (GridPoint c in roofsToBuild) tx.SetConstructedRoof(c);
+                tx.SmoothWalls();
+                if (finishFailure == P4CFailurePoint.AfterSmoothing)
+                    throw new InvalidOperationException("forced P4C failure after smoothing");
 
                 foreach (LayoutFixture fixture in layout.AllFixtures)
                 {
@@ -641,6 +663,7 @@ namespace RealisticBases.Generation
                 state.generationCount++;
                 state.pawnIds = defenders.Select(p => p.thingIDNumber).ToList();
                 state.proceduralLayoutDigest = layout.Digest;
+                state.proceduralFinishDigest = finishPlan.Digest;
                 GridPoint marker = walls.First();
                 Thing woodStock = tx.OwnedThings.FirstOrDefault(t => t.def == ThingDefOf.WoodLog);
                 GridPoint stock = woodStock == null ? storageCells.First() :
@@ -654,6 +677,8 @@ namespace RealisticBases.Generation
                     " maxReinforcedLayer=" + (layout.OuterSections.Count == 0 ? 0 : layout.OuterSections.Max(s => s.Layer)) +
                     " things=" + tx.OwnedCount + " residents=" + defenders.Count +
                     " crops=" + crops + " excavated=" + tx.ExcavatedCount + " retainedRoofs=" + layout.RetainedThickRoof.Count +
+                    " finish=" + finishPlan.Digest + " floors=" + tx.FloorChangedCount +
+                    " smoothWalls=" + tx.SmoothedWallCount + " finishImport=" + finishPlan.ImportValue +
                     " plantsCleared=" + tx.ClearedPlantCount +
                     " conduits=" + conduitCells.Count +
                     " turret=" + (turretPlan == null ? "none" : turretPlan.DefName) +
