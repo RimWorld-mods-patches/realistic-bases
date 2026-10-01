@@ -185,9 +185,8 @@ namespace RealisticBases.Planning
                         ? Enumerable.Empty<GridPoint>() : layout.FieldWall.Walls),
                 layout.Gates.Sum(g => 1 + g.BandDoors.Count) + (layout.FieldWall == null ? 0 : 2) +
                     (layout.ApproachDefense?.SallyPorts.Count ?? 0), layout.Power,
-                (layout.FieldWall == null ? Enumerable.Empty<string>() :
-                    Enumerable.Repeat(layout.FieldWall.CoverDefName, layout.FieldWall.CoverCells.Count +
-                        (layout.ApproachDefense?.CoverCells.Count() ?? 0)))
+                Enumerable.Repeat(layout.FieldWall?.CoverDefName ?? "Barricade",
+                    (layout.FieldWall?.CoverCells.Count ?? 0) + (layout.ApproachDefense?.CoverCells.Count() ?? 0))
                     .Concat(layout.Turret == null ? Enumerable.Empty<string>() :
                         Enumerable.Repeat(layout.FieldWall.CoverDefName,
                             layout.Turret.All.Sum(t => t.CoverCells.Count)))

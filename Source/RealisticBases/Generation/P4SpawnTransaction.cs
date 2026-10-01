@@ -5,6 +5,7 @@ using RealisticBases.Integration;
 using RealisticBases.Planning;
 using RimWorld;
 using Verse;
+using Verse.AI;
 
 namespace RealisticBases.Generation
 {
@@ -41,6 +42,7 @@ namespace RealisticBases.Generation
         private readonly Map map;
         private readonly TerrainMutationFootprint footprint;
         private readonly List<Thing> owned = new List<Thing>();
+        private readonly List<Action> rollbackActions = new List<Action>();
         private readonly List<PlantSnapshot> plants = new List<PlantSnapshot>();
         private readonly List<RockSnapshot> rocks = new List<RockSnapshot>();
         private readonly List<RockSnapshot> smoothed = new List<RockSnapshot>();
@@ -86,6 +88,39 @@ namespace RealisticBases.Generation
         public int RoofChangedCount => roofs.Count;
         public int FloorChangedCount => floors.Count;
         public int SmoothedWallCount => smoothed.Count;
+        public void OnRollback(Action action)
+        {
+            if (completed) throw new InvalidOperationException("P4 transaction has completed");
+            rollbackActions.Add(action ?? throw new ArgumentNullException(nameof(action)));
+        }
+
+        // Borrowed objects are returned before deleting owned structures. They
+        // never enter OwnedThings and are never destroyed by this transaction.
+        public void Borrow(Thing thing, ThingOwner source)
+        {
+            if (completed || thing == null || source == null || !source.Contains(thing) || thing.Spawned)
+                throw new InvalidOperationException("Invalid borrowed P4 object ownership");
+            IntVec3 position = thing.Position;
+            Rot4 rotation = thing.Rotation;
+            Pawn pawn = thing as Pawn;
+            bool join = pawn?.mindState.WillJoinColonyIfRescued ?? false;
+            PawnDuty duty = pawn?.mindState.duty;
+            source.Remove(thing);
+            OnRollback(() =>
+            {
+                if (thing.Destroyed) throw new InvalidOperationException("Borrowed quest object destroyed: " + thing.ThingID);
+                if (thing.Spawned) thing.DeSpawn();
+                if (pawn != null)
+                {
+                    pawn.jobs?.StopAll();
+                    pawn.mindState.WillJoinColonyIfRescued = join;
+                    pawn.mindState.duty = duty;
+                }
+                thing.Position = position; thing.Rotation = rotation;
+                if (!source.TryAdd(thing, canMergeWithExistingStacks: false) || thing.holdingOwner != source)
+                    throw new InvalidOperationException("Borrowed quest holder restore failed: " + thing.ThingID);
+            });
+        }
         public void Own(Thing thing)
         {
             if (completed) throw new InvalidOperationException("P4 transaction has completed");
@@ -208,6 +243,7 @@ namespace RealisticBases.Generation
         public bool Rollback()
         {
             if (completed) throw new InvalidOperationException("Committed P4 transaction cannot roll back");
+            for (int i = rollbackActions.Count - 1; i >= 0; i--) rollbackActions[i]();
             for (int i = owned.Count - 1; i >= 0; i--)
                 if (!owned[i].Destroyed) owned[i].Destroy(DestroyMode.Vanish);
             for (int i = smoothed.Count - 1; i >= 0; i--)

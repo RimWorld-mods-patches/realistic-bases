@@ -1,6 +1,6 @@
 # P4D quest-location findings
 
-2026-10-01 · P4D.0–P4D.1 complete; P4D.2–P4D.4 open
+2026-10-01 · P4D.0–P4D.2 complete; P4D.3–P4D.4 open
 
 ## Native Core baseline
 
@@ -115,5 +115,47 @@ geometry through the shared planner, native seventeen-pawn/no-minimum-four
 contracts, unsupported composition/arrival/faction, original-prisoner reservation,
 and zero-mutation unusable terrain fallback. The ordinary population-budget test
 also passed. Production Docker Release build: zero warnings/errors. Full suites
-and live adapters are later checkpoints; P4D.1 does not enable production quest
+and live adapters are later checkpoints; P4D.1 did not enable production quest
 generation.
+
+## P4D.2 native bandit integration
+
+The production adapter now admits only the verified Core BanditCamp composition,
+hostile human faction, exact Encounter step inventory and ordinary caravan entry.
+Its entry scope surrounds native `CaravanArrivalAction_VisitSite.DoEnter`, including
+the queued generation event. Pods, gravships, debug map creation, competing step
+inventories and other site compositions remain native. It replaces only Outpost400
+and its linked Power401 after a successful shared P4A/P4B/P4C transaction; original
+terrain generation, fog/arrival work, Site callbacks and quest graph are retained.
+
+Native Settlement-group generation uses the quest's points, inhabitants flag and
+group seed once. The actual original pawns and equipment are borrowed, not replaced
+or truncated. The original native stockpile generator produces the exact staged
+loot objects from the quest allowance. Its own market-value overshoot is recorded,
+not silently clamped or supplemented. There are zero added static threat points,
+no turrets/mortars/traps, and no ordinary settlement population/wealth state.
+Finite food and startup fuel are checked separately against the explicit operating
+allowance. P3 receives only the admitted roster; foreign/captured/slave/player pawns
+are excluded from assignments, bounds recovery and job givers.
+
+The shared transaction returns borrowed objects to their exact staging owner before
+destroying created structures. Late rollback detaches the provisional Lord and
+controller and restores UsedRects, RectOfInterest and unfog roots. Signals are held
+inside synchronous provisional mutation, published only on commit and discarded on
+rollback. Native fallback reuses the same roster/loot once in the original narrow
+Outpost call; no full-generator recursion. Unverified recovery fails closed.
+
+Live evidence (all logs ignored under `.runtime/logs/`):
+
+| Run | Observed result |
+|---|---|
+| `p4d-bandit-integration.log`, Quest1/site94 OutlanderRough | Native points306.25/group seed-1849110477; six original defenders, seven shared rooms, zero turrets; operating572.2/613. Layout8DCA99C452677D4E and finish2B46A506BB1CBC79 survived active save/reload with identical roster/loot IDs. Native NoActiveThreats3155/AllEnemiesDefeated3169; EndedSuccess5013. Original MedicineUltratech63960×12 and Jade63961 reward objects delivered to home map0 (jade split by native stack limit). Native MapRemoved/Despawned/Destroyed5029 after departure. |
+| Same run, Quest2/site97 | Forced failure after base and roster placement; rollback recovered=True; native fallback spawned4/4 of the prepared roster, staging empty. |
+| `p4d-bandit-recovery.log`, Quest1/site94 | Forced preflight rejection mutationCount=0; original outpost generation and arrival ran. An earlier tribal test exposed a null fuel-definition lookup; rollback recovered all6 pawns. The no-power lookup was fixed rather than treating fallback as adapter success. |
+| `p4d-bandit-late-recovery.log`, Quest0/site91 Pirate | Forced failure after loot, controller and generation-metadata transfer; recovered=True; native fallback4/4, staging empty, native DefendBase ownership. No premature quest outcome. |
+| Same run, Quest1/site94 OutlanderRough | Fresh seven-defender camp committed normally. Departure before defeat emitted native destruction/failure, EndedFailed2707; no reward paid. |
+| `p4d-bandit-caravan-expiry.log` | Native timeout shortened only for disposable Quest0:30ticks; Core removed the site and ended failed. A fresh Quest1/site92 passed the final caravan guard and committed a four-defender camp. |
+
+Docker Release builds remain zero warnings/errors. Foundation/garrison suite passed
+with zero failures. The complete layout regression suite is recorded at closeout;
+rescue, terrain/optional-mod matrix and additional lifecycle cases remain P4D.3/.4.

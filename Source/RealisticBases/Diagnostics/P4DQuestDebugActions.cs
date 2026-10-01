@@ -8,6 +8,7 @@ using RimWorld.Planet;
 using Verse;
 using Verse.AI;
 using Verse.AI.Group;
+using RealisticBases.Integration;
 
 namespace RealisticBases.Diagnostics
 {
@@ -37,6 +38,32 @@ namespace RealisticBases.Diagnostics
         [DebugAction(Category, "P4D generate native rescue quest", allowedGameStates = AllowedGameStates.Playing)]
         private static void Rescue() => Generate("OpportunitySite_PrisonerWillingToJoin");
 
+        [DebugAction(Category, "P4D reject next quest before mutation", allowedGameStates = AllowedGameStates.Playing)]
+        private static void RejectNext() => Force(P4DForcedFailure.BeforeMutation);
+
+        [DebugAction(Category, "P4D fail next quest after base", allowedGameStates = AllowedGameStates.Playing)]
+        private static void FailNext() => Force(P4DForcedFailure.AfterBase);
+
+        [DebugAction(Category, "P4D fail next quest after transfer", allowedGameStates = AllowedGameStates.Playing)]
+        private static void FailTransfer() => Force(P4DForcedFailure.AfterTransfer);
+
+        private static void Force(P4DForcedFailure point)
+        {
+            if (!Disposable) throw new InvalidOperationException("P4D requires disposable profile");
+            P4DQuestGeneration.ForcedFailure = point;
+            Log("TEST_FORCE_FAILURE", "point=" + point);
+        }
+
+        [DebugAction(Category, "P4D shorten native quest expiry", allowedGameStates = AllowedGameStates.Playing)]
+        private static void Expiry()
+        {
+            if (!Disposable) throw new InvalidOperationException("P4D requires disposable profile");
+            QuestPart_WorldObjectTimeout timeout = LastQuest?.PartsListForReading.OfType<QuestPart_WorldObjectTimeout>()
+                .SingleOrDefault(p => p.State == QuestPartState.Enabled) ?? throw new InvalidOperationException("No enabled native timeout");
+            timeout.delayTicks = GenTicks.TicksGame - timeout.EnableTick + 30;
+            Log("TEST_EXPIRY", "quest=" + LastQuest.id + " ticksLeft=" + timeout.TicksLeft + " nativeOutcomePending=true");
+        }
+
         private static void Generate(string name)
         {
             if (!Disposable) throw new InvalidOperationException("P4D requires disposable profile");
@@ -60,8 +87,17 @@ namespace RealisticBases.Diagnostics
             if (!Disposable) throw new InvalidOperationException("P4D requires disposable profile");
             Site site = QuestSite(LastQuest) ?? throw new InvalidOperationException("No P4D site");
             Pawn pawn = Find.Maps.Where(m => m.IsPlayerHome).SelectMany(m => m.mapPawns.FreeColonistsSpawned)
-                .OrderBy(p => p.thingIDNumber).FirstOrDefault() ?? throw new InvalidOperationException("No home colonist");
-            pawn.DeSpawn();
+                .OrderBy(p => p.thingIDNumber).FirstOrDefault();
+            if (pawn != null) pawn.DeSpawn();
+            else
+            {
+                Caravan source = Find.WorldObjects.Caravans.FirstOrDefault(c => c.Faction == Faction.OfPlayer &&
+                    c.PawnsListForReading.Any(p => p.IsColonist && !p.Downed));
+                pawn = source?.PawnsListForReading.First(p => p.IsColonist && !p.Downed) ??
+                    throw new InvalidOperationException("No disposable colonist or caravan");
+                source.RemovePawn(pawn);
+                if (source.PawnsListForReading.Count == 0) source.Destroy();
+            }
             Caravan caravan = CaravanMaker.MakeCaravan(new[] { pawn }, Faction.OfPlayer, site.Tile, true);
             Log("TEST_ARRIVAL", "site=" + site.ID + " pawn=" + pawn.ThingID + " caravan=" + caravan.ID);
             new CaravanArrivalAction_VisitSite(site).Arrived(caravan);
@@ -84,7 +120,16 @@ namespace RealisticBases.Diagnostics
                     string.Join(",", p.things?.Select(t => t.ThingID) ?? Enumerable.Empty<string>()) + " steps=" +
                     string.Join(",", p.def.ExtraGenSteps.Select(d => d.defName + ":" + d.order + ":" + d.genStep.GetType().Name)));
             foreach (QuestPart p in q?.PartsListForReading ?? Enumerable.Empty<QuestPart>())
+            {
                 Log("QUEST_PART", "quest=" + q.id + " type=" + p.GetType().Name + " detail=" + p.ToString());
+                if (p is QuestPart_DropPods reward)
+                    Log("REWARD_AUDIT", "quest=" + q.id + " signal=" + reward.inSignal + " parent=" + reward.mapParent?.ID +
+                        " items=" + string.Join(",", reward.Things.Select(t => t.ThingID + ":" + t.stackCount +
+                            ":spawned=" + t.SpawnedOrAnyParentSpawned)));
+                if (p is QuestPart_PawnsArrive arrivals)
+                    Log("REWARD_AUDIT", "quest=" + q.id + " signal=" + arrivals.inSignal +
+                        " pawns=" + string.Join(",", arrivals.pawns.Select(t => t.ThingID + ":spawned=" + t.Spawned + ":faction=" + t.Faction?.def.defName)));
+            }
             if (site?.Map == null) return;
             Map map = site.Map;
             foreach (Pawn p in map.mapPawns.AllPawnsSpawned)
