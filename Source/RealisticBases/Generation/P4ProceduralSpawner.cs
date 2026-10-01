@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using RealisticBases.AI;
+using RealisticBases.Diagnostics;
 using RealisticBases.Integration;
 using RealisticBases.Persistence;
 using RealisticBases.Planning;
@@ -384,9 +385,13 @@ namespace RealisticBases.Generation
                 IReadOnlyList<GridPoint> storageCells = LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Storage);
                 IReadOnlyList<GridPoint> foodCells = LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Freezer, LayoutRoomKind.Pantry);
                 IReadOnlyList<GridPoint> medicalCells = LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Medical);
-                SpawnStacks(tx, Require(food.Kind == LayoutRoomKind.Freezer ? "MealSimple" : "Pemmican"),
-                    quest == null ? input.Requirements.Residents * 12 :
-                        (quest.Roster.Count + quest.Contract.Strategy.PrisonerCapacity) * 6, foodCells, map);
+                ThingDef startupFood = Require(food.Kind == LayoutRoomKind.Freezer ? "MealSimple" : "Pemmican");
+                int startupFoodUnits = quest == null ? input.Requirements.Residents * 12 :
+                    quest.Contract.StartupFoodUnits(startupFood.GetStatValueAbstract(StatDefOf.Nutrition));
+                SpawnStacks(tx, startupFood, startupFoodUnits, foodCells, map);
+                if (quest != null) P4DQuestDebugActions.Log("QUEST_FOOD_LEDGER", "site=" + settlement.ID +
+                    " def=" + startupFood.defName + " units=" + startupFoodUnits +
+                    " nutrition=" + startupFoodUnits * startupFood.GetStatValueAbstract(StatDefOf.Nutrition));
                 int fuel = layout.Power?.FuelStock ?? 0;
                 int internalFuel = 0;
                 if (layout.Power != null)

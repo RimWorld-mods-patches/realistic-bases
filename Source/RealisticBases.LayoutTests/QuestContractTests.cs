@@ -52,6 +52,8 @@ internal static partial class Program
         Equal(60000, needs.ImportValueLimit, "declared threat-derived construction allowance");
         Equal(0, contract.AddedStaticThreatPoints, "no added guns or operators");
         Equal(0, needs.FieldCells, "explicit finite/no-field profile");
+        Equal(51, contract.StartupFoodUnits(0.9), "meal reserve follows the native roster");
+        Equal(918, contract.StartupFoodUnits(0.05), "pemmican reserve uses nutrition, not meal item count");
         Equal(contract.Digest, QuestContract(facts).Digest, "replay deterministic");
         Equal(contract.Seed, QuestContract(facts).Seed, "purpose-separated seed stable");
         NotEqual(contract.Digest, QuestContract(QuestFacts(18, points: 5000)).Digest, "roster affects contract");
@@ -71,6 +73,8 @@ internal static partial class Program
         Equal(1, needs.Floor(LayoutRoomKind.Jail), "existing prison reserved upfront");
         Equal(5, needs.Residents, "prisoner excluded from defender roster");
         True(contract.Site.Roster.All(r => r.Id != contract.Site.PrisonerId), "target never controlled");
+        Equal(18, contract.StartupFoodUnits(0.9), "protected prisoner included in finite meals");
+        Equal(324, contract.StartupFoodUnits(0.05), "protected prisoner included in tribal nutrition");
     }
 
     private static ProceduralLayoutInput QuestInput(P4DQuestContract contract, TerrainSnapshot terrain) =>
@@ -104,5 +108,25 @@ internal static partial class Program
         True(!ProceduralLayoutPlanner.Plan(input).Success, "unbuildable site falls back");
         Equal(before, input.Digest, "preflight leaves input immutable");
         Equal(5, contract.Site.Roster.Count, "rejection never discards defenders");
+    }
+
+    private static void QuestTerrainTechMatrix()
+    {
+        foreach (bool rescue in new[] { false, true })
+        foreach (var level in new[] { SettlementTechStageLevel.Neolithic, SettlementTechStageLevel.IndustrialMid })
+        foreach (var terrain in new[] { Plains(160), Mountain(160, 160), Obstacles(160) })
+        {
+            var contract = QuestContract(QuestFacts(rescue: rescue, points: 700));
+            var input = new ProceduralLayoutInput(contract.Requirements(TechStageModel.Create(level), Temperate),
+                terrain, contract.Seed, CoreCatalog, questContract: contract);
+            var result = ProceduralLayoutPlanner.Plan(input);
+            True(result.Success, "quest matrix " + rescue + "/" + level + ": " + string.Join(";", result.Diagnostics));
+            Equal(0, contract.ValidateReservations(result.Layout).Count, "all native occupants and objective fit");
+            Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count, "shared geometry validates");
+            Equal(0, ProceduralLayoutValidator.ValidateLoadout(input, result.Layout,
+                LayoutLoadoutModel.Build(input, result.Layout)).Count, "native gear remains descriptive");
+            Equal(rescue ? 1 : 0, result.Layout.Rooms.Count(r => r.Kind == LayoutRoomKind.Jail), "no duplicate prison");
+            Equal(5, input.Requirements.Residents, "terrain never changes the native roster");
+        }
     }
 }

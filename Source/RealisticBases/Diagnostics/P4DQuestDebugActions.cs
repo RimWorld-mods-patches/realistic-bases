@@ -159,6 +159,38 @@ namespace RealisticBases.Diagnostics
             Audit();
         }
 
+        [DebugAction(Category, "P4D breach doors and offer native rescue", allowedGameStates = AllowedGameStates.Playing)]
+        private static void OfferRescue()
+        {
+            if (!Disposable) throw new InvalidOperationException("P4D requires disposable profile");
+            Map map = QuestSite(LastQuest)?.Map ?? throw new InvalidOperationException("No quest map");
+            Pawn target = map.GetComponent<P4DMapState>().OriginalPrisoner ??
+                map.mapPawns.AllPawnsSpawned.Single(p => p.IsPrisoner && p.mindState.WillJoinColonyIfRescued);
+            Pawn rescuer = map.mapPawns.FreeColonistsSpawned.First(p => p != target);
+            if (GenHostility.AnyHostileActiveThreatToPlayer(map, true, true)) throw new InvalidOperationException("Defeat guards before rescue test");
+            // Only test instrumentation breaches hostile doors. Production never
+            // grants pass-through access or changes enemy ownership to pass audits.
+            foreach (Building_Door door in map.listerThings.AllThings.OfType<Building_Door>()
+                .Where(d => d.HostileTo(Faction.OfPlayer)).ToList())
+                door.TakeDamage(new DamageInfo(DamageDefOf.Blunt, 9999f, instigator: rescuer));
+            if (!rescuer.CanReach(target, PathEndMode.Touch, Danger.Deadly)) throw new InvalidOperationException("No native rescue path after breach");
+            rescuer.jobs.TryTakeOrderedJob(JobMaker.MakeJob(JobDefOf.OfferHelp, target), JobTag.Misc);
+            Log("TEST_OFFER_HELP", "pawn=" + target.ThingID + " rescuer=" + rescuer.ThingID +
+                " job=" + rescuer.CurJob?.def.defName + " nativeJoinPending=true");
+        }
+
+        [DebugAction(Category, "P4D kill original rescue target", allowedGameStates = AllowedGameStates.Playing)]
+        private static void KillTarget()
+        {
+            if (!Disposable) throw new InvalidOperationException("P4D requires disposable profile");
+            Map map = QuestSite(LastQuest)?.Map ?? throw new InvalidOperationException("No quest map");
+            Pawn target = map.GetComponent<P4DMapState>().OriginalPrisoner ??
+                map.mapPawns.AllPawnsSpawned.Single(p => p.IsPrisoner && p.mindState.WillJoinColonyIfRescued);
+            target.Kill(null);
+            Log("TEST_TARGET_DEATH", "pawn=" + target.ThingID + " nativeOutcomePending=true");
+            Audit();
+        }
+
         [DebugAction(Category, "P4D depart latest quest by caravan", allowedGameStates = AllowedGameStates.Playing)]
         private static void Depart()
         {

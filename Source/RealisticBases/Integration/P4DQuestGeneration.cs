@@ -64,6 +64,9 @@ namespace RealisticBases.Integration
         public SitePart Force { get; }
         public List<Pawn> Roster { get; } = new List<Pawn>();
         public List<Thing> Loot { get; } = new List<Thing>();
+        public SitePart PrisonerPart { get; private set; }
+        public Pawn Prisoner { get; private set; }
+        public CellRect PrisonBounds { get; private set; }
         public P4DQuestContract Contract { get; private set; }
         public bool Committed { get; private set; }
         public bool NativeFallback { get; set; }
@@ -82,14 +85,16 @@ namespace RealisticBases.Integration
             Rand.PushState(Gen.HashCombineInt(Force.parms.randomValue, Site.ID));
             try
             {
-                Roster.AddRange(PawnGroupMakerUtility.GeneratePawns(new PawnGroupMakerParms
+                foreach (Pawn pawn in PawnGroupMakerUtility.GeneratePawns(new PawnGroupMakerParms
                 {
                     tile = Map.Tile, faction = Site.Faction, groupKind = PawnGroupKindDefOf.Settlement,
                     points = Force.parms.threatPoints, inhabitants = true,
                     seed = OutpostSitePartUtility.GetPawnGroupMakerSeed(Force.parms)
-                }));
-                foreach (Pawn pawn in Roster)
+                }))
+                {
+                    Roster.Add(pawn);
                     if (!prepared.TryAdd(pawn, false)) throw new InvalidOperationException("Cannot stage native roster");
+                }
                 RosterPrepared = true;
                 if (Force.parms.lootMarketValue > 0)
                 {
@@ -105,17 +110,48 @@ namespace RealisticBases.Integration
                 LootPrepared = true;
             }
             finally { Rand.PopState(); }
-            SitePart prisonerPart = Site.parts.FirstOrDefault(p => p.def.defName == "PrisonerWillingToJoin");
-            Pawn prisoner = prisonerPart?.things?.OfType<Pawn>().SingleOrDefault();
+            PrisonerPart = Site.parts.FirstOrDefault(p => p.def.defName == "PrisonerWillingToJoin");
+            Prisoner = PrisonerPart?.things?.OfType<Pawn>().SingleOrDefault();
             QuestSiteFacts facts = new QuestSiteFacts(Site.ID, Site.Faction.def.defName, Map.generatorDef.defName,
                 Site.parts.Select(p => new QuestPartFacts(p.def.defName, p.hidden)), Force.parms.threatPoints,
                 Force.parms.randomValue, Force.parms.lootMarketValue, Force.expectedEnemyCount,
-                Roster.Select(Describe), Loot.Count, prisoner?.ThingID, prisoner?.holdingOwner == prisonerPart?.things);
+                Roster.Select(Describe), Loot.Count, Prisoner?.ThingID, Prisoner?.holdingOwner == PrisonerPart?.things);
             if (!P4DQuestContract.TryCreate(facts, out P4DQuestContract contract, out string reason))
                 throw new InvalidOperationException(reason);
             if (Roster.Any(p => p.IsPrisoner || p.IsSlave || p.Faction != Site.Faction || !p.RaceProps.Humanlike ||
                 !p.questTags.NullOrEmpty())) throw new InvalidOperationException("unsupported_scripted_native_occupant");
             Contract = contract;
+        }
+
+        private void PlacePrisoner(P4SpawnTransaction tx, ProceduralLayout layout)
+        {
+            if (Contract.Strategy.PrisonerCapacity == 0) return;
+            if (Prisoner == null || Prisoner.holdingOwner != PrisonerPart.things || !Prisoner.IsPrisoner ||
+                Prisoner.Faction != Site.Faction || Prisoner.guest.HostFaction != Site.Faction || Prisoner.GetLord() != null)
+                throw new InvalidOperationException("unsupported_original_prisoner_custody");
+            var jail = layout.Rooms.Single(r => r.Kind == LayoutRoomKind.Jail);
+            PrisonBounds = new CellRect(jail.Bounds.MinX, jail.Bounds.MinZ, jail.Bounds.Width, jail.Bounds.Height);
+            var bed = Map.listerThings.AllThings.OfType<Building_Bed>().Single(b => b.ForPrisoners && PrisonBounds.Contains(b.Position));
+            IntVec3 cell = jail.Interior.Points().Select(Cell).FirstOrDefault(c => c.Standable(Map) && c.GetEdifice(Map) == null);
+            if (!cell.IsValid || !PrisonBounds.ContractedBy(1).Contains(cell) ||
+                !Map.reachability.CanReachMapEdge(cell, TraverseParms.For(TraverseMode.PassDoors)))
+                throw new InvalidOperationException("unreachable_planned_prison");
+            Faction faction = Prisoner.Faction, host = Prisoner.guest.HostFaction;
+            float health = Prisoner.health.summaryHealth.SummaryHealthPercent;
+            string name = Prisoner.Name.ToStringFull, tags = string.Join(",", Prisoner.questTags ?? new List<string>());
+            tx.Borrow(Prisoner, PrisonerPart.things);
+            GenSpawn.Spawn(Prisoner, cell, Map);
+            Prisoner.mindState.WillJoinColonyIfRescued = true;
+            if (!Prisoner.IsPrisoner || Prisoner.Faction != faction || Prisoner.guest.HostFaction != host ||
+                Prisoner.health.summaryHealth.SummaryHealthPercent != health || Prisoner.Name.ToStringFull != name ||
+                string.Join(",", Prisoner.questTags ?? new List<string>()) != tags || Prisoner.GetLord() != null ||
+                bed.GetRoom() == null || bed.GetRoom().TouchesMapEdge || bed.GetRoom().OpenRoofCount != 0 ||
+                Prisoner.GetRoom() != bed.GetRoom()) throw new InvalidOperationException("original_prisoner_state_changed");
+            tx.OnRollback(() => P4DQuestDebugActions.Log("PRISONER_ROLLBACK_PENDING", "site=" + Site.ID +
+                " pawn=" + Prisoner.ThingID + " returnOwner=originalSitePart"));
+            P4DQuestDebugActions.Log("PRISONER_PLACED", "site=" + Site.ID + " pawn=" + Prisoner.ThingID +
+                " name=" + name + " health=" + health + " host=" + host.def.defName + " room=" + PrisonBounds +
+                " bed=" + bed.ThingID + " holderEmpty=" + (PrisonerPart.things.Count == 0) + " p3Controlled=false tags=" + tags);
         }
 
         private static QuestResidentFacts Describe(Pawn pawn)
@@ -168,6 +204,7 @@ namespace RealisticBases.Integration
                 (layout.Power == null ? 0 : DefDatabase<ThingDef>.GetNamedSilentFail(layout.Power.FuelDef)?.BaseMarketValue ?? 0);
             if (operatingValue > Contract.OperatingValueAllowance + 0.01)
                 throw new InvalidOperationException("quest_operating_allowance:" + operatingValue + "/" + Contract.OperatingValueAllowance);
+            PlacePrisoner(tx, layout);
             PlaceLoot(tx, LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Storage));
             P3GarrisonController controller = Map.GetComponent<P3GarrisonController>();
             Lord lord = null;
@@ -207,7 +244,8 @@ namespace RealisticBases.Integration
                 footprint.Max(c => c.Z) - footprint.Min(c => c.Z) + 1);
             used.Add(rect);
             MapGenerator.SetVar("RectOfInterest", rect);
-            Map.GetComponent<P4DMapState>().Initialize(Site, Contract, layout.Digest, finish, Roster, Loot);
+            if (Prisoner != null) MapGenerator.rootsToUnfog.Add(Prisoner.Position);
+            Map.GetComponent<P4DMapState>().Initialize(Site, Contract, layout.Digest, finish, Roster, Loot, Prisoner);
             if (P4DQuestGeneration.ForcedFailure == P4DForcedFailure.AfterTransfer)
                 throw new InvalidOperationException("forced_quest_failure_after_transfer_metadata");
             P4DQuestDebugActions.Log("QUEST_CONTENT_LEDGER", "site=" + Site.ID + " defenders=" + Roster.Count +
@@ -278,9 +316,13 @@ namespace RealisticBases.Integration
             }
             catch (Exception ex)
             {
-                if (context.Committed || !context.RecoveryVerified || context.Roster.Any(p => p.Spawned || p.Destroyed || p.holdingOwner != context.GetDirectlyHeldThings()) ||
-                    context.Loot.Any(t => t.Spawned || t.Destroyed || t.holdingOwner != context.GetDirectlyHeldThings()))
+                if (!context.RosterPrepared || !context.LootPrepared || context.Committed || !context.RecoveryVerified || context.Roster.Any(p => p.Spawned || p.Destroyed || p.holdingOwner != context.GetDirectlyHeldThings()) ||
+                    context.Loot.Any(t => t.Spawned || t.Destroyed || t.holdingOwner != context.GetDirectlyHeldThings()) ||
+                    (context.Prisoner != null && (context.Prisoner.Spawned || context.Prisoner.Destroyed || context.Prisoner.holdingOwner != context.PrisonerPart.things)))
                     throw new InvalidOperationException("Unsafe quest rollback; native fallback disabled", ex);
+                if (context.Prisoner != null) P4DQuestDebugActions.Log("PRISONER_RETURNED", "site=" + context.Site.ID +
+                    " pawn=" + context.Prisoner.ThingID + " originalOwner=true join=" + context.Prisoner.mindState.WillJoinColonyIfRescued +
+                    " health=" + context.Prisoner.health.summaryHealth.SummaryHealthPercent);
                 context.NativeFallback = true;
                 NativeActive = context;
                 P4DQuestDebugActions.Log("QUEST_FALLBACK", "site=" + context.Site.ID + " reason=" + ex.Message +
@@ -300,12 +342,18 @@ namespace RealisticBases.Integration
                 !site.Faction.HostileTo(Faction.OfPlayer) ||
                 !new[] { "Pirate", "OutlanderRough", "TribeRough", "TribeSavage" }.Contains(site.Faction.def.defName) ||
                 site.parts.Any(p => p.hidden || p.def.modContentPack?.PackageIdPlayerFacing != "Ludeon.RimWorld")) return false;
-            // Rescue is admitted at its own validated integration checkpoint.
-            if (!site.parts.Select(p => p.def.defName).SequenceEqual(new[] { "BanditCamp" }) ||
-                site.parts[0] != parms.sitePart || site.def.mapGenerator != null ||
+            bool bandit = site.parts.Select(p => p.def.defName).SequenceEqual(new[] { "BanditCamp" });
+            bool rescue = site.parts.Select(p => p.def.defName).SequenceEqual(new[]
+                { "PrisonerWillingToJoin", "Outpost", "PossibleUnknownThreatMarker" });
+            if (!(bandit || rescue) || site.parts[bandit ? 0 : 1] != parms.sitePart || site.def.mapGenerator != null ||
                 !Find.QuestManager.QuestsListForReading.Any(q => q.State == QuestState.Ongoing &&
-                    q.root?.defName == "OpportunitySite_BanditCamp" && q.PartsListForReading.OfType<QuestPart_SpawnWorldObject>()
+                    q.root?.defName == (bandit ? "OpportunitySite_BanditCamp" : "OpportunitySite_PrisonerWillingToJoin") && q.PartsListForReading.OfType<QuestPart_SpawnWorldObject>()
                         .Any(p => p.worldObject == site))) return false;
+            if (rescue && (site.parts[0].def.Worker.GetType() != typeof(SitePartWorker_PrisonerWillingToJoin) ||
+                site.parts[0].things?.Count != 1 || !(site.parts[0].things[0] is Pawn original) || !original.IsPrisoner ||
+                site.parts[0].def.ExtraGenSteps.Count != 1 || site.parts[0].def.ExtraGenSteps[0].genStep.GetType() != typeof(GenStep_PrisonerWillingToJoin) ||
+                site.parts[2].def.Worker.GetType() != typeof(SitePartWorker_UnknownThreatMarker) ||
+                site.parts[2].def.ExtraGenSteps.Any() || site.parts[2].things?.Any == true)) return false;
             if (step.GetType() != typeof(GenStep_Outpost) || step.overrideFaction != null || step.forcedRect != null ||
                 step.settlementDontGeneratePawns || !step.generateLoot || step.unfogged || step.attackWhenPlayerBecameEnemy ||
                 step.requiredGravcoreRooms != 0 || step.requiredWorshippedTerminalRooms != 0 ||
@@ -323,6 +371,19 @@ namespace RealisticBases.Integration
         }
 
         internal static bool Committed(Map map) => Runs.TryGetValue(map, out var c) && c.Committed;
+        internal static bool FinishRescue(Map map, GenStepParams parms)
+        {
+            if (!Runs.TryGetValue(map, out var c) || !c.Committed || c.PrisonerPart != parms.sitePart) return true;
+            if (c.Prisoner == null || !c.Prisoner.Spawned || c.Prisoner.Map != map || c.Prisoner.GetLord() != null)
+                throw new InvalidOperationException("Committed quest target missing before native prison step");
+            // Native prison scatterer runs after Fog1500; keep its exact fog and
+            // interest obligations but do not generate a second prison/target.
+            MapGenerator.SetVar("RectOfInterest", c.PrisonBounds);
+            map.fogGrid.Refog(c.PrisonBounds.ContractedBy(1));
+            P4DQuestDebugActions.Log("PRISON_STEP_SUPPRESSED", "site=" + c.Site.ID +
+                " pawn=" + c.Prisoner.ThingID + " nativeFogApplied=true duplicatePrisons=0");
+            return false;
+        }
         internal static void FinishNative(Map map)
         {
             if (NativeActive?.Map != map) return;
@@ -363,6 +424,12 @@ namespace RealisticBases.Integration
     {
         private static bool Prefix(Map map, GenStepParams parms) => !P4DQuestGeneration.Committed(map);
     }
+    [HarmonyPatch(typeof(GenStep_Scatterer), nameof(GenStep_Scatterer.Generate))]
+    internal static class P4DNativePrisonPatch
+    {
+        private static bool Prefix(GenStep __instance, Map map, GenStepParams parms) =>
+            __instance.GetType() != typeof(GenStep_PrisonerWillingToJoin) || P4DQuestGeneration.FinishRescue(map, parms);
+    }
     [HarmonyPatch(typeof(PawnGroupMakerUtility), nameof(PawnGroupMakerUtility.GeneratePawns))]
     internal static class P4DFallbackRosterPatch
     {
@@ -391,18 +458,21 @@ namespace RealisticBases.Integration
         private string strategy, contract, seed, layout, finish;
         private List<Pawn> roster = new List<Pawn>();
         private List<Thing> loot = new List<Thing>();
+        private Pawn prisoner;
+        public Pawn OriginalPrisoner => prisoner;
         public P4DMapState(Map map) : base(map) { }
         public void Initialize(Site parent, P4DQuestContract input, string geometry, string finishes,
-            IEnumerable<Pawn> occupants, IEnumerable<Thing> items)
+            IEnumerable<Pawn> occupants, IEnumerable<Thing> items, Pawn target = null)
         {
             site = parent; strategy = input.Strategy.Id; contract = input.Digest;
             seed = StableHash.Hex(input.Seed); layout = geometry; finish = finishes;
-            roster = occupants.ToList(); loot = items.ToList();
+            roster = occupants.ToList(); loot = items.ToList(); prisoner = target;
         }
-        public void Clear() { site = null; strategy = contract = seed = layout = finish = null; roster.Clear(); loot.Clear(); }
+        public void Clear() { site = null; prisoner = null; strategy = contract = seed = layout = finish = null; roster.Clear(); loot.Clear(); }
         public override void ExposeData()
         {
             Scribe_References.Look(ref site, "p4dSite");
+            Scribe_References.Look(ref prisoner, "p4dPrisoner");
             Scribe_Values.Look(ref strategy, "p4dStrategy"); Scribe_Values.Look(ref contract, "p4dContract");
             Scribe_Values.Look(ref seed, "p4dSeed"); Scribe_Values.Look(ref layout, "p4dLayout");
             Scribe_Values.Look(ref finish, "p4dFinish");
@@ -417,7 +487,7 @@ namespace RealisticBases.Integration
                 P4DQuestDebugActions.Log("QUEST_RELOADED", "site=" + site.ID + " strategy=" + strategy +
                     " contract=" + contract + " seed=" + seed + " layout=" + layout + " finish=" + finish +
                     " roster=" + string.Join(",", roster.Where(p => p != null).Select(p => p.ThingID)) +
-                    " loot=" + string.Join(",", loot.Where(t => t != null).Select(t => t.ThingID)));
+                    " loot=" + string.Join(",", loot.Where(t => t != null).Select(t => t.ThingID)) + " prisoner=" + prisoner?.ThingID);
         }
     }
 }

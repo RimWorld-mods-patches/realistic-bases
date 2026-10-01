@@ -132,6 +132,14 @@ namespace RealisticBases.Planning
         public int ConstructionImportAllowance { get; }
         public int OperatingValueAllowance { get; }
         public int AddedStaticThreatPoints => 0;
+        // A finite three-simple-meal equivalent per original occupant, not
+        // three item units: pemmican and meals have different nutrition.
+        public int StartupFoodUnits(double nutritionPerUnit)
+        {
+            if (!Finite(nutritionPerUnit) || nutritionPerUnit <= 0)
+                throw new ArgumentOutOfRangeException(nameof(nutritionPerUnit));
+            return checked((int)Math.Ceiling((Site.Roster.Count + Strategy.PrisonerCapacity) * 2.7 / nutritionPerUnit - 0.000001));
+        }
 
         public static bool TryCreate(QuestSiteFacts site, out P4DQuestContract contract, out string reason)
         {

@@ -1,6 +1,6 @@
 # P4D quest-location findings
 
-2026-10-01 · P4D.0–P4D.2 complete; P4D.3–P4D.4 open
+2026-10-01 · P4D.0–P4D.3 complete; P4D.4 open
 
 ## Native Core baseline
 
@@ -9,8 +9,9 @@ were generated in `.runtime/rimworld-dev-profile`, accepted through `Quest.Accep
 and entered through `CaravanArrivalAction_VisitSite`. The checked process was the
 sole game process and used that exact savedata folder. The API companion invoked
 the new disposable-only P4D actions. Evidence is in ignored
-`.runtime/logs/p4d-native-baseline.log`; native rescue serialization is preserved
-as `Saves/RealisticBases-P4D-Active.rws`. These actions do not install or replace
+`.runtime/logs/p4d-native-baseline.log`; native rescue serialization was captured
+with the reusable `Saves/RealisticBases-P4D-Active.rws` test slot (later scenarios
+overwrite that disposable slot). These actions do not install or replace
 quests and do not emit artificial objective-completion signals.
 
 | Contract | Observed native inputs/content | Lifecycle observed |
@@ -159,3 +160,38 @@ Live evidence (all logs ignored under `.runtime/logs/`):
 Docker Release builds remain zero warnings/errors. Foundation/garrison suite passed
 with zero failures. The complete layout regression suite is recorded at closeout;
 rescue, terrain/optional-mod matrix and additional lifecycle cases remain P4D.3/.4.
+
+## P4D.3 original-prisoner rescue integration
+
+The exact authorized rescue composition now uses the same shared camp transaction.
+It borrows the existing pawn from its original `SitePart.things`, spawns that pawn
+in the reserved Jail/PrisonBed room and verifies identity, health, name, tags,
+faction/host, no Lord, roofed enclosure and access. It sets the native rescue flag
+and unfog root; the original scatterer at1600 applies the native prison refog and
+interest rectangle without creating a second prison or target. Its inherited
+`Generate` method is patched on `GenStep_Scatterer` with an exact prisoner-step
+type guard. The earlier incorrect subclass target caused a startup error; that
+run is discarded, and subsequent clean boots exercised the corrected patch.
+
+P3 receives only the native combat roster, never the target. Save/reload stores
+the original target reference. Death naturally prunes a destroyed reference; it
+does not generate a replacement. Partial native roster preparation fails closed,
+rather than falling back with a second sampled roster. Food is a finite 2.7
+nutrition per original defender/target (three simple meals), converted using the
+chosen food's nutrition. This corrects the earlier item-count reserve without
+changing ordinary settlement food or increasing the operating allowance.
+
+| Live evidence | Result |
+|---|---|
+| `p4d-rescue-fixed-startup.log`, Quest2/site93 TribeRough | Original Human41238, four native guards; one Jail/Bedroll, health1, original host, no Lord. Active reload retained target, roster, loot, layout92129FD789BDBDBF and finish48E593A255945588. After guards were defeated and hostile doors breached through damage, vanilla OfferHelp recruited the same pawn; released-pawn reload retained identity and no P3 control. Departure with both free colonists removed the site natively and ended `EndedUnknownOutcome`. Production does not open hostile doors for this test. |
+| `p4d-rescue-recovery.log`, Quest1/site92 TribeRough | Forced failure after original Human41245 transfer, loot, controller and metadata. Rollback restored original holder, health1 and rescue flagfalse, UsedRects0/roots0/no interest key. Native fallback used the same target and all4 staged defenders once, staging empty, one native prison. |
+| Same log, Quest2/site95 OutlanderRough | Original Human70239, four native guards, one planned prison, layout500A74DFD210D465; fifteen simple meals /13.5 nutrition, operating257.2/475. Normal industrial rescue committed and suppressed only the native duplicate prison work. |
+| `p4d-rescue-final-lifecycle.log`, Quest0/site91 TribeRough | Original Human41233 was killed. Quest remained Ongoing after normal ticks and active reload; no replacement pawn appeared. Departure removed the site and ended `EndedUnknownOutcome`, exactly as Core specifies. |
+| Same log, Quest1/site94 TribeSavage | Normal five-guard rescue committed, original living Human55468 in one prison. Departure without freeing/taking the target removed the site and ended `EndedUnknownOutcome`. |
+| Same log, Quest5/site100 Pirate | Exact supported rescue composition, native pre-arrival timeout shortened to30ticks; Core ended `EndedFailed` and removed the site. No artificial signals. |
+| Same log, Quest6/site101 Pirate | Unsupported `[PrisonerWillingToJoin, Turrets, PossibleUnknownThreatMarker]` entered through native caravan arrival: five native turrets and the original Human78787 in one native prison; no procedural commit or duplicate prison suppression. |
+
+All valid rescue runs started without Harmony/mod-construction errors. Six focused
+P4D tests pass, including12 shared terrain/tech/objective cases, nutrition conversion,
+unsupported routing and immutable rejection. Release build: zero warnings/errors.
+Compatibility and full regression closeout remain P4D.4.
