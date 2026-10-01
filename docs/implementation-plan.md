@@ -17,7 +17,7 @@ Read the [design and feasibility assessment](design-feasibility.md) for intended
 | Defensive NPC behavior and essential resupply | Planned P3 |
 | Mountain/lake placement, Geological Landforms compatibility | Planned P4; early terrain-order experiment in P0 |
 | Budget-driven ordinary populations; average 7, low wealth 4, wealthy up to 12 | P4A population/input integration; facilities, gear and finite reserves follow the funded roster |
-| Supported settlement-like quest locations | Planned P4D; preserve quest threat budgets, objectives, pawn roles and lifecycle contracts |
+| Supported settlement-like quest locations | P4D complete for exact Core bandit/rescue contracts; native threat/content/objective/lifecycle preservation verified; competing GL pipelines remain native |
 | Encounter food/fuel/ammunition reserves and essential NPC support | P5; finite stocks and best-effort jobs over a declared short horizon |
 | Trade inventory reflected in physical supplies, distinct from operating reserves | P5; ordinary-item snapshot/ownership/transaction integration |
 | Long-term food/fuel/shell production balance and seasonal survival | Post-MVP; explicitly deferred in [supply scope](supply-and-mvp-scope.md) |
@@ -179,7 +179,7 @@ Implement P4C.0 definition/transaction inspection, P4C.1 pure finish policy, P4C
 
 ### P4D — Quest-location support
 
-**Depends on:** P4/P4A procedural generation, P3 scoped AI/lifecycle, P4B defenses and merged P4C finishes. **Status:** planned and authorized for implementation. Detailed contracts/checkpoints: [P4D quest-location plan](p4d-quest-plan.md). Preserve ordinary settlement eligibility guards.
+**Depends on:** P4/P4A procedural generation, P3 scoped AI/lifecycle, P4B defenses and merged P4C finishes. **Status:** complete for the bounded Core bandit/rescue contracts. Detailed contracts/checkpoints: [P4D quest-location plan](p4d-quest-plan.md); evidence and deliberate GL/other-generator native routing: [P4D findings](p4d-findings.md). Ordinary settlement eligibility guards are preserved.
 
 Implement Core bandit-camp elimination first, then guarded prisoner rescue (`PrisonerWillingToJoin` with `Outpost`). Allow only verified whole site-part/faction/generator combinations; unknown threats, special DLC sites and third-party generators retain native behavior. Guarded item stashes are a documented follow-on candidate, not required initial scope.
 

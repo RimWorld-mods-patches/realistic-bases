@@ -1,6 +1,6 @@
 # P4D quest-location findings
 
-2026-10-01 · P4D.0–P4D.3 complete; P4D.4 open
+2026-10-01 · P4D.0–P4D.4 complete for the bounded Core contracts below
 
 ## Native Core baseline
 
@@ -79,14 +79,14 @@ threats and all other unknown compositions still stay native.
 
 | Ordered parts | Planned routing |
 |---|---|
-| BanditCamp | Initial elimination strategy, only verified Core hostile human factions/Encounter/step flags |
-| PrisonerWillingToJoin, Outpost, PossibleUnknownThreatMarker | Initial rescue strategy, visible Outpost and exact harmless Core marker only |
-| PrisonerWillingToJoin, Outpost | Explicitly recognizable marker-free guarded composition; enable only after contract evidence |
+| BanditCamp | Enabled elimination strategy, only verified Core hostile human factions/Encounter/step flags and native caravan entry |
+| PrisonerWillingToJoin, Outpost, PossibleUnknownThreatMarker | Enabled rescue strategy, visible Outpost and exact harmless Core marker only; same native pipeline/arrival restrictions |
+| PrisonerWillingToJoin, Outpost | Native; marker-free composition is not enabled without its own contract evidence |
 | Any extra part, hidden threat, ambush, turret part, other objective, peaceful/nonhuman faction, DLC map or competing generator | Native unchanged |
 | Guarded ItemStash | Follow-on only; outside initial implementation |
 
-P4D.0 adds only disposable native-validation tools and this evidence; production
-quest routing remains native until the subsequent checkpoints.
+P4D.0 added only disposable native-validation tools and this evidence; production
+quest routing remained native until the subsequent checkpoints.
 
 ## P4D.1 pure contracts and camp requirements
 
@@ -157,9 +157,9 @@ Live evidence (all logs ignored under `.runtime/logs/`):
 | Same run, Quest1/site94 OutlanderRough | Fresh seven-defender camp committed normally. Departure before defeat emitted native destruction/failure, EndedFailed2707; no reward paid. |
 | `p4d-bandit-caravan-expiry.log` | Native timeout shortened only for disposable Quest0:30ticks; Core removed the site and ended failed. A fresh Quest1/site92 passed the final caravan guard and committed a four-defender camp. |
 
-Docker Release builds remain zero warnings/errors. Foundation/garrison suite passed
-with zero failures. The complete layout regression suite is recorded at closeout;
-rescue, terrain/optional-mod matrix and additional lifecycle cases remain P4D.3/.4.
+At P4D.2, Docker Release builds and the foundation/garrison suite passed. Rescue,
+the terrain/optional-mod matrix and complete regression closeout are recorded in
+the subsequent checkpoint sections below.
 
 ## P4D.3 original-prisoner rescue integration
 
@@ -194,4 +194,54 @@ changing ordinary settlement food or increasing the operating allowance.
 All valid rescue runs started without Harmony/mod-construction errors. Six focused
 P4D tests pass, including12 shared terrain/tech/objective cases, nutrition conversion,
 unsupported routing and immutable rejection. Release build: zero warnings/errors.
-Compatibility and full regression closeout remain P4D.4.
+Compatibility and full regression closeout are recorded under P4D.4 below.
+
+## P4D.4 compatibility, regression and closeout
+
+P4D is complete for the two explicitly listed Core contracts. This is not blanket
+quest replacement or support for arbitrary transport, DLC or third-party generation.
+
+| Final live matrix | Evidence/result |
+|---|---|
+| `p4d-core-terrain-closeout.log`, Quest0/site91, Core Mountain/Caves | Four native tribal defenders; shared camp excavated137 cells, retained131 thick roofs, smoothed108 walls. Native bandit success at3785, observed EndedSuccess3973; post-success reload remained successful with empty native reward holder and only one completion signal. Original Novel41246, Schematic41241 and Gold41251 each appeared exactly once as saved objects. No second payout; departure removed the site. |
+| `p4d-core-final-matrix.log`, Quest0/site91, Core Mountain | Six original tribal defenders;218 excavations,217 retained roofs,138 smooth walls, layout5B0DAFAC10A66DC1/finish1B0AE5B581159ADA. Reserved-footprint terrain/roof audit passed after all native steps and after active reload. P3 retained six defenders/assignments, zero controlled player pawns/out-of-bounds defenders. Unfinished departure ended natively failed. |
+| Same log, Quest1/site94, OutlanderRough Mountain/Caves | Original Human59497 in exactly one roofed planned prison, no Lord/P3 membership; five original guards. Eight rooms,228 excavations,202 retained roofs,151 smooth walls,114 conduits, four outdoor cooler exhausts. LayoutA99A4EDF7729A3A2/finish9EF7AC8B3A8F6220, target/roster/loot and scoped terrain audit survived active reload. Unrescued departure ended UnknownOutcome and removed the site. |
+| Same log, Quest10/site106, OutlanderRough Mountain/Caves | Forced late failure after Human172638 placement plus loot/controller/metadata.221 created things removed, terrain/roof/rock recovery verified, UsedRects0/roots0/interest absent restored. Original target returned to original holder, health1/rescue flagfalse. Native fallback spawned4/4 prepared guards once, staging empty; same prisoner then in one native prison with native custody, health1 and no Lord. Native turret retained. |
+| Same log, Quest11/site109, TribeRough Flat | Forced preflight rejection, mutationCount0; original Human201703 transferred by the native step, one prison/bed, native host/rescue flag, no Lord, ordinary fog; no adapter state or duplicate content. |
+| Same log, ordinary settlement97/map3 Flat | Ordinary RB_P0_Base_Faction route, seven residents/nine rooms/240 crops, original power/defense/finish pipeline. Final terrain checksum and pass-doors edge access passed; save/reload restored seven defenders/assignments and finite mortar stocks. This is generation/reload smoke evidence, not a new P4B combat/safety certification. |
+| `p4d-gl-final-matrix.log`, Geological Landforms1.7.13.1 + Map Preview, Quest0/site91 and Quest1/site94 | Real GL_Cliff tiles/context,44 landforms loaded. GL adds `UnnamedDef@225` to the native Encounter inventory. Both contracts deliberately routed native with `competing_step_inventory`; no procedural commit. Native bandit defeat succeeded and departure removed its site. Rescue kept original Human69808 in one native prison, same custody/identity through reload, then vanilla OfferHelp recruited that same pawn; departure ended UnknownOutcome/removal. No duplicate prisoner or suppressed GL terrain work. |
+
+The initial whole-map checksum comparison at outpost400 was too broad: native
+ScatterRuinsSimple750 legitimately adds terrain outside the reserved camp. Source
+inspection confirms it respects UsedRects. The final persisted audit compares both
+terrain layers and roofs only inside our reserved footprint; mountain camps passed
+after the native pipeline and reload. The shared transaction still verifies all
+unowned terrain/rock during its own mutation boundary and full restoration on
+rollback. This distinction does not suppress native later generation.
+
+Final validation: complete foundation/P1/P2/P3/P4 suite passes with zero failures;
+complete layout suite passes with zero failures (`elapsedMs=466538`), including
+ordinary population/12-of-12 clutter, P4B, P4C and six P4D fixtures (12 terrain/tech
+cases). Final Docker Release build has zero warnings/errors. Valid clean startups
+have no mod-construction/Harmony errors. Forced test aborts are expected evidence,
+not startup failures. The five-mod baseline was restored and the sole disposable
+process stopped. Runtime profiles, saves and logs remain ignored under `.runtime/`.
+
+### Deliberate limitations and follow-ons
+
+- Procedural support is Core-only exact native Encounter inventory, normal caravan
+  arrival and Pirate/OutlanderRough/TribeRough/TribeSavage. Quest faction tech chooses
+  Neolithic or IndustrialMid; arbitrary stages/arrival modes are not newly enabled.
+- Installed GL's competing pipeline remains native, as do hidden/extra threats,
+  Turrets parts, peaceful/nonhuman forces, DLC sites and other generators. GL
+  procedural quest support needs a separately verified terrain-step contract, not
+  removal of this safety guard. DLC/other-mod universality is not claimed.
+- Actual roster limit32 is a declared contract bound; unplaceable geometry or
+  unaffordable operation safely falls back without trimming or resampling. v1 adds
+  zero static threat, no trap/IED/mortar and no ordinary wealth/population roll.
+- The finite food/fuel and provisional threat-derived construction/operation
+  allowances are explicit; comprehensive difficulty tuning is P6. Native stockpile
+  generator market-value overshoot is preserved, not silently clamped.
+- Native quest-site removal prevents revisit after departure. No persistence layer
+  or extra reward mechanism overrides that rule. ItemStash and marker-free rescue
+  remain follow-ons; P4E and ordinary P4B/P4C scope/status are unchanged.

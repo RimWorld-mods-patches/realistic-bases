@@ -245,7 +245,7 @@ namespace RealisticBases.Integration
             used.Add(rect);
             MapGenerator.SetVar("RectOfInterest", rect);
             if (Prisoner != null) MapGenerator.rootsToUnfog.Add(Prisoner.Position);
-            Map.GetComponent<P4DMapState>().Initialize(Site, Contract, layout.Digest, finish, Roster, Loot, Prisoner);
+            Map.GetComponent<P4DMapState>().Initialize(Site, Contract, layout.Digest, finish, Roster, Loot, Prisoner, rect.Cells);
             if (P4DQuestGeneration.ForcedFailure == P4DForcedFailure.AfterTransfer)
                 throw new InvalidOperationException("forced_quest_failure_after_transfer_metadata");
             P4DQuestDebugActions.Log("QUEST_CONTENT_LEDGER", "site=" + Site.ID + " defenders=" + Roster.Count +
@@ -281,7 +281,14 @@ namespace RealisticBases.Integration
         public static P4DForcedFailure ForcedFailure;
 
         internal static void Capture(Map map, IEnumerable<GenStepWithParams> steps)
-        { Steps.Remove(map); Steps.Add(map, steps.ToList()); }
+        {
+            Steps.Remove(map); Steps.Add(map, steps.ToList());
+            if (P4DQuestDebugActions.Disposable && map.Parent is Site inventorySite)
+                P4DQuestDebugActions.Log("QUEST_STEPS", "site=" + inventorySite.ID + " actual=" +
+                    string.Join(",", Steps.GetValue(map, _ => new List<GenStepWithParams>()).Select(s => s.def.defName + "@" + s.def.order)));
+            if (map.Parent is Site site && !site.parts.Any(p => p.def.ExtraGenSteps.Any(s => s.genStep is GenStep_Outpost)))
+                P4DQuestDebugActions.Log("QUEST_NATIVE", "site=" + site.ID + " reason=no_supported_outpost_step");
+        }
 
         internal static bool TryGenerate(GenStep_Outpost step, Map map, GenStepParams parms)
         {
@@ -361,8 +368,9 @@ namespace RealisticBases.Integration
             if (!Steps.TryGetValue(map, out var actual)) return false;
             var expected = map.generatorDef.genSteps.Concat(site.parts.SelectMany(p => p.def.ExtraGenSteps)).ToList();
             if (actual.Count != expected.Count || expected.Distinct().Any(d =>
-                    actual.Count(s => s.def == d) != expected.Count(e => e == d)) ||
-                actual.Count(s => s.def.genStep is GenStep_Outpost) != 1 ||
+                    actual.Count(s => s.def == d) != expected.Count(e => e == d)))
+            { reason = "competing_step_inventory"; return false; }
+            if (actual.Count(s => s.def.genStep is GenStep_Outpost) != 1 ||
                 actual.Count(s => s.def.genStep is GenStep_Power) != 1 ||
                 parms.sitePart.def.Worker.GetType() != typeof(SitePartWorker_Outpost) ||
                 parms.sitePart.def.ExtraGenSteps.Any(s => s.genStep.GetType() != typeof(GenStep_Outpost) &&
@@ -455,20 +463,28 @@ namespace RealisticBases.Integration
     public sealed class P4DMapState : MapComponent
     {
         private Site site;
-        private string strategy, contract, seed, layout, finish;
+        private string strategy, contract, seed, layout, finish, generationTerrain;
         private List<Pawn> roster = new List<Pawn>();
         private List<Thing> loot = new List<Thing>();
+        private List<IntVec3> terrainCells = new List<IntVec3>();
         private Pawn prisoner;
         public Pawn OriginalPrisoner => prisoner;
+        public bool HasCommittedContract => site != null;
+        public bool OwnedTerrainMatches => terrainCells.Count > 0 && generationTerrain ==
+            P0MapAudit.TerrainLayerRoofChecksum(map, map.AllCells.Except(terrainCells));
         public P4DMapState(Map map) : base(map) { }
         public void Initialize(Site parent, P4DQuestContract input, string geometry, string finishes,
-            IEnumerable<Pawn> occupants, IEnumerable<Thing> items, Pawn target = null)
+            IEnumerable<Pawn> occupants, IEnumerable<Thing> items, Pawn target, IEnumerable<IntVec3> occupiedCells)
         {
             site = parent; strategy = input.Strategy.Id; contract = input.Digest;
             seed = StableHash.Hex(input.Seed); layout = geometry; finish = finishes;
             roster = occupants.ToList(); loot = items.ToList(); prisoner = target;
+            // Later native ruins may change terrain outside the reserved camp.
+            // Audit only that camp, including both floor layers and its roofs.
+            terrainCells = occupiedCells.ToList();
+            generationTerrain = P0MapAudit.TerrainLayerRoofChecksum(map, map.AllCells.Except(terrainCells));
         }
-        public void Clear() { site = null; prisoner = null; strategy = contract = seed = layout = finish = null; roster.Clear(); loot.Clear(); }
+        public void Clear() { site = null; prisoner = null; strategy = contract = seed = layout = finish = generationTerrain = null; roster.Clear(); loot.Clear(); terrainCells.Clear(); }
         public override void ExposeData()
         {
             Scribe_References.Look(ref site, "p4dSite");
@@ -476,12 +492,15 @@ namespace RealisticBases.Integration
             Scribe_Values.Look(ref strategy, "p4dStrategy"); Scribe_Values.Look(ref contract, "p4dContract");
             Scribe_Values.Look(ref seed, "p4dSeed"); Scribe_Values.Look(ref layout, "p4dLayout");
             Scribe_Values.Look(ref finish, "p4dFinish");
+            Scribe_Values.Look(ref generationTerrain, "p4dGenerationTerrain");
+            Scribe_Collections.Look(ref terrainCells, "p4dTerrainCells", LookMode.Value);
             Scribe_Collections.Look(ref roster, "p4dRoster", LookMode.Reference);
             Scribe_Collections.Look(ref loot, "p4dLoot", LookMode.Reference);
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
                 roster = roster ?? new List<Pawn>();
                 loot = loot ?? new List<Thing>();
+                terrainCells = terrainCells ?? new List<IntVec3>();
             }
             if (Scribe.mode == LoadSaveMode.PostLoadInit && site != null)
                 P4DQuestDebugActions.Log("QUEST_RELOADED", "site=" + site.ID + " strategy=" + strategy +

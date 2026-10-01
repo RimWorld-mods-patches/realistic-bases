@@ -1,6 +1,6 @@
 # P4D — Quest-location support
 
-2026-10-01 · Implementation active · P4D.0–P4D.3 validated
+2026-10-01 · Complete · P4D.0–P4D.4 validated for the bounded Core support matrix
 
 ## Outcome and initial support set
 
@@ -62,7 +62,7 @@ Commit each validated step and record source findings, supported combinations an
 | P4D.1 | Pure quest contract, deterministic requirements, authoritative roster/loot sizing and objective reservations | Five focused pure fixtures, shared deterministic finite camp geometry, 17-pawn/no-minimum-four preservation, exact strategy boundaries and objective reservation; Release clean | Complete |
 | P4D.2 | Bandit-camp integration, scoped garrison and reversible generation | Real native success/reward/departure and active reload; zero-mutation rejection; post-roster and late controller/loot/metadata rollback reuse native content once; unfinished departure/expiry fail natively | Complete |
 | P4D.3 | Guarded prisoner-rescue integration and borrowed-object recovery | Original target rescue/join, active/released/dead reload, native death/departure/expiry outcomes, single prison and exact holder rollback verified in Core | Complete |
-| P4D.4 | Supported-combination matrix, regression, documentation and closeout | Representative terrain/tech and available GL, unsupported/competing generators untouched, lifecycle outcomes, full relevant suites/build and recorded limitations | Pending |
+| P4D.4 | Supported-combination matrix, regression, documentation and closeout | Core tribal/industrial flat/mountain, normal/rejection/late recovery/reload/lifecycle; installed GL competing pipelines native, unsupported turret rescue native; full suites and Release clean; limitations recorded in findings | Complete |
 
 ## Validation and exit
 

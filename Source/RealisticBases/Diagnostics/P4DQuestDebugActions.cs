@@ -38,6 +38,27 @@ namespace RealisticBases.Diagnostics
         [DebugAction(Category, "P4D generate native rescue quest", allowedGameStates = AllowedGameStates.Playing)]
         private static void Rescue() => Generate("OpportunitySite_PrisonerWillingToJoin");
 
+        [DebugAction(Category, "P4D move latest site to mountain test tile", allowedGameStates = AllowedGameStates.Playing)]
+        private static void MountainSite() => MoveTestSite(t => Find.WorldGrid[t].hilliness == Hilliness.Mountainous);
+
+        [DebugAction(Category, "P4D move latest site to GL cliff test tile", allowedGameStates = AllowedGameStates.Playing)]
+        private static void CliffSite() => MoveTestSite(t => Find.WorldGrid[t].Mutators.Any(m => m.defName == "GL_Cliff"));
+
+        private static void MoveTestSite(Func<PlanetTile, bool> terrain)
+        {
+            if (!Disposable) throw new InvalidOperationException("P4D requires disposable profile");
+            Site site = QuestSite(LastQuest) ?? throw new InvalidOperationException("No P4D site");
+            if (site.Map != null || !site.Spawned) throw new InvalidOperationException("Only an ungenerated test site can move");
+            PlanetTile tile = TileFinder.RandomSettlementTileFor(Faction.OfPlayer, mustBeAutoChoosable: true,
+                extraValidator: t => Find.WorldGrid[t].PrimaryBiome == BiomeDefOf.TemperateForest && terrain(t));
+            if (!tile.Valid) throw new InvalidOperationException("No matching test tile");
+            PlanetTile old = site.Tile;
+            site.Tile = tile;
+            Log("TEST_SITE_TERRAIN", "site=" + site.ID + " old=" + old + " tile=" + tile +
+                " hilliness=" + Find.WorldGrid[tile].hilliness + " mutators=" + string.Join(",", Find.WorldGrid[tile].Mutators.Select(m => m.defName)) +
+                " questPartsAndParametersUnchanged=true");
+        }
+
         [DebugAction(Category, "P4D reject next quest before mutation", allowedGameStates = AllowedGameStates.Playing)]
         private static void RejectNext() => Force(P4DForcedFailure.BeforeMutation);
 
@@ -143,7 +164,11 @@ namespace RealisticBases.Diagnostics
                 " turrets=" + map.listerThings.AllThings.Count(t => t is Building_Turret) +
                 " prisonBeds=" + map.listerThings.AllThings.OfType<Building_Bed>().Count(b => b.ForPrisoners) +
                 " prisonRooms=" + map.listerThings.AllThings.OfType<Building_Bed>().Where(b => b.ForPrisoners)
-                    .Select(b => b.GetRoom()).Distinct().Count() + " fog=" + map.AllCells.Count(c => c.Fogged(map)));
+                    .Select(b => b.GetRoom()).Distinct().Count() + " fog=" + map.AllCells.Count(c => c.Fogged(map)) +
+                " adapter=" + map.GetComponent<P4DMapState>().HasCommittedContract +
+                " ownedTerrainMatches=" + map.GetComponent<P4DMapState>().OwnedTerrainMatches +
+                " hilliness=" + map.TileInfo.hilliness + " GL=" + ModsConfig.IsActive("m00nl1ght.geologicallandforms") +
+                " mutators=" + string.Join(",", map.TileInfo.Mutators.Select(m => m.defName)));
         }
 
         [DebugAction(Category, "P4D defeat latest quest hostile force", allowedGameStates = AllowedGameStates.Playing)]
