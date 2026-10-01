@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using RealisticBases.AI;
+using RealisticBases.Diagnostics;
 using RealisticBases.Integration;
 using RealisticBases.Persistence;
 using RealisticBases.Planning;
@@ -20,8 +21,9 @@ namespace RealisticBases.Generation
     {
         public enum P4CFailurePoint { None, AfterFloors, AfterSmoothing }
 
-        public static bool TrySpawn(Map map, Settlement settlement, P4AMapPlanningRun run, out string failure,
-            bool forceFailure = false, P4CFailurePoint finishFailure = P4CFailurePoint.None)
+        public static bool TrySpawn(Map map, MapParent settlement, P4AMapPlanningRun run, out string failure,
+            bool forceFailure = false, P4CFailurePoint finishFailure = P4CFailurePoint.None,
+            P4DQuestSpawnContext quest = null)
         {
             failure = null;
             if (run?.Result?.Layout == null) { failure = "missing_procedural_layout"; return false; }
@@ -200,25 +202,26 @@ namespace RealisticBases.Generation
                             Enumerable.Empty<KeyValuePair<GridPoint, GridPoint>>()), publicCells,
                     LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Storage),
                     layout.Court?.Cells.FirstOrDefault(), layout.Court?.Access.FirstOrDefault()));
-                if (fieldWall != null)
+                if (fieldWall != null || quest != null)
                 {
                     HashSet<GridPoint> postOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
                     postOpaque.UnionWith(turretPlans.SelectMany(t => t.Footprint));
                     // The compound reservation also covers the short exterior
                     // crossing to the field. Vanilla pathfinding may leave the
                     // literal wall interior through a different compound gate.
-                    List<GridPoint> defended = layout.Enclosure.Concat(layout.JointSite.Compound.Points())
-                        .Concat(layout.JointSite.Field.Points())
-                        .Concat(fieldWall.Access)
+                    List<GridPoint> defended = layout.Enclosure.Concat(layout.JointSite?.Compound.Points() ?? Enumerable.Empty<GridPoint>())
+                        .Concat(layout.JointSite?.Field.Points() ?? Enumerable.Empty<GridPoint>())
+                        .Concat(fieldWall?.Access ?? new GridPoint[0])
                         // Low cover is passable; vanilla paths can step over a
                         // screen. This permits transit, not a protected post.
-                        .Concat(fieldWall.CoverCells)
+                        .Concat(fieldWall?.CoverCells ?? new GridPoint[0])
                         .Concat(approachDefense?.CoverCells ?? new GridPoint[0])
                         .Concat(approachDefense?.TransitCells ?? new GridPoint[0])
                         .Concat(approachDefense?.Posts.SelectMany(p => p.Route) ?? new GridPoint[0])
                         .Concat(approachDefense?.AllPosts ?? new GridPoint[0])
-                        .Concat(fieldWall.ArrivalRoute.TakeWhile(c => !c.Equals(fieldWall.OuterGate)))
-                        .Concat(fieldWall.ExteriorPosts).Concat(new[] { fieldWall.OuterGate })
+                        .Concat(fieldWall?.ArrivalRoute.TakeWhile(c => !c.Equals(fieldWall.OuterGate)) ?? Enumerable.Empty<GridPoint>())
+                        .Concat(fieldWall?.ExteriorPosts ?? new GridPoint[0])
+                        .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() : new[] { fieldWall.OuterGate })
                         .Concat(turretPlans.SelectMany(t => t.ServiceRoute))
                         .Distinct().ToList();
                     GridRect bounds = new GridRect(defended.Min(c => c.X), defended.Min(c => c.Z),
@@ -229,7 +232,7 @@ namespace RealisticBases.Generation
                     // Retain mortar, close gate reserves and inner fallback.
                     encounter = new EncounterPlan(layout.Digest, profile, encounter.Posts
                         .Where(p => approachDefense == null || p.Inner || p.Mortar || p.MaximumRange <= 4).Concat(
-                        fieldWall.UsablePosts.Select((c, i) => new DefensivePost("field-outer-" + i,
+                        (fieldWall?.UsablePosts ?? Enumerable.Empty<GridPoint>()).Select((c, i) => new DefensivePost("field-outer-" + i,
                             Sector(c, encounter.SupportCenter), c, sniperGuardSectors.ContainsKey(c) ? 35 : 8,
                             sniperGuardSectors.ContainsKey(c) ? 44 : 38, true, true, true, false, false, true,
                             approachDefense?.Sides.Where(s => s.Positions.Contains(c)).Select(s => s.Id)
@@ -309,6 +312,8 @@ namespace RealisticBases.Generation
             Thing mortar = null;
             Dictionary<P4BTurretPlan, Thing> turrets = new Dictionary<P4BTurretPlan, Thing>();
             int crops = 0;
+            if (quest != null) quest.RecoveryVerified = false;
+            using var questSignals = quest == null ? null : new P4DProvisionalSignals();
             try
             {
                 tx.Excavate();
@@ -324,10 +329,10 @@ namespace RealisticBases.Generation
                 ThingDef wallStuff = Require(layout.WallStuff);
                 foreach (GridPoint c in walls.OrderBy(c => c)) Spawn(tx, ThingDefOf.Wall, wallStuff, c, map, settlement.Faction, Rot4.North);
                 foreach (GridPoint c in doors.OrderBy(c => c)) Spawn(tx, ThingDefOf.Door, wallStuff, c, map, settlement.Faction, Rot4.North);
-                if (fieldWall != null)
+                if (fieldWall != null || approachDefense != null)
                 {
-                    ThingDef coverDef = Require(fieldWall.CoverDefName);
-                    foreach (GridPoint c in fieldWall.CoverCells.Concat(approachDefense?.CoverCells ?? new GridPoint[0])
+                    ThingDef coverDef = Require(fieldWall?.CoverDefName ?? "Barricade");
+                    foreach (GridPoint c in (fieldWall?.CoverCells ?? new GridPoint[0]).Concat(approachDefense?.CoverCells ?? new GridPoint[0])
                         .Concat(turretPlans.SelectMany(t => t.CoverCells)).Distinct())
                         Spawn(tx, coverDef, wallStuff, c, map, settlement.Faction, Rot4.North);
                 }
@@ -380,8 +385,13 @@ namespace RealisticBases.Generation
                 IReadOnlyList<GridPoint> storageCells = LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Storage);
                 IReadOnlyList<GridPoint> foodCells = LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Freezer, LayoutRoomKind.Pantry);
                 IReadOnlyList<GridPoint> medicalCells = LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Medical);
-                SpawnStacks(tx, Require(food.Kind == LayoutRoomKind.Freezer ? "MealSimple" : "Pemmican"),
-                    input.Requirements.Residents * 12, foodCells, map);
+                ThingDef startupFood = Require(food.Kind == LayoutRoomKind.Freezer ? "MealSimple" : "Pemmican");
+                int startupFoodUnits = quest == null ? input.Requirements.Residents * 12 :
+                    quest.Contract.StartupFoodUnits(startupFood.GetStatValueAbstract(StatDefOf.Nutrition));
+                SpawnStacks(tx, startupFood, startupFoodUnits, foodCells, map);
+                if (quest != null) P4DQuestDebugActions.Log("QUEST_FOOD_LEDGER", "site=" + settlement.ID +
+                    " def=" + startupFood.defName + " units=" + startupFoodUnits +
+                    " nutrition=" + startupFoodUnits * startupFood.GetStatValueAbstract(StatDefOf.Nutrition));
                 int fuel = layout.Power?.FuelStock ?? 0;
                 int internalFuel = 0;
                 if (layout.Power != null)
@@ -458,7 +468,12 @@ namespace RealisticBases.Generation
                 List<GridPoint> homes = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Barracks || r.Kind == LayoutRoomKind.Bedroom)
                     .SelectMany(r => r.Interior.Points()).Where(c => ToCell(c).Standable(map) && ToCell(c).GetEdifice(map) == null).ToList();
                 if (homes.Count < input.Requirements.Residents) throw new InvalidOperationException("No resident spawn cells remain");
-                for (int i = 0; i < input.Requirements.Residents; i++)
+                if (quest != null)
+                {
+                    quest.SpawnRoster(tx, homes);
+                    defenders.AddRange(quest.Roster);
+                }
+                else for (int i = 0; i < input.Requirements.Residents; i++)
                 {
                     Pawn pawn = PawnGenerator.GeneratePawn(kind, settlement.Faction, map.Tile);
                     Equip(pawn, loadout.Residents[i]);
@@ -565,7 +580,7 @@ namespace RealisticBases.Generation
                     {
                         if (!ToCell(post.Cell).Standable(map) ||
                             ToCell(post.WallReturn).GetEdifice(map)?.def != ThingDefOf.Wall ||
-                            post.CoverCells.Any(c => !ToCell(c).GetThingList(map).Any(t => t.def.defName == fieldWall.CoverDefName)) ||
+                            post.CoverCells.Any(c => !ToCell(c).GetThingList(map).Any(t => t.def.defName == (fieldWall?.CoverDefName ?? "Barricade"))) ||
                             !map.reachability.CanReach(ToCell(post.AccessGate), ToCell(post.Cell), PathEndMode.OnCell,
                                 TraverseParms.For(TraverseMode.PassDoors)))
                             throw new InvalidOperationException("Perimeter post realization failed: " + post.Side);
@@ -647,8 +662,16 @@ namespace RealisticBases.Generation
                     " clearService=" + clearServiceCells + "/" + layerServiceCells.Count +
                     " reachableService=" + reachableServiceTermini + "/" + serviceTermini.Count);
                 int outdoorExhausts = AuditCoolerExhaust(map, layout);
+                quest?.BeforeCommit(tx, layout, finishPlan.Digest, encounter, combatStocks, internalFuel);
                 tx.Commit();
 
+                if (quest != null)
+                {
+                    quest.MarkCommitted();
+                    questSignals.Commit();
+                }
+                else
+                {
                 map.GetComponent<P3GarrisonController>().Initialize(settlement, layout.Gates.Select(g => g.Cell)
                     .Concat(approachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0])
                     .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() :
@@ -668,8 +691,9 @@ namespace RealisticBases.Generation
                 Thing woodStock = tx.OwnedThings.FirstOrDefault(t => t.def == ThingDefOf.WoodLog);
                 GridPoint stock = woodStock == null ? storageCells.First() :
                     new GridPoint(woodStock.Position.x, woodStock.Position.z);
-                map.GetComponent<P0MapState>().Initialize(settlement, ToCell(layout.Anchor), ToCell(stock),
+                map.GetComponent<P0MapState>().Initialize((Settlement)settlement, ToCell(layout.Anchor), ToCell(stock),
                     ToCell(marker), P0MapAudit.TerrainRoofChecksum(map));
+                }
                 P2Log.Message("PROCEDURAL_SPAWN_COMPLETE", "map=" + map.uniqueID + " layout=" + layout.Digest +
                     " profile=" + run.ProfileId + " rooms=" + layout.Rooms.Count + " gates=" + layout.Gates.Count +
                     " requestedLayers=" + layout.WallLayers + " reinforcedSections=" + layout.OuterSections.Count +
@@ -689,8 +713,10 @@ namespace RealisticBases.Generation
             }
             catch (Exception ex)
             {
+                if (quest?.Committed == true) throw;
                 bool restored = false;
                 try { restored = tx.Rollback(); } catch (Exception recovery) { P2Log.Error("PROCEDURAL_RECOVERY_ERROR", recovery.ToString()); }
+                if (quest != null) quest.RecoveryVerified = restored;
                 failure = ex.GetType().Name + ":" + ex.Message;
                 P2Log.Error("PROCEDURAL_SPAWN_ABORT", "map=" + map.uniqueID + " error=" + failure +
                     " owned=" + tx.OwnedCount + " plantsRestored=" + tx.RestoredPlantCount +
@@ -894,7 +920,7 @@ namespace RealisticBases.Generation
         }
 
         private static ThingDef Require(string name) => DefDatabase<ThingDef>.GetNamed(name, true);
-        private static IEnumerable<P3PerimeterSegment> PerimeterSegments(ProceduralLayout layout, GridPoint center)
+        public static IEnumerable<P3PerimeterSegment> PerimeterSegments(ProceduralLayout layout, GridPoint center)
         {
             HashSet<GridPoint> field = new HashSet<GridPoint>(layout.FieldWall?.Walls ?? new GridPoint[0]);
             HashSet<GridPoint> gates = new HashSet<GridPoint>(layout.Gates.SelectMany(g =>

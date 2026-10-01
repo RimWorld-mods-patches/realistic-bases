@@ -107,7 +107,7 @@ namespace RealisticBases.AI
 
     public sealed class P3GarrisonController : MapComponent
     {
-        private Settlement settlement;
+        private MapParent settlement;
         private Faction faction;
         private Thing mortar;
         private List<Pawn> defenders = new List<Pawn>();
@@ -273,7 +273,31 @@ namespace RealisticBases.AI
             Initialize(parent, settlementPlan.Gates, plan, residents, allOwnedThings, mortarThing, combatStocks);
         }
 
-        public void Initialize(Settlement parent, IEnumerable<GridPoint> gates, EncounterPlan plan, IEnumerable<Pawn> residents,
+        public void ClearProvisionalQuest()
+        {
+            settlement = null;
+            faction = null;
+            defenders.Clear();
+            ownedThings.Clear();
+            operatingStocks.Clear();
+            assignedPawnIds.Clear();
+            assignedPostIds.Clear();
+            assignedDestinations.Clear();
+            assignedRoles.Clear();
+            assignedTicks.Clear();
+            planDigest = null;
+            profileId = null;
+            mortar = null;
+            postIds.Clear(); postSectors.Clear(); postCells.Clear(); postAccessGates.Clear(); postFlags.Clear();
+            gateCells.Clear(); defendedCells.Clear(); interiorCells.Clear();
+            fieldRegionCells.Clear(); compoundRegionCells.Clear(); fieldFallbackPostIds.Clear();
+            perimeterCells.Clear(); perimeterSectors.Clear(); perimeterRegions.Clear(); perimeterGates.Clear();
+            perimeterHitPoints.Clear(); perimeterLastHitTicks.Clear(); perimeterLastHitDamage.Clear(); perimeterLastBreachTicks.Clear();
+            supportCenter = innerFallback = boundsMin = IntVec3.Invalid;
+            boundsWidth = boundsHeight = 0;
+        }
+
+        public void Initialize(MapParent parent, IEnumerable<GridPoint> gates, EncounterPlan plan, IEnumerable<Pawn> residents,
             IEnumerable<Thing> allOwnedThings, Thing mortarThing, IEnumerable<Thing> combatStocks,
             IEnumerable<P3PerimeterSegment> perimeter = null, IEnumerable<GridPoint> interior = null,
             IEnumerable<GridPoint> fieldRegion = null, IEnumerable<GridPoint> compoundRegion = null,
@@ -427,7 +451,8 @@ namespace RealisticBases.AI
         {
             if (lord == null || faction == null || defenders.Count == 0) return;
             EnforceDefendedBounds(lord);
-            List<Pawn> active = lord.ownedPawns.Where(p => p != null && p.Spawned && !p.Dead && !p.Downed)
+            List<Pawn> active = lord.ownedPawns.Where(p => p != null && p.Spawned && !p.Dead && !p.Downed &&
+                p.Faction == faction && !p.IsPrisoner && !p.IsSlave && defenders.Contains(p))
                 .OrderBy(p => p.thingIDNumber).ToList();
             if (active.Count == 0)
             {
@@ -500,19 +525,21 @@ namespace RealisticBases.AI
 
         public bool TargetAllowed(Pawn pawn, Thing target)
         {
+            if (!Controls(pawn)) return false;
             IntVec3 post = AssignedPost(pawn);
             return target != null && post.IsValid && target.Position.InHorDistOf(post, 48f);
         }
 
         public bool RouteAllowed(Pawn pawn, IntVec3 destination, int maxCells)
         {
-            if (pawn == null || !destination.InBounds(map) || !InsideBounds(pawn.Position) || !InsideBounds(destination)) return false;
+            if (!Controls(pawn) || !destination.InBounds(map) || !InsideBounds(pawn.Position) || !InsideBounds(destination)) return false;
             using (PawnPath path = map.pathFinder.FindPathNow(pawn.Position, destination, TraverseParms.For(pawn), null, PathEndMode.OnCell))
                 return path.Found && path.NodesReversed.Count <= maxCells && path.NodesReversed.All(InsideBounds);
         }
 
         public Job TryGiveMortarJob(Pawn pawn)
         {
+            if (!Controls(pawn)) return null;
             if (mortar == null || mortar.Destroyed || !(mortar is Building_TurretGun turret) || AssignedRole(pawn) != GarrisonRole.MortarOperator)
                 return null;
             if (!pawn.CanReserve(turret) || JobDriver_ManTurret.FindAmmoForTurret(pawn, turret) == null) return null;
@@ -527,6 +554,7 @@ namespace RealisticBases.AI
 
         public Job TryGiveSupportJob(Pawn pawn)
         {
+            if (!Controls(pawn)) return null;
             if (AssignedRole(pawn) != GarrisonRole.Support) return null;
             WorkGiver_RescueDowned rescue = DefDatabase<WorkGiverDef>.GetNamedSilentFail("RescueDowned")?.Worker as WorkGiver_RescueDowned;
             WorkGiver_Tend tend = DefDatabase<WorkGiverDef>.GetNamedSilentFail("DoctorTendToHumanlikes")?.Worker as WorkGiver_Tend;
@@ -550,6 +578,7 @@ namespace RealisticBases.AI
 
         public Job TryGiveHoldJob(Pawn pawn)
         {
+            if (!Controls(pawn)) return null;
             IntVec3 destination = AssignedPost(pawn);
             GarrisonRole role = AssignedRole(pawn);
             if (role == GarrisonRole.MortarOperator && mortar != null && !mortar.Destroyed)
@@ -706,9 +735,13 @@ namespace RealisticBases.AI
             P3Log.Message("SCENARIO_NEEDS_DRAINED", "map=" + map.uniqueID + " pawn=" + pawn.thingIDNumber);
         }
 
+        private bool Controls(Pawn pawn) => pawn != null && pawn.Spawned && pawn.Map == map && !pawn.Dead &&
+            !pawn.Downed && pawn.Faction == faction && !pawn.IsPrisoner && !pawn.IsSlave && defenders.Contains(pawn);
+
         private void EnforceDefendedBounds(Lord lord)
         {
             foreach (Pawn pawn in lord.ownedPawns.Where(p => p != null && p.Spawned && !p.Dead && !p.Downed &&
+                p.Faction == faction && !p.IsPrisoner && !p.IsSlave && defenders.Contains(p) &&
                 !InsideBounds(p.Position)).OrderBy(p => p.thingIDNumber))
             {
                 IntVec3 destination = AssignedPost(pawn);

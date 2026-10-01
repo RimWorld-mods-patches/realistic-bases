@@ -131,7 +131,7 @@ namespace RealisticBases.Integration
             return new LayoutLocalResources(wood, stones, river, geysers);
         }
 
-        private static LayoutClimate CaptureClimate(Map map)
+        public static LayoutClimate CaptureClimate(Map map)
         {
             // Tile temperature is stable across visits; current weather is not.
             object tile = Find.WorldGrid[map.Tile];

@@ -185,9 +185,8 @@ namespace RealisticBases.Planning
                         ? Enumerable.Empty<GridPoint>() : layout.FieldWall.Walls),
                 layout.Gates.Sum(g => 1 + g.BandDoors.Count) + (layout.FieldWall == null ? 0 : 2) +
                     (layout.ApproachDefense?.SallyPorts.Count ?? 0), layout.Power,
-                (layout.FieldWall == null ? Enumerable.Empty<string>() :
-                    Enumerable.Repeat(layout.FieldWall.CoverDefName, layout.FieldWall.CoverCells.Count +
-                        (layout.ApproachDefense?.CoverCells.Count() ?? 0)))
+                Enumerable.Repeat(layout.FieldWall?.CoverDefName ?? "Barricade",
+                    (layout.FieldWall?.CoverCells.Count ?? 0) + (layout.ApproachDefense?.CoverCells.Count() ?? 0))
                     .Concat(layout.Turret == null ? Enumerable.Empty<string>() :
                         Enumerable.Repeat(layout.FieldWall.CoverDefName,
                             layout.Turret.All.Sum(t => t.CoverCells.Count)))
@@ -356,6 +355,15 @@ namespace RealisticBases.Planning
         {
             List<string> errors = new List<string>();
             if (input == null || loadout == null) return new[] { "missing_input_or_loadout" };
+            if (input.QuestContract != null)
+            {
+                // Native gear is descriptive. Do not invent replacement gear,
+                // roles or climate equipment requirements for a scripted group.
+                if (loadout.Digest != input.QuestContract.DescribeLoadout(input.Equipment.Kit.Stage).Digest)
+                    errors.Add("native_roster_gear_changed");
+                if (layout != null) errors.AddRange(input.QuestContract.ValidateReservations(layout));
+                return new ReadOnlyCollection<string>(errors);
+            }
             LayoutKit kit = input.Equipment.Kit;
             TechCatalog catalog = input.Catalog;
             LayoutClimate climate = input.Requirements.Climate;

@@ -864,6 +864,16 @@ namespace RealisticBases.Planning
                                     }
                                     else diagnostics.Add(new LayoutDiagnostic("turret", "unplaced", anchor + " " + turretDiagnostic));
                                 }
+                                if (input.QuestContract != null)
+                                {
+                                    layout = layout.WithApproachDefense(input, P4BApproachDefensePlanner.Plan(input, layout));
+                                    violations = ProceduralLayoutValidator.Validate(input, layout);
+                                    if (violations.Count != 0)
+                                    {
+                                        Note(diagnostics, "quest_defense", "rejected", string.Join("+", violations.Take(6)));
+                                        continue;
+                                    }
+                                }
                                 if (layout.ApproachDefense != null)
                                 {
                                     HashSet<GridPoint> finalOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
