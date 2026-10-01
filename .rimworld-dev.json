@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "mod_name": "Realistic Bases",
+  "package_id": "romangr.realisticbases",
+  "project": "Source/RealisticBases/RealisticBases.csproj",
+  "sdk_image": "mcr.microsoft.com/dotnet/sdk:8.0",
+  "test_projects": [
+    "Source/RealisticBases.PlannerTests/RealisticBases.PlannerTests.csproj",
+    "Source/RealisticBases.LayoutTests/RealisticBases.LayoutTests.csproj"
+  ],
+  "output_dlls": ["RealisticBases.dll"],
+  "baseline_save": "RealisticBases-P0-Disposable",
+  "runtime_notes": ".rimworld-dev.md",
+  "baseline_mods": ["brrainz.harmony", "ludeon.rimworld", "RedEyeDev.RIMAPI", "roman.rimapi.debugactions", "romangr.realisticbases"]
+}
