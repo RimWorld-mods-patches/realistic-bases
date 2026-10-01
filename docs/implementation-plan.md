@@ -223,6 +223,13 @@ The defense-budget increase is explicitly authorized here; choose a bounded docu
 
 **Exit:** all six requests have validated production behavior: observed work-room thermal control and eligible labs, functional oriented seating and medicine shelves, accessible finite mortar stores with distinct crews up to the roster cap, and an increased useful ordinary turret defense including live autocannon operation. Relevant full suites/build, old/new active reload, late rollback/retry, representative terrain/compatibility and P4D regressions pass; findings and limitations are recorded.
 
+
+### P4F — Additional improvements
+
+1. A room with fueled generators can be overheated, add a ventilation connected to a room with outdoor temperature.
+2. Add more wood to the warehouse.
+3. Add more shells. At least 30 HE + 10 incendiary shells per mortar.
+
 ### P5 — Encounter supplies, trade stock, and persistent consequences
 
 **Depends on:** P3, P4, P4A and P4B. Revised by the user on 2026-09-20; [supply and MVP scope](supply-and-mvp-scope.md) defines the detailed contract.
