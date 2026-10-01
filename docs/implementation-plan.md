@@ -193,7 +193,7 @@ Commit P4D.0 source/native baselines, P4D.1 pure contracts, P4D.2 bandit integra
 
 ### P4E — Small adjustments
 
-**Status:** planned and authorized as the next implementation milestone after completed P4D. Detailed checkpoints, resource rules and acceptance: [P4E facility and defense plan](p4e-facilities-plan.md). The six user requests below remain the scope authority.
+**Status:** in progress; P4E.0–P4E.2 verified, P4E.3–P4E.5 remain. Laboratories are decorative, with no NPC research progression/jobs. Detailed checkpoints, resource rules and acceptance: [P4E facility and defense plan](p4e-facilities-plan.md). The six user requests below remain the scope authority.
 
 1. Check which rooms are still missing the temperature control. For example, a workshop.
 2. Add a missing laboratory room for each eligible level with reasonable equipment (should be based on the research tree levels).

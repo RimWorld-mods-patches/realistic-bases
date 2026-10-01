@@ -39,7 +39,7 @@ Current ordinary population distribution remains 4–12 with expected mean seven
 ## Evidence ledger
 
 - P4E.0 source audit complete. One-cell store fetching, thermal settling, seated use and multiple-gun behavior are not yet live-verified.
-- P4E.2–P4E.5 pending. Do not infer integrated completion from a facility pass.
+- P4E.2 complete below; P4E.3–P4E.5 pending. Do not infer integrated completion from a facility pass.
 
 ## P4E.1 — Laboratories and occupied-work-room climate
 
@@ -58,3 +58,71 @@ Disposable Core live run: map1, seven IndustrialLate residents, ten rooms, 240 c
 | ColdSnap, after ending HeatWave | 44741 | 1.76°C | 20.73°C | 20.78°C | Powered heaters; >20,000 settling ticks |
 
 Debug climate probes use native temporary conditions and log actual map/tick; audits report actual room temperature, outdoor use, work cell, target/power/fuel and active links. The exact disposable process was stopped before rebuilding. Live samples establish this generated thermal arrangement, not seasonal or extreme primitive guarantees. Full integrated regression remains P4E.5.
+
+## P4E.2 — Correct seats and finite medicine on shelves
+
+2026-10-02. Resolved catalog metadata identifies supported seated work tables,
+including inherited runtime types, separately from arbitrary interaction cells.
+Kitchen, workshop and laboratory seats occupy the correct working cell with the
+bench's native rotation. Dining seats face their associated table cell on every
+side. Working cells and chairs are unique; the production validator rejects
+missing/misoriented/illegal seats. Seats remain passable and material-budgeted;
+no chair is placed at a mortar operating cell.
+
+Appended MedicalStorage role (no shifted persisted enum values), preferring legal
+ShelfSmall then Shelf. Medical room packing must fit the shelf or grow the room,
+not discard medicine. Existing pooled stock placement puts medicine on that
+shelf first, retaining actual filters, stuff, per-cell capacity and finite stock
+identity. Neolithic Core has no legal shelf and explicitly retains ground
+storage; Medieval and later get the resolved shelf. A catalog without ShelfSmall
+resolves the legal Shelf fallback. Planner version is `p4e-facilities.2`.
+
+Twelve seeded geometry cases exercise all four workstation rotations, every
+dining side, uniqueness, legal medical storage, pooled shelf preference and
+door/working-cell clearance. Primitive capability and missing-small-shelf
+fallback fixtures pass. Full layout suite passes (440,982 ms), including 12/12
+dense flat cases with four local-growth plans, P4D protected-objective cases,
+materials, power, crops and full-perimeter regressions. Full planner/garrison
+suite and the latest focused P4E suite pass; Release build has zero warnings or
+errors. Three obsolete fixed-seed assertions were corrected to request two
+gates explicitly, exercise the production joint field-site path, and find a
+supported heavy emplacement in a bounded eight-seed corpus. Heavy support,
+crop capacity and connectivity assertions remain intact.
+
+The successful same-tile retry described in [P4B findings](p4b-findings.md)
+provides live IndustrialMid evidence: four permanent residents, ten rooms,
+correctly seated hi-tech research bench, stove, smithy, tailoring, machining and
+stonecutting workstations. At tick18426 the powered laboratory was 21.00°C and
+workshop 21.38°C with outdoors 27.05°C; all working cells were standable with
+seats. No analyzer is legal at this stage; active IndustrialLate linkage remains
+the separate P4E.1 observation.
+
+The user clarified that **laboratories are decoration**. No NPC research job,
+research progression, comfort-need injection or research validation probe is in
+the resulting code. Only facility/seat geometry, legal equipment, power and
+linkage are checked. The final isolated probe creates two genuinely new,
+relation-free, gear-free pawns (never reuses saved residents/world pawns), issues
+native eating and inventory-fetch jobs, then cleans up those temporary pawns.
+It observes the actual `JobDriver_Ingest.GainingNutritionNow` chewing toil on a
+dining chair next to an Eat surface, not merely an Ingest pawn walking over a
+workstation chair.
+
+Live final probe at tick19028: `researchPerformed=False`, `seatedEating=True`,
+`medicineFetched=True`, eater at `(82,59)`, medicine Thing79299 with all thirteen
+units and `medicineIdentityPreserved=True`. Cleanup returned that **same** Thing
+to its original medical shelf. Audits before and after native active save/reload
+at tick18426/18427 report one shelf stack, thirteen units, ID79299:13; later
+audits retain the same count/identity. The permanent controller reloads four
+defenders and four assignments, preserving finite partly consumed mortar stocks
+without replenishment. The temporary probe does not become permanent staffing.
+
+All game runs used the isolated five-mod profile, checked exact API actions and
+one verified process; it was stopped before every build. Evidence is in ignored
+`.runtime/logs/p4e-2-perimeter-medicine-pass-20261002.log` and
+`.runtime/logs/p4e-2-east-transfer-gap-20261002.log` (the latter contains the final
+chewing/fetch probe and the subsequently corrected cross-front route gap).
+`p4e-2-east-transfer-fixed-20261002.log` verifies the corrected live transfer.
+Shared skills and normal user saves/profiles were not changed.
+
+P4E.3 magazines/multiple crews, P4E.4 defense allowance/autocannons and P4E.5
+integrated terrain/quest/hazard/migration acceptance remain pending.

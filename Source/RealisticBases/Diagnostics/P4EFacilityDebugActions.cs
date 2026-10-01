@@ -132,6 +132,7 @@ namespace RealisticBases.Diagnostics
 
         private static void StartClimate(GameConditionDef def)
         {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("P4E requires disposable profile");
             Map map = Find.CurrentMap;
             if (map == null) return;
             foreach (GameCondition condition in map.gameConditionManager.ActiveConditions.ToArray())
@@ -139,6 +140,109 @@ namespace RealisticBases.Diagnostics
             map.gameConditionManager.RegisterCondition(GameConditionMaker.MakeCondition(def, 60000));
             P2Log.Message("P4E_CLIMATE_PROBE", "map=" + map.uniqueID + " condition=" + def.defName +
                 " tick=" + Find.TickManager.TicksGame);
+        }
+
+        [DebugAction(Category, "Start P4E dining and medicine fetch probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void SeatedProbe()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("P4E requires disposable profile");
+            Find.CurrentMap?.GetComponent<P4ESeatedProbe>().Start();
+        }
+    }
+
+    // Short-lived validation only: real vanilla eating/fetch jobs on generated
+    // fixtures. Research benches are decorative; never change research state.
+    public sealed class P4ESeatedProbe : MapComponent
+    {
+        private Pawn eater, hauler;
+        private Building_ResearchBench bench;
+        private Thing medicine;
+        private IntVec3 medicineCell;
+        private bool eatObserved, fetchObserved;
+        private int deadline;
+
+        public P4ESeatedProbe(Map map) : base(map) { }
+
+        public void Start()
+        {
+            if (deadline != 0) throw new InvalidOperationException("Probe already active");
+            bench = map.listerThings.AllThings.OfType<Building_ResearchBench>().FirstOrDefault(b =>
+                b.InteractionCell.GetEdifice(map)?.def.building?.isSittable == true) ?? throw new InvalidOperationException("No seated research bench");
+            medicine = map.listerThings.AllThings.FirstOrDefault(t => t.def.IsMedicine && t.Position.GetEdifice(map) is Building_Storage) ??
+                throw new InvalidOperationException("No stocked medical shelf");
+            Thing meal = map.listerThings.AllThings.FirstOrDefault(t => t.def == ThingDefOf.MealSimple) ??
+                throw new InvalidOperationException("No finite test meal");
+            eatObserved = fetchObserved = false;
+            medicineCell = medicine.Position;
+            try
+            {
+                eater = SpawnProbe(meal.Position);
+                hauler = SpawnProbe(medicineCell + IntVec3.West * 4);
+                eater.needs.food.CurLevel = 0.05f;
+                Job eat = JobMaker.MakeJob(JobDefOf.Ingest, meal); eat.count = 1;
+                eater.jobs.TryTakeOrderedJob(eat);
+                Job fetch = JobMaker.MakeJob(JobDefOf.TakeInventory, medicine); fetch.count = medicine.stackCount;
+                hauler.jobs.TryTakeOrderedJob(fetch);
+                deadline = Find.TickManager.TicksGame + 1800;
+                P2Log.Message("P4E_SEAT_PROBE_STARTED", "map=" + map.uniqueID + " bench=" + bench.thingIDNumber +
+                    " eater=" + eater.thingIDNumber + " hauler=" + hauler.thingIDNumber +
+                    " medicine=" + medicine.thingIDNumber + ":" + medicine.stackCount + " deadline=" + deadline);
+            }
+            catch { Cleanup(); throw; }
+        }
+
+        private Pawn SpawnProbe(IntVec3 near)
+        {
+            Pawn pawn = PawnGenerator.GeneratePawn(new PawnGenerationRequest(PawnKindDefOf.Colonist, bench.Faction,
+                forceGenerateNewPawn: true, canGeneratePawnRelations: false, forceNoGear: true));
+            IntVec3 cell = CellFinder.StandableCellNear(near, map, 8);
+            GenSpawn.Spawn(pawn, cell, map);
+            return pawn;
+        }
+
+        public override void ExposeData()
+        {
+            Scribe_References.Look(ref bench, "p4eProbeBench");
+            Scribe_References.Look(ref eater, "p4eProbeEater");
+            Scribe_References.Look(ref hauler, "p4eProbeHauler");
+            Scribe_References.Look(ref medicine, "p4eProbeMedicine");
+            Scribe_Values.Look(ref medicineCell, "p4eProbeMedicineCell");
+            Scribe_Values.Look(ref deadline, "p4eProbeDeadline");
+            Scribe_Values.Look(ref eatObserved, "p4eProbeEatObserved");
+            Scribe_Values.Look(ref fetchObserved, "p4eProbeFetchObserved");
+        }
+
+        public override void MapComponentTick()
+        {
+            if (deadline == 0) return;
+            // Observe the actual chewing toil at a dining surface, not a pawn
+            // merely walking over a workstation chair during an Ingest job.
+            eatObserved |= eater?.jobs.curDriver is JobDriver_Ingest ingest && ingest.GainingNutritionNow &&
+                eater.Position.GetEdifice(map)?.def.building?.isSittable == true &&
+                eater.CurJob.targetB.IsValid && eater.CurJob.targetB.Cell.GetEdifice(map)?.def.surfaceType == SurfaceType.Eat;
+            fetchObserved |= medicine?.holdingOwner == hauler?.inventory?.innerContainer;
+            if ((!eatObserved || !fetchObserved) && Find.TickManager.TicksGame < deadline) return;
+            P2Log.Message("P4E_SEAT_PROBE_COMPLETE", "map=" + map.uniqueID + " researchPerformed=False seatedEating=" + eatObserved +
+                " medicineFetched=" + fetchObserved + " medicine=" + medicine?.thingIDNumber + ":" + medicine?.stackCount +
+                " medicineIdentityPreserved=" + (medicine != null && !medicine.Destroyed) + " eaterCell=" + eater?.Position);
+            Cleanup();
+        }
+
+        private void Cleanup()
+        {
+            eater?.jobs.StopAll(); hauler?.jobs.StopAll();
+            if (medicine != null && !medicine.Destroyed && !medicine.Spawned)
+            {
+                medicine.holdingOwner?.Remove(medicine);
+                GenSpawn.Spawn(medicine, medicineCell, map);
+            }
+            foreach (Pawn pawn in new[] { eater, hauler })
+                if (pawn != null && !pawn.Destroyed) pawn.Destroy();
+            eater = hauler = null;
+            bench = null;
+            medicine = null;
+            deadline = 0;
         }
     }
 }

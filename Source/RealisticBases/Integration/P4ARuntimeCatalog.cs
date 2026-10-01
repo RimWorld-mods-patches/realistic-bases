@@ -95,7 +95,9 @@ namespace RealisticBases.Integration
                     Number(Member(fuel, "initialFuelPercent")), Number(Member(turretVerb, "consumeFuelPerShot")),
                     Bool(Member(fuel, "factorByDifficulty")), Number(Member(explosive, "explosiveRadius")),
                     Number(Member(building, "combatPower")), Names(Member(affected, "linkableFacilities")),
-                    Number(Member(facility, "maxDistance")), Bool(Member(building, "isSittable"))));
+                    Number(Member(facility, "maxDistance")), Bool(Member(building, "isSittable")),
+                    thing.thingClass != null && (typeof(Building_WorkTable).IsAssignableFrom(thing.thingClass) ||
+                        typeof(Building_ResearchBench).IsAssignableFrom(thing.thingClass))));
             }
             List<CatalogResearch> projects = DefDatabase<ResearchProjectDef>.AllDefsListForReading
                 .Select(project => new CatalogResearch(project.defName, Tier(Member(project, "techLevel")),

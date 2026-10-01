@@ -210,7 +210,11 @@ namespace RealisticBases.Planning
                 foreach (string turretError in P4BTurretPlanner.Validate(input, layout, layout.Turret))
                     errors.Add("turret_" + turretError);
 
-            foreach (LayoutRoom room in layout.Rooms) ValidateRoom(room, requirements, grid, excavation, retained, extra, reach, errors);
+            foreach (LayoutRoom room in layout.Rooms)
+            {
+                ValidateRoom(room, requirements, grid, excavation, retained, extra, reach, errors);
+                ValidateSeatsAndMedicalShelf(input, room, errors);
+            }
             ValidateCoolersAndPockets(input, layout, grid, enclosure, roomCells, reach, errors);
 
             if (layout.Court != null)
@@ -510,6 +514,31 @@ namespace RealisticBases.Planning
             }
             if (room.Kind != LayoutRoomKind.Power && room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Battery || f.Kind == LayoutFixtureKind.Generator))
                 errors.Add("power_equipment_outside_power_room_" + id);
+        }
+
+        private static void ValidateSeatsAndMedicalShelf(ProceduralLayoutInput input, LayoutRoom room, List<string> errors)
+        {
+            LayoutFixture[] seats = room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.Chair).ToArray();
+            if (seats.SelectMany(f => f.Cells).Distinct().Count() != seats.Length) errors.Add("duplicate_seat_" + room.Id);
+            foreach (LayoutFixture seat in seats)
+                if (!input.Catalog.TryGet(seat.DefName, out CatalogDef def) || !def.IsSittable ||
+                    def.SizeX != 1 || def.SizeZ != 1 || def.Passability != CatalogPassability.Standable)
+                    errors.Add("invalid_seat_" + room.Id);
+            foreach (LayoutFixture bench in room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.Workbench || f.Kind == LayoutFixtureKind.Stove))
+            {
+                if (!input.Catalog.TryGet(bench.DefName, out CatalogDef def) || !def.SupportsSeatedWork ||
+                    !def.HasInteractionCell || input.Equipment.Kit.DefFor(SettlementRole.Seat) == null) continue;
+                if (bench.Access.Count != 1 || seats.Count(s => s.Cells.Contains(bench.Access[0]) && s.Rotation == bench.Rotation) != 1)
+                    errors.Add("work_seat_missing_or_misoriented_" + room.Id);
+            }
+            foreach (LayoutFixture table in room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.Table))
+                foreach (GridPoint access in table.Access)
+                    if (seats.Count(s => s.Cells.Contains(access) && table.Cells.Contains(
+                        new GridPoint(access.X - s.Facing.X, access.Z - s.Facing.Z))) != 1)
+                        errors.Add("dining_seat_missing_or_misoriented_" + room.Id);
+            if (room.Kind == LayoutRoomKind.Medical && input.Equipment.Kit.DefFor(SettlementRole.MedicalStorage) != null &&
+                !room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Shelf && f.Role == SettlementRole.MedicalStorage))
+                errors.Add("medical_shelf_missing_" + room.Id);
         }
 
         // Vanilla temperature semantics on the final plan: each cooler cools its own room

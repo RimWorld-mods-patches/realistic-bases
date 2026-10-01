@@ -862,21 +862,25 @@ namespace RealisticBases.Planning
                         capacity = PlaceAll(room, From(kit.DefFor(SettlementRole.MedicalBed), LayoutFixtureKind.MedicalBed, SettlementRole.MedicalBed), capacityTarget);
                         Template monitor = From(kit.DefFor(SettlementRole.MedicalMonitor), LayoutFixtureKind.MedicalMonitor, SettlementRole.MedicalMonitor);
                         if (capacity >= capacityTarget && monitor != null && !room.Place(monitor, 1)) failure = "medical_monitor";
+                        Template medicalShelf = From(kit.DefFor(SettlementRole.MedicalStorage), LayoutFixtureKind.Shelf, SettlementRole.MedicalStorage);
+                        if (capacity >= capacityTarget && medicalShelf != null && !room.Place(medicalShelf, 1)) failure = "medical_shelf";
                         break;
                     case LayoutRoomKind.Kitchen:
-                        capacity = PlaceAll(room, From(kit.DefFor(SettlementRole.Cooking), LayoutFixtureKind.Stove, SettlementRole.Cooking), capacityTarget);
+                        capacity = room.PlaceWorkstations(From(kit.DefFor(SettlementRole.Cooking), LayoutFixtureKind.Stove, SettlementRole.Cooking),
+                            kit.DefFor(SettlementRole.Seat), capacityTarget);
                         break;
                     case LayoutRoomKind.Workshop:
                         for (int i = 0; kit.WorkshopDefs.Count > 0 && i < capacityTarget; i++)
                         {
                             CatalogDef bench = kit.WorkshopDefs[i % kit.WorkshopDefs.Count];
                             Template template = From(bench, LayoutFixtureKind.Workbench, CraftRoleOf(kit, bench));
-                            if (template == null || !room.Place(template, 1)) break;
+                            if (room.PlaceWorkstations(template, kit.DefFor(SettlementRole.Seat), 1) != 1) break;
                             capacity++;
                         }
                         break;
                     case LayoutRoomKind.Laboratory:
-                        capacity = PlaceAll(room, From(kit.DefFor(SettlementRole.Research), LayoutFixtureKind.Workbench, SettlementRole.Research), capacityTarget);
+                        capacity = room.PlaceWorkstations(From(kit.DefFor(SettlementRole.Research), LayoutFixtureKind.Workbench, SettlementRole.Research),
+                            kit.DefFor(SettlementRole.Seat), capacityTarget);
                         CatalogDef analyzer = kit.DefFor(SettlementRole.ResearchAnalyzer);
                         CatalogDef research = kit.DefFor(SettlementRole.Research);
                         if (capacity >= capacityTarget && analyzer != null && research != null &&
@@ -945,6 +949,7 @@ namespace RealisticBases.Planning
             // Steps from the front row to the interaction cell (vanilla offset (0,0,-z)).
             public int Forward;
             public bool WallMounted;
+            public bool SupportsSeat;
         }
 
         // Footprint along the wall (SizeX) and into the room (SizeZ), vanilla north rotation.
@@ -965,7 +970,8 @@ namespace RealisticBases.Planning
                 Blocking = blocking || def.Passability != CatalogPassability.Standable,
                 Interaction = def.HasInteractionCell,
                 Forward = def.HasInteractionCell ? Math.Max(1, -def.InteractionOffset.Z - (def.SizeZ - 1) / 2) : 0,
-                WallMounted = def.ThingClass == LayoutKit.CoolerThingClass
+                WallMounted = def.ThingClass == LayoutKit.CoolerThingClass,
+                SupportsSeat = def.SupportsSeatedWork
             };
         }
 
@@ -1059,7 +1065,9 @@ namespace RealisticBases.Planning
                             // Centre of the front face, the catalog's forward steps toward the room.
                             GridPoint middle = cells[(template.Length / 2) * template.Depth + template.Depth - 1];
                             GridPoint front = new GridPoint(middle.X + inward.X * template.Forward, middle.Z + inward.Z * template.Forward);
-                            if (!Interior(front) || state[Index(front.X, front.Z)] == Blocked) continue;
+                            if (!Interior(front) || state[Index(front.X, front.Z)] == Blocked ||
+                                Fixtures.Any(f => f.Access.Contains(front) &&
+                                    (f.Kind == LayoutFixtureKind.Workbench || f.Kind == LayoutFixtureKind.Stove))) continue;
                             access.Add(front);
                         }
                         if (TryCommit(cells, access))
@@ -1081,6 +1089,25 @@ namespace RealisticBases.Planning
             {
                 int placed = 0;
                 while (placed < count && Place(template, 1)) placed++;
+                return placed;
+            }
+
+            public int PlaceWorkstations(Template template, CatalogDef seat, int count)
+            {
+                if (template == null) return 0;
+                int placed = 0;
+                for (; placed < count; placed++)
+                {
+                    if (!Place(template, 1)) break;
+                    LayoutLocalFixture workstation = Fixtures.Last();
+                    if (!template.SupportsSeat || !template.Interaction || seat == null) continue;
+                    if (!seat.IsSittable || seat.SizeX != 1 || seat.SizeZ != 1 || seat.Passability != CatalogPassability.Standable) break;
+                    GridPoint cell = workstation.Access.Single();
+                    // Facing stores the reverse of vanilla rotation. Chair and
+                    // bench share rotation: chair looks from working cell to bench.
+                    Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Chair, seat.DefName, new[] { cell }, null,
+                        workstation.Facing, false, 0, false, SettlementRole.Seat));
+                }
                 return placed;
             }
 
@@ -1131,9 +1158,13 @@ namespace RealisticBases.Planning
                         Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Table, tableDef.DefName, table, chairs, new GridPoint(0, -1),
                             tableDef.Passability != CatalogPassability.Standable, 0, false, SettlementRole.Table));
                         if (seatDef != null)
-                            foreach (GridPoint chair in chairs)
-                                Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Chair, seatDef.DefName, new[] { chair }, null, new GridPoint(0, 1),
-                                    false, 0, false, SettlementRole.Seat));
+                            for (int i = 0; i < chairs.Length; i++)
+                            {
+                                // Left looks east, right west, top south, bottom north.
+                                GridPoint[] reverseFacing = { new GridPoint(-1, 0), new GridPoint(1, 0), new GridPoint(0, 1), new GridPoint(0, -1) };
+                                Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Chair, seatDef.DefName, new[] { chairs[i] }, null,
+                                    reverseFacing[i], false, 0, false, SettlementRole.Seat));
+                            }
                         placed++;
                     }
                 return placed;

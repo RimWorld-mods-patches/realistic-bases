@@ -27,6 +27,7 @@ internal static partial class Program
         Stopwatch watch = Stopwatch.StartNew();
         Run("P4E laboratory stage matrix and compact quest exclusions", P4ELaboratoryStageMatrix);
         Run("P4E occupied room climate and power demand", P4EOccupiedRoomClimate);
+        Run("P4E cardinal work dining seats and medical shelves", P4ESeatsAndMedicalShelves);
         Run("seed derivation is stable and purpose-separated", SeedDerivation);
         Run("P4D strategies require whole native compositions", QuestStrategies);
         Run("P4D preserves authoritative roster and deterministic budgets", QuestRosterContracts);

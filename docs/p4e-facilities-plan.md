@@ -24,6 +24,8 @@ Provide the bench's correct working cell, a legal seat where supported, lighting
 
 Research equipment makes the settlement plausible; automated research progression, dynamically unlocking new faction technology and a new NPC research-job system are outside this step. Ordinary settlements of eligible stages should plan the lab. Preserve P4D's compact temporary-camp policy: do not force a full lab into a quest camp unless its requirements call for one.
 
+**2026-10-02 clarification:** the user intends laboratories as decoration. Do not add NPC research jobs, including a research-progress validation probe. Verify equipment, seat/working-cell geometry and power/facility linkage without changing research state; real dining and medicine-fetch probes remain useful.
+
 ## 3. Functional seats and orientation
 
 Inspect vanilla seating/workbench rules and fix both placement and rotation. A chair by the side of a workbench is insufficient: where the work type supports seating, place it at the correct working position facing the bench. Dining seats must face their associated table; handle all table/bench rotations and sides using resolved footprints/interaction geometry. Extend the same rule to laboratory benches and supported other workstations, without placing chairs at non-seated interaction types such as mortar operating cells.
@@ -88,7 +90,7 @@ Use `docs/p4e-findings.md` for evidence and document chosen defaults. Commit eve
 |---|---|---|---|
 | P4E.0 | Baseline room/seat/storage/mortar/budget audit and resolved stage matrix | Recorded in p4e-findings; one-cell source feasibility remains subject to live fetching | Complete |
 | P4E.1 | Room-use temperature policy and laboratory demand/equipment | Six-stage/climate, power/bench and 12/12 clutter fixtures; live hot/cold industrial room temperatures and active analyzer in findings | Complete; integrated matrix remains P4E.5 |
-| P4E.2 | Correct seated work/dining orientations and medical shelving | All cardinal orientations; actual seating and accessible finite medicine on legal shelves, no path/stock regression | Pending |
+| P4E.2 | Correct seated work/dining orientations and medical shelving | Cardinal/primitive/fallback fixtures, actual native seated chewing and medicine fetch, same thirteen-unit shelf stack through active reload; full suites and live post transfers in findings | Complete |
 | P4E.3 | Compact roofed mortar magazines and multi-mortar planning/controller | Resident cap/staffing fixtures; live distinct operators, loading/barrels/finite depletion, safe routes, crew/gun loss and old/new save reload | Pending |
 | P4E.4 | Explicit increased ordinary defense allowance and meaningful autocannon selection | Matched before/after counts, useful staffing, costs/power; live autocannon operation and close support; primitive/quest budget exclusions | Pending |
 | P4E.5 | Integrated regression, recovery and closeout | Relevant full suites/Release build, representative ordinary/quest live and active reload, forced late rollback/retry and visual findings | Pending |
