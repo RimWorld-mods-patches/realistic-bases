@@ -192,7 +192,8 @@ Commit P4D.0 source/native baselines, P4D.1 pure contracts, P4D.2 bandit integra
 **Exit:** both initial contracts have a documented support matrix and pure/build/live normal, rejection, late recovery and lifecycle evidence. Original threat inputs, objective identities, rewards and signals survive; unsupported/competing generators and ordinary settlements retain their routing. A generated screenshot or bandit-only pass does not close P4D.
 
 ### P4E — Small adjustments
-To be detailed by Astra High.
+
+**Status:** planned and authorized as the next implementation milestone after completed P4D. Detailed checkpoints, resource rules and acceptance: [P4E facility and defense plan](p4e-facilities-plan.md). The six user requests below remain the scope authority.
 
 1. Check which rooms are still missing the temperature control. For example, a workshop.
 2. Add a missing laboratory room for each eligible level with reasonable equipment (should be based on the research tree levels).
@@ -213,6 +214,14 @@ To be detailed by Astra High.
     O — tile indicating the mortar's operating-side orientation
     ```
 6. Increase the defense budget, we need more turrets. Also make big auto turret available for the relevant settlements.
+
+Implement P4E.0 baseline/definition audit, P4E.1 room temperature and laboratory equipment, P4E.2 seat orientation and medicine shelves, P4E.3 compact mortar magazines and multiple crews, P4E.4 increased ordinary defense allowance/autocannon selection, and P4E.5 integrated validation. Commit each validated checkpoint.
+
+Reuse existing planner/catalog/transaction/P3 systems. Interpret the 1×1 magazine as one usable storage cell plus walls/door, verifying actual loading access and using the smallest functional enlargement only if needed. Mortar limits are at most one through eight residents, two at nine, and three at ten or more, subject to stage, funded crew, space and supplies. Migrate the existing single-mortar controller/save contract coherently. An enclosure does not guarantee explosive safety.
+
+The defense-budget increase is explicitly authorized here; choose a bounded documented default through matched comparisons and account for added power/ammunition. Make the vanilla autocannon (`Turret_Autocannon`) genuinely selectable at legal stages while preserving uranium slug and close-support rules. Keep ordinary population and P4D quest-owned threat/loot/target contracts unchanged. New labs and fixtures must retain P4C finishes, room/roof safety and all interaction/public/service routes; P5 supply/trade and P6 broad balance remain separate.
+
+**Exit:** all six requests have validated production behavior: observed work-room thermal control and eligible labs, functional oriented seating and medicine shelves, accessible finite mortar stores with distinct crews up to the roster cap, and an increased useful ordinary turret defense including live autocannon operation. Relevant full suites/build, old/new active reload, late rollback/retry, representative terrain/compatibility and P4D regressions pass; findings and limitations are recorded.
 
 ### P5 — Encounter supplies, trade stock, and persistent consequences
 

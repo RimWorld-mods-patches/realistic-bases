@@ -26,6 +26,7 @@ Verification: complete LayoutTests (132,637 ms) and PlannerTests suites pass wit
 | P4B — Defensive layout planner | In progress | All four exposed sides have live placement/access evidence for short gate-side projections/shared corners. A Core live run accepted four turrets in two supported groups with shared power, finite stocks and legal pawn/service paths; pure richer fixtures select six guns. Both suites pass, retaining 12/12 flat-clutter acceptance. Actual mutual support, measured cover, protected maintenance and the full live matrix remain open. See [P4B findings](p4b-findings.md) |
 | P4C — Visually realistic bases | Planned; implementation authorized | Coherent room/path finishes and selected interior rock smoothing, bounded materials, transactional terrain/rock recovery, visual and live validation. See [P4C visual plan](p4c-visual-plan.md); no implementation evidence yet |
 | P4D — Quest-location support | Complete for bounded Core contracts | Exact bandit/rescue strategies, authoritative native content, original prisoner/join, native reward/expiry/death/departure/reload and verified late recovery; Core terrain/tech and GL-native compatibility matrix, complete suites/build. GL competing pipelines remain native. See [P4D findings](p4d-findings.md) |
+| P4E — Facility and defense adjustments | Planned; implementation authorized | Room temperatures/labs, functional seats/medicine shelves, compact mortar stores and multiple crews, increased ordinary turret budget/autocannons. See [P4E plan](p4e-facilities-plan.md); no new implementation evidence yet |
 | P5 — Encounter supplies, trade stock, and persistent consequences | Not started | Bounded reserves, trade consistency, no-duplication persistence, and accessible/separate hazardous stock placement where justified; full sustainability deferred |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage; add route diagnostics, evidence-driven soft-preference tuning, reproducibility and encounter-quality review |
 | P7 — Settlement specialization | Not started (post-MVP) | Final planned step: agriculture/industry first; evaluate mining, ranching, forestry, trading, military, medical and research profiles; verify trade-product influence feasibility |
@@ -164,6 +165,19 @@ Scope and acceptance: [P4D quest-location plan](p4d-quest-plan.md). Start from m
 | P4D.3 | Guarded rescue adapter with protected pawn ownership | Original target join/reload, neutral death/departure and native expiry, exact late holder/metadata rollback, single prison | Complete |
 | P4D.4 | Compatibility/lifecycle matrix and closeout | Core terrain/tech/recovery/lifecycle and ordinary reload smoke; GL and unsupported turret pipelines native; full suites/build, reward once, explicit limitations | Complete |
 
+## P4E committed checklist
+
+Detailed scope: [P4E facility and defense plan](p4e-facilities-plan.md). Preserve completed P4D and the production P4B/P4C behavior. Record evidence in `docs/p4e-findings.md` and commit each validated checkpoint.
+
+| Step | Scope | Validation gate | Status |
+|---|---|---|---|
+| P4E.0 | Baseline/definition/stage/budget audit | Current defects, store feasibility and single-mortar migration documented | Pending |
+| P4E.1 | Occupied work-room temperature and eligible labs | Stage/climate/packing/power cases and live thermal/bench/analyzer operation | Pending |
+| P4E.2 | Seats and medicine shelves | All orientations, actual seated use, legal storage/access and finite counts | Pending |
+| P4E.3 | Compact magazines and up to three mortars | Roster caps, unique crews, finite loading/depletion, loss/reassignment and legacy/new reload | Pending |
+| P4E.4 | Increased ordinary defense allowance/autocannons | Matched useful-defense/cost/power evidence, live fire/rearm, stage/quest exclusions | Pending |
+| P4E.5 | Integrated closeout | Relevant full suites/build, terrain/GL and P4D smoke, late recovery/retry and active reload | Pending |
+
 ## Future planning update — 2026-09-24
 
 The user accepted the bounded ideas from the [colleague-design review](colleague-design-review.md) for future milestones. P5 handles justified hazardous-stock separation while preserving reserve/trade ownership. P6 measures important actual routes before changing soft preferences or bounded candidate scoring, and reviews encounter quality with reproducible inputs. Existing connectivity and functional constraints remain mandatory; no global optimizer, new broad room catalog or Multiplayer work is added.
@@ -174,6 +188,7 @@ P7 is the final planned milestone, after the P6 MVP release: agriculture/industr
 
 | Date | Update |
 |---|---|
+| 2026-10-01 | Expanded and authorized P4E's six facility/defense requests, with staged implementation, real room/seat/storage checks, compact magazine interpretation, multi-mortar save/crew handling and an explicit ordinary defense-budget increase. P4D quest budgets remain authoritative; no implementation success is claimed yet. |
 | 2026-10-01 | Expanded and authorized P4D after P4C merge `76006e9`: Core bandit elimination then guarded prisoner rescue, exact site-part allowlists, authoritative quest inputs, protected-object recovery and real lifecycle acceptance. Updated grand plan/tracker; implementation delegated separately. |
 | 2026-09-30 | Expanded and authorized P4C: coherent room and path finishes, small legal material palettes, selected interior rock smoothing, explicit terrain/rock ownership and rollback, visual/live/reload acceptance and separate commit checkpoints. P4E facility changes remain separate; the user reports P4B done and its implementation is merged at `49da3a4`, making P4C the next assignment. |
 | 2026-09-30 | Added field-to-compound fallback using existing accessible main-gate posts, with a pure firing-lane check through the opened crossing. P3 distinguishes present field and compound intruders, assigns short-range defenders to the relevant compound gate after field entry without abandoning other viable outer posts, and enters inner fallback only after compound entry or loss of outer posts. It persists and logs field penetration, compound penetration and garrison defeat as separate outcomes. Synthetic doctrine and real generated-layout fallback fixtures, full PlannerTests and Docker Release build pass; live gate/raid/reload evidence remains open. |
