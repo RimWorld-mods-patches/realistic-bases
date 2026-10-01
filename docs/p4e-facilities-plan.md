@@ -86,7 +86,7 @@ Use `docs/p4e-findings.md` for evidence and document chosen defaults. Commit eve
 
 | Step | Scope | Validation gate | Status |
 |---|---|---|---|
-| P4E.0 | Baseline room/seat/storage/mortar/budget audit and resolved stage matrix | Record current defects and relevant Core behavior, budget sources, one-cell store feasibility and single-mortar migration contract | Pending |
+| P4E.0 | Baseline room/seat/storage/mortar/budget audit and resolved stage matrix | Recorded in p4e-findings; one-cell source feasibility remains subject to live fetching | Complete |
 | P4E.1 | Room-use temperature policy and laboratory demand/equipment | Stage/climate/packing/power fixtures; live workshop/lab thermal operation, bench/analyzer access/linkage where eligible | Pending |
 | P4E.2 | Correct seated work/dining orientations and medical shelving | All cardinal orientations; actual seating and accessible finite medicine on legal shelves, no path/stock regression | Pending |
 | P4E.3 | Compact roofed mortar magazines and multi-mortar planning/controller | Resident cap/staffing fixtures; live distinct operators, loading/barrels/finite depletion, safe routes, crew/gun loss and old/new save reload | Pending |

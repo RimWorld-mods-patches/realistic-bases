@@ -171,7 +171,7 @@ Detailed scope: [P4E facility and defense plan](p4e-facilities-plan.md). Preserv
 
 | Step | Scope | Validation gate | Status |
 |---|---|---|---|
-| P4E.0 | Baseline/definition/stage/budget audit | Current defects, store feasibility and single-mortar migration documented | Pending |
+| P4E.0 | Baseline/definition/stage/budget audit | Core room/seat/storage/hazard facts, stage matrix, budget sources and legacy migration contract recorded in [findings](p4e-findings.md); live store access still pending | Complete |
 | P4E.1 | Occupied work-room temperature and eligible labs | Stage/climate/packing/power cases and live thermal/bench/analyzer operation | Pending |
 | P4E.2 | Seats and medicine shelves | All orientations, actual seated use, legal storage/access and finite counts | Pending |
 | P4E.3 | Compact magazines and up to three mortars | Roster caps, unique crews, finite loading/depletion, loss/reassignment and legacy/new reload | Pending |
