@@ -209,7 +209,10 @@ namespace RealisticBases.Generation
                     // The compound reservation also covers the short exterior
                     // crossing to the field. Vanilla pathfinding may leave the
                     // literal wall interior through a different compound gate.
-                    List<GridPoint> defended = layout.Enclosure.Concat(layout.JointSite?.Compound.Points() ?? Enumerable.Empty<GridPoint>())
+                    List<GridPoint> defended = P4BPerimeterDepth.Envelope(input.Terrain, layout)
+                        .Concat(layout.Gates.SelectMany(g => g.BandDoors.Concat(g.OuterVestibule).Concat(new[] { g.Cell, g.Staging })))
+                        .Concat(layerServiceCells)
+                        .Concat(layout.JointSite?.Compound.Points() ?? Enumerable.Empty<GridPoint>())
                         .Concat(layout.JointSite?.Field.Points() ?? Enumerable.Empty<GridPoint>())
                         .Concat(fieldWall?.Access ?? new GridPoint[0])
                         // Low cover is passable; vanilla paths can step over a
@@ -487,7 +490,7 @@ namespace RealisticBases.Generation
                     int viaGatePaths = 0;
                     foreach (GridPoint post in fieldWall.UsablePosts.Concat(approachDefense?.AllPosts ?? new GridPoint[0]).Distinct())
                     {
-                        GridPoint gate = approachDefense?.Posts.FirstOrDefault(p => p.Cell.Equals(post))?.AccessGate ??
+                        GridPoint gate = encounter.Posts.FirstOrDefault(p => p.Cell.Equals(post) && p.AccessGate.HasValue)?.AccessGate ??
                             fieldWall.PostAccess.FirstOrDefault(p => p.Post.Equals(post))?.Route.FirstOrDefault() ??
                             fieldWall.OuterGate;
                         int eligibleDefenders = 0;
@@ -498,7 +501,7 @@ namespace RealisticBases.Generation
                             {
                                 IntVec3 firstOutside = path.Found
                                     ? path.NodesReversed.FirstOrDefault(c => !defendedCells.Contains(c)) : IntVec3.Invalid;
-                                bool legal = path.Found && path.NodesReversed.Count <= 160 &&
+                                bool legal = path.Found && path.NodesReversed.Count <= P3DefenderRoute.MaximumCells &&
                                     path.NodesReversed.All(defendedCells.Contains);
                                 int length = path.NodesReversed.Count;
                                 if (!legal && defendedCells.Contains(ToCell(gate)))
@@ -513,7 +516,7 @@ namespace RealisticBases.Generation
                                         TraverseParms.For(pawn), null, PathEndMode.OnCell))
                                     {
                                         length = toGate.NodesReversed.Count + fromGate.NodesReversed.Count - 1;
-                                        legal = toGate.Found && fromGate.Found && length <= 160 &&
+                                        legal = toGate.Found && fromGate.Found && length <= P3DefenderRoute.MaximumCells &&
                                             toGate.NodesReversed.All(defendedCells.Contains) &&
                                             fromGate.NodesReversed.All(defendedCells.Contains);
                                         if (legal) viaGatePaths++;
@@ -653,7 +656,14 @@ namespace RealisticBases.Generation
                         " reachable=" + reachableGates + "/" + layout.Gates.Count +
                         " clearService=" + clearServiceCells + "/" + layerServiceCells.Count +
                         " reachableService=" + reachableServiceTermini + "/" + serviceTermini.Count);
-                P2Log.Message("PROCEDURAL_DEFENSE_AUDIT", "map=" + map.uniqueID + " outerWalls=" + realizedOuterWalls +
+                int breachDepth = P4BPerimeterDepth.Minimum(input.Terrain, layout.Enclosure,
+                    walls.Concat(doors).Where(c => ToCell(c).GetEdifice(map) is Building_Door ||
+                        ToCell(c).GetEdifice(map)?.def.passability == Traversability.Impassable),
+                    layout.Excavation, layout.WallLayers);
+                if (breachDepth < layout.WallLayers)
+                    throw new InvalidOperationException("Realized perimeter breach depth " + breachDepth + " < " + layout.WallLayers);
+                P2Log.Message("PROCEDURAL_DEFENSE_AUDIT", "map=" + map.uniqueID + " minimumBreachDepth=" + breachDepth +
+                    " declaredLayers=" + layout.WallLayers + " outerWalls=" + realizedOuterWalls +
                     "/" + plannedOuterWalls + " returnCells=" + realizedReturnCells + "/" + plannedReturnCells +
                     " anchoredReturns=" + realizedAnchoredReturns + "/" + plannedAnchoredReturns +
                     " bandWalls=" + realizedBandWalls + "/" + plannedBandWalls +
@@ -677,7 +687,8 @@ namespace RealisticBases.Generation
                     .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() :
                         new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }), encounter,
                     defenders, tx.OwnedThings, mortar, combatStocks, PerimeterSegments(layout, encounter.SupportCenter),
-                    layout.JointSite.Compound.Points().Concat(layout.JointSite.Field.Points()),
+                    P4BPerimeterDepth.Envelope(input.Terrain, layout).Concat(layout.JointSite.Compound.Points())
+                        .Concat(layout.JointSite.Field.Points()),
                     fieldWall == null ? Enumerable.Empty<GridPoint>() : layout.JointSite.Field.Points()
                         .Except(fieldWall.Walls).Except(new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }),
                     layout.Enclosure, fieldFallbackPosts);

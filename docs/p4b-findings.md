@@ -326,4 +326,66 @@ A screenshot of the west gate suggests a paired barricade flanking the same appr
 
 ## Implementation interface to preserve
 
+### Whole-perimeter depth correction (2026-10-02, during P4E)
+
+The user's northern approach screenshot was correct: bounded gate-adjacent
+reinforced sections were not a three-layer perimeter. New generation closes
+complete extra shells at Chebyshev distances three and five from the enclosure,
+with the existing serial doors and one-cell inter-wall lanes. Intact natural rock
+can close a shell without fabricating walls. All added walls are in the material,
+occupancy, digest, transaction and realized-geometry audits. Existing loaded
+settlements are not reconstructed.
+
+An independent capped 0–1 search counts the cheapest eight-way map-edge-to-
+enclosure breach, including conservative diagonal corner cutting. Every planned
+and actually spawned perimeter must require at least its advertised effective
+layer count; stronger gatehouse counters no longer suffice. A bounded failure
+can reduce the effective count, and diagnostics explicitly report target versus
+effective layers. The attached agricultural bailey remains a separate one-wall
+field enclosure, not an advertised multi-layer compound.
+
+Pure regression reproduces the former nominal three-layer geometry with a
+one-wall shortcut and verifies production rejection. Complete one/two/three
+layer layouts pass; removing the outer barriers on any cardinal side lowers the
+minimum to one. Layered pond/ridge, mountain, shoreline, water-corner, narrow
+approach and twelve-resident frontage fixtures pass. Full layout suite passes
+(440,982 ms), and the complete planner/garrison suite passes after the route
+correction; Release build has zero warnings/errors.
+
+The disposable flat-tile seed `F9FFC8DB3488A6F7` initially accepted a two-layer
+plan but rolled back because a secondary east firing slot used the field gate
+and inter-wall cells were absent from its defended authority. Corrected secondary
+slots use their actual post access gate; the protected shell envelope, serial
+crossings and service cells are declared, without arbitrary exterior pursuit.
+Retrying the same saved world tile and seed succeeds as layout
+`ED524D01B321E543`: four IndustrialMid residents, target three/effective two,
+150/150 outer-wall cells, minimum breach depth two/declared two, 2/2 reachable
+gates, 20/20 clear service cells, fourteen exterior slots each reachable by at
+least two defenders, longest legal native route 111 cells. The prior rejection
+restored terrain and terrain layers. This is live two-layer evidence, not a
+live three-layer closeout.
+
+The longer circulation exposed a preflight/live limit mismatch (160 versus 100
+cells) and a cross-front transfer gap. Both now use the finite 160-cell limit.
+Transfers may use at most eight declared candidate entry gates, the compound
+center and the destination gate. Whole concatenated native paths retain the
+same twelve-exterior/eight-exposed-cell limits and exact defended-cell authority;
+unsafe transfers hold instead of falling through to wandering. Synthetic tests
+cover local-gate re-entry, aggregate exposure rejection and the hard length cap.
+On the same active save, switching the disposable arrival to the eastern map
+edge moved western-field defenders through `(39,59)` to eastern posts: three
+posted defenders arrived by tick20909 and remained posted through tick23909.
+All audits through tick35909 report zero outside bounds, no wander jobs, no
+invalid-post recoveries and no player pawns controlled. Needs relief subsequently
+uses real Ingest jobs and returns to the assigned posts. This validates transfer
+and arrival, not incoming-fire cover effectiveness or global defense balance.
+
+The exact retry action is disposable-only, requires exactly one existing seeded
+but uncommitted empty settlement, and never replaces a populated/generated base.
+An unloaded rejected map is recreated on its original tile, with the same seed;
+normal saves are not touched. Evidence remains in ignored repository-local logs
+`p4e-2-perimeter-route-reject-20261002.log`,
+`p4e-2-perimeter-medicine-pass-20261002.log` and
+`p4e-2-east-transfer-fixed-20261002.log`.
+
 Add a defense plan derived from the immutable procedural layout and resolved runtime catalog *before* `TrySpawn` mutates the map. Its selected walls/doors/fixtures/stock and route reservations must be part of one final occupancy model, material and power ledger, digest/report, and preflight. The existing transaction owns every defense spawn so a forced failure rolls it back. P3 consumes verified posts from that final model; it must not independently infer ranged utility from wall proximity. Repair is bounded and deterministic; a rejected candidate remains zero-mutation. Natural rock may contribute to protection, but it is not a fabricated built-wall layer.

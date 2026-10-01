@@ -844,6 +844,35 @@ internal static class Program
             "covered endpoints do not excuse a long exposed middle route");
         True(!P3DefenderRoute.Audit(route, route.Take(14).ToArray(), interior,
             new GridPoint[0], new GridPoint[0]).Allowed, "path cannot leave defended area");
+        GridPoint[] layered = Enumerable.Range(0, 111).Select(x => new GridPoint(x, 0)).ToArray();
+        True(P3DefenderRoute.Audit(layered, layered, layered, new GridPoint[0], new GridPoint[0]).Allowed,
+            "live assignments accept the same bounded inter-wall detour as generation");
+        GridPoint[] excessive = Enumerable.Range(0, P3DefenderRoute.MaximumCells + 1).Select(x => new GridPoint(x, 0)).ToArray();
+        Equal("route_length", P3DefenderRoute.Audit(excessive, excessive, excessive,
+            new GridPoint[0], new GridPoint[0]).Reason, "long internal routes still have a hard bound");
+        GridPoint start = new GridPoint(0, 0), entry = new GridPoint(1, 0), center = new GridPoint(10, 0),
+            exit = new GridPoint(10, 10), post = new GridPoint(12, 10);
+        var safePairs = new[] { Tuple.Create(start, entry), Tuple.Create(entry, center),
+            Tuple.Create(center, exit), Tuple.Create(exit, post) };
+        GridPoint[] transferArea = new GridRect(0, 0, 13, 11).Points().ToArray();
+        Func<GridPoint, GridPoint, IReadOnlyList<GridPoint>> paths = (from, to) =>
+        {
+            if (!safePairs.Contains(Tuple.Create(from, to))) return new[] { from, new GridPoint(-1, -1), to };
+            var leg = new List<GridPoint> { from };
+            GridPoint c = from;
+            while (!c.Equals(to))
+            {
+                c = new GridPoint(c.X + Math.Sign(to.X - c.X), c.Z + Math.Sign(to.Z - c.Z));
+                leg.Add(c);
+            }
+            return leg;
+        };
+        Equal(entry, P3DefenderRoute.NextWaypoint(start, post, center, exit, new[] { entry, exit }, paths,
+            transferArea, transferArea, new GridPoint[0], new GridPoint[0]).Value,
+            "cross-front transfer re-enters through its local gate before crossing the compound");
+        True(!P3DefenderRoute.NextWaypoint(start, post, center, exit, new[] { entry, exit }, paths,
+            transferArea, transferArea, new[] { new GridPoint(5, 3) }, new GridPoint[0]).HasValue,
+            "waypoints do not relax exposure limits on the aggregate native path");
     }
 
     private static void P3FieldToCompoundFallback()

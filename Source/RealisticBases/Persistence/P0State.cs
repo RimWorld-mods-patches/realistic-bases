@@ -66,9 +66,11 @@ namespace RealisticBases.Persistence
         {
         }
 
+        public P0SettlementState FindExisting(int settlementId) => settlements.FirstOrDefault(s => s.settlementId == settlementId);
+
         public P0SettlementState GetOrCreate(int settlementId, Faction faction)
         {
-            P0SettlementState state = settlements.FirstOrDefault(s => s.settlementId == settlementId);
+            P0SettlementState state = FindExisting(settlementId);
             if (state == null)
             {
                 state = new P0SettlementState

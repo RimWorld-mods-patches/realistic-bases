@@ -21,9 +21,61 @@ namespace RealisticBases.Planning
     // gate. A covered endpoint alone says nothing about the route to it.
     public static class P3DefenderRoute
     {
-        public const int MaximumCells = 100;
+        // Full multi-layer compounds can require a longer internal walk. Keep
+        // the same finite limit in generation preflight and live assignments.
+        public const int MaximumCells = 160;
         public const int MaximumExteriorCells = 12;
         public const int MaximumExposedCells = 8;
+
+        // Validate complete native paths through a small declared gateway set.
+        // A defender on another front must enter through its local gate before
+        // crossing the compound; the destination gate alone is not sufficient.
+        public static GridPoint? NextWaypoint(GridPoint from, GridPoint destination, GridPoint center,
+            GridPoint? destinationGate, IEnumerable<GridPoint> entryGates,
+            Func<GridPoint, GridPoint, IReadOnlyList<GridPoint>> nativePath,
+            IReadOnlyCollection<GridPoint> defended, IReadOnlyCollection<GridPoint> interior,
+            IEnumerable<GridPoint> hostileCells, IReadOnlyCollection<GridPoint> opaque)
+        {
+            var gates = (entryGates ?? Enumerable.Empty<GridPoint>()).Distinct()
+                .OrderBy(g => Math.Abs(g.X - from.X) + Math.Abs(g.Z - from.Z)).ThenBy(g => g).Take(8).ToArray();
+            var chains = new List<GridPoint[]> { new[] { destination } };
+            GridPoint exit = destinationGate ?? destination;
+            chains.Add(new[] { exit, destination });
+            chains.Add(new[] { center, exit, destination });
+            foreach (GridPoint entry in gates)
+            {
+                chains.Add(new[] { entry, exit, destination });
+                chains.Add(new[] { entry, center, exit, destination });
+            }
+            var cache = new Dictionary<Tuple<GridPoint, GridPoint>, IReadOnlyList<GridPoint>>();
+            GridPoint? best = null;
+            int bestLength = int.MaxValue;
+            foreach (GridPoint[] candidate in chains)
+            {
+                GridPoint[] chain = candidate.TakeWhile(c => !c.Equals(destination)).Concat(new[] { destination })
+                    .Where(c => !c.Equals(from)).Distinct().ToArray();
+                if (chain.Length == 0) continue;
+                var full = new List<GridPoint>();
+                GridPoint current = from;
+                bool found = true;
+                foreach (GridPoint next in chain)
+                {
+                    var key = Tuple.Create(current, next);
+                    if (!cache.TryGetValue(key, out IReadOnlyList<GridPoint> leg)) cache[key] = leg = nativePath(current, next);
+                    if (leg == null || leg.Count == 0 || !leg[0].Equals(current) || !leg[leg.Count - 1].Equals(next))
+                    { found = false; break; }
+                    full.AddRange(full.Count == 0 ? leg : leg.Skip(1));
+                    if (full.Count > MaximumCells) { found = false; break; }
+                    current = next;
+                }
+                // Check aggregate length, exposure and outside crossings, not
+                // just individually safe legs whose totals could exceed limits.
+                if (!found || full.Count >= bestLength || !Audit(full, defended, interior, hostileCells, opaque).Allowed) continue;
+                bestLength = full.Count;
+                best = chain[0];
+            }
+            return best;
+        }
 
         public static P3DefenderRouteAudit Audit(IEnumerable<GridPoint> route,
             IReadOnlyCollection<GridPoint> defended, IReadOnlyCollection<GridPoint> interior,

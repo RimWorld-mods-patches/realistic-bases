@@ -593,11 +593,16 @@ namespace RealisticBases.AI
                 IntVec3 next = destination;
                 if (!ResponseRouteAllowed(pawn, pawn.Position, destination, RuntimeOpaqueCells()).Allowed)
                 {
-                    IntVec3 gate = AssignedAccessGate(pawn);
-                    if (!gate.IsValid || pawn.Position.InHorDistOf(gate, 1f) ||
-                        !ResponseRouteAllowed(pawn, pawn.Position, gate, RuntimeOpaqueCells()).Allowed ||
-                        !ResponseRouteAllowed(pawn, gate, destination, RuntimeOpaqueCells()).Allowed) return null;
-                    next = gate;
+                    GridPoint? waypoint = ResponseWaypoint(pawn, destination, RuntimeOpaqueCells());
+                    if (!waypoint.HasValue)
+                    {
+                        // Do not fall through to vanilla wandering when a
+                        // transfer is unsafe. Hold this bounded position.
+                        Job hold = JobMaker.MakeJob(JobDefOf.Wait_Combat);
+                        hold.expiryInterval = 120; hold.checkOverrideOnExpire = true;
+                        return hold;
+                    }
+                    next = ToCell(waypoint.Value);
                 }
                 Job go = JobMaker.MakeJob(JobDefOf.Goto, next);
                 go.expiryInterval = 600;
@@ -632,7 +637,8 @@ namespace RealisticBases.AI
                         ResponseRouteAllowed(pawn, gate, post, opaque) : null;
                     distantPostRoutes.Add(pawn.thingIDNumber + ":" + pawn.Position + ">" + post +
                         ":job=" + (pawn.CurJobDef?.defName ?? "none") + ":direct=" + direct.Reason +
-                        ":gate=" + (toGate?.Reason ?? "none") + "/" + (fromGate?.Reason ?? "none"));
+                        ":gate=" + (toGate?.Reason ?? "none") + "/" + (fromGate?.Reason ?? "none") +
+                        ":waypoint=" + (direct.Allowed ? "direct" : ResponseWaypoint(pawn, post, opaque)?.ToString() ?? "none"));
                 }
                 if (!InsideBounds(pawn.Position))
                 {
@@ -971,6 +977,26 @@ namespace RealisticBases.AI
                 P3Log.Message("POST_INVENTORY_UPGRADE", "map=" + map.uniqueID + " old=" + originalCount +
                     " renamed=" + renamed + " added=" + added + " fieldRoutes=" + fieldRoutes +
                     " total=" + postIds.Count);
+        }
+
+        private GridPoint? ResponseWaypoint(Pawn pawn, IntVec3 destination, IReadOnlyCollection<GridPoint> opaque)
+        {
+            IntVec3 gate = AssignedAccessGate(pawn);
+            var enemies = map.mapPawns.AllPawnsSpawned.Where(p => p.Faction != null && faction != null &&
+                p.HostileTo(faction) && !p.Dead && !p.Downed).Select(p => new GridPoint(p.Position.x, p.Position.z)).ToArray();
+            return P3DefenderRoute.NextWaypoint(new GridPoint(pawn.Position.x, pawn.Position.z),
+                new GridPoint(destination.x, destination.z), new GridPoint(supportCenter.x, supportCenter.z),
+                gate.IsValid ? new GridPoint(gate.x, gate.z) : (GridPoint?)null,
+                gateCells.Concat(postAccessGates).Where(c => c.IsValid && InsideBounds(c) && c.Standable(map))
+                    .Select(c => new GridPoint(c.x, c.z)),
+                (from, to) =>
+                {
+                    if (!InsideBounds(ToCell(from)) || !InsideBounds(ToCell(to))) return new GridPoint[0];
+                    using (PawnPath path = map.pathFinder.FindPathNow(ToCell(from), ToCell(to), TraverseParms.For(pawn), null, PathEndMode.OnCell))
+                        return path.Found ? path.NodesReversed.AsEnumerable().Reverse().Select(c => new GridPoint(c.x, c.z)).ToArray()
+                            : new GridPoint[0];
+                }, defendedCells.Select(c => new GridPoint(c.x, c.z)).ToArray(),
+                interiorCells.Select(c => new GridPoint(c.x, c.z)).ToArray(), enemies, opaque);
         }
 
         private P3DefenderRouteAudit ResponseRouteAllowed(Pawn pawn, IntVec3 from, IntVec3 destination,

@@ -65,8 +65,8 @@ namespace RealisticBases.Integration
                 input = new ProceduralLayoutInput(requirements, terrain, seed, catalog,
                     new LayoutFortificationReservation(wallLayers), resources: resources);
                 result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
-                if (result.Success && (wallLayers == 1 || result.Layout.OuterSections.Any(s => s.Layer == wallLayers - 1))) break;
-                if (wallLayers > 1) layerFallback = result.Success ? "no_eligible_outer_section" : result.RejectionCode ?? "plan_rejected";
+                if (result.Success && P4BPerimeterDepth.Minimum(terrain, result.Layout) == wallLayers) break;
+                if (wallLayers > 1) layerFallback = result.Success ? "insufficient_perimeter_breach_depth" : result.RejectionCode ?? "plan_rejected";
             }
             string terrainStats = result.Success ? string.Empty : " terrainCells=" + terrain.Width * terrain.Height +
                 " standable=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Standable)) +

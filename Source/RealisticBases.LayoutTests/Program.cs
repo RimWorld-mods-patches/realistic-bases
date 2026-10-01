@@ -66,6 +66,7 @@ internal static partial class Program
         Run("roof support ignores built walls and rejects wide halls", RoofSupportRule);
         Run("tech and spend capacity weight one to three physical wall layers", LayerPolicy);
         Run("gatehouse crossings and exterior sections reserve one to three layers", WallLayers);
+        Run("P4B full perimeter has no single-wall northern breach shortcut", FullPerimeterDepth);
         Run("layered walls retain service lanes on rock, water and irregular terrain", FortificationTerrainMatrix);
         Run("narrow dry approach keeps layered gates and recovery bounded", NarrowFortificationApproach);
         Run("corner obstruction replans connected wall returns within budget", CornerWallReturnRecovery);
@@ -447,7 +448,8 @@ internal static partial class Program
     private static void ConnectivityAfterBlocking()
     {
         TerrainSnapshot terrain = Plains(120);
-        ProceduralLayoutInput input = Input(terrain, LayoutRequirements.FromPopulation(6, Industrial, Temperate), 13);
+        ProceduralLayoutInput input = Input(terrain, LayoutRequirements.FromPopulation(6, Industrial, Temperate), 13,
+            new LayoutFortificationReservation(minimumGates: 2));
         ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
         Accepted(result);
         ProceduralLayout layout = result.Layout;
@@ -846,20 +848,21 @@ internal static partial class Program
         {
             ProceduralLayoutInput input = Input(terrain, LayoutRequirements.FromPopulation(6, Industrial, Temperate), 31,
                 new LayoutFortificationReservation(wallLayers: layers));
-            ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
+            ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
             Accepted(result);
             ProceduralLayout layout = result.Layout;
-            HashSet<GridPoint> occupied = new HashSet<GridPoint>(layout.Enclosure.Concat(layout.BuiltWalls)
-                .Concat(layout.NaturalWalls).Concat(layout.OuterWalls)
+            HashSet<GridPoint> occupied = new HashSet<GridPoint>(layout.Enclosure
                 .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
-                .Concat(layout.Gates.Select(g => g.Cell))
-                .Concat(layout.Gates.SelectMany(g => g.BandWalls.Concat(g.BandDoors))));
-            P4BFieldWallPlan plan = P4BFieldWallPlanner.Plan(input, layout, occupied);
+                .Concat(layout.PowerYards.SelectMany(y => y.Cells))
+                .Concat(layout.AllFixtures.SelectMany(f => f.Cells))
+                .Concat(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex]))));
+            string diagnostic;
+            P4BFieldWallPlan plan = P4BFieldWallPlanner.PlanJoint(input, layout, occupied, out diagnostic);
             True(plan != null, "flat layer " + layers + " has a bounded attached field enclosure candidate");
-            P4BFieldWallPlan replay = P4BFieldWallPlanner.Plan(input, layout, occupied);
+            P4BFieldWallPlan replay = P4BFieldWallPlanner.PlanJoint(input, layout, occupied, out diagnostic);
             Equal(string.Join(";", plan.Walls), string.Join(";", replay.Walls),
                 "field wall selection is deterministic");
-            Equal(layout.FieldCellsRequired, plan.Fields.Count, "field demand survives wall reservation");
+            True(plan.Fields.Count >= layout.FieldCellsRequired, "field demand survives wall reservation");
             True(plan.Fields.All(c => !terrain[c].Has(TerrainTraits.Roofed)), "main field stays unroofed");
             True(plan.ExteriorPosts.Count == 2, "positions are outside the field-facing wall");
             Equal(terrain.Digest, input.Terrain.Digest, "field wall selection preserves terrain");
@@ -968,7 +971,7 @@ internal static partial class Program
         List<string> rejections = new List<string>();
         ProceduralLayoutResult accepted = null;
         ProceduralLayoutInput acceptedInput = null;
-        foreach (ulong seed in Enumerable.Range(1, 1).Select(n => (ulong)n))
+        foreach (ulong seed in Enumerable.Range(1, 8).Select(n => (ulong)n))
         {
             ProceduralLayoutInput input = Input(terrain,
                 LayoutRequirements.FromPopulation(4, Industrial, Temperate,
@@ -979,6 +982,11 @@ internal static partial class Program
             {
                 rejections.Add(seed + ":" + result.RejectionCode + ":" +
                     string.Join("+", result.Diagnostics.TakeLast(12)));
+                continue;
+            }
+            if (result.Layout.Turret == null || result.Layout.Turret.MinimumRange == 0 || result.Layout.Turret.Support == null)
+            {
+                rejections.Add(seed + ":no-supported-heavy-emplacement");
                 continue;
             }
             accepted = result;

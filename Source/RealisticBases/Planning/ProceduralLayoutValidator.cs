@@ -117,7 +117,7 @@ namespace RealisticBases.Planning
 
             // Terrain legality and the excavation ledger.
             if (built.Any(c => grid.At(c) != LayoutCellClass.Open && grid.At(c) != LayoutCellClass.Covered)) errors.Add("built_wall_illegal_terrain");
-            if (outer.Count != layout.OuterWalls.Count() || outer.Any(c => grid.At(c) != LayoutCellClass.Open ||
+            if (outer.Count != layout.OuterWalls.Count() || outer.Any(c => (grid.At(c) != LayoutCellClass.Open && grid.At(c) != LayoutCellClass.Covered) ||
                 terrain[c].Has(TerrainTraits.MapEdge) || built.Contains(c))) errors.Add("outer_wall_illegal_or_duplicate");
             if (natural.Any(c => grid.At(c) != LayoutCellClass.Rock || excavation.Contains(c))) errors.Add("natural_wall_not_intact_rock");
             if (excavation.Any(c => grid.At(c) != LayoutCellClass.Rock)) errors.Add("excavation_not_natural_rock");
@@ -135,6 +135,8 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> boundary = new HashSet<GridPoint>(built.Concat(natural).Concat(gateCells));
             if (enclosure.Any(c => Neighbors(c).Any(n => !enclosure.Contains(n) && !boundary.Contains(n)))) errors.Add("enclosure_not_closed");
             if (boundary.Any(enclosure.Contains)) errors.Add("wall_inside_enclosure");
+            if (P4BPerimeterDepth.Minimum(terrain, layout) < layout.WallLayers)
+                errors.Add("perimeter_breach_depth_below_declared_layers");
 
             // Rooms and corridors.
             HashSet<GridPoint> roomCells = new HashSet<GridPoint>();

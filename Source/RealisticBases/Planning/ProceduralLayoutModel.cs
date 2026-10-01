@@ -9,7 +9,7 @@ namespace RealisticBases.Planning
     // generator references these types yet; see docs/p4a-foundations.md.
     public static class ProceduralLayoutVersions
     {
-        public const string Planner = "p4e-facilities.1";
+        public const string Planner = "p4e-facilities.2";
         public const int Schema = 1;
     }
 
@@ -337,7 +337,7 @@ namespace RealisticBases.Planning
         public int VestibuleDepth { get; }
         public int DesiredGates { get; }
         public int MinimumGates { get; }
-        public int PlacementMargin => Setback + 1 + OuterClearance;
+        public int PlacementMargin => Setback + 1 + OuterClearance + 2 * (WallLayers - 1);
     }
 
     public sealed class LayoutSearchBudget

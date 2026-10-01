@@ -284,12 +284,13 @@ namespace RealisticBases.Planning
             string equipmentDigest, string wallStuff, LayoutMaterialLedger materials, LayoutPowerPlan power,
             IEnumerable<LayoutExhaustPocket> exhaustPockets = null, IEnumerable<LayoutWallSection> outerSections = null,
             P4BJointSite jointSite = null, P4BFieldWallPlan fieldWall = null, P4BTurretPlan turret = null,
-            P4BApproachDefensePlan approachDefense = null)
+            P4BApproachDefensePlan approachDefense = null, IEnumerable<GridPoint> perimeterReinforcement = null)
         {
             JointSite = jointSite;
             FieldWall = fieldWall;
             Turret = turret;
             ApproachDefense = approachDefense;
+            PerimeterReinforcement = Sorted(perimeterReinforcement);
             Power = power;
             OuterSections = new ReadOnlyCollection<LayoutWallSection>((outerSections ?? Enumerable.Empty<LayoutWallSection>())
                 .OrderBy(s => s.GateIndex).ThenBy(s => s.Layer).ToList());
@@ -336,7 +337,8 @@ namespace RealisticBases.Planning
         public IReadOnlyList<GridPoint> Enclosure { get; }
         public IReadOnlyList<GridPoint> BuiltWalls { get; }
         public IReadOnlyList<LayoutWallSection> OuterSections { get; }
-        public IEnumerable<GridPoint> OuterWalls => OuterSections.SelectMany(s => s.Cells);
+        public IReadOnlyList<GridPoint> PerimeterReinforcement { get; }
+        public IEnumerable<GridPoint> OuterWalls => OuterSections.SelectMany(s => s.Cells).Concat(PerimeterReinforcement).Distinct();
         public IReadOnlyList<GridPoint> NaturalWalls { get; }
         public IReadOnlyList<LayoutGate> Gates { get; }
         public IReadOnlyList<GridPoint> Excavation { get; }
@@ -393,7 +395,7 @@ namespace RealisticBases.Planning
             new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court, Enclosure, BuiltWalls,
                 NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof, WallLayers, FieldCellsRequired, Relationships,
                 ExtraObstacles.Concat(obstacles ?? Enumerable.Empty<GridPoint>()), Notes, TechStage, RolesDigest, EquipmentDigest, WallStuff, Materials, Power,
-                ExhaustPockets, OuterSections, JointSite, FieldWall, Turret, ApproachDefense);
+                ExhaustPockets, OuterSections, JointSite, FieldWall, Turret, ApproachDefense, PerimeterReinforcement);
 
         public ProceduralLayout WithFieldWall(ProceduralLayoutInput input, P4BFieldWallPlan fieldWall)
         {
@@ -413,7 +415,7 @@ namespace RealisticBases.Planning
                 WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
                 Notes.Concat(new[] { "fieldWall=" + fieldWall.Digest + " materials " + materials }),
                 TechStage, RolesDigest, EquipmentDigest, WallStuff, materials, Power,
-                ExhaustPockets, OuterSections, JointSite, fieldWall, Turret, ApproachDefense);
+                ExhaustPockets, OuterSections, JointSite, fieldWall, Turret, ApproachDefense, PerimeterReinforcement);
         }
 
         public ProceduralLayout WithApproachDefense(ProceduralLayoutInput input, P4BApproachDefensePlan defense)
@@ -427,7 +429,7 @@ namespace RealisticBases.Planning
                 NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof,
                 WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
                 Notes.Concat(new[] { "approachDefense=" + defense.Digest }), TechStage, RolesDigest,
-                EquipmentDigest, WallStuff, materials, Power, ExhaustPockets, OuterSections, JointSite, fieldWall, null, defense);
+                EquipmentDigest, WallStuff, materials, Power, ExhaustPockets, OuterSections, JointSite, fieldWall, null, defense, PerimeterReinforcement);
         }
 
         public ProceduralLayout WithTurret(ProceduralLayoutInput input, P4BTurretPlan turret)
@@ -447,7 +449,7 @@ namespace RealisticBases.Planning
                 Notes.Concat(new[] { "turret=" + turret.Digest + " import=" + turret.ImportValue }),
                 TechStage, RolesDigest, EquipmentDigest, WallStuff, materials, Power,
                 ExhaustPockets, OuterSections, JointSite, FieldWall, turret,
-                ApproachDefense?.WithoutTransit(turret.All.SelectMany(t => t.Footprint)));
+                ApproachDefense?.WithoutTransit(turret.All.SelectMany(t => t.Footprint)), PerimeterReinforcement);
         }
 
         private static IReadOnlyList<GridPoint> Sorted(IEnumerable<GridPoint> cells) =>
@@ -478,7 +480,7 @@ namespace RealisticBases.Planning
                 foreach (GridPoint c in corridor.Cells) hash = Point(hash, c);
             }
             if (Court != null) hash = Fixture(hash, Court);
-            foreach (IReadOnlyList<GridPoint> list in new[] { Enclosure, BuiltWalls, NaturalWalls, Excavation, RetainedThickRoof, ConstructedRoof, ExtraObstacles })
+            foreach (IReadOnlyList<GridPoint> list in new[] { Enclosure, BuiltWalls, NaturalWalls, Excavation, RetainedThickRoof, ConstructedRoof, ExtraObstacles, PerimeterReinforcement })
             {
                 hash = StableHash.Add(hash, list.Count);
                 foreach (GridPoint c in list) hash = Point(hash, c);
@@ -2162,6 +2164,8 @@ namespace RealisticBases.Planning
                     " gates=" + gates.Count + " returnedSections=" + outerSections.Count);
                 return null;
             }
+            IReadOnlyList<GridPoint> reinforcement = CompletePerimeter(enclosure, built, natural, gates, outerSections);
+            if (reinforcement == null) return null;
 
             HashSet<GridPoint> cleared = new HashSet<GridPoint>(pockets.Values.Where(p => p.RoofCleared).Select(p => p.Cell));
             List<GridPoint> retained = dug.Where(c => grid.ThickCover(c) && !cleared.Contains(c)).ToList();
@@ -2183,7 +2187,7 @@ namespace RealisticBases.Planning
                 layoutNotes.Add("exhaustPockets=" + exhaustPockets.Count + " roofHoles=" + exhaustPockets.Count(p => p.RoofCleared) +
                     (roofHoleBudget == int.MaxValue ? string.Empty : "/" + roofHoleBudget) + (pocketsOnly ? " pocketsOnly" : string.Empty));
             LayoutMaterialLedger materials = equipment.Count(rooms,
-                built.Concat(gates.SelectMany(g => g.BandWalls)).Concat(outerSections.SelectMany(section => section.Cells))
+                built.Concat(gates.SelectMany(g => g.BandWalls)).Concat(outerSections.SelectMany(section => section.Cells)).Concat(reinforcement)
                     .Concat(exhaustPockets.SelectMany(p => p.Walls)),
                 gates.Sum(g => 1 + g.BandDoors.Count), power);
             layoutNotes.Add("materials " + materials);
@@ -2197,7 +2201,8 @@ namespace RealisticBases.Planning
                 segments.Select(x => new LayoutCorridor(x.Id, x.Main, x.Cells)), court, enclosure, built, natural, gates, dug,
                 retained, constructed, input.Fortification.WallLayers, input.Requirements.FieldCells, demand.Relationships,
                 Enumerable.Empty<GridPoint>(), layoutNotes, equipment.Kit.Stage, equipment.Kit.Roles.Digest, equipment.Digest,
-                equipment.ConstructionStuff, materials, power, exhaustPockets, outerSections, jointSite);
+                equipment.ConstructionStuff, materials, power, exhaustPockets, outerSections, jointSite,
+                perimeterReinforcement: reinforcement);
             // Vanilla temperature rule on the final plan: every cooler cools its own room and
             // exhausts into a room that uses outdoor temperature.
             LayoutRoomPartition partition = LayoutRoomPartition.Build(input.Terrain, layout);
@@ -2215,6 +2220,55 @@ namespace RealisticBases.Planning
                     }
                 }
             return layout;
+        }
+
+        private IReadOnlyList<GridPoint> CompletePerimeter(List<GridPoint> enclosure, HashSet<GridPoint> built,
+            HashSet<GridPoint> natural, List<LayoutGate> gates, List<LayoutWallSection> sections)
+        {
+            int layers = input.Fortification.WallLayers;
+            if (layers == 1) return new GridPoint[0];
+            // Chebyshev offsets close diagonal corners as well as straight
+            // frontages. Radius 1 is the existing boundary, 3 and 5 are the
+            // complete extra shells, aligned with the serial gate doors.
+            int radius = 2 * layers - 1;
+            int[] distance = Enumerable.Repeat(int.MaxValue, occ.Length).ToArray();
+            Queue<GridPoint> queue = new Queue<GridPoint>();
+            foreach (GridPoint c in enclosure) { distance[grid.Index(c)] = 0; queue.Enqueue(c); }
+            while (queue.Count > 0)
+            {
+                GridPoint c = queue.Dequeue();
+                int next = distance[grid.Index(c)] + 1;
+                if (next > radius) continue;
+                for (int dz = -1; dz <= 1; dz++)
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        GridPoint n = new GridPoint(c.X + dx, c.Z + dz);
+                        if (!grid.InBounds(n) || distance[grid.Index(n)] <= next) continue;
+                        distance[grid.Index(n)] = next;
+                        queue.Enqueue(n);
+                    }
+            }
+            HashSet<GridPoint> existing = new HashSet<GridPoint>(built.Concat(natural)
+                .Concat(sections.SelectMany(s => s.Cells)).Concat(gates.SelectMany(g =>
+                    g.BandWalls.Concat(g.BandDoors).Concat(new[] { g.Cell }))));
+            HashSet<GridPoint> access = new HashSet<GridPoint>(gates.SelectMany(g =>
+                g.ExteriorRoute.Concat(g.OuterVestibule).Concat(new[] { g.Staging }))
+                .Concat(sections.SelectMany(s => s.ServiceLane(gates[s.GateIndex]))));
+            HashSet<GridPoint> field = new HashSet<GridPoint>(jointSite == null ? Enumerable.Empty<GridPoint>() :
+                jointSite.Field.Points().Concat(jointSite.AllPostClearance));
+            List<GridPoint> cells = new List<GridPoint>();
+            for (int i = 0; i < distance.Length; i++)
+            {
+                if (distance[i] < 3 || distance[i] > radius || distance[i] % 2 == 0) continue;
+                GridPoint c = new GridPoint(i % grid.Width, i / grid.Width);
+                if (existing.Contains(c)) continue;
+                if (grid.At(c) == LayoutCellClass.Rock && !dug.Contains(c)) continue;
+                if ((grid.At(c) != LayoutCellClass.Open && grid.At(c) != LayoutCellClass.Covered) ||
+                    access.Contains(c) || field.Contains(c) || occ[i] == GeyserReserve)
+                { Fail("complete_perimeter_unavailable", "layer=" + ((distance[i] + 1) / 2) + " cell=" + c); return null; }
+                cells.Add(c);
+            }
+            return cells;
         }
 
         private List<LayoutWallSection> ExtendGateBands(bool[] inE, HashSet<GridPoint> built,
