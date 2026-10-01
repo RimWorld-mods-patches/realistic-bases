@@ -46,19 +46,29 @@ curl --noproxy '*' --fail-with-body --max-time 120 -X POST \
 
 RIMAPI requires a request body on POST requests; `{}` provides the required content length. A successful response contains `success: true` and the action record. Invocation errors contain `success: false` and an error string.
 
-For repeated tests, select the exact runnable action by its returned name, then use its ID rather than copying a long ID from an earlier session:
+For repeated tests, use the checked [runner](scripts/run_debug_action.py) with Python 3 (standard library only). It resolves the exact name, rejects missing/ambiguous/non-runnable actions before POST, URL-encodes the returned ID, bypasses proxies, sends `{}`, and checks JSON success. Add exact `--category` or `--assembly` selectors if names collide:
 
 ```sh
-RB_ACTION_ID="$(curl --noproxy '*' --fail-with-body --silent --show-error \
-  --get --data-urlencode 'filter=Generate playable flat P4 settlement' \
-  'http://localhost:8765/api/v1/debug-actions/debug-actions' |
-  jq -er '.actions[] | select(.name == "Generate playable flat P4 settlement" and .is_runnable) | .id')"
-curl --noproxy '*' --fail-with-body --max-time 120 -X POST \
-  -H 'Content-Type: application/json' --data '{}' \
-  "http://localhost:8765/api/v1/debug-actions/debug-actions/run?id=$RB_ACTION_ID"
+RB_REPO_ROOT="$(git rev-parse --show-toplevel)"
+python3 "$RB_REPO_ROOT/.claude/skills/use-rimapi-debug-actions/scripts/run_debug_action.py" \
+  'Generate playable flat P4 settlement' \
+  --log-file "$RB_REPO_ROOT/.runtime/logs/rimworld.log" \
+  --wait-event 'event=PROCEDURAL_SPAWN_COMPLETE\b' \
+  --fail-event 'event=PROCEDURAL_(PLAN|SPAWN)_REJECT\b' \
+  --request-timeout 120 --wait-timeout 180
 ```
 
-In the disposable profile, the verified sequence was: load the save, check `GET /api/v1/game/state`, list actions (43 matched `Realistic Bases`), invoke `Use high-industrial P4 stage once`, then invoke `Generate playable flat P4 settlement`. Both invocation responses had `success: true`, which means the method ran; inspect `PROCEDURAL_PLAN`, `SPAWN_COMPLETE` or `PLAN_REJECT` in the game log to determine whether generation itself succeeded. A rejected map can still have a successful API invocation.
+Choose completion/failure regexes for the actual action; the example above is for procedural P4 generation, not every debug action. Include a map/site identifier when known, serialize mutating tests, and do not count another encounter's completion as evidence. Native generation or quest fallback may need different terminal events. The runner snapshots the log end immediately before POST and reads only newly appended complete lines. Log replacement/truncation fails verification. `--fail-event` is optional/repeatable. `--base-url` overrides the configured address; request and evidence-wait timeouts are separate.
+
+For a synchronous setup action such as `Use high-industrial P4 stage once`, omit the log/wait options. The resulting `invoked_only` status proves invocation only. Generation tests must supply `--log-file` plus `--wait-event`; successful HTTP invocation alone does not prove generation. A timeout or uncertain POST outcome never triggers an automatic retry; inspect logs and game state before another mutation.
+
+Run the runner's isolated mock-API tests without starting RimWorld:
+
+```sh
+python3 -m unittest discover \
+  -s "$RB_REPO_ROOT/.claude/skills/use-rimapi-debug-actions/scripts" \
+  -p 'test_*.py'
+```
 
 ## Supported actions and effects
 

@@ -5,23 +5,24 @@ description: Start this RimWorld mod against an isolated disposable profile, aut
 
 # Run RimWorld for mod development
 
-Use this skill for this repository's macOS runtime tests. Build changed C# first with the repository's `build-mod` skill. RimWorld does not hot-reload mod assemblies, so stop and restart the game after every DLL rebuild.
+Use this skill for this repository's macOS runtime tests. Stop the exact disposable game process and verify it exited **before** building changed C# with `build-mod`. RimWorld does not hot-reload mod assemblies; launch a fresh process after every DLL rebuild.
 
 ## Start from the disposable save
 
-Keep all mutable RimWorld test state under the repository's ignored `.runtime/` directory. Resolve the current worktree rather than hard-coding a checkout path:
+Keep all mutable RimWorld test state under the repository's ignored `.runtime/` directory. Resolve the current worktree rather than hard-coding a checkout path. Use repository-root variables, `$HOME`, or configured/discovered external paths in skills; never embed a concrete username:
 
 ```bash
 RB_REPO_ROOT="$(git rev-parse --show-toplevel)"
 RB_PROFILE_DIR="$RB_REPO_ROOT/.runtime/rimworld-dev-profile"
 RB_LOG_DIR="$RB_REPO_ROOT/.runtime/logs"
 RB_LOG_FILE="$RB_LOG_DIR/rimworld.log"
+RB_RIMWORLD_APP="${RB_RIMWORLD_APP:-$HOME/Library/Application Support/Steam/steamapps/common/RimWorld/RimWorldMac.app}"
 mkdir -p "$RB_LOG_DIR"
 ```
 
 The working profile is `.runtime/rimworld-dev-profile`. It contains disposable `Config/`, `Saves/`, and mod runtime data and is excluded by the repository `.gitignore`. It is intentionally separate from the user's normal RimWorld data. Never launch a development test against the normal profile, copy the normal saves into this profile, or commit anything below `.runtime/`.
 
-The profile must have these active mods in `Config/ModsConfig.xml`, in dependency order: Harmony, Core, RIMAPI, RimWorld Debug Actions (`rimapi-debug-actions`), and Realistic Bases. The companion is a separate local mod at `/Users/roman_gr/Repositories/rimworld/rimapi-debug-actions`; its presence in `Mods/` does not activate it, so verify `ModsConfig.xml` and the game's loaded-mod log after every profile reset. Optional-mod tests may temporarily add HugsLib, Geological Landforms, and Map Preview to this file; restore the five-mod baseline afterward. RIMAPI and its companion are test instrumentation, not shipped dependencies.
+The profile must have these active mods in `Config/ModsConfig.xml`, in dependency order: Harmony, Core, RIMAPI, RimWorld Debug Actions (`rimapi-debug-actions`), and Realistic Bases. The companion is a separate local `rimapi-debug-actions` repository; locate its actual checkout through the installed mod link or workspace layout rather than assuming a user-specific path. Its presence in `Mods/` does not activate it, so verify `ModsConfig.xml` and the game's loaded-mod log after every profile reset. Optional-mod tests may temporarily add HugsLib, Geological Landforms, and Map Preview to this file; restore the five-mod baseline afterward. RIMAPI and its companion are test instrumentation, not shipped dependencies.
 
 The immutable reset point is `Saves/RealisticBases-P0-Disposable.rws`. If the profile already exists, preserve that file. If the entire ignored profile is absent, create it explicitly with a Core developer quick-test run, enable only the baseline mods above, save the untouched colony as `RealisticBases-P0-Disposable`, stop the game, and only then begin scenario testing. Do not silently substitute a normal user save.
 
@@ -34,13 +35,15 @@ cp "$RB_PROFILE_DIR/Saves/RealisticBases-P0-Disposable.rws" \
 
 Restore that copy before every clean scenario. Do not overwrite the immutable reset point with `autostart.rws` or an active-encounter save.
 
-Launch the installed game executable directly. Steam does not need to be running:
+`RB_RIMWORLD_APP` defaults to the current user's standard macOS Steam library. If the game is installed elsewhere, discover and set its actual app path first; verify the executable exists. Launch it directly. Steam does not need to be running:
 
 ```bash
-"/Users/roman_gr/Library/Application Support/Steam/steamapps/common/RimWorld/RimWorldMac.app/Contents/MacOS/RimWorld by Ludeon Studios" \
+"$RB_RIMWORLD_APP/Contents/MacOS/RimWorld by Ludeon Studios" \
   -savedatafolder="$RB_PROFILE_DIR" \
   -logFile "$RB_LOG_FILE"
 ```
+
+Keep `-logFile`: it sends the authoritative runtime evidence to the repository-local test log. Use the tested separate-argument form above, not `-logFile=...`; the equals-sign form did not reliably produce the intended log in this setup. This is an argument-format warning, not a prohibition on file logging.
 
 Run it in a long-lived terminal session and retain the session id. Never run two RimWorld processes against the same profile. On macOS the GUI process can survive after the launching terminal session reports exit, so Ctrl-C is **not** proof that the game stopped. Before restoring a save or relaunching, inspect the process table for the exact disposable `-savedatafolder` path:
 
@@ -134,7 +137,7 @@ curl --noproxy '*' --fail --silent --show-error --max-time 4 "$RB_RIMAPI_BASE/ap
 curl --noproxy '*' --fail --silent --show-error --max-time 4 "$RB_RIMAPI_BASE/api/v1/maps"
 
 # Inspect the playable encounter map after SPAWN_COMPLETE.
-curl --noproxy '*' --fail --silent --show-error --max-time 4 "$RB_RIMAPI_BASE/api/v1/map/pawns?map_id=0"
+curl --noproxy '*' --fail --silent --show-error --max-time 4 "$RB_RIMAPI_BASE/api/v1/map/pawns?map_id=$RB_TARGET_MAP_ID"
 curl --noproxy '*' --fail --silent --show-error --max-time 4 "$RB_RIMAPI_BASE/api/v1/colonists/positions"
 
 # Pause before inspecting or changing state through another request.
@@ -142,6 +145,8 @@ curl --noproxy '*' --fail --silent --show-error --max-time 4 \
   -X POST "$RB_RIMAPI_BASE/api/v1/game/speed?speed=0" \
   -H 'Content-Type: application/json' -d '{}'
 ```
+
+After every arrival or save reload, re-query `game/state` and `maps`, resolve `RB_TARGET_MAP_ID` from the encounter you intend to inspect, and confirm the current view/audit targets that map. Do not assume map 0 or `Find.CurrentMap` is the encounter; the home map can still be selected. Recheck pause state as well: explicitly resume for tick-based lifecycle or pawn-movement assertions, then pause before inspecting. A completed generation action does not establish the map selection or simulation speed.
 
 See the [RIMAPI quick start](https://ilyachichkov.github.io/RIMAPI/quick_start.html),
 [API reference](https://ilyachichkov.github.io/RIMAPI/api.html), and
@@ -187,13 +192,13 @@ Use the filtered action `Audit current P3 defensive encounter` for an on-demand 
 ## Runtime-test loop
 
 1. Resolve `RB_REPO_ROOT`, `RB_PROFILE_DIR`, `RB_LOG_DIR`, and `RB_LOG_FILE` as shown above.
-2. Build and run pure tests in Docker through `build-mod`.
-3. Stop any existing RimWorld process using this profile and verify the exact-path process-table query returns no matches; Ctrl-C alone is insufficient on macOS.
+2. Stop any existing RimWorld process using this profile and verify the exact-path process-table query returns no matches; Ctrl-C alone is insufficient on macOS.
+3. Build and run pure tests in Docker through `build-mod`.
 4. Restore `autostart.rws` from `RealisticBases-P0-Disposable.rws` for a clean scenario.
 5. Launch directly with the repository-local `-savedatafolder` and `-logFile` paths; verify exactly one matching process before interacting with the game.
 6. Confirm the expected active-mod list and `GAME_LOADED` in the log.
 7. Prefer the companion debug-actions API for a supported action. Use `slash`, exact label, `Tab`, `Return` only if the API cannot serve it; the UI filter depends on the macOS keyboard input source being English.
-8. Confirm generation and runtime events in the log.
-9. Pause and stop RimWorld before editing code; after rebuilding, restart from step 3.
+8. Confirm generation and runtime events in the log; after arrival/reload, recheck target map and pause state before runtime assertions.
+9. Pause and stop RimWorld before editing code; repeat from step 2 for the next rebuild/run.
 
 Never infer success solely from a screenshot. The mod log is the source of truth for generation acceptance, controller initialization, save/reload restoration, audits, and exceptions.
