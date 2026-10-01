@@ -1261,8 +1261,63 @@ namespace RealisticBases.Planning
                 ProceduralLayoutPlanner.Note(diagnostics, "repair", "branch_added", Site + " for " + room.Id);
                 done = TryPlaceRoom(room);
             }
+            if (!done && !stats.BudgetExhausted) done = PlaceByConnectedExtension(room);
             if (!done) Fail(stats.BudgetExhausted ? "budget_exhausted" : "room_unplaceable", room.Id + " repairs=" + repairs);
             return done;
+        }
+
+        // A room that has no frontage is not evidence of insufficient land.
+        // Search the SAME compound's reachable free space and add a public
+        // corridor to a proven room envelope, without moving existing rooms or
+        // consuming the field/interface reservations. Work remains input-bounded.
+        private bool PlaceByConnectedExtension(LayoutRoomDemand room)
+        {
+            Queue<GridPoint> queue = new Queue<GridPoint>();
+            Dictionary<GridPoint, GridPoint> previous = new Dictionary<GridPoint, GridPoint>();
+            Dictionary<GridPoint, int> distance = new Dictionary<GridPoint, int>();
+            foreach (GridPoint root in segments.SelectMany(s => s.Cells).Distinct().OrderBy(c => c))
+            { queue.Enqueue(root); previous[root] = root; distance[root] = 0; }
+            int nodes = 0;
+            while (queue.Count > 0 && nodes++ < input.Budget.MaxRouteNodes)
+            {
+                GridPoint here = queue.Dequeue();
+                stats.RouteNodes++;
+                foreach (GridPoint step in ProceduralLayoutPlanner.Cardinal)
+                {
+                    GridPoint next = new GridPoint(here.X + step.X, here.Z + step.Z);
+                    if (previous.ContainsKey(next) || !OkForStreet(next)) continue;
+                    previous[next] = here; distance[next] = distance[here] + 1; queue.Enqueue(next);
+                }
+            }
+            int evaluated = 0;
+            foreach (GridPoint frontage in previous.Keys.Where(c => distance[c] > 0)
+                .OrderBy(c => distance[c]).ThenByDescending(c => Math.Min(12, grid.OpenClearance[grid.Index(c)]))
+                .ThenBy(c => LayoutSeed.Key(LayoutSeed.Sub(seed, "extension:" + room.Id), c.X, c.Z)))
+                foreach (GridPoint facing in ProceduralLayoutPlanner.Cardinal)
+                    foreach (GridRect size in room.CandidateSizes.OrderBy(s => s.Area))
+                    {
+                        if (evaluated++ >= input.Budget.MaxCandidatesPerRoom) return false;
+                        if (stats.Evaluations >= input.Budget.MaxEvaluations) { stats.BudgetExhausted = true; return false; }
+                        stats.Evaluations++;
+                        GridPoint door = new GridPoint(frontage.X + facing.X, frontage.Z + facing.Z);
+                        Candidate candidate = Evaluate(room, door, facing, (size.Width + 1) / 2, size.Width, size.Height);
+                        if (candidate == null) continue;
+                        List<GridPoint> path = new List<GridPoint>();
+                        GridPoint joined = frontage;
+                        while (distance[joined] > 0) { path.Add(joined); joined = previous[joined]; }
+                        if (path.Any(candidate.Bounds.Contains)) continue;
+                        int extraDigs = path.Count(c => grid.At(c) == LayoutCellClass.Rock);
+                        if (dug.Count + candidate.Dig.Count + extraDigs > Budget && extraDigs > 0) continue;
+                        Segment extension = new Segment { Id = "room-extension:" + room.Id, Retain = true, Root = joined, Axis = facing };
+                        foreach (GridPoint cell in path) extension.Sections.Add(new List<GridPoint> { cell });
+                        if (!Claim(extension)) continue;
+                        segments.Add(extension);
+                        Commit(room, candidate);
+                        ProceduralLayoutPlanner.Note(diagnostics, "repair", "connected_room_extension", Site +
+                            " room=" + room.Id + " corridor=" + path.Count + " bounds=" + candidate.Bounds);
+                        return true;
+                    }
+            return false;
         }
 
         // Renewables cover only the non-critical load, from open-sky yards inside the
@@ -1284,6 +1339,7 @@ namespace RealisticBases.Planning
                 if (!input.Catalog.TryGet(name, out def) || !input.Catalog.IsLegal(def, kit.Stage)) continue;
                 if (remaining <= 0) break;
                 int units = 0;
+                int accessExtensions = 0;
                 string failure = null;
                 while (remaining > 0 && units < LayoutPowerModel.MaxUnitsPerSource && failure == null)
                 {
@@ -1308,6 +1364,9 @@ namespace RealisticBases.Planning
                     }
                     if (yard == null)
                     {
+                        if ((name == LayoutPowerModel.Wind || name == LayoutPowerModel.Solar) &&
+                            accessExtensions < 2 && !stats.BudgetExhausted &&
+                            AddBranch("utility-access:" + name + ":" + accessExtensions++)) continue;
                         if (units == 0) failure = name == LayoutPowerModel.Wind ? "no_clear_zone" : "no_fit";
                         break;
                     }

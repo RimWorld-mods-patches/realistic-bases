@@ -67,6 +67,8 @@ namespace RealisticBases.Integration
                 object power = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Power");
                 object fuel = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Refuelable");
                 object explosive = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Explosive");
+                object affected = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_AffectedByFacilities");
+                object facility = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Facility");
                 double value = Stat(thing, "MarketValue");
                 double work = Math.Max(Stat(thing, "WorkToMake"), Stat(thing, "WorkToBuild"));
                 object building = Member(thing, "building");
@@ -92,7 +94,8 @@ namespace RealisticBases.Integration
                     Number(Member(fuel, "fuelCapacity")), Number(Member(fuel, "fuelMultiplier")),
                     Number(Member(fuel, "initialFuelPercent")), Number(Member(turretVerb, "consumeFuelPerShot")),
                     Bool(Member(fuel, "factorByDifficulty")), Number(Member(explosive, "explosiveRadius")),
-                    Number(Member(building, "combatPower"))));
+                    Number(Member(building, "combatPower")), Names(Member(affected, "linkableFacilities")),
+                    Number(Member(facility, "maxDistance")), Bool(Member(building, "isSittable"))));
             }
             List<CatalogResearch> projects = DefDatabase<ResearchProjectDef>.AllDefsListForReading
                 .Select(project => new CatalogResearch(project.defName, Tier(Member(project, "techLevel")),

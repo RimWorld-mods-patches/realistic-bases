@@ -39,4 +39,22 @@ Current ordinary population distribution remains 4–12 with expected mean seven
 ## Evidence ledger
 
 - P4E.0 source audit complete. One-cell store fetching, thermal settling, seated use and multiple-gun behavior are not yet live-verified.
-- P4E.1–P4E.5 pending. Do not infer completion from this audit.
+- P4E.2–P4E.5 pending. Do not infer integrated completion from a facility pass.
+
+## P4E.1 — Laboratories and occupied-work-room climate
+
+Appended Laboratory/Research/ResearchAnalyzer enum values (no shifted persisted values), with ordinary one-bench demand and compact-quest exclusion. Catalog capture now records resolved facility links/range and seating facts. Simple bench remains legal at primitive stages; hi-tech starts at IndustrialMid; eligible analyzers must have an explicit bench link and fit the eight-cell Core center-distance/clear-line rule. Laboratory finishes use the clean-room P4C category. Power/fuel and material summaries include the fixtures. Planner version is `p4e-facilities.1`; existing loaded layouts are not regenerated.
+
+Shared occupied-room policy now includes Kitchen, Workshop and Laboratory. Existing freezer −10°C and occupied +21°C targets, thick-roof relief, outdoor-exhaust logic and legal primitive limits remain. No thermal/production simulator or autonomous research added.
+
+The additional lab exposed packing and utility-frontage omissions. Initial full regression had five failures: a stale one-row bench test, the 12-map clutter corpus (7/12), two optional renewable placement assertions and a single-seed wind-zone assertion. Corrected the bench test to check the complete back row of deep benches; wind-zone validation now finds an actual turbine in a bounded six-seed corpus rather than requiring optional power on one obsolete seed. Added a bounded same-compound room-envelope/connecting-corridor extension and at most two utility-access branches per renewable source. All ordinary field approaches now reserve their connection before packing, including four residents. No field relocation, roster reduction or relaxed path/terrain rules. The exact clutter regression passes **12/12**, with three local-growth cases.
+
+Disposable Core live run: map1, seven IndustrialLate residents, ten rooms, 240 crops, 468 finished floor cells, ten actual outdoor cooler exhausts, 242 conduits, 60 startup generator fuel and 204 finite wood reserve. `PROCEDURAL_SPAWN_COMPLETE` layout `67C5853BED407DC8`; playable arrival and clean startup/logs. Hi-tech bench's working cell is standable; one analyzer is genuinely linked and active, bench powered. Seats/medical shelves are intentionally still absent in this checkpoint (P4E.2).
+
+| Observation | Game tick | Outdoor | Lab room | Workshop room | Operation |
+|---|---:|---:|---:|---:|---|
+| Initial settled | 3636 | 21.71°C | 21.00°C | 21.03°C | Powered heat/cool, active analyzer |
+| HeatWave, started3647 | 17157 | 48.00°C | 21.00°C | 21.00°C | Powered coolers; ~13,500 settling ticks |
+| ColdSnap, after ending HeatWave | 44741 | 1.76°C | 20.73°C | 20.78°C | Powered heaters; >20,000 settling ticks |
+
+Debug climate probes use native temporary conditions and log actual map/tick; audits report actual room temperature, outdoor use, work cell, target/power/fuel and active links. The exact disposable process was stopped before rebuilding. Live samples establish this generated thermal arrangement, not seasonal or extreme primitive guarantees. Full integrated regression remains P4E.5.

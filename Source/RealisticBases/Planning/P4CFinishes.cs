@@ -150,7 +150,8 @@ namespace RealisticBases.Planning
                     case LayoutRoomKind.Medical: return 1;
                     case LayoutRoomKind.Freezer: return 2;
                     case LayoutRoomKind.Pantry: return 3;
-                    case LayoutRoomKind.Workshop: return 4;
+                    case LayoutRoomKind.Workshop:
+                    case LayoutRoomKind.Laboratory: return 4;
                     case LayoutRoomKind.Power: return 5;
                     case LayoutRoomKind.Storage: return 6;
                     case LayoutRoomKind.Jail: return 7;
@@ -168,7 +169,7 @@ namespace RealisticBases.Planning
                 bool domestic = room.Kind == LayoutRoomKind.Barracks || room.Kind == LayoutRoomKind.Bedroom ||
                     room.Kind == LayoutRoomKind.Dining;
                 bool clean = room.Kind == LayoutRoomKind.Kitchen || room.Kind == LayoutRoomKind.Medical ||
-                    room.Kind == LayoutRoomKind.Freezer || room.Kind == LayoutRoomKind.Pantry;
+                    room.Kind == LayoutRoomKind.Freezer || room.Kind == LayoutRoomKind.Pantry || room.Kind == LayoutRoomKind.Laboratory;
                 List<string> choices = new List<string>();
                 if (room.Kind == LayoutRoomKind.Medical && wealthy) choices.Add("SterileTile");
                 if (domestic && wealthy && stone != null) choices.Add(stone);

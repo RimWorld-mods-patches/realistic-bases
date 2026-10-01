@@ -748,6 +748,7 @@ namespace RealisticBases.Planning
                 case LayoutRoomKind.Pantry: return FacilityKind.Pantry;
                 case LayoutRoomKind.Dining: return FacilityKind.DiningRecreation;
                 case LayoutRoomKind.Workshop: return FacilityKind.Workshop;
+                case LayoutRoomKind.Laboratory: return FacilityKind.Laboratory;
                 case LayoutRoomKind.Storage: return FacilityKind.BulkStorage;
                 default: return FacilityKind.Power;
             }

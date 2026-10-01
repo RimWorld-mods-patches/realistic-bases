@@ -9,7 +9,7 @@ namespace RealisticBases.Planning
     // generator references these types yet; see docs/p4a-foundations.md.
     public static class ProceduralLayoutVersions
     {
-        public const string Planner = "p4a-foundation.1";
+        public const string Planner = "p4e-facilities.1";
         public const int Schema = 1;
     }
 
@@ -31,7 +31,8 @@ namespace RealisticBases.Planning
         Dining,
         Workshop,
         Storage,
-        Power
+        Power,
+        Laboratory // Append: persisted room values must not move.
     }
 
     public static class SettlementTemperatureTargets
@@ -64,7 +65,8 @@ namespace RealisticBases.Planning
         Battery,
         MortarCourt,
         MedicalMonitor,
-        Shelf
+        Shelf,
+        ResearchAnalyzer
     }
 
     public enum LayoutDoctrine
@@ -212,7 +214,9 @@ namespace RealisticBases.Planning
         // Zero retains the historical split policy; positive values prefer
         // smaller connected stockpiles without discarding any capacity.
         public int StockpileRoomCapacityTarget { get; }
-        public bool ReservePopulationCirculation => Residents > 4 || StockpileRoomCapacityTarget > 0;
+        // All new ordinary bases need an attached-field connection reserved
+        // before the larger P4E facility set is packed, including four residents.
+        public bool ReservePopulationCirculation => !CompactQuestCamp || Residents > 4 || StockpileRoomCapacityTarget > 0;
         public string Digest { get; }
         public bool Electric => Has(SettlementCapability.Electricity);
         public bool Refrigerated => Has(SettlementCapability.Refrigeration);
@@ -512,8 +516,11 @@ namespace RealisticBases.Planning
         public const double NearMinimalAreaFactor = 1.35;
         public const int KitchenFoodHardDistance = 24;
 
+        // A room-use policy shared by demand, packing, power and final validation.
+        // "Living" includes occupied work spaces, not only sleeping/eating rooms.
         public static bool IsLiving(LayoutRoomKind kind) => kind == LayoutRoomKind.Barracks || kind == LayoutRoomKind.Bedroom ||
-            kind == LayoutRoomKind.Jail || kind == LayoutRoomKind.Medical || kind == LayoutRoomKind.Dining;
+            kind == LayoutRoomKind.Jail || kind == LayoutRoomKind.Medical || kind == LayoutRoomKind.Dining ||
+            kind == LayoutRoomKind.Kitchen || kind == LayoutRoomKind.Workshop || kind == LayoutRoomKind.Laboratory;
 
         public static bool IsStockpile(LayoutRoomKind kind) => kind == LayoutRoomKind.Storage || kind == LayoutRoomKind.Freezer || kind == LayoutRoomKind.Pantry;
 
@@ -540,7 +547,10 @@ namespace RealisticBases.Planning
             Add(wanted, requirements, LayoutRoomKind.Dining, r);
             // Every distinct craft bench once, then more benches up to the population target.
             if (!requirements.CompactQuestCamp)
+            {
                 Add(wanted, requirements, LayoutRoomKind.Workshop, Math.Max(Math.Max(1, Ceil(r, 6)), kit.WorkshopDefs.Count));
+                if (kit.DefFor(SettlementRole.Research) != null) Add(wanted, requirements, LayoutRoomKind.Laboratory, 1);
+            }
             // Generator fuel stock is stored physically: its stacks raise the storage demand.
             Add(wanted, requirements, LayoutRoomKind.Storage, Math.Max(12, 6 * r) + extraStorageCells);
 
@@ -676,7 +686,8 @@ namespace RealisticBases.Planning
                 case LayoutRoomKind.Jail:
                 case LayoutRoomKind.Medical: return "beds";
                 case LayoutRoomKind.Kitchen: return "stoves";
-                case LayoutRoomKind.Workshop: return "benches";
+                case LayoutRoomKind.Workshop:
+                case LayoutRoomKind.Laboratory: return "benches";
                 case LayoutRoomKind.Dining: return "seats";
                 case LayoutRoomKind.Power: return "generators";
                 default: return "stockpile-cells";
@@ -863,6 +874,15 @@ namespace RealisticBases.Planning
                             if (template == null || !room.Place(template, 1)) break;
                             capacity++;
                         }
+                        break;
+                    case LayoutRoomKind.Laboratory:
+                        capacity = PlaceAll(room, From(kit.DefFor(SettlementRole.Research), LayoutFixtureKind.Workbench, SettlementRole.Research), capacityTarget);
+                        CatalogDef analyzer = kit.DefFor(SettlementRole.ResearchAnalyzer);
+                        CatalogDef research = kit.DefFor(SettlementRole.Research);
+                        if (capacity >= capacityTarget && analyzer != null && research != null &&
+                            research.LinkableFacilities.Contains(analyzer.DefName) &&
+                            !room.PlaceFacility(From(analyzer, LayoutFixtureKind.ResearchAnalyzer, SettlementRole.ResearchAnalyzer),
+                                SettlementRole.Research, analyzer.FacilityMaxDistance)) failure = "research_analyzer_link";
                         break;
                     case LayoutRoomKind.Dining:
                         capacity = 4 * room.PlaceTables(kit, Ceil(capacityTarget, 4));
@@ -1062,6 +1082,34 @@ namespace RealisticBases.Planning
                 int placed = 0;
                 while (placed < count && Place(template, 1)) placed++;
                 return placed;
+            }
+
+            // Core analyzer needs LOS and a bounded center-to-center link. Both
+            // are checked against planned room occupancy, then again in engine.
+            public bool PlaceFacility(Template template, SettlementRole linkedRole, double maxDistance)
+            {
+                if (template == null || maxDistance <= 0) return false;
+                foreach (KeyValuePair<List<GridPoint>, GridPoint> slot in Slots(template.Length, template.Depth))
+                {
+                    if (!slot.Key.All(c => Interior(c) && state[Index(c.X, c.Z)] == Free)) continue;
+                    GridPoint center = slot.Key[slot.Key.Count / 2];
+                    if (!Fixtures.Where(f => f.Role == linkedRole).Any(f =>
+                        CenterDistance(f.Cells, slot.Key) <= maxDistance &&
+                        P4BFireLane.CanEngage(center, f.Cells[f.Cells.Count / 2], 0, (int)Math.Ceiling(maxDistance),
+                            Fixtures.Where(o => o != f).SelectMany(o => o.Cells).ToList()))) continue;
+                    if (!TryCommit(slot.Key, new List<GridPoint>())) continue;
+                    Fixtures.Add(new LayoutLocalFixture(template.Kind, template.Def, slot.Key, null, slot.Value,
+                        template.Blocking, template.Watts, template.Fuel, template.Role));
+                    return true;
+                }
+                return false;
+            }
+
+            private static double CenterDistance(IReadOnlyList<GridPoint> a, IReadOnlyList<GridPoint> b)
+            {
+                double dx = a.Average(c => c.X) - b.Average(c => c.X);
+                double dz = a.Average(c => c.Z) - b.Average(c => c.Z);
+                return Math.Sqrt(dx * dx + dz * dz);
             }
 
             // 2x2 tables with a seat on each side. The seat cells stay free (they are the
