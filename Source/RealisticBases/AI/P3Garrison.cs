@@ -110,6 +110,8 @@ namespace RealisticBases.AI
         private MapParent settlement;
         private Faction faction;
         private Thing mortar;
+        private List<Thing> mortars = new List<Thing>();
+        private List<string> mortarPostIds = new List<string>();
         private List<Pawn> defenders = new List<Pawn>();
         private List<Thing> ownedThings = new List<Thing>();
         private List<Thing> operatingStocks = new List<Thing>();
@@ -288,6 +290,7 @@ namespace RealisticBases.AI
             planDigest = null;
             profileId = null;
             mortar = null;
+            mortars.Clear(); mortarPostIds.Clear();
             postIds.Clear(); postSectors.Clear(); postCells.Clear(); postAccessGates.Clear(); postFlags.Clear();
             gateCells.Clear(); defendedCells.Clear(); interiorCells.Clear();
             fieldRegionCells.Clear(); compoundRegionCells.Clear(); fieldFallbackPostIds.Clear();
@@ -301,7 +304,7 @@ namespace RealisticBases.AI
             IEnumerable<Thing> allOwnedThings, Thing mortarThing, IEnumerable<Thing> combatStocks,
             IEnumerable<P3PerimeterSegment> perimeter = null, IEnumerable<GridPoint> interior = null,
             IEnumerable<GridPoint> fieldRegion = null, IEnumerable<GridPoint> compoundRegion = null,
-            IEnumerable<string> fieldFallbackPosts = null)
+            IEnumerable<string> fieldFallbackPosts = null, IEnumerable<Thing> artillery = null)
         {
             postInventoryNeedsUpgrade = false;
             settlement = parent;
@@ -309,6 +312,10 @@ namespace RealisticBases.AI
             defenders = residents.OrderBy(p => p.thingIDNumber).ToList();
             ownedThings = allOwnedThings.Distinct().ToList();
             mortar = mortarThing;
+            mortars = (artillery ?? (mortarThing == null ? Enumerable.Empty<Thing>() : new[] { mortarThing })).ToList();
+            mortarPostIds = plan.Artillery.Select(a => a.PostId).ToList();
+            if (mortars.Count != mortarPostIds.Count || mortars.Distinct().Count() != mortars.Count)
+                throw new InvalidOperationException("Artillery gun/post identities disagree");
             operatingStocks = combatStocks.Distinct().ToList();
             planDigest = plan.Digest;
             profileId = plan.Profile.Id;
@@ -345,7 +352,7 @@ namespace RealisticBases.AI
             perimeterLastBreachTicks = Enumerable.Repeat(-1, segments.Count).ToList();
             initialHe = CountStock("Shell_HighExplosive");
             initialIncendiary = CountStock("Shell_Incendiary");
-            initialBarrels = CountStock("ReinforcedBarrel") + (mortar?.TryGetComp<CompRefuelable>()?.HasFuel == true ? 1 : 0);
+            initialBarrels = CountStock("ReinforcedBarrel") + mortars.Count(t => t.TryGetComp<CompRefuelable>()?.HasFuel == true);
             routineSupportWorkers = plan.Profile.SupportWorkers;
             P3Log.Message("CONTROLLER_INIT", "map=" + map.uniqueID + " settlement=" + parent.ID +
                 " plan=" + planDigest + " profile=" + profileId + " defenders=" + defenders.Count +
@@ -359,6 +366,8 @@ namespace RealisticBases.AI
             Scribe_References.Look(ref settlement, "p3Settlement");
             Scribe_References.Look(ref faction, "p3Faction");
             Scribe_References.Look(ref mortar, "p3Mortar");
+            Scribe_Collections.Look(ref mortars, "p4eMortars", LookMode.Reference);
+            Scribe_Collections.Look(ref mortarPostIds, "p4eMortarPostIds", LookMode.Value);
             Scribe_Collections.Look(ref defenders, "p3Defenders", LookMode.Reference);
             Scribe_Collections.Look(ref ownedThings, "p3OwnedThings", LookMode.Reference);
             Scribe_Collections.Look(ref operatingStocks, "p3OperatingStocks", LookMode.Reference);
@@ -408,6 +417,17 @@ namespace RealisticBases.AI
             Scribe_Values.Look(ref garrisonEverDefeated, "p3GarrisonEverDefeated", false);
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
+                if ((mortars == null || mortars.Count == 0) && mortar != null)
+                {
+                    // Legacy saves retain their existing gun/post and stocks;
+                    // this migration never creates or replenishes anything.
+                    mortars = new List<Thing> { mortar };
+                    mortarPostIds = new List<string> { "mortar" };
+                }
+                mortars = mortars ?? new List<Thing>();
+                mortarPostIds = mortarPostIds ?? new List<string>();
+                if (mortars.Count != mortarPostIds.Count || mortarPostIds.Distinct().Count() != mortarPostIds.Count)
+                    throw new InvalidOperationException("Invalid saved artillery identity map");
                 defenders = defenders?.Where(p => p != null).ToList() ?? new List<Pawn>();
                 ownedThings = ownedThings?.Where(t => t != null).ToList() ?? new List<Thing>();
                 operatingStocks = operatingStocks?.Where(t => t != null).ToList() ?? new List<Thing>();
@@ -443,6 +463,7 @@ namespace RealisticBases.AI
                     }).ToList();
                 P3Log.Message("CONTROLLER_RELOADED", "map=" + map.uniqueID + " state=" + currentState +
                     " defenders=" + defenders.Count + " assignments=" + assignedPawnIds.Count +
+                    " artillery=" + mortars.Count + " artilleryPosts=" + string.Join(",", mortarPostIds) +
                     " mortarLoaded=" + MortarLoadedShell() + " heRemaining=" + CountStock("Shell_HighExplosive"));
             }
         }
@@ -540,7 +561,8 @@ namespace RealisticBases.AI
         public Job TryGiveMortarJob(Pawn pawn)
         {
             if (!Controls(pawn)) return null;
-            if (mortar == null || mortar.Destroyed || !(mortar is Building_TurretGun turret) || AssignedRole(pawn) != GarrisonRole.MortarOperator)
+            Thing assignedGun = AssignedMortar(pawn);
+            if (assignedGun == null || assignedGun.Destroyed || !(assignedGun is Building_TurretGun turret) || AssignedRole(pawn) != GarrisonRole.MortarOperator)
                 return null;
             if (!pawn.CanReserve(turret)) return null;
             CompChangeableProjectile shell = turret.gun?.TryGetComp<CompChangeableProjectile>();
@@ -585,8 +607,9 @@ namespace RealisticBases.AI
             if (!Controls(pawn)) return null;
             IntVec3 destination = AssignedPost(pawn);
             GarrisonRole role = AssignedRole(pawn);
-            if (role == GarrisonRole.MortarOperator && mortar != null && !mortar.Destroyed)
-                destination = mortar.InteractionCell;
+            Thing assignedGun = AssignedMortar(pawn);
+            if (role == GarrisonRole.MortarOperator && assignedGun != null && !assignedGun.Destroyed)
+                destination = assignedGun.InteractionCell;
             else if (!destination.IsValid)
                 destination = AssignedDestination(pawn);
             if (!destination.IsValid || !InsideBounds(destination) || !destination.Standable(map)) return null;
@@ -654,9 +677,18 @@ namespace RealisticBases.AI
             Building_TurretGun turret = mortar as Building_TurretGun;
             CompMannable mannable = turret?.TryGetComp<CompMannable>();
             CompChangeableProjectile projectile = turret?.gun?.TryGetComp<CompChangeableProjectile>();
-            int he = CountStock("Shell_HighExplosive") + (projectile?.LoadedShell?.defName == "Shell_HighExplosive" ? projectile.loadedCount : 0);
-            int incendiary = CountStock("Shell_Incendiary") + (projectile?.LoadedShell?.defName == "Shell_Incendiary" ? projectile.loadedCount : 0);
-            int barrels = CountStock("ReinforcedBarrel") + (turret?.TryGetComp<CompRefuelable>()?.HasFuel == true ? 1 : 0);
+            var loaded = mortars.Where(t => t != null && t.Spawned).OfType<Building_TurretGun>()
+                .Select(t => t.gun?.TryGetComp<CompChangeableProjectile>()).Where(p => p?.LoadedShell != null).ToList();
+            int he = CountStock("Shell_HighExplosive") + loaded.Where(p => p.LoadedShell.defName == "Shell_HighExplosive").Sum(p => p.loadedCount);
+            int incendiary = CountStock("Shell_Incendiary") + loaded.Where(p => p.LoadedShell.defName == "Shell_Incendiary").Sum(p => p.loadedCount);
+            int barrels = CountStock("ReinforcedBarrel") + mortars.Count(t => t != null && t.Spawned && t.TryGetComp<CompRefuelable>()?.HasFuel == true);
+            P3Log.Message("ARTILLERY_AUDIT", "map=" + map.uniqueID + " phase=" + phase + " guns=" + mortars.Count +
+                " available=" + mortars.Count(GunAvailable) + " identities=" + string.Join(";", mortarPostIds.Select((id, i) =>
+                    id + ":" + (mortars[i]?.thingIDNumber.ToString() ?? "destroyed") + ":op=" +
+                    (mortars[i]?.TryGetComp<CompMannable>()?.ManningPawn?.thingIDNumber.ToString() ?? "none"))) +
+                " crew=" + assignedRoles.Count(r => r == (int)GarrisonRole.MortarOperator) +
+                " uniqueAssignments=" + (assignedPostIds.Where(id => mortarPostIds.Contains(id)).Distinct().Count() ==
+                    assignedRoles.Count(r => r == (int)GarrisonRole.MortarOperator)));
             CompPowerTrader generatorPower = ownedThings.FirstOrDefault(t => t != null && !t.Destroyed &&
                 t.def.defName == "WoodFiredGenerator")?.TryGetComp<CompPowerTrader>();
             float netGainWatts = generatorPower?.PowerNet == null ? 0f :
@@ -710,9 +742,13 @@ namespace RealisticBases.AI
                 destroyed += stock.stackCount;
                 stock.Destroy(DestroyMode.Vanish);
             }
-            CompChangeableProjectile projectile = (mortar as Building_TurretGun)?.gun?.TryGetComp<CompChangeableProjectile>();
-            int unloaded = projectile?.loadedCount ?? 0;
-            projectile?.LoadShell(null, 0);
+            int unloaded = 0;
+            foreach (Building_TurretGun gun in mortars.OfType<Building_TurretGun>())
+            {
+                CompChangeableProjectile projectile = gun.gun?.TryGetComp<CompChangeableProjectile>();
+                unloaded += projectile?.loadedCount ?? 0;
+                projectile?.LoadShell(null, 0);
+            }
             P3Log.Message("SCENARIO_AMMO_EXHAUSTED", "map=" + map.uniqueID + " looseDestroyed=" + destroyed +
                 " loadedRemoved=" + unloaded);
         }
@@ -784,7 +820,7 @@ namespace RealisticBases.AI
             bool rest = pawn.needs?.rest != null && pawn.needs.rest.CurLevelPercentage < 0.2f;
             bool tend = pawn.health?.HasHediffsNeedingTend() ?? false;
             return new DefenderCandidate(pawn.thingIDNumber, weaponClass, (int)Math.Round(range),
-                mortar != null && weaponClass != DefenderWeaponClass.Melee, true, food, rest, tend,
+                mortars.Any(GunAvailable) && weaponClass != DefenderWeaponClass.Melee, true, food, rest, tend,
                 previousPost, previousRole, previousTick, new GridPoint(pawn.Position.x, pawn.Position.z));
         }
 
@@ -796,11 +832,13 @@ namespace RealisticBases.AI
                 bool mortarPost = P3PostFlags.IsMortar(postFlags[i]);
                 bool inner = P3PostFlags.IsInner(postFlags[i]);
                 bool melee = P3PostFlags.IsMelee(postFlags[i]);
-                IntVec3 cell = mortarPost && mortar != null ? mortar.InteractionCell : postCells[i];
+                Thing gun = GunForPost(postIds[i]);
+                IntVec3 cell = mortarPost && gun != null && gun.Spawned ? gun.InteractionCell : postCells[i];
                 bool cover = mortarPost || melee || ownedThings.Any(t => t != null && t.Spawned &&
                     (t.def.defName == "Sandbags" || t.def.defName == "Barricade") && t.Position.AdjacentTo8WayOrInside(cell));
                 bool usable = cell.InBounds(map) && cell.Standable(map) && cell.GetEdifice(map) == null &&
-                    cover && (reachPawn == null || map.reachability.CanReach(reachPawn.Position, cell, PathEndMode.OnCell, TraverseParms.For(reachPawn)));
+                    cover && (!mortarPost || GunAvailable(gun)) &&
+                    (reachPawn == null || map.reachability.CanReach(reachPawn.Position, cell, PathEndMode.OnCell, TraverseParms.For(reachPawn)));
                 if (!usable && PreviousPostAssigned(postIds[i])) invalidPostRecoveries++;
                 string[] sectors = postSectors[i].Split('|');
                 result.Add(new DefensivePost(postIds[i], sectors[0], new GridPoint(cell.x, cell.z),
@@ -839,6 +877,16 @@ namespace RealisticBases.AI
                 DutyDef duty = DutyFor(assignment.Role);
                 pawn.mindState.duty = new PawnDuty(duty, ToCell(assignment.Destination),
                     assignment.Role == GarrisonRole.RangedPost ? 7f : 4f);
+                if (pawn.CurJobDef == JobDefOf.ManTurret &&
+                    (assignment.Role != GarrisonRole.MortarOperator || pawn.CurJob.targetA.Thing != GunForPost(assignment.PostId)))
+                {
+                    // Duty changes must also release the old native gun
+                    // reservation; don't wait 3600 ticks on the wrong mortar.
+                    Thing carried = pawn.carryTracker?.CarriedThing;
+                    if (carried != null && (carried.def.IsShell || carried.def.defName == "ReinforcedBarrel") &&
+                        !operatingStocks.Contains(carried)) operatingStocks.Add(carried);
+                    pawn.jobs.EndCurrentJob(JobCondition.InterruptForced, startNewJob: false);
+                }
             }
         }
 
@@ -1100,8 +1148,37 @@ namespace RealisticBases.AI
             : boundsMin.IsValid && cell.x >= boundsMin.x && cell.z >= boundsMin.z &&
                 cell.x < boundsMin.x + boundsWidth && cell.z < boundsMin.z + boundsHeight;
 
-        private int CountStock(string defName) => operatingStocks.Where(t => t != null && !t.Destroyed && t.def.defName == defName)
-            .Sum(t => t.stackCount);
+        private int CountStock(string defName) => operatingStocks.Concat(defenders.Where(p => p != null && p.Spawned)
+                .Select(p => p.carryTracker?.CarriedThing)).Where(t => t != null && !t.Destroyed && t.def.defName == defName)
+            .Distinct().Sum(t => t.stackCount);
+
+        private Thing GunForPost(string postId)
+        {
+            int index = mortarPostIds.IndexOf(postId);
+            return index >= 0 && index < mortars.Count ? mortars[index] : null;
+        }
+
+        private Thing AssignedMortar(Pawn pawn)
+        {
+            int index = assignedPawnIds.IndexOf(pawn.thingIDNumber);
+            return index >= 0 && index < assignedPostIds.Count ? GunForPost(assignedPostIds[index]) : null;
+        }
+
+        private bool GunAvailable(Thing gun)
+        {
+            if (!(gun is Building_TurretGun turret) || !gun.Spawned || gun.Destroyed) return false;
+            CompChangeableProjectile shell = turret.gun?.TryGetComp<CompChangeableProjectile>();
+            CompRefuelable barrel = gun.TryGetComp<CompRefuelable>();
+            bool NearbyStock(string defName) => operatingStocks.Any(t => t != null && t.Spawned &&
+                t.def.defName == defName && t.Position.InHorDistOf(gun.Position, 40f) &&
+                map.reachability.CanReach(gun.InteractionCell, t, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)));
+            bool CarriedStock(string defName) => defenders.Any(p => p != null && p.Spawned && AssignedMortar(p) == gun &&
+                p.CurJobDef == JobDefOf.ManTurret && p.carryTracker?.CarriedThing?.def.defName == defName);
+            bool available(string defName) => NearbyStock(defName) || CarriedStock(defName);
+            return (shell?.LoadedShell != null || available("Shell_HighExplosive") ||
+                incendiarySafe && available("Shell_Incendiary")) &&
+                (Find.Storyteller.difficulty.classicMortars || barrel == null || barrel.HasFuel || available("ReinforcedBarrel"));
+        }
 
         private string MortarLoadedShell()
         {

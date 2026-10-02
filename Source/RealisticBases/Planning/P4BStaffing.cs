@@ -47,8 +47,8 @@ namespace RealisticBases.Planning
                 input.Catalog.TryGet(r.Weapon.DefName, out CatalogDef def) &&
                 def.Category == CatalogCategory.Weapon && def.MaximumRange > 0)
                 .OrderBy(r => WeaponRange(input.Catalog, r)).ThenBy(r => r.Index).ToList();
-            int mortarCrew = layout.Court != null && others.Count > 0 ? 1 : 0;
-            if (mortarCrew > 0) others.RemoveAt(0);
+            int mortarCrew = Math.Min(layout.Courts.Count, others.Count);
+            others.RemoveRange(0, mortarCrew);
             int reserve = loadout.Residents.Count >= 5 && others.Count >= 3 ? 1 : 0;
             if (reserve > 0) others.RemoveAt(0);
 

@@ -255,22 +255,34 @@ namespace RealisticBases.Planning
                     .ThenBy(d => d.Id)
                     .Take(situation.RoutineSupportWorkers).Select(d => d.Id)
                 : Enumerable.Empty<int>());
-            DefensivePost mortarPost = state == GarrisonState.InnerFallback ? null :
-                validPosts.FirstOrDefault(p => p.Mortar);
-            DefenderCandidate mortarOperator = mortarPost == null ? null : situation.Defenders
-                .Where(d => !routineSupport.Contains(d.Id) && !d.NeedsRelief && Compatible(d, mortarPost))
-                .OrderBy(d => d.PreviousRole == GarrisonRole.MortarOperator ? 0 : 1)
-                .ThenBy(d => d.WeaponClass == DefenderWeaponClass.LongRanged)
-                .ThenBy(d => d.WeaponRange).ThenBy(d => d.Id).FirstOrDefault();
-            if (mortarOperator != null) occupied.Add(mortarPost.Id);
+            var crews = new Dictionary<int, DefensivePost>();
+            foreach (DefensivePost mortarPost in validPosts.Where(p => p.Mortar).OrderBy(p => p.Id, StringComparer.Ordinal))
+            {
+                // Leave two useful direct defenders before reserving more
+                // artillery. Losses release surplus guns rather than add pawns.
+                if (state == GarrisonState.InnerFallback || situation.Defenders.Count(d => !d.NeedsRelief &&
+                    !routineSupport.Contains(d.Id) && !crews.ContainsKey(d.Id)) <= (crews.Count == 0 ? 1 : 2)) break;
+                DefenderCandidate crew = situation.Defenders.Where(d => !routineSupport.Contains(d.Id) &&
+                    !crews.ContainsKey(d.Id) && !d.NeedsRelief && Compatible(d, mortarPost))
+                    .OrderBy(d => d.PreviousPostId == mortarPost.Id ? 0 : 1)
+                    .ThenBy(d => d.PreviousRole == GarrisonRole.MortarOperator ? 1 : 0)
+                    .ThenBy(d => d.WeaponClass == DefenderWeaponClass.LongRanged)
+                    .ThenBy(d => d.WeaponRange).ThenBy(d => d.Id).FirstOrDefault();
+                if (crew == null) continue;
+                crews.Add(crew.Id, mortarPost);
+                occupied.Add(mortarPost.Id);
+            }
+            // Unfunded/unavailable artillery posts must not be picked by the
+            // ordinary best-post path after the exclusive crew reservation.
+            validPosts = validPosts.Where(p => !p.Mortar || occupied.Contains(p.Id)).ToList();
             DefenderCandidate mobileReserve = state == GarrisonState.Routine || state == GarrisonState.InnerFallback ||
                 situation.Defenders.Count(d => !d.NeedsRelief) < 5 ? null : situation.Defenders
-                .Where(d => d.Id != mortarOperator?.Id && !routineSupport.Contains(d.Id) && !d.NeedsRelief &&
+                .Where(d => !crews.ContainsKey(d.Id) && !routineSupport.Contains(d.Id) && !d.NeedsRelief &&
                     d.WeaponClass != DefenderWeaponClass.Melee)
                 .OrderBy(d => d.WeaponClass == DefenderWeaponClass.LongRanged)
                 .ThenBy(d => d.WeaponRange).ThenBy(d => d.Id).FirstOrDefault();
             if (mobileReserve != null && situation.Defenders.Count(d => !d.NeedsRelief &&
-                d.WeaponClass != DefenderWeaponClass.Melee && d.Id != mortarOperator?.Id) < 3)
+                d.WeaponClass != DefenderWeaponClass.Melee && !crews.ContainsKey(d.Id)) < 3)
                 mobileReserve = null;
             List<GarrisonAssignment> assignments = new List<GarrisonAssignment>();
             foreach (DefenderCandidate defender in situation.Defenders)
@@ -289,10 +301,9 @@ namespace RealisticBases.Planning
                     continue;
                 }
 
-                if (defender.Id == mortarOperator?.Id)
+                if (crews.TryGetValue(defender.Id, out DefensivePost crewPost))
                 {
-                    occupied.Add(mortarPost.Id);
-                    assignments.Add(PostAssignment(defender, mortarPost, state, situation.Tick,
+                    assignments.Add(PostAssignment(defender, crewPost, state, situation.Tick,
                         "funded_mortar_operator"));
                     continue;
                 }

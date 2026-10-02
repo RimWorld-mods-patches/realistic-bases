@@ -22,7 +22,7 @@ DEFAULT_OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
 
 # Stock items used by the settlement model beyond stuff (stuffProps) and chunks.
 STOCK_ITEMS = {"ComponentIndustrial", "ComponentSpacer", "MedicineHerbal", "MedicineIndustrial",
-               "MedicineUltratech", "Chemfuel"}
+               "MedicineUltratech", "Chemfuel", "ReinforcedBarrel"}
 STOCK_PREFIXES = ("Shell_",)
 # Items obtainable without local production (mined, harvested, butchered, salvaged).
 # Raw items skip the producer gate and recipe-only research (that research gates
@@ -248,6 +248,16 @@ def main():
             args.append("fuel: " + strs(fuel))
         if fuel_rate:
             args.append("fuelPerDay: %r" % float(fuel_rate))
+        facilities = sorted({name for comp in d.findall("comps/li") for name in texts(comp, "linkableFacilities/li")})
+        if facilities:
+            args.append("linkableFacilities: " + strs(facilities))
+        for comp in d.findall("comps/li"):
+            if comp.get("Class") == "CompProperties_Facility":
+                # Core 1.6 CompProperties_Facility default, verified against
+                # version-matched implementation source (XML often omits it).
+                args.append("facilityMaxDistance: %r" % float(number(text(comp, "maxDistance") or "8")))
+        if is_true(text(d, "building/isSittable")):
+            args.append("isSittable: true")
         turret_gun = text(d, "building/turretGunDef")
         if turret_gun:
             gun = things.get(turret_gun)

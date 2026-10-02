@@ -13,7 +13,7 @@ namespace RealisticBases.Planning
             IEnumerable<GridPoint> enclosure, IEnumerable<GridPoint> perimeterWalls,
             IEnumerable<KeyValuePair<GridPoint, GridPoint>> gates,
             IEnumerable<GridPoint> publicCirculation, IEnumerable<GridPoint> magazineCandidates,
-            GridPoint? mortarCell = null, GridPoint? mortarInteraction = null)
+            GridPoint? mortarCell = null, GridPoint? mortarInteraction = null, IEnumerable<ArtilleryPosition> artillery = null)
         {
             LayoutDigest = layoutDigest ?? string.Empty;
             Profile = profile ?? throw new ArgumentNullException(nameof(profile));
@@ -25,6 +25,9 @@ namespace RealisticBases.Planning
             MagazineCandidates = Copy(magazineCandidates);
             MortarCell = mortarCell;
             MortarInteraction = mortarInteraction;
+            Artillery = (artillery ?? (mortarCell.HasValue && mortarInteraction.HasValue ?
+                new[] { new ArtilleryPosition("mortar", mortarCell.Value, mortarInteraction.Value, MagazineCandidates.FirstOrDefault()) } :
+                Enumerable.Empty<ArtilleryPosition>())).ToList().AsReadOnly();
         }
 
         public string LayoutDigest { get; }
@@ -37,6 +40,7 @@ namespace RealisticBases.Planning
         public IReadOnlyList<GridPoint> MagazineCandidates { get; }
         public GridPoint? MortarCell { get; }
         public GridPoint? MortarInteraction { get; }
+        public IReadOnlyList<ArtilleryPosition> Artillery { get; }
 
         private static IReadOnlyList<GridPoint> Copy(IEnumerable<GridPoint> points) =>
             new ReadOnlyCollection<GridPoint>((points ?? Enumerable.Empty<GridPoint>()).Distinct().OrderBy(c => c).ToList());
@@ -61,13 +65,18 @@ namespace RealisticBases.Planning
             if (input.Gates.Any(g => !publicCells.Contains(g.Value) || !Adjacent(g.Key, g.Value)))
                 throw new InvalidOperationException("P3 gate endpoint is not public and adjacent");
             if (input.Profile.MortarCapable != input.MortarCell.HasValue ||
-                input.Profile.MortarCapable != input.MortarInteraction.HasValue)
+                input.Profile.MortarCapable != input.MortarInteraction.HasValue ||
+                input.Profile.MortarOperators != input.Artillery.Count)
                 throw new InvalidOperationException("P3 mortar capability and court disagree");
-            if (input.MortarInteraction.HasValue && !publicCells.Contains(input.MortarInteraction.Value))
+            if (input.Artillery.Select(a => a.PostId).Distinct().Count() != input.Artillery.Count ||
+                input.Artillery.Select(a => a.Operating).Distinct().Count() != input.Artillery.Count ||
+                input.Artillery.Select(a => a.Origin).Distinct().Count() != input.Artillery.Count)
+                throw new InvalidOperationException("Duplicate artillery identity/operating cell");
+            if (input.Artillery.Any(a => !publicCells.Contains(a.Operating) || !enclosed.Contains(a.Magazine)))
                 throw new InvalidOperationException("P3 mortar interaction is not on public circulation");
 
             List<DefensivePost> posts = new List<DefensivePost>();
-            HashSet<GridPoint> used = new HashSet<GridPoint>();
+            HashSet<GridPoint> used = new HashSet<GridPoint>(input.Artillery.Select(a => a.Operating));
             for (int i = 0; i < input.Gates.Count; i++)
             {
                 GridPoint gate = input.Gates[i].Key;
@@ -106,8 +115,8 @@ namespace RealisticBases.Planning
             if (!publicCells.Contains(fallback)) fallback = support;
             GridPoint magazine = input.MagazineCandidates.FirstOrDefault(c => enclosed.Contains(c));
             if (!enclosed.Contains(magazine)) throw new InvalidOperationException("P3 geometry lacks an enclosed magazine");
-            if (input.MortarCell.HasValue)
-                posts.Add(new DefensivePost("mortar", "center", input.MortarInteraction.Value,
+            foreach (ArtilleryPosition gun in input.Artillery)
+                posts.Add(new DefensivePost(gun.PostId, "center", gun.Operating,
                     0, 100, false, true, true, true, false, true));
             List<CombatSupply> supplies = new List<CombatSupply>();
             if (input.Profile.MortarCapable)
@@ -125,7 +134,7 @@ namespace RealisticBases.Planning
             return new EncounterPlan(input.LayoutDigest, input.Profile, posts,
                 new GridRect(minX, minZ, maxX - minX + 1, maxZ - minZ + 1),
                 support, fallback, input.MortarCell ?? new GridPoint(-1, -1),
-                input.MortarInteraction ?? new GridPoint(-1, -1), magazine, supplies, input.Enclosure);
+                input.MortarInteraction ?? new GridPoint(-1, -1), magazine, supplies, input.Enclosure, input.Artillery);
         }
 
         private static DefensivePost Post(string id, string sector, GridPoint cell, bool gate) =>

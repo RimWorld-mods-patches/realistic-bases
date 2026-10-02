@@ -65,6 +65,7 @@ internal static class Program
         Run("P3 funded mortar and mobile reserve staffing remains exclusive", P3FundedReserveAndMortar);
         Run("P3 fills distinct inner gate posts before idling extra defenders", P3InnerGatePostsBeforeIdleReserve);
         Run("P3 reserves a mortar post before earlier pawn ids are assigned", P3MortarPostReservation);
+        Run("P4E unique multiple crews survive gun and operator loss", P4EMultipleCrews);
         Run("P3 reinforcement audits the whole route under fire", P3ReinforcementRouteUnderFire);
         Run("P3 field penetration holds compound entrances before inner defeat", P3FieldToCompoundFallback);
         Run("P3 industrial encounter plan is deterministic and valid", P3IndustrialEncounterPlanIsDeterministicAndValid);
@@ -805,6 +806,60 @@ internal static class Program
             "funded short-range operator retains reserved mortar post");
         True(plan.Assignments.Single(a => a.DefenderId == 1).PostId != "mortar",
             "earlier pawn id cannot claim the same physical mortar post");
+    }
+
+    private static void P4EMultipleCrews()
+    {
+        TerrainSnapshot clearanceTerrain = FertileOpen(10, 10);
+        var clearance = P3DefenderRoute.TransitEnvelope(clearanceTerrain,
+            new[] { new GridPoint(4, 4), new GridPoint(4, 5), new GridPoint(5, 5) }, new[] { new GridPoint(5, 4) });
+        True(clearance.Contains(new GridPoint(3, 5)) && !clearance.Contains(new GridPoint(5, 4)), "bounded native corner clearance excludes opaque walls");
+        True(!clearance.Contains(new GridPoint(2, 5)), "not an unbounded exterior permission");
+        GeometryEncounterInput basis = GeometryInput(true);
+        ArtilleryPosition[] artillery = Enumerable.Range(0, 3).Select(i => new ArtilleryPosition(i == 0 ? "mortar" : "mortar-" + i,
+            new GridPoint(8 + i * 2, 10), new GridPoint(8 + i * 2, 9), new GridPoint(7 + i * 2, 8))).ToArray();
+        GeometryEncounterInput Geometry(IEnumerable<ArtilleryPosition> positions) => new GeometryEncounterInput(basis.LayoutDigest,
+            P3EncounterProfiles.ForArtillery(3), basis.Enclosure, basis.PerimeterWalls, basis.Gates,
+            basis.PublicCirculation, basis.MagazineCandidates, artillery[0].Origin, artillery[0].Operating, positions);
+        EncounterPlan geometry = GeometryEncounterPlanner.Plan(Geometry(artillery));
+        Equal(3, geometry.Artillery.Count, "stable gun/post/magazine coordinates");
+        Equal(12, geometry.Supplies.Single(s => s.DefName == "Shell_HighExplosive").Count, "shared HE reserve not tripled");
+        Equal(2, geometry.Supplies.Single(s => s.DefName == "ReinforcedBarrel").Count, "shared barrel reserve");
+        Equal(geometry.Digest, GeometryEncounterPlanner.Plan(Geometry(artillery)).Digest, "multi-artillery replay");
+        bool duplicateRejected = false;
+        try { GeometryEncounterPlanner.Plan(Geometry(new[] { artillery[0], artillery[0], artillery[2] })); }
+        catch (InvalidOperationException) { duplicateRejected = true; }
+        True(duplicateRejected, "duplicate gun/post/working identity rejected before mutation");
+        DefenderCandidate[] roster = Enumerable.Range(1, 10).Select(id => new DefenderCandidate(id,
+            id <= 2 ? DefenderWeaponClass.LongRanged : DefenderWeaponClass.ShortRanged,
+            id <= 2 ? 45 : 25, true, true, false, false, false)).ToArray();
+        DefensivePost[] guns = Enumerable.Range(0, 3).Select(i => new DefensivePost(i == 0 ? "mortar" : "mortar-" + i,
+            "center", new GridPoint(20 + i * 4, 20), 0, 100, false, true, true, true, false, true)).ToArray();
+        DefensivePost[] direct = Enumerable.Range(0, 6).Select(i => new DefensivePost("line-" + i, "north",
+            new GridPoint(10 + i, 10), 8, 25, true, true, true, false, false, true)).ToArray();
+        GarrisonPlan Assign(IEnumerable<DefenderCandidate> residents, IEnumerable<DefensivePost> posts) =>
+            GarrisonDoctrine.Assign(new GarrisonSituation(1000, residents, posts, true, "north", false, true, true,
+                new GridPoint(20, 18), new GridPoint(21, 18)));
+        GarrisonPlan initial = Assign(roster, guns.Concat(direct));
+        Equal(3, initial.Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "three funded crews");
+        True(initial.Assignments.Where(a => a.Role == GarrisonRole.MortarOperator).All(a => a.DefenderId > 2), "snipers remain direct support");
+        True(initial.Assignments.Where(a => a.PostId.Length > 0).GroupBy(a => a.PostId).All(g => g.Count() == 1), "one pawn per post");
+        Equal(10, initial.Assignments.Count, "no added residents");
+        int lostCrew = initial.Assignments.First(a => a.Role == GarrisonRole.MortarOperator).DefenderId;
+        Equal(3, Assign(roster.Where(d => d.Id != lostCrew), guns.Concat(direct)).Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "reassign from survivors");
+        var survivors = roster.Where(d => d.Id != lostCrew).Select(d =>
+        {
+            var previous = initial.Assignments.Single(a => a.DefenderId == d.Id);
+            return new DefenderCandidate(d.Id, d.WeaponClass, d.WeaponRange, true, true, false, false, false,
+                previous.PostId, previous.Role, previous.AssignedTick);
+        }).ToArray();
+        var replaced = Assign(survivors, guns.Concat(direct));
+        foreach (var healthy in initial.Assignments.Where(a => a.Role == GarrisonRole.MortarOperator && a.DefenderId != lostCrew))
+            Equal(healthy.PostId, replaced.Assignments.Single(a => a.DefenderId == healthy.DefenderId).PostId,
+                "a vacant gun does not steal another healthy gun's operator");
+        Equal(2, Assign(roster, guns.Skip(1).Concat(direct)).Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "destroyed gun releases one role");
+        Equal(0, Assign(roster, direct).Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "exhaustion releases all crew");
+        Equal(2, Assign(roster.Take(4), guns.Concat(direct)).Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "casualty staffing leaves two direct defenders");
     }
 
     private static void P3InnerGatePostsBeforeIdleReserve()

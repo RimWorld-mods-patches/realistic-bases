@@ -18,6 +18,42 @@ namespace RealisticBases.Diagnostics
         private const string Category = "Realistic Bases P4E";
         internal static bool FailNextMagazineStocks;
 
+        [DebugAction(Category, "Capture rejected P4 terrain fixture", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void CaptureRejected()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("P4E requires disposable profile");
+            Map[] maps = Find.Maps.Where(m => !m.IsPlayerHome && !m.GetComponent<P0MapState>().Active &&
+                m.Parent is Settlement s && Current.Game.GetComponent<P0WorldState>().FindExisting(s.ID) is P0SettlementState state &&
+                state.generationCount == 0 && !string.IsNullOrEmpty(state.proceduralLayoutSeed)).ToArray();
+            if (maps.Length != 1) throw new InvalidOperationException("Requires one loaded rejected settlement map");
+            P0DebugActions.CaptureFlatTerrainFixture(maps[0]);
+        }
+
+        [DebugAction(Category, "Prefer open-ground P4E artillery once", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void PreferArtillery()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("P4E requires disposable profile");
+            P4AMapPlanner.DebugMortarBiasNext = 100;
+            P2Log.Message("P4E_DOCTRINE_OVERRIDE_ARM", "preferOpenGround=True once=True legalityAndBudgetUnchanged=True");
+        }
+
+        [DebugAction(Category, "Use nine-resident P4E budget once", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void NineResidents() => FundedWealth(135);
+
+        [DebugAction(Category, "Use ten-resident P4E budget once", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void TenResidents() => FundedWealth(150);
+
+        private static void FundedWealth(int wealth)
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("P4E requires disposable profile");
+            P4AMapPlanner.DebugWealthNext = wealth;
+            P2Log.Message("P4E_WEALTH_OVERRIDE_ARM", "wealth=" + wealth + " fundedRoster=True once=True");
+        }
+
         [DebugAction(Category, "Show P4E mortar position", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.Playing)]
         private static void ShowMortar()
@@ -75,11 +111,25 @@ namespace RealisticBases.Diagnostics
                 throw new InvalidOperationException("Requires disposable procedural settlement");
             Thing[] shells = map.listerThings.AllThings.Where(t => t.def.defName == "Shell_HighExplosive" &&
                 t.Position.GetEdifice(map) is Building_Storage && t.GetRoom()?.CellCount == 1).ToArray();
-            if (shells.Length != 1) throw new InvalidOperationException("Requires exactly one identifiable magazine HE stack");
+            shells = shells.OrderByDescending(t => t.stackCount).ThenBy(t => t.thingIDNumber).ToArray();
+            if (shells.Length == 0) throw new InvalidOperationException("Requires an identifiable magazine HE stack");
             CompExplosive explosive = shells[0].TryGetComp<CompExplosive>() ?? throw new InvalidOperationException("No native explosive comp");
             P2Log.Message("P4E_MAGAZINE_HAZARD_STARTED", "map=" + map.uniqueID + " stack=" + shells[0].thingIDNumber +
                 " count=" + shells[0].stackCount + " cell=" + shells[0].Position + " radius=" + explosive.ExplosiveRadius());
-            explosive.StartWick();
+            map.GetComponent<P4EArtilleryProbe>().StartHazard(shells[0]);
+
+        }
+
+        [DebugAction(Category, "P4E destroy one mortar", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void DestroyOneMortar()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("P4E requires disposable profile");
+            Thing gun = Find.CurrentMap?.listerThings.AllThings.Where(t => t.def == ThingDefOf.Turret_Mortar)
+                .OrderBy(t => t.thingIDNumber).FirstOrDefault() ?? throw new InvalidOperationException("No mortar");
+            int id = gun.thingIDNumber;
+            gun.Destroy(DestroyMode.Vanish);
+            P2Log.Message("P4E_MORTAR_REMOVED", "gun=" + id);
         }
 
         [DebugAction(Category, "P4E drain mortar barrel once", actionType = DebugActionType.Action,

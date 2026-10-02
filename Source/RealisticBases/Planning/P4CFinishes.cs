@@ -126,7 +126,7 @@ namespace RealisticBases.Planning
             protectedCells.ExceptWith(fieldRoute);
             protectedCells.UnionWith(layout.FieldWall?.Fields ?? new GridPoint[0]);
             protectedCells.UnionWith(layout.PowerYards.SelectMany(y => y.Cells));
-            protectedCells.UnionWith(layout.Court?.Cells ?? new GridPoint[0]);
+            protectedCells.UnionWith(layout.Courts.SelectMany(c => c.Cells));
             HashSet<GridPoint> excavation = new HashSet<GridPoint>(layout.Excavation);
             HashSet<GridPoint> floorable = new HashSet<GridPoint>(site.Floorable.Except(protectedCells)
                 .Where(c => input.Terrain.InBounds(c) && input.Terrain[c].Has(TerrainTraits.SupportsHeavy) &&
@@ -162,6 +162,10 @@ namespace RealisticBases.Planning
                 }
             }
 
+            // Public circulation, including the attached field crossing, gets
+            // the remaining finish allowance before optional room decoration.
+            // Defense/facilities still have first claim on the shared budget.
+            FinishPaths();
             foreach (LayoutRoom room in layout.Rooms.OrderBy(r => Priority(r.Kind)).ThenBy(r => r.Id, StringComparer.Ordinal))
             {
                 List<GridPoint> cells = room.Interior.Points().OrderBy(c => c).ToList();
@@ -207,6 +211,8 @@ namespace RealisticBases.Planning
                 if (!placed) reasons.Add("room:" + room.Id + ":no_legal_affordable_finish");
             }
 
+            void FinishPaths()
+            {
             P4CFloorDef pathDef = null;
             foreach (string name in industrial ? new[] { "Concrete" } :
                 new[] { flagstone, "WoodPlankFloor" })
@@ -231,7 +237,7 @@ namespace RealisticBases.Planning
                     new KeyValuePair<string, IReadOnlyList<GridPoint>>("threshold:" + r.Id,
                         new[] { r.DoorOutside, r.Door })));
                 if (fieldRoute.Count != 0)
-                    routes.Add(new KeyValuePair<string, IReadOnlyList<GridPoint>>("field:arrival", fieldRoute));
+                    routes.Insert(0, new KeyValuePair<string, IReadOnlyList<GridPoint>>("field:arrival", fieldRoute));
                 foreach (KeyValuePair<string, IReadOnlyList<GridPoint>> route in routes)
                 {
                     List<GridPoint> cells = route.Value.Where(enclosure.Contains).Distinct().OrderBy(c => c).ToList();
@@ -250,6 +256,7 @@ namespace RealisticBases.Planning
                     localWood += wood;
                     localWoodLeft -= wood;
                 }
+            }
             }
 
             // Smooth interior-facing retained stone only. Whole-cell changes on

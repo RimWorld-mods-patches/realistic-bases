@@ -25,6 +25,8 @@ namespace RealisticBases.Integration
         // Developer-action override for one disposable generation only. The
         // faction's persisted stage remains unchanged for ordinary maps.
         public static SettlementTechStageLevel? DebugStageNext;
+        public static int? DebugWealthNext;
+        public static int? DebugMortarBiasNext;
 
         public static P4AMapPlanningRun Run(Map map, Settlement settlement, int requestedWallLayers)
         {
@@ -48,10 +50,20 @@ namespace RealisticBases.Integration
             LayoutLocalResources resources = CaptureResources(map);
             LayoutClimate climate = CaptureClimate(map);
             int wealthPercent = worldState.GetOrCreateOrdinaryWealthPercent(settlement, seed);
+            if (DebugWealthNext.HasValue)
+            {
+                if (!RealisticBases.Diagnostics.P4DQuestDebugActions.Disposable)
+                    throw new InvalidOperationException("P4E wealth override requires disposable profile");
+                wealthPercent = DebugWealthNext.Value;
+                DebugWealthNext = null;
+                worldState.GetOrCreate(settlement.ID, settlement.Faction).ordinaryWealthPercent = wealthPercent;
+                stageMode += "/debug-funded-wealth";
+            }
             OrdinarySettlementBudget populationBudget = wealthPercent == 0 ? null :
                 OrdinarySettlementPopulation.Create(profile, stage, climate, wealthPercent);
             LayoutRequirements requirements = LayoutRequirements.FromProfile(profile, climate, stage: stage,
-                populationBudget: populationBudget);
+                populationBudget: populationBudget, mortarBiasPercent: DebugMortarBiasNext);
+            DebugMortarBiasNext = null;
             int targetLayers = requestedWallLayers >= 1 && requestedWallLayers <= 3 ? requestedWallLayers :
                 P4BLayerPolicy.Select(seed, stage.Level, requirements.EquipmentValueLimit,
                     requirements.ImportValueLimit, requirements.Residents);

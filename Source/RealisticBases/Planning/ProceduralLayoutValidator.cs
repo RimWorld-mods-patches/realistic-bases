@@ -143,7 +143,7 @@ namespace RealisticBases.Planning
             foreach (LayoutRoom room in layout.Rooms)
                 foreach (GridPoint c in room.Bounds.Points())
                     if (!roomCells.Add(c)) errors.Add("room_overlap_" + room.Id);
-            HashSet<GridPoint> courtCells = new HashSet<GridPoint>(layout.Court == null ? Enumerable.Empty<GridPoint>() : layout.Court.Cells);
+            HashSet<GridPoint> courtCells = new HashSet<GridPoint>(layout.Courts.SelectMany(c => c.Cells));
             HashSet<GridPoint> yardCells = new HashSet<GridPoint>();
             foreach (LayoutPowerYard yard in layout.PowerYards)
                 foreach (GridPoint c in yard.Cells)
@@ -217,12 +217,16 @@ namespace RealisticBases.Planning
             }
             ValidateCoolersAndPockets(input, layout, grid, enclosure, roomCells, reach, errors);
 
-            if (layout.Court != null)
+            if (layout.Courts.Count > P4EArtillery.Capacity(requirements, input.Equipment.Kit)) errors.Add("mortar_capacity");
+            if (layout.Courts.Select(c => c.RoomId).Distinct().Count() != layout.Courts.Count ||
+                layout.Courts.SelectMany(c => c.Access).Distinct().Count() != layout.Courts.Count) errors.Add("mortar_duplicate_identity");
+            if (layout.Rooms.Count(r => r.Kind == LayoutRoomKind.MortarMagazine) != layout.Courts.Count) errors.Add("mortar_magazine_count");
+            foreach (LayoutFixture court in layout.Courts)
             {
-                if (layout.Court.Cells.Any(c => grid.At(c) != LayoutCellClass.Open || !terrain[c].Has(TerrainTraits.SupportsHeavy)))
+                if (court.Cells.Any(c => grid.At(c) != LayoutCellClass.Open || !terrain[c].Has(TerrainTraits.SupportsHeavy)))
                     errors.Add("court_not_open_sky_heavy");
-                if (!layout.Court.Access.All(reach.Contains)) errors.Add("court_access_disconnected");
-                LayoutRoom[] stores = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.MortarMagazine).ToArray();
+                if (!court.Access.All(reach.Contains)) errors.Add("court_access_disconnected");
+                LayoutRoom[] stores = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.MortarMagazine && r.Id == court.RoomId).ToArray();
                 if (stores.Length != 1) errors.Add("mortar_magazine_count");
                 else
                 {
@@ -231,19 +235,18 @@ namespace RealisticBases.Planning
                         store.Fixtures[0].Kind != LayoutFixtureKind.Shelf || store.Fixtures[0].DefName != "ShelfSmall" ||
                         !store.Fixtures[0].Cells.SequenceEqual(store.Interior.Points())) errors.Add("mortar_magazine_geometry");
                     if (!store.Bounds.Points().All(layout.ConstructedRoof.Contains) ||
-                        layout.Court.Cells.Concat(layout.Court.Access).Any(layout.ConstructedRoof.Contains)) errors.Add("mortar_magazine_roof");
-                    if (store.Interior.Width == 1 && store.Interior.Height == 1 && layout.Court.Access.Count == 1)
+                        court.Cells.Concat(court.Access).Any(layout.ConstructedRoof.Contains)) errors.Add("mortar_magazine_roof");
+                    if (store.Interior.Width == 1 && store.Interior.Height == 1 && court.Access.Count == 1)
                     {
-                        GridPoint stock = store.Interior.Points().First(), op = layout.Court.Access.First();
+                        GridPoint stock = store.Interior.Points().First(), op = court.Access.First();
                         if (Math.Abs(store.DoorOutside.X - op.X) + Math.Abs(store.DoorOutside.Z - op.Z) > 1 ||
-                            (stock.X - op.X) * layout.Court.Facing.X + (stock.Z - op.Z) * layout.Court.Facing.Z < 0 ||
+                            (stock.X - op.X) * court.Facing.X + (stock.Z - op.Z) * court.Facing.Z < 0 ||
                             (op.X - store.Door.X) * -store.Facing.X + (op.Z - store.Door.Z) * -store.Facing.Z <= 0)
                             errors.Add("mortar_magazine_not_beside_operating_position");
                     }
-                    if (MagazineLoadingRoute(input, layout).Count == 0) errors.Add("mortar_magazine_loading_route");
+                    if (MagazineLoadingRoute(input, layout, court).Count == 0) errors.Add("mortar_magazine_loading_route");
                 }
             }
-            else if (layout.Rooms.Any(r => r.Kind == LayoutRoomKind.MortarMagazine)) errors.Add("orphan_mortar_magazine");
 
             // Gates, P4 gatehouse crossings and exterior approach routes.
             int layers = input.Fortification.WallLayers;
@@ -409,6 +412,9 @@ namespace RealisticBases.Planning
             if (kit.Stage.Level < SettlementTechStageLevel.IndustrialMid && loadout.Residents.Any(r => r.Role == LoadoutRole.Heavy)) errors.Add("loadout_heavy_below_mid");
             if (layout != null && layout.Court != null && input.Requirements.Residents > 1 && !loadout.Residents.Any(r => r.Role == LoadoutRole.Support))
                 errors.Add("loadout_no_mortar_crew");
+            if (layout != null && layout.Courts.Count > 0 && loadout.Residents.Count(r => r.Weapon != null &&
+                catalog.TryGet(r.Weapon.DefName, out CatalogDef gun) && gun.MaximumRange > 0) < layout.Courts.Count + 2)
+                errors.Add("loadout_artillery_direct_staffing");
             if (loadout.Residents.Count(r => r.Elite) > 1) errors.Add("loadout_elite_count");
             bool cold = climate.HeatingRequired && !climate.CoolingRequired;
             foreach (ResidentLoadout resident in loadout.Residents)
@@ -643,19 +649,20 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> enclosure = new HashSet<GridPoint>(layout.Enclosure);
             HashSet<GridPoint> excavation = new HashSet<GridPoint>(layout.Excavation);
             HashSet<GridPoint> blocked = new HashSet<GridPoint>(layout.Rooms.SelectMany(r => r.Bounds.Points()).Concat(layout.ExtraObstacles)
-                .Concat(layout.Court == null ? Enumerable.Empty<GridPoint>() : layout.Court.Cells)
+                .Concat(layout.Courts.SelectMany(c => c.Cells))
                 .Concat(layout.ExhaustPockets.Select(p => p.Cell)).Concat(layout.ExhaustPocketWalls));
             if (layout.Gates.Count == 0) return new GridPoint[0];
             return Flood(layout.Gates[0].Inside, c => enclosure.Contains(c) && !blocked.Contains(c) &&
                 (excavation.Contains(c) || grid.At(c) == LayoutCellClass.Open || grid.At(c) == LayoutCellClass.Covered));
         }
 
-        public static IReadOnlyList<GridPoint> MagazineLoadingRoute(ProceduralLayoutInput input, ProceduralLayout layout)
+        public static IReadOnlyList<GridPoint> MagazineLoadingRoute(ProceduralLayoutInput input, ProceduralLayout layout, LayoutFixture court = null)
         {
-            LayoutRoom store = layout.Rooms.FirstOrDefault(r => r.Kind == LayoutRoomKind.MortarMagazine);
-            if (store == null || layout.Court == null || layout.Court.Access.Count != 1) return new GridPoint[0];
+            court = court ?? layout.Court;
+            LayoutRoom store = layout.Rooms.FirstOrDefault(r => r.Kind == LayoutRoomKind.MortarMagazine && r.Id == court?.RoomId);
+            if (store == null || court == null || court.Access.Count != 1) return new GridPoint[0];
             var allowed = new HashSet<GridPoint>(PublicCirculation(input, layout));
-            GridPoint start = layout.Court.Access.Single(), end = store.DoorOutside;
+            GridPoint start = court.Access.Single(), end = store.DoorOutside;
             if (!allowed.Contains(start) || !allowed.Contains(end)) return new GridPoint[0];
             var previous = new Dictionary<GridPoint, GridPoint> { [start] = start };
             var queue = new Queue<GridPoint>(); queue.Enqueue(start);
@@ -790,8 +797,8 @@ namespace RealisticBases.Planning
                         room.Id, false, 0));
                 }
             }
-            if (layout.Court != null)
-                foreach (GridPoint cell in layout.Court.Cells)
+            foreach (LayoutFixture court in layout.Courts)
+                foreach (GridPoint cell in court.Cells)
                     placements.Add(new PhysicalPlacement(PhysicalPlacementKind.Cover, "MortarCourtReservation", string.Empty, cell, "North", "court", false, 0));
             foreach (LayoutPowerYard yard in layout.PowerYards)
                 foreach (GridPoint cell in yard.Cells)

@@ -225,3 +225,140 @@ four/seven/twelve-resident clutter case, same-room-pack optional-artillery
 fallback, P4C/P4D fixtures, all rotations and distant-store rejection. Full
 planner/garrison suite passes. Release build has zero warnings/errors. The final
 test console is retained at `.runtime/logs/p4e-3-layout-tests-final.txt`.
+
+## P4E.3 — Multi-mortar draft, verification blocked
+
+Historical checkpoint: the Docker block below was resolved when the user
+started Docker Desktop; subsequent verification follows.
+
+2026-10-03. Uncommitted source work now carries a court collection through all
+layout clones, circulation/finish blockers, material ledgers and the spawner.
+Each court has its own operating-side magazine and stable encounter post
+(`mortar`, `mortar-1`, `mortar-2`). Ordinary permanent-resident capacity remains
+1/2/3 at <=8/9/>=10; a funded ranged-loadout check also retains two direct-fire
+defenders. Compact quest profiles remain artillery-free. Optional outline or
+material failures remove the last artillery pair and retry the same required
+room pack, without reducing the resident roster.
+
+The single twelve-HE/two-incendiary/two-spare-barrel reserve is divided among
+stores. Mortar construction and one embedded barrel per gun now participate in
+the import check; runtime catalog and reproducible Core fixture include the
+600-value ReinforcedBarrel. The extractor was repaired to preserve native
+seating/facility metadata on regeneration (including the verified Core facility
+default range of eight), rather than losing previously recorded fixture facts.
+
+Controller draft saves parallel gun/post lists, reads legacy `p3Mortar` into
+the original `mortar` post when lists are absent, resolves jobs by assigned post,
+reserves exclusive crews, and invalidates unavailable/destroyed/exhausted guns.
+Reassignment releases the previous native ManTurret reservation; carried split
+stacks remain counted. Initial barrel accounting sums embedded barrels once
+across guns. The disposable loading probe now observes all guns and distinct
+operators; only one embedded barrel is deliberately consumed, so the two spare
+barrels are not overdrawn. One-shot funded wealth overrides prepare the native
+nine- and ten-resident cases without adding unfunded pawns.
+
+New pure fixtures cover capacity boundaries, distinct stores/working cells,
+clone retention, shared stock/cost, deterministic geometry, duplicate identity
+rejection, crew/gun loss and exhaustion. **These C# changes and tests have not
+been compiled or executed.** The configured Docker daemon is unavailable at
+the current user's `.docker/run/docker.sock`; the user has been asked to start
+Docker Desktop. No host SDK or tooling was installed, no game launched, no new
+DLL built, and no commit made for this draft. `git diff --check`, fixture
+regeneration and Python syntax verification pass; those are not C# acceptance.
+
+Resume gate: recheck Docker and the exact stopped disposable process, run both
+pure suites and Release build, fix regressions, then validate native two/three
+guns, legacy migration, finite active reload, crew/gun loss and magazine hazard.
+P4E.3 remains incomplete. Do not move to a validated P4E.4/P4E.5 closeout based
+on this source draft; their allowance/autocannon and integrated live work remain.
+
+## P4E.3 — Synthetic and native multi-gun verification
+
+2026-10-03. Docker Release compilation has zero warnings/errors; the complete
+planner/garrison suite and focused P4E suite pass. The first full updated layout
+suite passed in 291,555 ms. A later captured-map packing repair has a new full
+suite in progress; do not treat that earlier pass as its final acceptance.
+
+Legacy single-gun migration initially missed empty (rather than null) missing
+lists. Corrected and verified from the unmodified pre-multi save: gun98347,
+operator98598, eleven loose HE plus one loaded, two incendiaries and one spare
+barrel retain their identities and quantities. No gun, pawn or stock is spawned
+by migration.
+
+Native nine-resident case: exact world seed 6068788646BB71E3, map4, layout
+AB7997E057603314. Two rotated mortars134676/134678 with distinct operating cells
+and adjacent stores divide twelve HE six-and-six, two incendiaries one-and-one
+and two spares one-and-one. The native crews loaded and fired; after deliberately
+consuming the first embedded barrel, at tick13130 both guns were manned by
+160/135087 and had one HE loaded, fuel15 each, zero loose HE, two incendiaries
+and one spare. Native reload13131 preserves those exact gun/operator/stock
+identities. Ten physical shots plus two loaded shells account for all twelve HE.
+
+The initial multi-gun probe's exact loose-stock equality failed because one gun
+could fire before the other finished barrel service. The corrected probe
+permits bounded native consumption and reports firedBeforeAllReady; it still
+requires distinct real operators, loaded guns, a physical barrel replacement,
+and no replenishment. No new crew is generated. A real operator-loss probe
+reassigned from the eight survivors; all-ammunition exhaustion made both guns
+unavailable and released both crew roles. The final assignment rule prefers a
+vacancy replacement over stealing another healthy gun's operator, with a pure
+identity regression. Evidence: p4e-two-mortars-reload-loss-exhaustion-20261003.log.
+
+Two real rejection mechanisms were exposed by the larger facility layout.
+Vanilla eight-way movement can round a one-cell route corner, so the declared
+transit envelope now includes one legal adjacent cell, not a large exterior
+rectangle; existing 160-cell total, twelve exterior and eight exposed-cell
+limits remain. Vanilla Building.DeSpawn also applies leaveTerrain for natural
+rock even with Vanish, changing Rough to RoughHewn. Excavation and smoothing
+now preserve original top/under terrain, including rollback; only explicit
+finish choices own floor changes. Cell-level unowned-layer diagnostics remain.
+
+The user's ten-resident rejection was captured unchanged as
+p4e-ten-rejected-traits.rle (160x160, terrain ED06EE5676C0012E), with seed
+15A894EE21B8FC83, climate -4..37, wood28352 and geysers(65,45)/(129,106).
+Synthetic reproduction rejected before the fix. Larger ordinary rosters with
+at least one million configured evaluations now use free-envelope filtering,
+room-aware connecting corridors and same-field compound growth beyond the old
+24-cell cap, bounded by map limits and the unchanged global budget. Tight
+explicit harness budgets and smaller/quest rosters retain the frontage strategy.
+This preserves prior four/seven/twelve-resident clutter acceptance while the
+exact new fixture accepts all required rooms, ten residents and three guns.
+No map resize, roster reduction or blanket path relaxation was used.
+
+The same saved world tile and 160x160 native map then completed layout
+21BD91C1F92F2E10: sixteen rooms, three distinct magazines, ten residents, 342
+unroofed rice cells and an eligible autocannon/mini-turret pair. The input digest
+A1418F09914B245A is identical to the earlier rejection. Generation's post-route
+preflight now uses the same bounded multi-gate/center waypoint policy as the
+runtime controller, rather than only a direct path or one gate. All nineteen
+posts have at least two legal pawn paths; maximum complete route115, forty
+via-gateway paths. Earlier forced-by-audit rollback restored all1281 plants and
+terrain/roof layers. This is planning/spawning evidence; final three-crew
+loading/reload/loss/hazard and P4E.4/P4E.5 closeout still follow.
+
+The three-gun native loading probe then **passed at tick2280**: guns
+63804/63806/63808 manned by distinct funded operators64252/64264/64313, each
+with one HE loaded; seven loose HE and two native shots account for all twelve
+initial shells. First-gun barrel replacement left one spare and loaded barrel
+fuel20/19/19. Stock identities64187:4,64188:1,64189:2 HE;
+64190:1,64191:1 incendiary;64192:1 spare persist through native reload2281,
+as do all three operators and guns. No refill, duplicate or extra resident.
+
+Representative native magazine cookoff: stock64187 with four HE, radius
+3.995445 at(81,93), wick started2281, automatic pause2457 after120 observed
+post-destruction ticks. The shell stack disappeared; five nearby buildings
+were damaged and one destroyed. This establishes an actual hazard, **not**
+blast immunity from walls/roof. The pre-hazard active save is preserved for
+recovery and further loss testing.
+
+Latest complete layout suite **PASS failures=0,289592 ms**, including the
+new exact captured rejection, original bounded four/seven/twelve clutter,
+P4C/P4D, materials, power, geometry and loadout fixtures. Evidence:
+p4e-room-growth-final-tests-20261003.txt. Latest Release build has zero
+warnings/errors; the remaining native gun-destruction check follows.
+
+Native gun loss also passes: after removing gun63804, the controller releases
+its crew and keeps operators64264/64313 on their original surviving guns.
+All three available roles return only when explicitly reloading the preserved
+pre-loss save, not by production replacement or replenishment. P4E.3 is
+verified; ordinary budget/autocannon policy and integrated P4E.4/P4E.5 remain.

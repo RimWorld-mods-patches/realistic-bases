@@ -28,6 +28,8 @@ namespace RealisticBases.Generation
             public ThingDef Def;
             public int HitPoints;
             public Thing Smoothed;
+            public TerrainDef Top;
+            public TerrainDef Under;
         }
 
         private sealed class FloorSnapshot
@@ -51,6 +53,7 @@ namespace RealisticBases.Generation
         private readonly string terrainBefore;
         private readonly string terrainLayersBefore;
         private readonly string unownedTerrainBefore;
+        private readonly Dictionary<IntVec3, Tuple<TerrainDef, TerrainDef, RoofDef>> unownedLayers;
         private readonly string rockBefore;
         private readonly P4CFinishPlan finishes;
         private bool completed;
@@ -75,6 +78,8 @@ namespace RealisticBases.Generation
                 .Concat(footprint.ConstructedRoofCells).Select(ToCell));
             ownedTerrain.UnionWith(finishes?.Floors.Keys.Select(ToCell) ?? Enumerable.Empty<IntVec3>());
             unownedTerrainBefore = P0MapAudit.TerrainLayerRoofChecksum(map, ownedTerrain);
+            unownedLayers = map.AllCells.Where(c => !ownedTerrain.Contains(c)).ToDictionary(c => c,
+                c => Tuple.Create(map.terrainGrid.TerrainAt(c), map.terrainGrid.UnderTerrainAt(c), map.roofGrid.RoofAt(c)));
             rockBefore = P0MapAudit.NaturalRockChecksum(map, footprint.ExcavationCells
                 .Concat(finishes?.Walls.Keys ?? Enumerable.Empty<GridPoint>()).Select(ToCell));
         }
@@ -146,8 +151,13 @@ namespace RealisticBases.Generation
                 if (edifice?.def?.building?.isNaturalRock != true)
                     throw new InvalidOperationException("P4 excavation source is not natural rock: " + cell);
                 if (!roofs.ContainsKey(cell)) roofs[cell] = map.roofGrid.RoofAt(cell);
-                rocks.Add(new RockSnapshot { Cell = cell, Def = edifice.def, HitPoints = edifice.HitPoints });
+                var source = new RockSnapshot { Cell = cell, Def = edifice.def, HitPoints = edifice.HitPoints,
+                    Top = map.terrainGrid.TerrainAt(cell), Under = map.terrainGrid.UnderTerrainAt(cell) };
+                rocks.Add(source);
                 edifice.Destroy(DestroyMode.Vanish);
+                // Building.DeSpawn applies leaveTerrain even for Vanish. Keep
+                // the original substrate; only explicit finish choices own floors.
+                RestoreSourceTerrain(source);
                 if (footprint.RoofClearanceCells.Contains(point)) map.roofGrid.SetRoof(cell, null);
             }
             foreach (GridPoint point in footprint.RetainedThickRoofCells)
@@ -196,12 +206,14 @@ namespace RealisticBases.Generation
                     original.def.passability != target.passability || original.def.blockLight != target.blockLight ||
                     original.def.fillPercent != target.fillPercent)
                     throw new InvalidOperationException("P4 finish wall source changed at " + choice.Key);
-                RockSnapshot snapshot = new RockSnapshot { Cell = cell, Def = original.def, HitPoints = original.HitPoints };
+                RockSnapshot snapshot = new RockSnapshot { Cell = cell, Def = original.def, HitPoints = original.HitPoints,
+                    Top = map.terrainGrid.TerrainAt(cell), Under = map.terrainGrid.UnderTerrainAt(cell) };
                 if (!roofs.ContainsKey(cell)) roofs[cell] = map.roofGrid.RoofAt(cell);
                 smoothed.Add(snapshot);
                 Thing replacement = GenSpawn.Spawn(ThingMaker.MakeThing(target), cell, map, Rot4.North, WipeMode.Vanish);
                 replacement.HitPoints = Math.Min(snapshot.HitPoints, replacement.MaxHitPoints);
                 snapshot.Smoothed = replacement;
+                RestoreSourceTerrain(snapshot);
                 if (cell.GetEdifice(map) != replacement || map.roofGrid.RoofAt(cell) != roofs[cell])
                     throw new InvalidOperationException("P4 finish wall or roof did not realize at " + choice.Key);
             }
@@ -227,7 +239,12 @@ namespace RealisticBases.Generation
                 .Concat(footprint.ConstructedRoofCells).Select(ToCell));
             ownedTerrain.UnionWith(finishes?.Floors.Keys.Select(ToCell) ?? Enumerable.Empty<IntVec3>());
             if (unownedTerrainBefore != P0MapAudit.TerrainLayerRoofChecksum(map, ownedTerrain))
-                throw new InvalidOperationException("Unowned terrain layer or roof changed during P4 spawn");
+                throw new InvalidOperationException("Unowned terrain layer or roof changed during P4 spawn: " +
+                    string.Join(";", unownedLayers.Where(p => p.Value.Item1 != map.terrainGrid.TerrainAt(p.Key) ||
+                        p.Value.Item2 != map.terrainGrid.UnderTerrainAt(p.Key) || p.Value.Item3 != map.roofGrid.RoofAt(p.Key))
+                        .Take(12).Select(p => p.Key + ":" + p.Value.Item1?.defName + "/" + p.Value.Item2?.defName + "/" +
+                            p.Value.Item3?.defName + "->" + map.terrainGrid.TerrainAt(p.Key)?.defName + "/" +
+                            map.terrainGrid.UnderTerrainAt(p.Key)?.defName + "/" + map.roofGrid.RoofAt(p.Key)?.defName)));
             if (floors.Any(f => map.terrainGrid.TerrainAt(f.Cell) != f.ExpectedTop ||
                 map.terrainGrid.UnderTerrainAt(f.Cell) != f.ExpectedUnder))
                 throw new InvalidOperationException("Owned floor changed after P4 finish application");
@@ -275,6 +292,7 @@ namespace RealisticBases.Generation
                     map.terrainGrid.SetUnderTerrain(floor.Cell, floor.Under);
             }
             foreach (KeyValuePair<IntVec3, RoofDef> roof in roofs) map.roofGrid.SetRoof(roof.Key, roof.Value);
+            foreach (RockSnapshot rock in rocks.Concat(smoothed)) RestoreSourceTerrain(rock);
             foreach (PlantSnapshot original in plants)
             {
                 if (original.Cell.GetPlant(map) == null)
@@ -297,6 +315,14 @@ namespace RealisticBases.Generation
                     .Concat(finishes?.Walls.Keys ?? Enumerable.Empty<GridPoint>()).Select(ToCell)) &&
                 smoothed.All(s => s.Cell.GetEdifice(map)?.def == s.Def &&
                     s.Cell.GetEdifice(map).HitPoints == s.HitPoints);
+        }
+
+        private void RestoreSourceTerrain(RockSnapshot source)
+        {
+            if (map.terrainGrid.TerrainAt(source.Cell) != source.Top)
+                map.terrainGrid.SetTerrain(source.Cell, source.Top);
+            if (source.Under != null && map.terrainGrid.UnderTerrainAt(source.Cell) != source.Under)
+                map.terrainGrid.SetUnderTerrain(source.Cell, source.Under);
         }
 
         private static IntVec3 ToCell(GridPoint point) => new IntVec3(point.X, 0, point.Z);

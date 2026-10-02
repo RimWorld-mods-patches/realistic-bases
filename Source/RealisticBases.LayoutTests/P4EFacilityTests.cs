@@ -5,6 +5,74 @@ using RealisticBases.Planning;
 
 internal static partial class Program
 {
+    private static void P4ETenRejectedTile()
+    {
+        string[] rows = System.IO.File.ReadAllLines(System.IO.Path.Combine(AppContext.BaseDirectory, "p4e-ten-rejected-traits.rle"));
+        var cells = new List<TerrainCell>();
+        foreach (string row in rows)
+            foreach (string token in row.Split(','))
+            {
+                string[] parts = token.Split('*');
+                TerrainTraits traits = (TerrainTraits)Convert.ToUInt16(parts[0], 16);
+                for (int i = 0; i < int.Parse(parts[1]); i++) cells.Add(new TerrainCell(traits));
+            }
+        Equal(25600, cells.Count, "captured exact 160x160 map, not resized");
+        var terrain = new TerrainSnapshot(160, 160, cells, "p4e-live-ten-rejected-ED06EE5676C0012E");
+        var climate = new LayoutClimate(-4, 37);
+        var stage = TechStageModel.Create(SettlementTechStageLevel.IndustrialLate);
+        var budget = OrdinarySettlementPopulation.Create(P2ProfileCatalog.IndustrialTemperate, stage, climate, 150);
+        var requirements = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, climate, stage: stage,
+            populationBudget: budget, mortarBiasPercent: 100);
+        var input = new ProceduralLayoutInput(requirements, terrain, 0x15A894EE21B8FC83UL, CoreCatalog,
+            new LayoutFortificationReservation(1), resources: new LayoutLocalResources(28352,
+                new[] { "BlocksGranite", "BlocksLimestone", "BlocksMarble" },
+                steamGeyserCells: new[] { new GridPoint(65, 45), new GridPoint(129, 106) }));
+        var result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+        Accepted(result);
+        Equal(10, LayoutLoadoutModel.Build(input, result.Layout).Residents.Count, "funded roster unchanged");
+        True(result.Layout.Rooms.Any(r => r.Kind == LayoutRoomKind.Medical) &&
+            result.Layout.Rooms.Any(r => r.Kind == LayoutRoomKind.Workshop), "both formerly unplaceable required rooms");
+        Console.WriteLine("  exact rejected tile layout=" + result.Layout.Digest + " guns=" + result.Layout.Courts.Count +
+            " field=" + result.Layout.JointSite.Field + " compound=" + result.Layout.JointSite.Compound + " " + result.Stats);
+    }
+
+    private static void P4EArtilleryCapacity()
+    {
+        foreach (int residents in new[] { 4, 8, 9, 10, 12 })
+        {
+            int cap = residents >= 10 ? 3 : residents == 9 ? 2 : 1;
+            var req = LayoutRequirements.FromPopulation(residents, Industrial, Temperate,
+                stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialLate), importValueLimit: 15000);
+            LayoutEquipment kit = LayoutEquipment.Resolve(req, CoreCatalog, null, 2, 1);
+            Equal(cap, P4EArtillery.Capacity(req, kit.Kit), "permanent roster cap");
+            int best = 0;
+            for (ulong seed = 1; seed <= 8; seed++)
+            {
+                var input = Input(Plains(180), req, seed);
+                ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input); Accepted(result);
+                var layout = result.Layout;
+                True(layout.Courts.Count <= cap, "never exceeds roster allowance");
+                Equal(layout.Courts.Count, layout.Rooms.Count(r => r.Kind == LayoutRoomKind.MortarMagazine), "one distinct store per gun");
+                Equal(layout.Courts.Count, layout.Courts.SelectMany(c => c.Access).Distinct().Count(), "distinct working cells");
+                True(layout.Materials.ImportValue >= P4EArtillery.ImportValue(CoreCatalog, layout.Courts.Count), "guns and shared supplies funded");
+                foreach (var court in layout.Courts)
+                    True(ProceduralLayoutValidator.MagazineLoadingRoute(input, layout, court).Count > 0, "all stores accessible");
+                Equal(layout.Courts.Count, layout.WithAddedObstacles(new GridPoint[0]).Courts.Count, "clones retain all guns");
+                best = Math.Max(best, layout.Courts.Count);
+                if (best == cap) break;
+            }
+            Equal(cap, best, "attainable when resources/space permit residents=" + residents);
+        }
+        int one = P4EArtillery.ImportValue(CoreCatalog, 1), two = P4EArtillery.ImportValue(CoreCatalog, 2), three = P4EArtillery.ImportValue(CoreCatalog, 3);
+        True(Math.Abs((two - one) - (three - two)) <= 1, "only gun and embedded barrel marginal cost; aggregate ceiling differs by at most one");
+        True(two < one * 2 && three < one * 3, "shared finite supplies");
+        var primitive = LayoutRequirements.FromPopulation(12, Tribal, Temperate);
+        Equal(0, P4EArtillery.Capacity(primitive, LayoutEquipment.Resolve(primitive, CoreCatalog, null, 2, 1).Kit), "primitive no guns");
+        var poor = LayoutRequirements.FromPopulation(10, Industrial, Temperate, importValueLimit: one - 1);
+        var unarmed = Plan(Plains(180), poor, 1); Accepted(unarmed);
+        Equal(0, unarmed.Layout.Courts.Count, "insufficient resources omit optional artillery only");
+    }
+
     private static void P4EMortarMagazine()
     {
         var rotations = new HashSet<string>();

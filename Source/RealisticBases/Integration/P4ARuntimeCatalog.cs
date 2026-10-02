@@ -14,7 +14,7 @@ namespace RealisticBases.Integration
     public static class P4ARuntimeCatalog
     {
         private static readonly HashSet<string> Stock = new HashSet<string>(StringComparer.Ordinal)
-        { "ComponentIndustrial", "ComponentSpacer", "MedicineHerbal", "MedicineIndustrial", "MedicineUltratech", "Chemfuel" };
+        { "ComponentIndustrial", "ComponentSpacer", "MedicineHerbal", "MedicineIndustrial", "MedicineUltratech", "Chemfuel", "ReinforcedBarrel" };
         private static readonly HashSet<string> Raw = new HashSet<string>(StringComparer.Ordinal)
         { "ComponentIndustrial", "ComponentSpacer", "MedicineHerbal" };
         private static readonly HashSet<string> RawStuff = new HashSet<string>(StringComparer.Ordinal)

@@ -29,6 +29,8 @@ internal static partial class Program
         Run("P4E occupied room climate and power demand", P4EOccupiedRoomClimate);
         Run("P4E cardinal work dining seats and medical shelves", P4ESeatsAndMedicalShelves);
         Run("P4E compact mortar magazine geometry and rotated access", P4EMortarMagazine);
+        Run("P4E population artillery caps shared stock and cost", P4EArtilleryCapacity);
+        Run("P4E exact ten-resident rejected flat tile packs required rooms", P4ETenRejectedTile);
         Run("seed derivation is stable and purpose-separated", SeedDerivation);
         Run("P4D strategies require whole native compositions", QuestStrategies);
         Run("P4D preserves authoritative roster and deterministic budgets", QuestRosterContracts);
@@ -500,7 +502,10 @@ internal static partial class Program
         ProceduralLayoutResult huge = Plan(Plains(40), LayoutRequirements.FromPopulation(20, Industrial, Temperate), 1);
         Equal("insufficient_usable_area", huge.RejectionCode, "population exceeds usable land");
         ProceduralLayoutResult crowded = Plan(Plains(120), LayoutRequirements.FromPopulation(120, Tribal, Temperate), 1);
-        Equal("search_budget_exhausted", crowded.RejectionCode, "area pre-check passes but bounded search gives up");
+        if (crowded.Success)
+            Equal(0, ProceduralLayoutValidator.Validate(Input(Plains(120), LayoutRequirements.FromPopulation(120, Tribal, Temperate), 1),
+                crowded.Layout).Count, "a formerly crowded case may now fit, without weakening validation");
+        else Equal("search_budget_exhausted", crowded.RejectionCode, "an unsuccessful crowded search is bounded");
         True(crowded.Stats.EvaluationCount <= new LayoutSearchBudget().MaxEvaluations,
             "crowded search stays within budget");
         ProceduralLayoutResult absurd = Plan(Plains(120), LayoutRequirements.FromPopulation(400, Industrial, Temperate), 1);
@@ -993,7 +998,7 @@ internal static partial class Program
         {
             ProceduralLayoutInput input = Input(terrain,
                 LayoutRequirements.FromPopulation(4, Industrial, Temperate,
-                    stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialLate)), seed,
+                    stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialLate), importValueLimit: 10000), seed,
                 new LayoutFortificationReservation(wallLayers: 1));
             ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
             if (result.Layout == null)
@@ -1149,8 +1154,8 @@ internal static partial class Program
             .Concat(result.Layout.AllFixtures.SelectMany(f => f.Cells)));
         P4BTurretPlan richPlan = P4BTurretPlanner.Plan(richInput, result.Layout, result.Layout.FieldWall,
             occupied, out diagnostic);
-        True(richPlan != null && richPlan.Groups.Count() >= network.Groups.Count(),
-            "higher spending capacity cannot remove already affordable guarded groups: " + diagnostic);
+        True(richPlan != null && richPlan.ImportValue >= network.ImportValue,
+            "higher capacity can fund a more expensive supported weapon mix; group count is not utility: " + diagnostic);
         True(richPlan.Groups.Count() <= result.Layout.ApproachDefense.Sides.Count(s => s.Exposed),
             "group count is bounded by exposed fronts rather than filling terrain with guns");
         Equal(0, P4BTurretPlanner.Validate(richInput, result.Layout, richPlan).Count,
@@ -2011,7 +2016,9 @@ internal static partial class Program
         Equal("Chemfuel", power.FuelDef, "chemfuel stock");
         LayoutMaterialLedger materials = result.Layout.Materials;
         Equal(power.FuelStock, materials.GeneratorFuelImported, "all chemfuel imported");
-        Equal((int)Math.Ceiling(materials.ImportedWood * 1.2 + power.FuelStock * 2.3), materials.ImportValue, "chemfuel valued at its catalog market value");
+        Equal((int)Math.Ceiling(materials.ImportedWood * 1.2 + power.FuelStock * 2.3) +
+            P4EArtillery.ImportValue(CoreCatalog, result.Layout.Courts.Count), materials.ImportValue,
+            "chemfuel and the separate finite artillery ledger use catalog market values");
         ProceduralLayoutResult woodRich = Mid(1);
         Equal(LayoutPowerModel.WoodGenerator, woodRich.Layout.Power.GeneratorDef, "wood when the yield covers the stock");
         ProceduralLayoutResult early = PlanWith(Plains(130), LayoutRequirements.FromPopulation(8, Industrial, Temperate, importValueLimit: 100000), 1, new LayoutLocalResources(0));

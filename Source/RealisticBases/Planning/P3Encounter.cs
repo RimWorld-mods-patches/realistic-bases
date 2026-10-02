@@ -85,8 +85,25 @@ namespace RealisticBases.Planning
         public static readonly EncounterProfile IndustrialNoMortar = new EncounterProfile(
             "industrial-no-mortar-v1", false, 6, 0, 0, 0, 0, 4, 2, 0, 1, 0);
 
+        public static EncounterProfile ForArtillery(int guns)
+        {
+            if (guns < 1 || guns > 3) throw new ArgumentOutOfRangeException(nameof(guns));
+            return guns == 1 ? Industrial : new EncounterProfile("industrial-encounter-p4e-" + guns,
+                true, 6, 2, 12, 2, 2, 4, 2, guns, 1, 0);
+        }
+
         public static EncounterProfile For(PhysicalSettlementProfile profile) =>
             profile.Has(SettlementCapability.Electricity) ? Industrial : Tribal;
+    }
+
+    public sealed class ArtilleryPosition
+    {
+        public ArtilleryPosition(string postId, GridPoint origin, GridPoint operating, GridPoint magazine)
+        { PostId = postId; Origin = origin; Operating = operating; Magazine = magazine; }
+        public string PostId { get; }
+        public GridPoint Origin { get; }
+        public GridPoint Operating { get; }
+        public GridPoint Magazine { get; }
     }
 
     public sealed class EncounterPlan
@@ -94,7 +111,7 @@ namespace RealisticBases.Planning
         public EncounterPlan(string basePlanDigest, EncounterProfile profile, IEnumerable<DefensivePost> posts,
             GridRect defendedBounds, GridPoint supportCenter, GridPoint innerFallback, GridPoint mortarCell,
             GridPoint mortarInteractionCell, GridPoint magazineCell, IEnumerable<CombatSupply> supplies,
-            IEnumerable<GridPoint> defendedCells)
+            IEnumerable<GridPoint> defendedCells, IEnumerable<ArtilleryPosition> artillery = null)
         {
             BasePlanDigest = basePlanDigest ?? string.Empty;
             Profile = profile ?? throw new ArgumentNullException(nameof(profile));
@@ -106,6 +123,9 @@ namespace RealisticBases.Planning
             MortarCell = mortarCell;
             MortarInteractionCell = mortarInteractionCell;
             MagazineCell = magazineCell;
+            Artillery = new ReadOnlyCollection<ArtilleryPosition>((artillery ?? (profile.MortarCapable ?
+                new[] { new ArtilleryPosition("mortar", mortarCell, mortarInteractionCell, magazineCell) } :
+                Enumerable.Empty<ArtilleryPosition>())).ToList());
             Supplies = new ReadOnlyCollection<CombatSupply>((supplies ?? Enumerable.Empty<CombatSupply>()).ToList());
             Digest = ComputeDigest();
         }
@@ -123,6 +143,7 @@ namespace RealisticBases.Planning
         public GridPoint MortarCell { get; }
         public GridPoint MortarInteractionCell { get; }
         public GridPoint MagazineCell { get; }
+        public IReadOnlyList<ArtilleryPosition> Artillery { get; }
         public IReadOnlyList<CombatSupply> Supplies { get; }
         public string Digest { get; }
 
@@ -153,6 +174,12 @@ namespace RealisticBases.Planning
                 }
                 hash = StableHash.Add(hash, post.Mortar ? 1 : 0);
                 hash = StableHash.Add(hash, post.Inner ? 1 : 0);
+            }
+            foreach (ArtilleryPosition gun in Artillery)
+            {
+                hash = StableHash.Add(hash, gun.PostId);
+                foreach (GridPoint cell in new[] { gun.Origin, gun.Operating, gun.Magazine })
+                { hash = StableHash.Add(hash, cell.X); hash = StableHash.Add(hash, cell.Z); }
             }
             foreach (CombatSupply supply in Supplies.OrderBy(s => s.DefName, StringComparer.Ordinal))
             {

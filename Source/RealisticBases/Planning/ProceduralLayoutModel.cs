@@ -9,7 +9,7 @@ namespace RealisticBases.Planning
     // generator references these types yet; see docs/p4a-foundations.md.
     public static class ProceduralLayoutVersions
     {
-        public const string Planner = "p4e-facilities.3-close-magazine";
+        public const string Planner = "p4e-facilities.3-multi-mortar";
         public const int Schema = 1;
     }
 
@@ -243,7 +243,7 @@ namespace RealisticBases.Planning
         // P2 profile capacities act as floors; population rules may raise them.
         public static LayoutRequirements FromProfile(PhysicalSettlementProfile profile, LayoutClimate climate,
             HousingStandard housing = HousingStandard.Barracks, SettlementTechStage stage = null,
-            OrdinarySettlementBudget populationBudget = null)
+            OrdinarySettlementBudget populationBudget = null, int? mortarBiasPercent = null)
         {
             if (profile == null) throw new ArgumentNullException(nameof(profile));
             List<KeyValuePair<LayoutRoomKind, int>> floors = new List<KeyValuePair<LayoutRoomKind, int>>();
@@ -261,7 +261,7 @@ namespace RealisticBases.Planning
             int fieldCells = (int)Math.Ceiling(residents * profile.DailyNutritionPerResident /
                 profile.EffectiveNutritionPerCropCellPerDay);
             return new LayoutRequirements(residents, profile.Capabilities, housing, climate,
-                electric ? 50 : 0, 60 + residents * (electric ? 70 : 35), fieldCells, floors, resolved,
+                mortarBiasPercent ?? (electric ? 50 : 0), 60 + residents * (electric ? 70 : 35), fieldCells, floors, resolved,
                 populationBudget?.ImportValue ?? profile.Budget.ImportValueLimit, equipment,
                 stockpileRoomCapacityTarget: populationBudget == null ? 0 : 48);
         }

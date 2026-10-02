@@ -27,6 +27,25 @@ namespace RealisticBases.Planning
         public const int MaximumExteriorCells = 12;
         public const int MaximumExposedCells = 8;
 
+        // Native eight-way movement rounds the corners of cardinal planner
+        // routes. Declare one cell of legal clearance, not an entire exterior
+        // rectangle. Exposure and aggregate route limits remain authoritative.
+        public static IReadOnlyList<GridPoint> TransitEnvelope(TerrainSnapshot terrain,
+            IEnumerable<GridPoint> routes, IEnumerable<GridPoint> opaque)
+        {
+            var blockers = new HashSet<GridPoint>(opaque ?? Enumerable.Empty<GridPoint>());
+            var result = new HashSet<GridPoint>(routes ?? Enumerable.Empty<GridPoint>());
+            foreach (GridPoint c in result.ToArray())
+                for (int x = -1; x <= 1; x++)
+                    for (int z = -1; z <= 1; z++)
+                    {
+                        GridPoint n = new GridPoint(c.X + x, c.Z + z);
+                        if (terrain.InBounds(n) && terrain[n].Has(TerrainTraits.Standable) &&
+                            !terrain[n].Has(TerrainTraits.Water) && !blockers.Contains(n)) result.Add(n);
+                    }
+            return result.OrderBy(c => c).ToList().AsReadOnly();
+        }
+
         // Validate complete native paths through a small declared gateway set.
         // A defender on another front must enter through its local gate before
         // crossing the compound; the destination gate alone is not sufficient.
@@ -34,7 +53,7 @@ namespace RealisticBases.Planning
             GridPoint? destinationGate, IEnumerable<GridPoint> entryGates,
             Func<GridPoint, GridPoint, IReadOnlyList<GridPoint>> nativePath,
             IReadOnlyCollection<GridPoint> defended, IReadOnlyCollection<GridPoint> interior,
-            IEnumerable<GridPoint> hostileCells, IReadOnlyCollection<GridPoint> opaque)
+            IEnumerable<GridPoint> hostileCells, IReadOnlyCollection<GridPoint> opaque, Action<int> reportLength = null)
         {
             var gates = (entryGates ?? Enumerable.Empty<GridPoint>()).Distinct()
                 .OrderBy(g => Math.Abs(g.X - from.X) + Math.Abs(g.Z - from.Z)).ThenBy(g => g).Take(8).ToArray();
@@ -74,6 +93,7 @@ namespace RealisticBases.Planning
                 bestLength = full.Count;
                 best = chain[0];
             }
+            reportLength?.Invoke(best.HasValue ? bestLength : 0);
             return best;
         }
 

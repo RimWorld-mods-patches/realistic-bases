@@ -255,7 +255,7 @@ namespace RealisticBases.Diagnostics
                 " remainingFog=" + map.AllCells.Count(cell => cell.Fogged(map)));
         }
 
-        private static void CaptureFlatTerrainFixture(Map map)
+        internal static void CaptureFlatTerrainFixture(Map map)
         {
             try
             {
