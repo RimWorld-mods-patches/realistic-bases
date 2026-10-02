@@ -230,6 +230,7 @@ The defense-budget increase is explicitly authorized here; choose a bounded docu
 2. Add more wood to the warehouse, the generators must be filled fully from the start (do not cut this fill from the storage).
 3. Add more shells. At least 30 HE + 10 incendiary shells per mortar.
 4. Cabinets are incorrectly oriented.
+5. We still have no floors in some rooms.
 
 ### P5 — Encounter supplies, trade stock, and persistent consequences
 
