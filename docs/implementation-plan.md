@@ -229,6 +229,7 @@ The defense-budget increase is explicitly authorized here; choose a bounded docu
 1. A room with fueled generators can be overheated, add a ventilation connected to a room with outdoor temperature.
 2. Add more wood to the warehouse.
 3. Add more shells. At least 30 HE + 10 incendiary shells per mortar.
+4. Cabinets are incorrectly oriented.
 
 ### P5 — Encounter supplies, trade stock, and persistent consequences
 
