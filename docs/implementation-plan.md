@@ -227,7 +227,7 @@ The defense-budget increase is explicitly authorized here; choose a bounded docu
 ### P4F — Additional improvements
 
 1. A room with fueled generators can be overheated, add a ventilation connected to a room with outdoor temperature.
-2. Add more wood to the warehouse.
+2. Add more wood to the warehouse, the generators must be filled fully from the start (do not cut this fill from the storage).
 3. Add more shells. At least 30 HE + 10 incendiary shells per mortar.
 4. Cabinets are incorrectly oriented.
 
