@@ -222,7 +222,28 @@ namespace RealisticBases.Planning
                 if (layout.Court.Cells.Any(c => grid.At(c) != LayoutCellClass.Open || !terrain[c].Has(TerrainTraits.SupportsHeavy)))
                     errors.Add("court_not_open_sky_heavy");
                 if (!layout.Court.Access.All(reach.Contains)) errors.Add("court_access_disconnected");
+                LayoutRoom[] stores = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.MortarMagazine).ToArray();
+                if (stores.Length != 1) errors.Add("mortar_magazine_count");
+                else
+                {
+                    LayoutRoom store = stores[0];
+                    if (store.Bounds.Width != 3 || store.Bounds.Height != 3 || store.Fixtures.Count != 1 ||
+                        store.Fixtures[0].Kind != LayoutFixtureKind.Shelf || store.Fixtures[0].DefName != "ShelfSmall" ||
+                        !store.Fixtures[0].Cells.SequenceEqual(store.Interior.Points())) errors.Add("mortar_magazine_geometry");
+                    if (!store.Bounds.Points().All(layout.ConstructedRoof.Contains) ||
+                        layout.Court.Cells.Concat(layout.Court.Access).Any(layout.ConstructedRoof.Contains)) errors.Add("mortar_magazine_roof");
+                    if (store.Interior.Width == 1 && store.Interior.Height == 1 && layout.Court.Access.Count == 1)
+                    {
+                        GridPoint stock = store.Interior.Points().First(), op = layout.Court.Access.First();
+                        if (Math.Abs(store.DoorOutside.X - op.X) + Math.Abs(store.DoorOutside.Z - op.Z) > 1 ||
+                            (stock.X - op.X) * layout.Court.Facing.X + (stock.Z - op.Z) * layout.Court.Facing.Z < 0 ||
+                            (op.X - store.Door.X) * -store.Facing.X + (op.Z - store.Door.Z) * -store.Facing.Z <= 0)
+                            errors.Add("mortar_magazine_not_beside_operating_position");
+                    }
+                    if (MagazineLoadingRoute(input, layout).Count == 0) errors.Add("mortar_magazine_loading_route");
+                }
             }
+            else if (layout.Rooms.Any(r => r.Kind == LayoutRoomKind.MortarMagazine)) errors.Add("orphan_mortar_magazine");
 
             // Gates, P4 gatehouse crossings and exterior approach routes.
             int layers = input.Fortification.WallLayers;
@@ -345,7 +366,7 @@ namespace RealisticBases.Planning
                 int needed = room.Kind == LayoutRoomKind.Power && layout.Power != null ? layout.Power.Generators : room.Capacity;
                 if (realized == null || realized.Capacity < needed) errors.Add("capacity_" + room.Id);
             }
-            if (layout.Rooms.Count != demand.Rooms.Count) errors.Add("room_count");
+            if (layout.Rooms.Count(r => r.Kind != LayoutRoomKind.MortarMagazine) != demand.Rooms.Count) errors.Add("room_count");
             int beds = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Barracks || r.Kind == LayoutRoomKind.Bedroom).Sum(r => r.Capacity);
             if (beds < requirements.Residents) errors.Add("housing_beds");
             if (kit.Powered)
@@ -456,7 +477,8 @@ namespace RealisticBases.Planning
         {
             string id = room.Id;
             GridRect interior = room.Interior;
-            if (interior.Width < LayoutDemandModel.MinInterior || interior.Height < LayoutDemandModel.MinInterior ||
+            int minimum = room.Kind == LayoutRoomKind.MortarMagazine ? 1 : LayoutDemandModel.MinInterior;
+            if (interior.Width < minimum || interior.Height < minimum ||
                 Math.Max(interior.Width, interior.Height) > LayoutDemandModel.MaxInterior) errors.Add("room_size_" + id);
             bool corner = (room.Door.X == room.Bounds.MinX || room.Door.X == room.Bounds.MaxX) && (room.Door.Z == room.Bounds.MinZ || room.Door.Z == room.Bounds.MaxZ);
             if (!room.IsEdge(room.Door) || corner) errors.Add("door_not_on_wall_" + id);
@@ -503,7 +525,7 @@ namespace RealisticBases.Planning
                 if ((fixture.Kind == LayoutFixtureKind.Stove || fixture.Kind == LayoutFixtureKind.Workbench) && !BackToWall(room, fixture))
                     errors.Add("workbench_not_against_wall_" + label);
             }
-            if (!room.Fixtures.Any(f => f.Role == SettlementRole.Light)) errors.Add("lighting_" + id);
+            if (room.Kind != LayoutRoomKind.MortarMagazine && !room.Fixtures.Any(f => f.Role == SettlementRole.Light)) errors.Add("lighting_" + id);
             if (room.Kind == LayoutRoomKind.Freezer && !room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.WallCooler)) errors.Add("freezer_cooling_" + id);
             if (LayoutDemandModel.IsLiving(room.Kind))
             {
@@ -626,6 +648,31 @@ namespace RealisticBases.Planning
             if (layout.Gates.Count == 0) return new GridPoint[0];
             return Flood(layout.Gates[0].Inside, c => enclosure.Contains(c) && !blocked.Contains(c) &&
                 (excavation.Contains(c) || grid.At(c) == LayoutCellClass.Open || grid.At(c) == LayoutCellClass.Covered));
+        }
+
+        public static IReadOnlyList<GridPoint> MagazineLoadingRoute(ProceduralLayoutInput input, ProceduralLayout layout)
+        {
+            LayoutRoom store = layout.Rooms.FirstOrDefault(r => r.Kind == LayoutRoomKind.MortarMagazine);
+            if (store == null || layout.Court == null || layout.Court.Access.Count != 1) return new GridPoint[0];
+            var allowed = new HashSet<GridPoint>(PublicCirculation(input, layout));
+            GridPoint start = layout.Court.Access.Single(), end = store.DoorOutside;
+            if (!allowed.Contains(start) || !allowed.Contains(end)) return new GridPoint[0];
+            var previous = new Dictionary<GridPoint, GridPoint> { [start] = start };
+            var queue = new Queue<GridPoint>(); queue.Enqueue(start);
+            while (queue.Count > 0)
+            {
+                GridPoint c = queue.Dequeue();
+                if (c.Equals(end))
+                {
+                    var route = new List<GridPoint> { c };
+                    while (!c.Equals(start)) { c = previous[c]; route.Add(c); }
+                    route.Reverse();
+                    return route.Count <= 2 ? route.AsReadOnly() : (IReadOnlyList<GridPoint>)new GridPoint[0];
+                }
+                foreach (GridPoint n in Neighbors(c))
+                    if (allowed.Contains(n) && !previous.ContainsKey(n)) { previous[n] = c; queue.Enqueue(n); }
+            }
+            return new GridPoint[0];
         }
 
         private static HashSet<GridPoint> Flood(GridPoint start, Func<GridPoint, bool> allowed)

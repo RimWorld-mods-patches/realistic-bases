@@ -9,7 +9,7 @@ namespace RealisticBases.Planning
     // generator references these types yet; see docs/p4a-foundations.md.
     public static class ProceduralLayoutVersions
     {
-        public const string Planner = "p4e-facilities.2";
+        public const string Planner = "p4e-facilities.3-close-magazine";
         public const int Schema = 1;
     }
 
@@ -32,7 +32,8 @@ namespace RealisticBases.Planning
         Workshop,
         Storage,
         Power,
-        Laboratory // Append: persisted room values must not move.
+        Laboratory, // Append: persisted room values must not move.
+        MortarMagazine
     }
 
     public static class SettlementTemperatureTargets

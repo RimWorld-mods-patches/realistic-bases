@@ -30,7 +30,7 @@ Medical currently has beds/optional monitor/light/climate but no shelves; `Layou
 
 Existing layout/encounter/controller/spawner hold one mortar, operating cell and magazine marker. Saved controller uses `p3Mortar` reference plus stable saved post IDs/flags/assignments and one shared operating-stock ledger. Migration design: retain legacy `p3Mortar` read, introduce saved collection of guns and corresponding mortar post IDs; after loading absent collection map the old reference to the existing mortar post, without spawning guns or replenishing anything. Every job must resolve its gun from its assigned post, and every gun has at most one operator. Initial barrel count sums loaded barrels once over guns, not once per pawn. Quest contracts keep zero extra artillery.
 
-One usable cell plus walls/door is a 3×3 enclosure using ShelfSmall. Source-level feasibility: pass-through shelf supports Touch item access from the doorway; live fetching is still required before accepting the design. Roof only the store. HE/incendiary shells explode when damaged (Core base radius 2.9, expansion 0.4 per stack count); a roofed enclosure is not blastproof. Prefer small divided stacks away from operators, beds, fuel and sole retreats. Shared six-hour shell/barrel ledger must not be copied per gun.
+One usable cell plus walls/door is a 3×3 enclosure using ShelfSmall. Native mortar jobs fetch with PathEndMode.OnCell; this needs live verification rather than assuming doorway Touch access alone suffices. Roof only the store. Core explosive radius is base radius plus sqrt((stackCount−1) × explosiveExpandPerStackcount): twelve HE shells give 4.9976 cells, not a linear 7.7-cell radius. A roofed enclosure is not blastproof. Preserve modest finite stocks and separation from beds, fuel and sole retreats. The user's clarified adjacent operating-side entrance takes precedence over an arbitrary six-cell operator setback. Shared six-hour shell/barrel ledger must not be copied per gun.
 
 ### Defense budget
 
@@ -38,7 +38,7 @@ Current ordinary population distribution remains 4–12 with expected mean seven
 
 ## Evidence ledger
 
-- P4E.0 source audit complete. One-cell store fetching, thermal settling, seated use and multiple-gun behavior are not yet live-verified.
+- P4E.0 source audit complete. Subsequent sections record live thermal, seating, shelving and single-magazine loading evidence; multiple-gun behavior and hazard acceptance remain open.
 - P4E.2 complete below; P4E.3–P4E.5 pending. Do not infer integrated completion from a facility pass.
 
 ## P4E.1 — Laboratories and occupied-work-room climate
@@ -124,5 +124,104 @@ chewing/fetch probe and the subsequently corrected cross-front route gap).
 `p4e-2-east-transfer-fixed-20261002.log` verifies the corrected live transfer.
 Shared skills and normal user saves/profiles were not changed.
 
-P4E.3 magazines/multiple crews, P4E.4 defense allowance/autocannons and P4E.5
-integrated terrain/quest/hazard/migration acceptance remain pending.
+P4E.3 multiple crews, P4E.4 defense allowance/autocannons and P4E.5 integrated
+terrain/quest/hazard/migration acceptance remain pending. Magazine progress follows.
+
+## P4E.3 — Magazine and operating-position pass (not multi-mortar closeout)
+
+2026-10-02. Appended MortarMagazine room and MortarStorage role values. A
+resolved legal ShelfSmall occupies one usable interior cell, with seven walls,
+one door and a roof over the 3×3 enclosure only. Fixtures, walls, door and floor
+participate in the existing material/finish/transaction ownership; the mortar
+and operating cell remain unroofed. Shells and spare barrels move from ordinary
+bulk storage to this actual shelf, preserving the existing encounter-wide
+twelve HE/two incendiary/two spare-barrel quantities and the gun's one initial
+embedded barrel. No new crew, extra shells or trade-stock borrowing are added.
+
+The user's screenshot identified a valid correction: the first prototype was
+the right design in the wrong place, with a ten-cell public loading route. The
+entrance now sits at the operating cell or one cardinal step away, faces the
+crew and lies on the working side. The public portion of loading is at most two
+cells; the enclosed shelf lies two or three steps from the operating cell.
+Production validation rejects a correctly shaped but distant magazine. The
+six-cell operator/stock minimum was removed: it defeated the requested spatial
+intent. Separation from beds/fuel, an unobstructed public retreat and finite
+stocks remain; this is not a claim of blast immunity.
+
+The courtyard fixture now supplies the actual native mortar rotation and
+footprint-derived origin. Previously generation always spawned North despite
+the planned working side. Preflight independently checks native InteractionCell
+against the planned cell; realized audits require an actual one-cell roofed
+room, shelf filter/capacity, open-sky gun/operator and native OnCell loading
+reachability. All four rotations are covered by pure cases.
+
+Optional artillery is packed after required rooms, renewable yards and the
+power room. It cannot consume essential utility frontage or overlook a future
+fuel store. If its added outline crosses illegal terrain/a geyser, the same
+complete required-room pack is retried without artillery, without reducing the
+roster or moving the field. At most two additional access branches and 128
+court street candidates per pass remain bounded. Turret staffing reserves a
+mortar operator only when a real court exists, not from the stage's capability
+wish alone. The four/seven/twelve-resident clutter regression passes again.
+
+Pure magazine fixtures retain artillery on ten of twelve seeded seven-resident
+flat layouts after essential-utility priority, with all four rotations; every
+settlement remains accepted. Explicit blocked-door and shifted-distant-store
+regressions reject. Existing optional-network/renewable/doctrine tests now use
+bounded same-terrain corpora instead of assuming one seed must own an optional
+fixture. The network utility assertion matches the existing production rule
+(four points for first coverage, one for crossfire, none for a third redundant
+gun); existing funding, sniper support, blind-zone, power, collision and path
+checks remain intact. Connectivity fixtures include actual intact terrain rock
+as graph edges, never as extra roots or credit for planned excavation.
+
+Disposable native Core case: six IndustrialLate residents, seed
+`48AAC8553C6960A2`, layout `5051F06A17CD4E81`, map3. Mortar98517 operates at
+`(37,42)`; magazine shelf is `(37,40)`, with the door `(37,41)` facing the
+operating cell. The realized public route is one cell (the doorway outside is
+the operating position itself). Visual inspection shows the compact store
+directly behind the manning pawn, not elsewhere among the settlement rooms.
+
+At tick2055, a real funded defender (98783) completed native barrel replacement,
+shell fetching and manning: eleven loose HE + one loaded HE, two loose
+incendiaries, one spare barrel and twenty barrel-fuel charges. The probe consumed
+the initial embedded barrel explicitly to require physical replacement; it
+created no pawn or stock. An automatic pause preserves the observation before
+the disposable visitor can die and unload the map. ManTurret expiry increased
+from 1200 to 3600 ticks to allow the bounded housing/service/loading journey;
+an already loaded shell no longer requires another loose shell to keep manning.
+
+Native save/reload at ticks2055/2056 retains gun98517, operator98783, HE stack
+98749:11 plus its loaded shell, incendiary98750:2 and barrel98751:1. The same six
+defenders/six assignments reload without stock replenishment. The one-cell shelf
+remains roofed and reachable. Evidence: ignored logs
+`p4e-3-close-loading-20261002.log` and `p4e-3-close-reload-20261002.log`.
+
+Earlier forced failure after magazine stocks restored terrain/roof layers and
+all 723 cleared plants. The exact saved tile/seed retried with identical input
+and layout digests before the placement correction. Retry guards now exclude
+wild animals from settlement occupancy and honor the selected wall-layer policy,
+instead of silently forcing three layers; populated/generated sites remain
+protected. Evidence: `p4e-3-magazine-rollback-20261002.log`.
+
+This pass does not implement two/three mortars. Stable gun/post/operator
+collections, old single-save migration, shared stock distribution, crew/gun
+loss, exhaustion/reassignment, live multi-gun reload and representative magazine
+hazard validation remain P4E.3 work. P4E.4 and P4E.5 are not complete.
+
+Final required-utilities-first generation on the same saved tile/seed accepted
+layout `5EABF8A431E20E58`: six residents, eleven rooms and one real magazine.
+South-facing mortar98347 operates at `(107,21)`; shelf `(104,21)`, door
+`(105,21)` and outside doorway `(106,21)` are beside the crew, matching the
+operating-side diagram. The public route is two cells; no detour is needed.
+At tick1680, funded defender98598 physically replaced the barrel, loaded one HE
+shell and manned the gun. Native reload at tick1681 preserves gun98347,
+operator98598 and HE98565:11/incendiary98566:2/barrel98567:1 plus the loaded HE
+shell and twenty barrel-fuel charges. Evidence:
+`p4e-3-close-final-live-20261002.log`.
+
+Final full layout suite: **PASS, failures=0, 469,780 ms**, including the corrected
+four/seven/twelve-resident clutter case, same-room-pack optional-artillery
+fallback, P4C/P4D fixtures, all rotations and distant-store rejection. Full
+planner/garrison suite passes. Release build has zero warnings/errors. The final
+test console is retained at `.runtime/logs/p4e-3-layout-tests-final.txt`.

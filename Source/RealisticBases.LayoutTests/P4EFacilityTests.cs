@@ -5,6 +5,71 @@ using RealisticBases.Planning;
 
 internal static partial class Program
 {
+    private static void P4EMortarMagazine()
+    {
+        var rotations = new HashSet<string>();
+        int seen = 0;
+        foreach (ulong seed in Enumerable.Range(1, 12).Select(i => (ulong)i))
+        {
+            ProceduralLayoutInput input = Input(Plains(160), LayoutRequirements.FromPopulation(7, Industrial, Temperate,
+                stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialLate)), seed);
+            ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
+            Accepted(result);
+            if (result.Layout.Court == null) continue;
+            seen++;
+            LayoutRoom store = result.Layout.Rooms.Single(r => r.Kind == LayoutRoomKind.MortarMagazine);
+            Equal(1, store.Interior.Points().Count(), "one usable magazine cell");
+            Equal("ShelfSmall", store.Fixtures.Single().DefName, "Core one-cell shelf");
+            Equal(7, store.Bounds.Points().Count(c => store.IsEdge(c) && !c.Equals(store.Door)), "seven enclosure walls");
+            True(store.Bounds.Points().All(result.Layout.ConstructedRoof.Contains), "only the store is roofed");
+            True(!result.Layout.Court.Cells.Concat(result.Layout.Court.Access).Any(result.Layout.ConstructedRoof.Contains), "gun and operator remain unroofed");
+            IReadOnlyList<GridPoint> route = ProceduralLayoutValidator.MagazineLoadingRoute(input, result.Layout);
+            True(route.Count > 0 && route.Count <= 2, "entrance at the operating position or one adjacent public step");
+            Equal(store.DoorOutside, route.Last(), "loading ends at magazine entrance");
+            Contains(ProceduralLayoutValidator.Validate(input, result.Layout.WithAddedObstacles(new[] { store.Door })),
+                "room_door_disconnected_mortar-magazine");
+            GridPoint stock = store.Interior.Points().Single(), op = result.Layout.Court.Access.Single();
+            True(Math.Abs(store.DoorOutside.X - op.X) + Math.Abs(store.DoorOutside.Z - op.Z) <= 1,
+                "magazine access is beside the operator, not ten cells away");
+            True((stock.X - op.X) * result.Layout.Court.Facing.X + (stock.Z - op.Z) * result.Layout.Court.Facing.Z >= 0,
+                "magazine lies on the working side of the mortar");
+            True((op.X - store.Door.X) * -store.Facing.X + (op.Z - store.Door.Z) * -store.Facing.Z > 0,
+                "door faces back toward the operating position");
+            if (seen == 1)
+            {
+                // A correctly shaped roofed warehouse still fails if moved
+                // away from the crew: reproduce the user's placement report.
+                GridPoint shift = new GridPoint(result.Layout.Court.Facing.X * 10, result.Layout.Court.Facing.Z * 10);
+                GridPoint Move(GridPoint c) => new GridPoint(c.X + shift.X, c.Z + shift.Z);
+                LayoutFixture oldShelf = store.Fixtures.Single();
+                var farShelf = new LayoutFixture(oldShelf.Kind, oldShelf.DefName, oldShelf.Cells.Select(Move), null,
+                    oldShelf.Facing, oldShelf.Blocking, 0, false, store.Id, role: oldShelf.Role, stuff: oldShelf.Stuff);
+                var demand = new LayoutRoomDemand(store.Id, store.Kind, 1, store.Unit, new[] { new GridRect(0, 0, 3, 3) });
+                var far = new LayoutRoom(demand, new GridRect(store.Bounds.MinX + shift.X, store.Bounds.MinZ + shift.Z, 3, 3),
+                    Move(store.Door), store.Facing, 1, new[] { farShelf }, false, new GridPoint[0]);
+                ProceduralLayout l = result.Layout;
+                var wrong = new ProceduralLayout(l.InputDigest, l.Seed, l.Doctrine, l.MortarCapable, l.Anchor,
+                    l.Rooms.Select(r => r.Id == store.Id ? far : r), l.Corridors, l.Court, l.Enclosure, l.BuiltWalls,
+                    l.NaturalWalls, l.Gates, l.Excavation, l.RetainedThickRoof, l.ConstructedRoof, l.WallLayers,
+                    l.FieldCellsRequired, l.Relationships, l.ExtraObstacles, l.Notes, l.TechStage, l.RolesDigest,
+                    l.EquipmentDigest, l.WallStuff, l.Materials, l.Power, l.ExhaustPockets, l.OuterSections,
+                    l.JointSite, l.FieldWall, l.Turret, l.ApproachDefense, l.PerimeterReinforcement);
+                Contains(ProceduralLayoutValidator.Validate(input, wrong), "mortar_magazine_not_beside_operating_position");
+            }
+            LayoutFixture court = result.Layout.Court;
+            string rotation = court.Rotation; rotations.Add(rotation);
+            int x = court.Cells.Min(c => c.X), z = court.Cells.Min(c => c.Z);
+            GridPoint origin = new GridPoint(x + (rotation == "South" || rotation == "West" ? 1 : 0),
+                z + (rotation == "South" || rotation == "East" ? 1 : 0));
+            GridPoint step = rotation == "North" ? new GridPoint(0, -1) : rotation == "South" ? new GridPoint(0, 1) :
+                rotation == "East" ? new GridPoint(-1, 0) : new GridPoint(1, 0);
+            Equal(court.Access.Single(), new GridPoint(origin.X + step.X, origin.Z + step.Z), "actual rotated Core mortar operating cell");
+        }
+        True(seen >= 6, "representative flat layouts keep a stocked-magazine-capable mortar: " + seen);
+        True(rotations.Count >= 3, "varied operating sides are covered: " + string.Join(",", rotations));
+        Console.WriteLine("  magazines=" + seen + "/12 rotations=" + string.Join(",", rotations));
+    }
+
     private static void P4ESeatsAndMedicalShelves()
     {
         HashSet<string> rotations = new HashSet<string>();

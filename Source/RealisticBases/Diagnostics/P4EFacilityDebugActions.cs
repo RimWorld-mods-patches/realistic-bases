@@ -16,6 +16,89 @@ namespace RealisticBases.Diagnostics
     public static class P4EFacilityDebugActions
     {
         private const string Category = "Realistic Bases P4E";
+        internal static bool FailNextMagazineStocks;
+
+        [DebugAction(Category, "Show P4E mortar position", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void ShowMortar()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("P4E requires disposable profile");
+            Map map = Find.CurrentMap;
+            Thing[] guns = map?.listerThings.AllThings.Where(t => t.def == ThingDefOf.Turret_Mortar).ToArray() ?? new Thing[0];
+            if (guns.Length != 1) throw new InvalidOperationException("Requires exactly one mortar on the selected map");
+            Find.World.renderer.wantedMode = WorldRenderMode.None;
+            Find.CameraDriver.JumpToCurrentMapLoc(guns[0].InteractionCell);
+        }
+
+        [DebugAction(Category, "Start P4E mortar magazine loading probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void LoadingProbe() => Find.CurrentMap?.GetComponent<P4EArtilleryProbe>().Start();
+
+        [DebugAction(Category, "P4E fail next generation after magazine stocks", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void FailMagazine()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("P4E requires disposable profile");
+            FailNextMagazineStocks = true;
+            P2Log.Message("P4E_MAGAZINE_FAILURE_ARM", "afterFiniteStocks=True");
+        }
+
+        [DebugAction(Category, "Audit P4E mortar logistics", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void MortarLogistics()
+        {
+            Map map = Find.CurrentMap;
+            if (map == null) return;
+            foreach (Thing gun in map.listerThings.AllThings.Where(t => t.def == ThingDefOf.Turret_Mortar))
+            {
+                Pawn op = gun.TryGetComp<CompMannable>()?.ManningPawn;
+                CompChangeableProjectile shell = (gun as Building_TurretGun)?.gun?.TryGetComp<CompChangeableProjectile>();
+                Thing[] stocks = map.listerThings.AllThings.Where(t => (t.def.IsShell || t.def.defName == "ReinforcedBarrel") &&
+                    t.Position.GetEdifice(map) is Building_Storage && t.GetRoom()?.CellCount == 1).OrderBy(t => t.thingIDNumber).ToArray();
+                P2Log.Message("P4E_MORTAR_LOGISTICS", "map=" + map.uniqueID + " gun=" + gun.thingIDNumber +
+                    " rotation=" + gun.Rotation + " operatingCell=" + gun.InteractionCell + " operator=" + (op?.thingIDNumber.ToString() ?? "none") +
+                    " loaded=" + (shell?.LoadedShell?.defName ?? "none") + ":" + (shell?.loadedCount ?? 0) +
+                    " barrelFuel=" + (gun.TryGetComp<CompRefuelable>()?.Fuel ?? 0) +
+                    " stocks=" + string.Join(";", stocks.Select(t => t.def.defName + ":" + t.stackCount + ":" + t.thingIDNumber +
+                        "@" + t.Position + ":roof=" + t.Position.Roofed(map) + ":radius=" + (t.TryGetComp<CompExplosive>()?.ExplosiveRadius() ?? 0) +
+                        ":loadReach=" + map.reachability.CanReach(gun.InteractionCell, t, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)))));
+            }
+        }
+
+        [DebugAction(Category, "P4E ignite magazine hazard probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void MagazineHazard()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("P4E requires disposable profile");
+            Map map = Find.CurrentMap;
+            if (!(map?.Parent is Settlement) || !map.GetComponent<P0MapState>().Active)
+                throw new InvalidOperationException("Requires disposable procedural settlement");
+            Thing[] shells = map.listerThings.AllThings.Where(t => t.def.defName == "Shell_HighExplosive" &&
+                t.Position.GetEdifice(map) is Building_Storage && t.GetRoom()?.CellCount == 1).ToArray();
+            if (shells.Length != 1) throw new InvalidOperationException("Requires exactly one identifiable magazine HE stack");
+            CompExplosive explosive = shells[0].TryGetComp<CompExplosive>() ?? throw new InvalidOperationException("No native explosive comp");
+            P2Log.Message("P4E_MAGAZINE_HAZARD_STARTED", "map=" + map.uniqueID + " stack=" + shells[0].thingIDNumber +
+                " count=" + shells[0].stackCount + " cell=" + shells[0].Position + " radius=" + explosive.ExplosiveRadius());
+            explosive.StartWick();
+        }
+
+        [DebugAction(Category, "P4E drain mortar barrel once", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void DrainBarrel()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("P4E requires disposable profile");
+            Map map = Find.CurrentMap;
+            if (!(map?.Parent is Settlement) || !map.GetComponent<P0MapState>().Active)
+                throw new InvalidOperationException("Requires disposable procedural settlement");
+            Thing[] guns = map.listerThings.AllThings.Where(t => t.def == ThingDefOf.Turret_Mortar).ToArray();
+            if (guns.Length != 1 || Find.Storyteller.difficulty.classicMortars)
+                throw new InvalidOperationException("Requires exactly one non-classic mortar");
+            CompRefuelable fuel = guns[0].TryGetComp<CompRefuelable>();
+            float before = fuel?.Fuel ?? 0;
+            if (before <= 0) throw new InvalidOperationException("Barrel already empty");
+            fuel.ConsumeFuel(before);
+            P2Log.Message("P4E_BARREL_DRAINED", "map=" + map.uniqueID + " gun=" + guns[0].thingIDNumber + " fuel=" + before + "->" + fuel.Fuel);
+        }
 
         [DebugAction(Category, "P4E move test arrival to east edge", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
@@ -45,7 +128,7 @@ namespace RealisticBases.Diagnostics
                 return saved != null && !string.IsNullOrEmpty(saved.proceduralLayoutSeed) && saved.generationCount == 0 &&
                     saved.pawnIds.Count == 0 && string.IsNullOrEmpty(saved.proceduralLayoutDigest) &&
                     (s.Map == null || (!s.Map.IsPlayerHome && !s.Map.GetComponent<P0MapState>().Active &&
-                        !s.Map.mapPawns.AllPawnsSpawned.Any()));
+                        !s.Map.mapPawns.AllPawnsSpawned.Any(p => p.RaceProps.Humanlike || p.Faction != null)));
             }).ToArray();
             if (candidates.Length != 1) throw new InvalidOperationException("Expected exactly one empty rejected settlement map");
             Settlement settlement = candidates[0];
@@ -63,7 +146,8 @@ namespace RealisticBases.Diagnostics
                 try
                 {
                     RealisticBasesMod.Settings.enableP0Generator = true;
-                    RealisticBasesMod.Settings.forceP4WallLayersNext = 3;
+                    // Keep the selected override or ordinary seeded policy.
+                    // A retry must not silently force a different layer budget.
                     map = GetOrGenerateMapUtility.GetOrGenerateMap(settlement.Tile, new IntVec3(160, 1, 160), null);
                 }
                 finally { RealisticBasesMod.Settings.forceP4WallLayersNext = oldLayers; }
@@ -72,7 +156,7 @@ namespace RealisticBases.Diagnostics
             }
             else
             {
-                P4AMapPlanningRun run = P4AMapPlanner.Run(map, settlement, 3);
+                P4AMapPlanningRun run = P4AMapPlanner.Run(map, settlement, RealisticBasesMod.Settings.forceP4WallLayersNext);
                 if (!P4ProceduralSpawner.TrySpawn(map, settlement, run, out string failure))
                     throw new InvalidOperationException("Exact rejected-map retry failed: " + failure);
                 layers = run.Result.Layout.WallLayers;

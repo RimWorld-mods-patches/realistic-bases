@@ -153,7 +153,8 @@ namespace RealisticBases.Planning
                     case LayoutRoomKind.Workshop:
                     case LayoutRoomKind.Laboratory: return 4;
                     case LayoutRoomKind.Power: return 5;
-                    case LayoutRoomKind.Storage: return 6;
+                    case LayoutRoomKind.Storage:
+                    case LayoutRoomKind.MortarMagazine: return 6;
                     case LayoutRoomKind.Jail: return 7;
                     case LayoutRoomKind.Dining: return 8;
                     case LayoutRoomKind.Bedroom: return 9;

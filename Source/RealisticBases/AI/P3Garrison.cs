@@ -542,12 +542,16 @@ namespace RealisticBases.AI
             if (!Controls(pawn)) return null;
             if (mortar == null || mortar.Destroyed || !(mortar is Building_TurretGun turret) || AssignedRole(pawn) != GarrisonRole.MortarOperator)
                 return null;
-            if (!pawn.CanReserve(turret) || JobDriver_ManTurret.FindAmmoForTurret(pawn, turret) == null) return null;
+            if (!pawn.CanReserve(turret)) return null;
+            CompChangeableProjectile shell = turret.gun?.TryGetComp<CompChangeableProjectile>();
+            if (shell?.LoadedShell == null && JobDriver_ManTurret.FindAmmoForTurret(pawn, turret) == null) return null;
             CompRefuelable fuel = turret.TryGetComp<CompRefuelable>();
             if (fuel != null && !fuel.HasFuel && !Find.Storyteller.difficulty.classicMortars &&
                 JobDriver_ManTurret.FindFuelForTurret(pawn, turret) == null) return null;
             Job job = JobMaker.MakeJob(JobDefOf.ManTurret, turret);
-            job.expiryInterval = 1200;
+            // Include the bounded walk from housing, barrel service, magazine
+            // pickup and return before an override can interrupt loading.
+            job.expiryInterval = 3600;
             job.checkOverrideOnExpire = true;
             return job;
         }

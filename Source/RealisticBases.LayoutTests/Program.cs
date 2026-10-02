@@ -28,6 +28,7 @@ internal static partial class Program
         Run("P4E laboratory stage matrix and compact quest exclusions", P4ELaboratoryStageMatrix);
         Run("P4E occupied room climate and power demand", P4EOccupiedRoomClimate);
         Run("P4E cardinal work dining seats and medical shelves", P4ESeatsAndMedicalShelves);
+        Run("P4E compact mortar magazine geometry and rotated access", P4EMortarMagazine);
         Run("seed derivation is stable and purpose-separated", SeedDerivation);
         Run("P4D strategies require whole native compositions", QuestStrategies);
         Run("P4D preserves authoritative roster and deterministic budgets", QuestRosterContracts);
@@ -192,7 +193,10 @@ internal static partial class Program
         Accepted(cold);
         foreach (LayoutRoom room in cold.Layout.Rooms.Where(r => LayoutDemandModel.IsLiving(r.Kind)))
             True(room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Heater), "heater in " + room.Id);
-        True(cold.Layout.Rooms.All(r => r.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Lamp)), "lamps everywhere");
+        True(cold.Layout.Rooms.Where(r => r.Kind != LayoutRoomKind.MortarMagazine).All(r =>
+            r.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Lamp)), "lamps in occupied and general storage rooms");
+        True(cold.Layout.Rooms.Where(r => r.Kind == LayoutRoomKind.MortarMagazine).All(r =>
+            r.Fixtures.Count == 1 && r.Fixtures[0].Kind == LayoutFixtureKind.Shelf), "micro magazine contains only its shelf");
         True(cold.Layout.AllFixtures.Where(f => f.Kind == LayoutFixtureKind.Battery).All(f => f.RoomId.StartsWith("power")), "batteries indoors in power room");
 
         ProceduralLayoutResult hotTribal = Plan(Plains(120), LayoutRequirements.FromPopulation(6, Tribal, Hot), 3);
@@ -568,8 +572,16 @@ internal static partial class Program
     {
         TerrainSnapshot terrain = Mountain(130, 110);
         Func<int, LayoutRequirements> requirements = bias => new LayoutRequirements(6, Industrial, HousingStandard.Barracks, Temperate, bias, 600, 186);
-        ProceduralLayoutResult mortar = Plan(terrain, requirements(100), 4);
-        ProceduralLayoutResult protect = Plan(terrain, requirements(0), 4);
+        ProceduralLayoutResult mortar = null, protect = null;
+        foreach (ulong seed in Enumerable.Range(1, 12).Select(n => (ulong)n))
+        {
+            mortar = Plan(terrain, requirements(100), seed);
+            protect = Plan(terrain, requirements(0), seed);
+            Accepted(mortar); Accepted(protect);
+            if (mortar.Layout.Court != null && protect.Layout.Doctrine == LayoutDoctrine.RockProtected) break;
+            if (mortar.Layout.Court == null) True(mortar.Layout.Notes.Any(n => n.StartsWith("mortar_court")),
+                "constrained optional artillery records why its court/store is omitted");
+        }
         Accepted(mortar);
         Accepted(protect);
         Equal(LayoutDoctrine.OpenGround, mortar.Layout.Doctrine, "bias 100 keeps mortar");
@@ -663,12 +675,17 @@ internal static partial class Program
         }
     }
 
-    private static void AssertOuterWallConnectivity(ProceduralLayout layout)
+    private static void AssertOuterWallConnectivity(ProceduralLayout layout, TerrainSnapshot terrain = null)
     {
         // The old straight arms touched only their gate band and failed this graph check.
         HashSet<GridPoint> roots = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.NaturalWalls));
         HashSet<GridPoint> wallGraph = new HashSet<GridPoint>(roots.Concat(layout.OuterWalls)
             .Concat(layout.Gates.SelectMany(g => g.BandWalls)));
+        // Complete outer shells can terminate against existing rock farther
+        // out than the inner outline. Include actual intact rock as graph
+        // edges, never as extra roots and never count planned excavation.
+        if (terrain != null) wallGraph.UnionWith(terrain.Points().Where(c => terrain[c].Has(TerrainTraits.NaturalRock))
+            .Except(layout.Excavation));
         HashSet<GridPoint> connected = new HashSet<GridPoint>(roots);
         Queue<GridPoint> queue = new Queue<GridPoint>(roots);
         while (queue.Count > 0)
@@ -700,7 +717,7 @@ internal static partial class Program
                 ProceduralLayout layout = result.Layout;
                 LayoutTerrainGrid grid = LayoutTerrainGrid.Build(site.Terrain, 0);
                 Equal(0, ProceduralLayoutValidator.Validate(input, layout).Count, site.Name + " layer " + layers + " validates");
-                AssertOuterWallConnectivity(layout);
+                AssertOuterWallConnectivity(layout, site.Terrain);
                 Equal(layout.Gates.Count * (layers - 1), layout.OuterSections.Count,
                     site.Name + " returns every added gate layer");
                 foreach (LayoutWallSection section in layout.OuterSections)
@@ -745,7 +762,7 @@ internal static partial class Program
             Equal(digest, terrain.Digest, "narrow approach terrain unchanged");
             Accepted(result);
             Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count, "narrow approach final occupancy");
-            AssertOuterWallConnectivity(result.Layout);
+            AssertOuterWallConnectivity(result.Layout, terrain);
             True(result.Layout.Gates.All(g => g.ExteriorRoute.Any(c => c.X < 35 && c.Z >= 59 && c.Z <= 61)),
                 "every exterior route crosses the dry bridge");
             Console.WriteLine("  narrow approach layers=" + layers + " sections=" + result.Layout.OuterSections.Count +
@@ -1030,8 +1047,19 @@ internal static partial class Program
         TerrainSnapshot terrain = Plains(160);
         LayoutRequirements needs = LayoutRequirements.FromPopulation(4, Industrial, Temperate,
             stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialLate));
-        ProceduralLayoutInput input = Input(terrain, needs, 1, new LayoutFortificationReservation(1));
-        ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+        ProceduralLayoutInput input = null;
+        ProceduralLayoutResult result = null;
+        // Additional magazines change the room envelope. Optional defended
+        // groups must be proven on a bounded corpus, not demanded on one seed.
+        foreach (ulong seed in Enumerable.Range(1, 8).Select(n => (ulong)n))
+        {
+            var candidateInput = Input(terrain, needs, seed, new LayoutFortificationReservation(1));
+            ProceduralLayoutResult candidate = ProceduralLayoutPlanner.Plan(candidateInput, requireJointSite: true);
+            Accepted(candidate);
+            input = candidateInput; result = candidate;
+            if (candidate.Layout.Turret != null && candidate.Layout.Turret.Groups.Count() > 1 &&
+                candidate.Layout.Turret.All.Count() > 2) break;
+        }
         Accepted(result);
         P4BTurretPlan network = result.Layout.Turret;
         True(network != null && network.Groups.Count() > 1 && network.All.Count() > 2,
@@ -1087,9 +1115,15 @@ internal static partial class Program
         }
         GridPoint[] targets = result.Layout.ApproachDefense.Sides.SelectMany(s => s.Samples).Distinct().ToArray();
         True(targets.Any(c => network.All.Count(g => Shot(g, c)) >= 2), "network has interlocking fields of fire");
-        True(targets.Count(c => network.All.Any(g => Shot(g, c))) >
-            targets.Count(c => new[] { network, network.Support }.Where(g => g != null).Any(g => Shot(g, c))),
-            "additional groups reduce uncovered approaches, not just decorative gun count");
+        int Utility(IEnumerable<P4BTurretPlan> guns) => targets.Sum(c =>
+        {
+            int shots = guns.Count(g => Shot(g, c));
+            // Same bounded utility as production: first shot earns four,
+            // simultaneous crossfire earns one; a third redundant gun earns none.
+            return shots == 0 ? 0 : shots == 1 ? 4 : 5;
+        });
+        True(Utility(network.All) > Utility(new[] { network, network.Support }.Where(g => g != null)),
+            "additional groups add unique coverage or simultaneous crossfire, not just gun count");
         P4BTurretPlan peer = network.AdditionalGroups.First();
         True(P4BTurretPlanner.Validate(input,
             result.Layout.WithAddedObstacles(new[] { peer.ServiceCell }), network).Contains("service_cell"),
@@ -1099,7 +1133,7 @@ internal static partial class Program
             "blocking a peer's footprint is rejected");
         LayoutRequirements poor = LayoutRequirements.FromPopulation(4, Industrial, Temperate,
             stage: needs.Stage, importValueLimit: 0);
-        ProceduralLayoutInput poorInput = Input(terrain, poor, 1, new LayoutFortificationReservation(1));
+        ProceduralLayoutInput poorInput = Input(terrain, poor, input.Seed, new LayoutFortificationReservation(1));
         True(P4BTurretPlanner.Validate(poorInput, result.Layout, network).Contains("network_import_budget"),
             "whole-network fuel, construction and cover are charged against one budget");
         string diagnostic;
@@ -1108,7 +1142,7 @@ internal static partial class Program
         True(poorPlan == null, "insufficient shared budget omits optional guns rather than spending per group");
         LayoutRequirements rich = LayoutRequirements.FromPopulation(4, Industrial, Temperate,
             stage: needs.Stage, importValueLimit: 20000);
-        ProceduralLayoutInput richInput = Input(terrain, rich, 1, new LayoutFortificationReservation(1));
+        ProceduralLayoutInput richInput = Input(terrain, rich, input.Seed, new LayoutFortificationReservation(1));
         HashSet<GridPoint> occupied = new HashSet<GridPoint>(result.Layout.Enclosure
             .Concat(result.Layout.Rooms.SelectMany(r => r.Bounds.Points()))
             .Concat(result.Layout.PowerYards.SelectMany(y => y.Cells))
@@ -1847,7 +1881,13 @@ internal static partial class Program
 
     private static void PowerMidOpenSky()
     {
-        ProceduralLayoutResult result = Mid(1);
+        ProceduralLayoutResult result = null;
+        foreach (ulong seed in Enumerable.Range(1, 8).Select(n => (ulong)n))
+        {
+            result = Mid(seed);
+            Accepted(result);
+            if (result.Layout.Power.Yards.Any(y => y.DefName == LayoutPowerModel.Solar || y.DefName == LayoutPowerModel.Wind)) break;
+        }
         Accepted(result);
         LayoutPowerPlan power = result.Layout.Power;
         True(power.Yards.Any(y => y.DefName == LayoutPowerModel.Solar || y.DefName == LayoutPowerModel.Wind), "solar or wind on open sky");

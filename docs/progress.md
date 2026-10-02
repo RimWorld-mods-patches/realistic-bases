@@ -174,7 +174,7 @@ Detailed scope: [P4E facility and defense plan](p4e-facilities-plan.md). Preserv
 | P4E.0 | Baseline/definition/stage/budget audit | Core room/seat/storage/hazard facts, stage matrix, budget sources and legacy migration contract recorded in [findings](p4e-findings.md); live store access still pending | Complete |
 | P4E.1 | Occupied work-room temperature and eligible labs | Six-stage/climate fixtures, corrected packing/power checks and Core seven-resident live hot/cold lab/workshop operation with active analyzer | Complete; integrated regression remains P4E.5 |
 | P4E.2 | Seats and medicine shelves | All cardinal orientations, stage/fallback shelves, native seated chewing/fetch and identical thirteen-unit medicine stack through active reload | Complete |
-| P4E.3 | Compact magazines and up to three mortars | Roster caps, unique crews, finite loading/depletion, loss/reassignment and legacy/new reload | Pending |
+| P4E.3 | Compact magazines and up to three mortars | Magazine doorway beside operator, native barrel/shell fetch and same finite stocks through reload verified; multi-gun caps/crews/migration/loss/hazard remain | In progress — magazine pass only |
 | P4E.4 | Increased ordinary defense allowance/autocannons | Matched useful-defense/cost/power evidence, live fire/rearm, stage/quest exclusions | Pending |
 | P4E.5 | Integrated closeout | Relevant full suites/build, terrain/GL and P4D smoke, late recovery/retry and active reload | Pending |
 

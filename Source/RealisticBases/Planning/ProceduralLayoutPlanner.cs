@@ -1150,14 +1150,30 @@ namespace RealisticBases.Planning
             for (int i = 0; i < branches; i++) AddBranch("seed-branch-" + i);
             foreach (LayoutRoomDemand room in Order())
                 if (!PlaceWithRepairs(room)) return null;
-            if (wantsCourt && !PlaceCourt()) notes.Add("mortar_court_infeasible: capability lost in this layout");
-            if (!wantsCourt && input.Equipment.Kit.MortarCapable) notes.Add("mortar_court_dropped_for_rock_protection");
             if (input.Equipment.Kit.Powered)
             {
                 PlaceYards();
                 for (int i = 0; i < occ.Length; i++) if (occ[i] == GeothermalReserve) occ[i] = Free;
                 if (!PlacePower()) return null;
             }
+            // Optional artillery must not consume the required power room's
+            // frontage or reserve a magazine beside a future fuel store.
+            if (wantsCourt && !PlaceCourt()) notes.Add("mortar_court_or_magazine_infeasible: capability lost in this layout");
+            if (!wantsCourt && input.Equipment.Kit.MortarCapable) notes.Add("mortar_court_dropped_for_rock_protection");
+            Trim();
+            ProceduralLayout result = Enclose();
+            if (result != null || court == null) return result;
+            // A new optional annex can make the outline cross bad terrain or
+            // a geyser. Retry the SAME complete required-room pack without it.
+            foreach (GridPoint cell in court.Cells) occ[grid.Index(cell)] = Free;
+            court = null;
+            foreach (LayoutRoom store in rooms.Where(r => r.Kind == LayoutRoomKind.MortarMagazine).ToArray())
+            {
+                foreach (GridPoint cell in store.Bounds.Points()) occ[grid.Index(cell)] = Free;
+                rooms.Remove(store);
+            }
+            notes.Add("mortar_court_dropped_for_outline: same required rooms retained");
+            NeedsPocketsOnly = false;
             Trim();
             return Enclose();
         }
@@ -1994,11 +2010,16 @@ namespace RealisticBases.Planning
             pockets[hot] = pocket;
         }
 
-        private bool PlaceCourt()
+        private bool PlaceCourt(int magazineRepairs = 0)
         {
+            CatalogDef shelf = input.Equipment.Kit.DefFor(SettlementRole.MortarStorage);
+            if (shelf == null || shelf.SizeX != 1 || shelf.SizeZ != 1 || shelf.Passability == CatalogPassability.Impassable)
+            { notes.Add("mortar_magazine_no_legal_one_cell_shelf"); return false; }
             Candidate best = null;
             List<GridPoint> access = null;
-            foreach (GridPoint street in segments.SelectMany(s => s.Cells).OrderBy(p => LayoutSeed.Key(LayoutSeed.Sub(seed, "court"), p.X, p.Z)))
+            LayoutRoom magazine = null;
+            foreach (GridPoint street in segments.SelectMany(s => s.Cells).Distinct()
+                .OrderBy(p => LayoutSeed.Key(LayoutSeed.Sub(seed, "court"), p.X, p.Z)).Take(128))
                 foreach (GridPoint f in ProceduralLayoutPlanner.Cardinal)
                 {
                     if (stats.Evaluations >= input.Budget.MaxEvaluations) { stats.BudgetExhausted = true; break; }
@@ -2009,19 +2030,65 @@ namespace RealisticBases.Planning
                         new GridPoint(street.X + f.X, street.Z + f.Z), new GridPoint(street.X + f.X + p.X, street.Z + f.Z + p.Z),
                         new GridPoint(street.X + 2 * f.X, street.Z + 2 * f.Z), new GridPoint(street.X + 2 * f.X + p.X, street.Z + 2 * f.Z + p.Z)
                     };
-                    if (!cells.All(x => grid.CanPlace(x) && occ[grid.Index(x)] == Free && grid.At(x) == LayoutCellClass.Open &&
+                    if (grid.At(street) != LayoutCellClass.Open || !cells.All(x => grid.CanPlace(x) && occ[grid.Index(x)] == Free && grid.At(x) == LayoutCellClass.Open &&
                         grid.Terrain[x].Has(TerrainTraits.SupportsHeavy))) continue;
                     double score = Manhattan(street, anchor) + (int)(LayoutSeed.Key(seed, street.X, street.Z, f.X * 3 + f.Z) % 5);
                     if (best != null && score >= best.Score) continue;
+                    LayoutRoom store = FindMagazine(street, cells, shelf, f);
+                    if (store == null) continue;
                     best = new Candidate { Score = score, Door = street, Facing = f, Bounds = new GridRect(Math.Min(cells[0].X, cells[3].X),
                         Math.Min(cells[0].Z, cells[3].Z), 2, 2) };
                     access = new List<GridPoint> { street };
+                    magazine = store;
                 }
-            if (best == null) return false;
+            if (best == null)
+                return magazineRepairs < 2 && AddBranch("mortar-magazine-" + magazineRepairs) && PlaceCourt(magazineRepairs + 1);
             court = new LayoutFixture(LayoutFixtureKind.MortarCourt, "MortarCourtReservation", best.Bounds.Points(), access,
                 new GridPoint(-best.Facing.X, -best.Facing.Z), true, 0, false, "court");
             foreach (GridPoint c in best.Bounds.Points()) occ[grid.Index(c)] = CourtCell;
+            foreach (GridPoint c in magazine.Bounds.Points()) occ[grid.Index(c)] = RoomCell;
+            rooms.Add(magazine);
+            notes.Add("mortar_magazine=" + magazine.Interior.Points().Single() + " operator=" + access[0] +
+                " loadingManhattan=" + Manhattan(access[0], magazine.DoorOutside));
             return true;
+        }
+
+        private LayoutRoom FindMagazine(GridPoint operating, GridPoint[] gun, CatalogDef shelf, GridPoint gunForward)
+        {
+            // One usable storage cell, seven walls and one door: 3x3 total.
+            // Door access belongs beside the working position, not merely near
+            // the gun. Finite stocks and separation from sensitive rooms remain;
+            // the enclosure is not a promise of blast immunity for the operator.
+            IEnumerable<GridPoint> sensitive = rooms.Where(r => r.Kind == LayoutRoomKind.Barracks ||
+                r.Kind == LayoutRoomKind.Bedroom || r.Kind == LayoutRoomKind.Medical ||
+                r.Kind == LayoutRoomKind.Power || r.Kind == LayoutRoomKind.Storage).SelectMany(r => r.Bounds.Points());
+            GridPoint[] sensitiveCells = sensitive.ToArray();
+            foreach (GridPoint street in new[] { operating }.Concat(ProceduralLayoutPlanner.Cardinal.Select(d =>
+                new GridPoint(operating.X + d.X, operating.Z + d.Z)))
+                .Where(c => grid.InBounds(c) && grid.Passable(c) &&
+                    (occ[grid.Index(c)] == Free || occ[grid.Index(c)] == Street || occ[grid.Index(c)] == Plaza)))
+                foreach (GridPoint facing in ProceduralLayoutPlanner.Cardinal)
+                {
+                    if (stats.Evaluations >= input.Budget.MaxEvaluations) return null;
+                    stats.Evaluations++;
+                    GridPoint center = new GridPoint(street.X + 2 * facing.X, street.Z + 2 * facing.Z);
+                    GridRect bounds = new GridRect(center.X - 1, center.Z - 1, 3, 3);
+                    GridPoint[] footprint = bounds.Points().ToArray();
+                    // Stock must be behind/beside the operator, not beyond the
+                    // muzzle or on the opposite side of the firing footprint.
+                    if ((center.X - operating.X) * gunForward.X + (center.Z - operating.Z) * gunForward.Z > 0 ||
+                        sensitiveCells.Any(c => Math.Max(Math.Abs(c.X - center.X), Math.Abs(c.Z - center.Z)) < 3) ||
+                        footprint.Contains(operating) || footprint.Any(gun.Contains) || !footprint.All(c => grid.CanPlace(c) &&
+                            occ[grid.Index(c)] == Free && grid.At(c) == LayoutCellClass.Open)) continue;
+                    GridPoint door = new GridPoint(street.X + facing.X, street.Z + facing.Z);
+                    LayoutRoomDemand demand = new LayoutRoomDemand("mortar-magazine", LayoutRoomKind.MortarMagazine,
+                        1, "shelf_cells", new[] { new GridRect(0, 0, 3, 3) });
+                    var fixture = new LayoutFixture(LayoutFixtureKind.Shelf, shelf.DefName, new[] { center }, null,
+                        new GridPoint(0, -1), true, 0, false, demand.Id, role: SettlementRole.MortarStorage,
+                        stuff: input.Equipment.StuffFor(shelf));
+                    return new LayoutRoom(demand, bounds, door, facing, 1, new[] { fixture }, false, new GridPoint[0]);
+                }
+            return null;
         }
 
         // Remove street sections that serve nothing: no door, cooler exhaust,

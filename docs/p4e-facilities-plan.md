@@ -46,6 +46,8 @@ Interpret the requested **1×1 micro warehouse** as one usable interior storage 
 
 Keep the magazine close to its assigned mortar through a short legal loading route, roof only the store, and leave the mortar and firing/operating area unroofed as required by resolved defs. The door and roof must form a real room/enclosure without cutting off the operating cell or public route. Derive mortar orientation and working side from actual interaction geometry. The user's diagram is a spatial intent reference, not authoritative dimensions:
 
+2026-10-02 placement clarification: the compact design is correct, but its entrance must be **beside the operating position**, on the mortar's working side. Place the outside doorway at the working cell or one cardinal step away, with the door facing the crew; do not satisfy proximity with a distant store and a ten-cell loading walk. The operator remains outside the roofed enclosure. Preserve public/retreat paths and separation from beds/fuel; do not claim blast immunity or impose a six-cell operator setback that defeats the requested placement.
+
 ```text
 Mortar position
 ____
@@ -91,7 +93,7 @@ Use `docs/p4e-findings.md` for evidence and document chosen defaults. Commit eve
 | P4E.0 | Baseline room/seat/storage/mortar/budget audit and resolved stage matrix | Recorded in p4e-findings; one-cell source feasibility remains subject to live fetching | Complete |
 | P4E.1 | Room-use temperature policy and laboratory demand/equipment | Six-stage/climate, power/bench and 12/12 clutter fixtures; live hot/cold industrial room temperatures and active analyzer in findings | Complete; integrated matrix remains P4E.5 |
 | P4E.2 | Correct seated work/dining orientations and medical shelving | Cardinal/primitive/fallback fixtures, actual native seated chewing and medicine fetch, same thirteen-unit shelf stack through active reload; full suites and live post transfers in findings | Complete |
-| P4E.3 | Compact roofed mortar magazines and multi-mortar planning/controller | Resident cap/staffing fixtures; live distinct operators, loading/barrels/finite depletion, safe routes, crew/gun loss and old/new save reload | Pending |
+| P4E.3 | Compact roofed mortar magazines and multi-mortar planning/controller | Adjacent operating-side magazine, native shell/barrel loading and unchanged finite active reload verified; multi-gun caps/crews/migration/loss/hazard acceptance remain | In progress — magazine pass verified; not multi-mortar closeout |
 | P4E.4 | Explicit increased ordinary defense allowance and meaningful autocannon selection | Matched before/after counts, useful staffing, costs/power; live autocannon operation and close support; primitive/quest budget exclusions | Pending |
 | P4E.5 | Integrated regression, recovery and closeout | Relevant full suites/Release build, representative ordinary/quest live and active reload, forced late rollback/retry and visual findings | Pending |
 

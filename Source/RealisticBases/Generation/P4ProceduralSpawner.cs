@@ -104,6 +104,7 @@ namespace RealisticBases.Generation
             Dictionary<LayoutFixture, GridPoint> fixtureOrigins = new Dictionary<LayoutFixture, GridPoint>();
             Dictionary<LayoutPowerYard, GridPoint> yardOrigins = new Dictionary<LayoutPowerYard, GridPoint>();
             Dictionary<P4BTurretPlan, GridPoint> turretOrigins = new Dictionary<P4BTurretPlan, GridPoint>();
+            GridPoint? mortarOrigin = null;
             try
             {
                 foreach (LayoutFixture fixture in layout.AllFixtures.Where(f =>
@@ -118,6 +119,15 @@ namespace RealisticBases.Generation
                     turretOrigins[plan] = origin;
                     if (!GenConstruct.CanBuildOnTerrain(def, ToCell(origin), map, Rot4.North))
                         throw new InvalidOperationException("Turret terrain rejected at " + origin);
+                }
+                if (layout.Court != null)
+                {
+                    Rot4 rotation = Rotation(layout.Court.Rotation);
+                    mortarOrigin = FindOrigin(ThingDefOf.Turret_Mortar, rotation, layout.Court.Cells);
+                    IntVec3 interaction = ThingUtility.InteractionCellWhenAt(ThingDefOf.Turret_Mortar,
+                        ToCell(mortarOrigin.Value), rotation, map);
+                    if (interaction != ToCell(layout.Court.Access.Single()))
+                        throw new InvalidOperationException("Mortar operating cell differs from rotated plan");
                 }
             }
             catch (Exception ex) { failure = "spawn_origin_rejected:" + ex.Message; return false; }
@@ -200,8 +210,8 @@ namespace RealisticBases.Generation
                         new KeyValuePair<GridPoint, GridPoint>(g.Cell, g.Inside))
                         .Concat(approachDefense?.SallyPorts.Where(p => !p.Field).Select(p => new KeyValuePair<GridPoint, GridPoint>(p.Cell, p.Inside)) ??
                             Enumerable.Empty<KeyValuePair<GridPoint, GridPoint>>()), publicCells,
-                    LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Storage),
-                    layout.Court?.Cells.FirstOrDefault(), layout.Court?.Access.FirstOrDefault()));
+                    LayoutStockCells.ForRooms(layout.Rooms, layout.Court == null ? LayoutRoomKind.Storage : LayoutRoomKind.MortarMagazine),
+                    mortarOrigin, layout.Court?.Access.FirstOrDefault()));
                 if (fieldWall != null || quest != null)
                 {
                     HashSet<GridPoint> postOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
@@ -370,8 +380,8 @@ namespace RealisticBases.Generation
                     if (ToCell(c).GetTransmitter(map) == null)
                         Spawn(tx, conduitDef, null, c, map, settlement.Faction, Rot4.North);
                 if (layout.Court != null)
-                    mortar = Spawn(tx, ThingDefOf.Turret_Mortar, ThingDefOf.Steel, encounter.MortarCell,
-                        map, settlement.Faction, Rot4.North);
+                    mortar = Spawn(tx, ThingDefOf.Turret_Mortar, ThingDefOf.Steel, mortarOrigin.Value,
+                        map, settlement.Faction, Rotation(layout.Court.Rotation));
 
                 ThingDef crop = DefDatabase<ThingDef>.GetNamedSilentFail(run.ProfileId == "tribal-temperate-v1" ? "Plant_Rice" : "Plant_Rice") ?? Require("Plant_Rice");
                 foreach (GridPoint c in fields)
@@ -415,7 +425,13 @@ namespace RealisticBases.Generation
                 foreach (CombatSupply supply in encounter.Supplies)
                 {
                     if (supply.DefName == "ReinforcedBarrel" && Find.Storyteller.difficulty.classicMortars) continue;
-                    combatStocks.AddRange(SpawnStacks(tx, Require(supply.DefName), supply.Count, storageCells, map));
+                    combatStocks.AddRange(SpawnStacks(tx, Require(supply.DefName), supply.Count,
+                        LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.MortarMagazine), map));
+                }
+                if (mortar != null && P4EFacilityDebugActions.FailNextMagazineStocks)
+                {
+                    P4EFacilityDebugActions.FailNextMagazineStocks = false;
+                    throw new InvalidOperationException("forced P4E failure after finite magazine stocks");
                 }
                 foreach (IGrouping<string, P4BTurretPlan> group in turretPlans.GroupBy(t => t.FuelDefName))
                     combatStocks.AddRange(SpawnStacks(tx, Require(group.Key), group.Sum(t => t.ReserveFuelUnits),
@@ -447,6 +463,25 @@ namespace RealisticBases.Generation
                     " batchingWasDisabled=" + pathUpdatesBatched + " changedWalkability=" + previousWalkability.Count(pair =>
                         map.pathing.Normal.pathGrid.Walkable(pair.Key) != pair.Value));
                 map.powerNetManager.UpdatePowerNetsAndConnections_First();
+                if (mortar != null)
+                {
+                    LayoutRoom magazine = layout.Rooms.Single(r => r.Kind == LayoutRoomKind.MortarMagazine);
+                    IntVec3 stockCell = ToCell(magazine.Interior.Points().Single());
+                    Room actualRoom = stockCell.GetRoom(map);
+                    Thing[] magazineStocks = combatStocks.Where(t => t.Spawned && t.Position == stockCell).ToArray();
+                    if (mortar.InteractionCell != ToCell(layout.Court.Access.Single()) ||
+                        mortar.OccupiedRect().Cells.Append(mortar.InteractionCell).Any(c => c.Roofed(map)) ||
+                        !(stockCell.GetEdifice(map) is Building_Storage) || !stockCell.Roofed(map) ||
+                        actualRoom == null || actualRoom.CellCount != 1 || actualRoom.UsesOutdoorTemperature ||
+                        !map.reachability.CanReach(mortar.InteractionCell, stockCell, PathEndMode.OnCell,
+                            TraverseParms.For(TraverseMode.PassDoors)))
+                        throw new InvalidOperationException("Realized mortar magazine/rotation/loading access differs from plan");
+                    P2Log.Message("PROCEDURAL_MORTAR_MAGAZINE_AUDIT", "map=" + map.uniqueID +
+                        " gun=" + mortar.thingIDNumber + " rotation=" + mortar.Rotation + " operator=" + mortar.InteractionCell +
+                        " stock=" + stockCell + " interiorCells=" + actualRoom.CellCount + " roofed=True loadingReachable=True" +
+                        " publicRoute=" + ProceduralLayoutValidator.MagazineLoadingRoute(input, layout).Count +
+                        " stocks=" + string.Join(",", magazineStocks.Select(t => t.def.defName + ":" + t.stackCount + ":" + t.thingIDNumber)));
+                }
                 foreach (P4BTurretPlan plan in turretPlans)
                 {
                     Thing turret = turrets[plan];

@@ -72,7 +72,8 @@ namespace RealisticBases.Planning
             SettlementRole.Sleep, SettlementRole.MedicalBed, SettlementRole.MedicalMonitor, SettlementRole.Seat, SettlementRole.Table,
             SettlementRole.Light, SettlementRole.Heat, SettlementRole.Cool, SettlementRole.Cooking, SettlementRole.CraftSmithing,
             SettlementRole.CraftTailoring, SettlementRole.CraftMachining, SettlementRole.CraftFabrication, SettlementRole.CraftStonecutting,
-            SettlementRole.Storage, SettlementRole.Recreation, SettlementRole.Research, SettlementRole.ResearchAnalyzer, SettlementRole.MedicalStorage
+            SettlementRole.Storage, SettlementRole.Recreation, SettlementRole.Research, SettlementRole.ResearchAnalyzer,
+            SettlementRole.MedicalStorage, SettlementRole.MortarStorage
         });
 
         // Workshop bench roles in placement order.

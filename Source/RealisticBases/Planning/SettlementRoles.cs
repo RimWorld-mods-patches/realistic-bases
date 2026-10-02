@@ -30,7 +30,8 @@ namespace RealisticBases.Planning
         UtilityBelt,
         Research,
         ResearchAnalyzer,
-        MedicalStorage
+        MedicalStorage,
+        MortarStorage
     }
 
     // One preference. A virtual option (a zone) needs no def and is always legal.
@@ -134,6 +135,7 @@ namespace RealisticBases.Planning
                 new RoleDefinition(SettlementRole.ResearchAnalyzer, false, new[] { d("MultiAnalyzer") }),
                 new RoleDefinition(SettlementRole.Storage, true, new[] { d("Shelf"), RoleOption.Zone("Stockpile") }),
                 new RoleDefinition(SettlementRole.MedicalStorage, false, new[] { d("ShelfSmall"), d("Shelf") }),
+                new RoleDefinition(SettlementRole.MortarStorage, false, new[] { d("ShelfSmall") }),
                 new RoleDefinition(SettlementRole.Recreation, false, new[]
                 {
                     d("ChessTable"), d("BilliardsTable"), d("PokerTable"), capped("HorseshoesPin", medieval), capped("HoopstoneRing", medieval),
