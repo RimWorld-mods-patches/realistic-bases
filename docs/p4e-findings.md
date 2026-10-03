@@ -469,3 +469,49 @@ identities and untouched twelve-HE/two-incendiary/two-spare ledger; medicine
 remains the same25-unit shelf stack64076. Initial generation-tick power/room
 temperature samples are not thermal settling evidence. P4E.4 is complete;
 integrated settling/primitive/terrain/quest/recovery coverage remains P4E.5.
+
+## P4E.5 — Rearm retry and stack-overflow regression
+
+2026-10-03: the fresh ten-resident layout exposed a service failure that the
+earlier layout did not. Lorenzo64227 repeatedly picked up/dropped the same
+74-unit steel stack70956 while autocannon63416 stayed empty. The saved failure
+at10696 and original log are preserved under ignored runtime storage. This
+failed probe is not rearm acceptance evidence.
+
+There were two independent routing defects. Native fuel pickup uses
+ClosestTouch (which can resolve to OnCell), while turret service uses Touch.
+The wrapper selected Touch endpoints for both. An already-adjacent fuel
+endpoint could therefore return the current cell and synchronously recurse
+through GotoCell/Jump, matching the reported stack-guard crash with27407 levels
+of unnamed managed recursion. Exact managed frame attribution is unavailable
+in that crash report; the implementation now uses the native stage's actual
+arrival mode and explicitly refuses stationary waypoints.
+
+Native shortest paths could also shortcut outside the declared service area.
+The saved wall-only topology has a56-cell cardinal bounded detour with19
+exterior cells, exceeding the12-cell combat-transfer limit even without nearby
+enemies. Logistics now has a separate32-cell exterior ceiling, retaining the
+160-cell total and8-cell exposed ceilings. Combat/post transfers remain12.
+The service fallback searches only declared walkable cells, audits the whole
+detour, then selects a progressing native leg and audits its complete remainder.
+No exterior rectangle, teleport, extra supplies or smoke-based safety exemption
+is introduced. Failed services defer only the same worker/target for300ticks;
+other work remains available. Pure tests cover same-tick restart suppression,
+expiry, other workers/targets, U-shaped shortcuts, blocked/stationary routes,
+aggregate exterior/exposure limits and eventual arrival. Full planner/garrison
+suite and Release build pass (0 warnings/errors).
+
+The exact failure save now passes twice with the same real worker/gun:
+at14947, fuel0→62.5 and recorded operating reserve426→375 (the original74
+dropped units were recovered, giving125 actual steel consumed from500 physical
+units); active reload14947→14948 preserved62.5 fuel and375 reserve. The second
+explicit depletion/rearm passes at17560, fuel0→37 using74 steel, reserve375→301.
+No ten-jobs errors, deferred service failures or crash occur in this corrected
+run. All ten defenders remain assigned, outsideBounds=0 and no player control.
+Evidence: p4e-service-rearm-two-cycles-reload-20261003.log.
+
+Settled facility audits at17560 show the powered lab21.20C with one active
+analyzer, workshop21.06C and seated working cells; outdoors24.07C. Medicine
+remains the original shelf stack64076:25. Remaining primitive/constrained,
+quest/native-fallback and late-recovery checks are still open; P4E.5 is not
+complete from this bug fix alone.

@@ -26,6 +26,10 @@ namespace RealisticBases.Planning
         public const int MaximumCells = 160;
         public const int MaximumExteriorCells = 12;
         public const int MaximumExposedCells = 8;
+        // Supplying an exterior emplacement is not a post-to-post combat
+        // transfer. Keep it on declared corridors with bounded exposure, but
+        // allow the short wrap around a bastion/field corner.
+        public const int MaximumServiceExteriorCells = 32;
 
         // Native eight-way movement rounds the corners of cardinal planner
         // routes. Declare one cell of legal clearance, not an entire exterior
@@ -95,6 +99,55 @@ namespace RealisticBases.Planning
             }
             reportLength?.Invoke(best.HasValue ? bestLength : 0);
             return best;
+        }
+
+        // Native shortest paths may cut across undeclared exterior cells even
+        // when a legal service corridor exists. Search only declared walkable
+        // cells, then choose a progressing native leg whose complete remainder
+        // still satisfies the same aggregate movement/exposure limits.
+        public static GridPoint? ServiceDetour(GridPoint from, IEnumerable<GridPoint> destinations,
+            Func<GridPoint, bool> walkable, Func<GridPoint, GridPoint, IReadOnlyList<GridPoint>> nativePath,
+            IReadOnlyCollection<GridPoint> defended, IReadOnlyCollection<GridPoint> interior,
+            IEnumerable<GridPoint> hostileCells, IReadOnlyCollection<GridPoint> opaque,
+            int maximumExterior = MaximumExteriorCells)
+        {
+            var area = new HashSet<GridPoint>(defended);
+            var goals = new HashSet<GridPoint>(destinations.Where(c => !c.Equals(from)));
+            if (!area.Contains(from) || goals.Count == 0) return null;
+            var previous = new Dictionary<GridPoint, GridPoint>();
+            var depth = new Dictionary<GridPoint, int> { [from] = 1 };
+            var queue = new Queue<GridPoint>(); queue.Enqueue(from);
+            GridPoint[] offsets = { new GridPoint(0, 1), new GridPoint(1, 0),
+                new GridPoint(0, -1), new GridPoint(-1, 0) };
+            while (queue.Count > 0)
+            {
+                GridPoint current = queue.Dequeue();
+                if (goals.Contains(current))
+                {
+                    var route = new List<GridPoint> { current };
+                    while (!current.Equals(from)) { current = previous[current]; route.Add(current); }
+                    route.Reverse();
+                    if (!Audit(route, defended, interior, hostileCells, opaque, maximumExterior: maximumExterior).Allowed) continue;
+                    for (int i = Math.Min(32, route.Count - 1); i > 0; i--)
+                    {
+                        var leg = nativePath(from, route[i]);
+                        if (leg == null || leg.Count < 2 || !leg[0].Equals(from) ||
+                            !leg[leg.Count - 1].Equals(route[i])) continue;
+                        if (Audit(leg.Concat(route.Skip(i + 1)), defended, interior, hostileCells, opaque,
+                            maximumExterior: maximumExterior).Allowed)
+                            return route[i];
+                    }
+                    continue;
+                }
+                if (depth[current] >= MaximumCells) continue;
+                foreach (GridPoint offset in offsets)
+                {
+                    var next = new GridPoint(current.X + offset.X, current.Z + offset.Z);
+                    if (!area.Contains(next) || depth.ContainsKey(next) || !walkable(next)) continue;
+                    previous[next] = current; depth[next] = depth[current] + 1; queue.Enqueue(next);
+                }
+            }
+            return null;
         }
 
         public static P3DefenderRouteAudit Audit(IEnumerable<GridPoint> route,

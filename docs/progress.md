@@ -176,7 +176,7 @@ Detailed scope: [P4E facility and defense plan](p4e-facilities-plan.md). Preserv
 | P4E.2 | Seats and medicine shelves | All cardinal orientations, stage/fallback shelves, native seated chewing/fetch and identical thirteen-unit medicine stack through active reload | Complete |
 | P4E.3 | Compact magazines and up to three mortars | Pure caps/ledger/identity, native two/three crews and reload, legacy migration, loss/exhaustion/hazard, exact captured flat-map repair and full suites/Release verified (2026-10-03) | Complete |
 | P4E.4 | Increased ordinary defense allowance/autocannons | Matched125% allowance/real power, native auto fire/routed finite rearm/power loss/pawn support, legal finite smoke, unchanged roster/quest budgets | Complete |
-| P4E.5 | Integrated closeout | Relevant full suites/build, terrain/GL and P4D smoke, late recovery/retry and active reload | Pending |
+| P4E.5 | Integrated closeout | New-layout service retry/arrival/stack-overflow regression fixed; two finite native rearm cycles, active reload and settled lab/workshop pass; terrain/GL, P4D smoke, late recovery and final regression remain | In progress |
 
 ## Future planning update — 2026-09-24
 

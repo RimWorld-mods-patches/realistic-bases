@@ -115,6 +115,7 @@ namespace RealisticBases.AI
         private List<Pawn> defenders = new List<Pawn>();
         private List<Thing> ownedThings = new List<Thing>();
         private List<Thing> operatingStocks = new List<Thing>();
+        private readonly P3ServiceRetry serviceRetry = new P3ServiceRetry();
         private List<string> postIds = new List<string>();
         private List<string> postSectors = new List<string>();
         private List<IntVec3> postCells = new List<IntVec3>();
@@ -608,6 +609,7 @@ namespace RealisticBases.AI
                 .ThenBy(t => t.thingIDNumber))
             {
                 if (thing is Building_TurretGun && thing.TryGetComp<CompMannable>() != null) continue;
+                if (!serviceRetry.Allowed(pawn.thingIDNumber, thing.thingIDNumber, GenTicks.TicksGame)) continue;
                 WorkGiver_Refuel worker = thing is Building_Turret ? rearm : refuel;
                 if (worker != null && worker.HasJobOnThing(pawn, thing))
                 {
@@ -1055,29 +1057,64 @@ namespace RealisticBases.AI
                     " total=" + postIds.Count);
         }
 
-        internal IntVec3 ServiceWaypoint(Pawn pawn, Thing target)
+        internal IntVec3 ServiceWaypoint(Pawn pawn, Thing target, PathEndMode mode)
         {
             var opaque = RuntimeOpaqueCells();
-            var candidates = target.OccupiedRect().ExpandedBy(1).Cells.Where(c => InsideBounds(c) &&
-                c.Standable(map) && ReachabilityImmediate.CanReachImmediate(c, target, map, PathEndMode.Touch, pawn))
+            var candidates = target.OccupiedRect().ExpandedBy(1).Cells.Where(c => c != pawn.Position && InsideBounds(c) &&
+                c.Standable(map) && ReachabilityImmediate.CanReachImmediate(c, target, map, mode, pawn))
                 .OrderBy(c => c.DistanceToSquared(pawn.Position)).ToArray();
             foreach (IntVec3 cell in candidates)
             {
-                var route = ResponseRouteAllowed(pawn, pawn.Position, cell, opaque);
+                var route = ResponseRouteAllowed(pawn, pawn.Position, cell, opaque, P3DefenderRoute.MaximumServiceExteriorCells);
                 if (route.Allowed) { SmokeForServiceLeg(pawn, route); return cell; }
             }
             foreach (IntVec3 cell in candidates)
             {
-                IntVec3 gate = gateCells.Where(c => c.IsValid && InsideBounds(c) && c.Standable(map))
-                    .OrderBy(c => c.DistanceToSquared(cell)).FirstOrDefault();
-                var next = ResponseWaypoint(pawn, cell, opaque, gate);
-                if (next.HasValue)
+                foreach (IntVec3 gate in gateCells.Concat(postAccessGates)
+                    .Where(c => c.IsValid && InsideBounds(c) && c.Standable(map)).Distinct()
+                    .OrderBy(c => c.DistanceToSquared(cell)))
                 {
-                    SmokeForServiceLeg(pawn, ResponseRouteAllowed(pawn, pawn.Position, ToCell(next.Value), opaque));
-                    return ToCell(next.Value);
+                    var next = ResponseWaypoint(pawn, cell, opaque, gate);
+                    if (next.HasValue && ToCell(next.Value) != pawn.Position)
+                    {
+                        SmokeForServiceLeg(pawn, ResponseRouteAllowed(pawn, pawn.Position, ToCell(next.Value), opaque));
+                        return ToCell(next.Value);
+                    }
                 }
             }
+            var enemies = map.mapPawns.AllPawnsSpawned.Where(p => p.Faction != null && faction != null &&
+                p.HostileTo(faction) && !p.Dead && !p.Downed).Select(p => new GridPoint(p.Position.x, p.Position.z)).ToArray();
+            var detour = P3DefenderRoute.ServiceDetour(new GridPoint(pawn.Position.x, pawn.Position.z),
+                candidates.Select(c => new GridPoint(c.x, c.z)), c => ToCell(c).Standable(map),
+                (from, to) =>
+                {
+                    using (PawnPath path = map.pathFinder.FindPathNow(ToCell(from), ToCell(to), TraverseParms.For(pawn), null, PathEndMode.OnCell))
+                        return path.Found ? path.NodesReversed.AsEnumerable().Reverse()
+                            .Select(c => new GridPoint(c.x, c.z)).ToArray() : new GridPoint[0];
+                }, defendedCells.Select(c => new GridPoint(c.x, c.z)).ToArray(),
+                interiorCells.Select(c => new GridPoint(c.x, c.z)).ToArray(), enemies, opaque,
+                P3DefenderRoute.MaximumServiceExteriorCells);
+            if (detour.HasValue)
+            {
+                SmokeForServiceLeg(pawn, ResponseRouteAllowed(pawn, pawn.Position, ToCell(detour.Value), opaque,
+                    P3DefenderRoute.MaximumServiceExteriorCells));
+                return ToCell(detour.Value);
+            }
             return IntVec3.Invalid;
+        }
+
+        internal void ServiceFailed(Pawn pawn, Job job, string stage)
+        {
+            Thing target = job.targetA.Thing;
+            if (target == null) return;
+            serviceRetry.Failed(pawn.thingIDNumber, target.thingIDNumber, GenTicks.TicksGame);
+            var opaque = RuntimeOpaqueCells();
+            string routes = string.Join("|", target.OccupiedRect().ExpandedBy(1).Cells
+                .Where(c => InsideBounds(c) && c.Standable(map))
+                .Select(c => c + ":" + ResponseRouteAllowed(pawn, pawn.Position, c, opaque).Reason));
+            P3Log.Message("SERVICE_RETRY_DEFERRED", "map=" + map.uniqueID + " pawn=" + pawn.thingIDNumber +
+                " position=" + pawn.Position + " target=" + target.thingIDNumber + " stage=" + stage +
+                " fuel=" + job.targetB + " retryTicks=" + P3ServiceRetry.Delay + " routes=" + routes);
         }
 
         private CompApparelReloadable SmokePack(Pawn pawn) => pawn.apparel?.WornApparel
@@ -1131,7 +1168,7 @@ namespace RealisticBases.AI
         }
 
         private P3DefenderRouteAudit ResponseRouteAllowed(Pawn pawn, IntVec3 from, IntVec3 destination,
-            IReadOnlyCollection<GridPoint> opaque)
+            IReadOnlyCollection<GridPoint> opaque, int maximumExterior = P3DefenderRoute.MaximumExteriorCells)
         {
             if (pawn == null || !from.InBounds(map) || !destination.InBounds(map) ||
                 !InsideBounds(from) || !InsideBounds(destination))
@@ -1148,7 +1185,8 @@ namespace RealisticBases.AI
                     faction != null && p.HostileTo(faction) && !p.Dead && !p.Downed)
                     .Select(p => new GridPoint(p.Position.x, p.Position.z)).ToList();
                 return P3DefenderRoute.Audit(cells, defendedCells.Select(c => new GridPoint(c.x, c.z)).ToList(),
-                    interiorCells.Select(c => new GridPoint(c.x, c.z)).ToList(), enemies, opaque);
+                    interiorCells.Select(c => new GridPoint(c.x, c.z)).ToList(), enemies, opaque,
+                    maximumExterior: maximumExterior);
             }
         }
 

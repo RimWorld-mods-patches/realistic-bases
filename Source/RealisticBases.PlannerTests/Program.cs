@@ -67,6 +67,8 @@ internal static class Program
         Run("P3 reserves a mortar post before earlier pawn ids are assigned", P3MortarPostReservation);
         Run("P4E unique multiple crews survive gun and operator loss", P4EMultipleCrews);
         Run("P3 reinforcement audits the whole route under fire", P3ReinforcementRouteUnderFire);
+        Run("P3 failed service defers same-tick retries without blocking other work", P3ServiceRetryBackoff);
+        Run("P3 service detours follow declared corridors and cannot return a stationary waypoint", P3ServiceDetour);
         Run("P3 field penetration holds compound entrances before inner defeat", P3FieldToCompoundFallback);
         Run("P3 industrial encounter plan is deterministic and valid", P3IndustrialEncounterPlanIsDeterministicAndValid);
         Run("P3 posts avoid opaque walls and cover approaches", P3PostsAvoidOpaqueWallsAndCoverApproaches);
@@ -78,6 +80,66 @@ internal static class Program
         Run("P3 geometry rejects disconnected gate endpoints and missing court", P3GeometryRejectsInvalidInputs);
         Console.WriteLine("P1/P2/P3/P4 pure tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures);
         return failures == 0 ? 0 : 1;
+    }
+
+    private static void P3ServiceDetour()
+    {
+        GridPoint start = new GridPoint(0, 0), finish = new GridPoint(6, 0);
+        var corridor = new List<GridPoint>();
+        for (int z = 0; z <= 5; z++) corridor.Add(new GridPoint(0, z));
+        for (int x = 1; x <= 6; x++) corridor.Add(new GridPoint(x, 5));
+        for (int z = 4; z >= 0; z--) corridor.Add(new GridPoint(6, z));
+        Func<GridPoint, GridPoint, IReadOnlyList<GridPoint>> native = (a, b) =>
+        {
+            var path = new List<GridPoint> { a };
+            while (!a.Equals(b))
+            {
+                a = new GridPoint(a.X + Math.Sign(b.X - a.X), a.Z + Math.Sign(b.Z - a.Z)); path.Add(a);
+            }
+            return path;
+        };
+        Equal("outside_defended_area", P3DefenderRoute.Audit(native(start, finish), corridor, corridor,
+            new GridPoint[0], new GridPoint[0]).Reason, "native shortcut leaves U-shaped corridor");
+        Equal(new GridPoint(0, 5), P3DefenderRoute.ServiceDetour(start, new[] { finish }, c => true,
+            native, corridor, corridor, new GridPoint[0], new GridPoint[0]).Value, "legal first bend is selected");
+        True(!P3DefenderRoute.ServiceDetour(start, new[] { start }, c => true, native,
+            corridor, corridor, new GridPoint[0], new GridPoint[0]).HasValue, "zero-distance loop refused");
+        True(!P3DefenderRoute.ServiceDetour(start, new[] { finish }, c => !c.Equals(new GridPoint(3, 5)),
+            native, corridor, corridor, new GridPoint[0], new GridPoint[0]).HasValue, "blocked corridor cannot be traversed");
+        True(!P3DefenderRoute.ServiceDetour(start, new[] { finish }, c => true, native,
+            corridor, new GridPoint[0], new GridPoint[0], new GridPoint[0]).HasValue, "aggregate exterior bound remains enforced");
+        True(P3DefenderRoute.ServiceDetour(start, new[] { finish }, c => true, native,
+            corridor, new GridPoint[0], new GridPoint[0], new GridPoint[0],
+            P3DefenderRoute.MaximumServiceExteriorCells).HasValue, "finite service detour may wrap a bastion corner");
+        var longService = Enumerable.Range(0, 33).Select(x => new GridPoint(x, 0)).ToArray();
+        True(!P3DefenderRoute.ServiceDetour(start, new[] { longService.Last() }, c => true, native,
+            longService, new GridPoint[0], new GridPoint[0], new GridPoint[0],
+            P3DefenderRoute.MaximumServiceExteriorCells).HasValue, "service exterior has its own hard limit");
+        True(!P3DefenderRoute.ServiceDetour(start, new[] { finish }, c => true, native,
+            corridor, corridor, new[] { new GridPoint(3, 2) }, new GridPoint[0]).HasValue,
+            "aggregate exposure bound remains enforced");
+        GridPoint current = start;
+        int moves = 0;
+        while (!current.Equals(finish) && moves++ < corridor.Count)
+        {
+            var next = P3DefenderRoute.ServiceDetour(current, new[] { finish }, c => true, native,
+                corridor, corridor, new GridPoint[0], new GridPoint[0]);
+            True(next.HasValue && !next.Value.Equals(current), "every resumed leg progresses");
+            current = next.Value;
+        }
+        Equal(finish, current, "successive bounded waypoints reach service target");
+    }
+
+    private static void P3ServiceRetryBackoff()
+    {
+        var retry = new P3ServiceRetry();
+        True(retry.Allowed(1, 2, 100), "first attempt permitted");
+        retry.Failed(1, 2, 100);
+        for (int i = 0; i < 20; i++) True(!retry.Allowed(1, 2, 100), "same-tick restart blocked");
+        True(!retry.Allowed(1, 2, 399), "bounded backoff retained");
+        True(retry.Allowed(1, 2, 400), "retry after finite delay");
+        True(retry.Allowed(1, 3, 100), "other target available");
+        True(retry.Allowed(3, 2, 100), "other worker available");
     }
 
     private static void StableSeedAndInputDigest()

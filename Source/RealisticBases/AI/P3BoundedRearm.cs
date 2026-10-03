@@ -11,6 +11,11 @@ namespace RealisticBases.AI
     {
         protected override IEnumerable<Toil> MakeNewToils()
         {
+            AddFinishAction(condition =>
+            {
+                if (condition == JobCondition.Incompletable || condition == JobCondition.Errored)
+                    pawn.Map?.GetComponent<P3GarrisonController>()?.ServiceFailed(pawn, job, CurToilString);
+            });
             int index = 0;
             foreach (Toil native in base.MakeNewToils())
             {
@@ -25,8 +30,11 @@ namespace RealisticBases.AI
                         Thing target = job.GetTarget(targetIndex).Thing;
                         if (target == null) { EndJobWith(JobCondition.Incompletable); return; }
                         if (pawn.CanReachImmediate(target, mode)) { JumpToToil(native); return; }
-                        IntVec3 next = pawn.Map.GetComponent<P3GarrisonController>().ServiceWaypoint(pawn, target);
-                        if (!next.IsValid) { EndJobWith(JobCondition.Incompletable); return; }
+                        IntVec3 next = pawn.Map.GetComponent<P3GarrisonController>().ServiceWaypoint(pawn, target, mode);
+                        // GotoCell on the current cell completes synchronously;
+                        // its jump back would recurse until the native stack
+                        // overflows. Every service leg must make progress.
+                        if (!next.IsValid || next == pawn.Position) { EndJobWith(JobCondition.Incompletable); return; }
                         job.SetTarget(TargetIndex.C, next);
                     };
                     yield return select;
