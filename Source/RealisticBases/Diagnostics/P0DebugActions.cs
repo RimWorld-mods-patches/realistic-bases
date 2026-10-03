@@ -381,6 +381,15 @@ namespace RealisticBases.Diagnostics
             P2Log.Message("DEBUG_ARM", "P4A stage=IndustrialLate once; faction stage unchanged");
         }
 
+        [DebugAction(Category, "Use neolithic P4 stage once", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void ForceNeolithicStage()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new System.InvalidOperationException("Disposable profile only");
+            P4AMapPlanner.DebugStageNext = SettlementTechStageLevel.Neolithic;
+            P2Log.Message("DEBUG_ARM", "P4A stage=Neolithic once; faction stage unchanged");
+        }
+
         [DebugAction(Category, "Use tribal profile for next generation", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.Playing)]
         private static void ForceTribalProfile()

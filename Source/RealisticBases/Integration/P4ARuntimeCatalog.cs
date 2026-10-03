@@ -97,7 +97,9 @@ namespace RealisticBases.Integration
                     Number(Member(building, "combatPower")), Names(Member(affected, "linkableFacilities")),
                     Number(Member(facility, "maxDistance")), Bool(Member(building, "isSittable")),
                     thing.thingClass != null && (typeof(Building_WorkTable).IsAssignableFrom(thing.thingClass) ||
-                        typeof(Building_ResearchBench).IsAssignableFrom(thing.thingClass))));
+                        typeof(Building_ResearchBench).IsAssignableFrom(thing.thingClass)),
+                    Elements(comps).Any(c => Member(c, "compClass") is Type compClass &&
+                        typeof(CompQuality).IsAssignableFrom(compClass))));
             }
             List<CatalogResearch> projects = DefDatabase<ResearchProjectDef>.AllDefsListForReading
                 .Select(project => new CatalogResearch(project.defName, Tier(Member(project, "techLevel")),

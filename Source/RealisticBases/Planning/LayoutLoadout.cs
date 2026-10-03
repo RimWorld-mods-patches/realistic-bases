@@ -364,7 +364,8 @@ namespace RealisticBases.Planning
 
             public LoadoutItem Realize(TechCatalog catalog, int shift)
             {
-                LoadoutQuality quality = (LoadoutQuality)Math.Max(0, Math.Min((int)LoadoutQuality.Legendary, (int)Quality + shift));
+                LoadoutQuality? quality = catalog.TryGet(DefName, out CatalogDef def) && def.SupportsQuality
+                    ? (LoadoutQuality?)Math.Max(0, Math.Min((int)LoadoutQuality.Legendary, (int)Quality + shift)) : null;
                 return new LoadoutItem(DefName, Stuff, quality, 1, UnitValue(catalog, DefName, Stuff, quality));
             }
         }

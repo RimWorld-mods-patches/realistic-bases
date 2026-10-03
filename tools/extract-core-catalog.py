@@ -309,6 +309,10 @@ def main():
         work = max(float(text(d, "statBases/WorkToMake", "0")), float(text(d, "statBases/WorkToBuild", "0")))
         if work > 0:
             args.append("workToMake: %r" % work)
+        if kind in ("Weapon", "Apparel"):
+            has_quality = any((c.findtext("compClass") or "").split(".")[-1] == "CompQuality"
+                              for c in d.findall("comps/li"))
+            args.append("supportsQuality: " + ("true" if has_quality else "false"))
         stack = text(d, "stackLimit")
         if stack and int(stack) > 1:
             args.append("stackLimit: %d" % int(stack))

@@ -406,6 +406,7 @@ namespace RealisticBases.Planning
                 else if (!catalog.IsLegal(def, kit.Stage)) errors.Add("loadout_illegal_" + item.DefName);
                 if (item.Stuff != null && !catalog.IsLegal(item.Stuff, kit.Stage)) errors.Add("loadout_illegal_stuff_" + item.DefName + "_" + item.Stuff);
                 if (item.Count <= 0) errors.Add("loadout_count_" + item.DefName);
+                if (item.Quality.HasValue && !def.SupportsQuality) errors.Add("loadout_quality_unsupported_" + item.DefName);
             }
             if (loadout.Residents.Count != input.Requirements.Residents) errors.Add("loadout_resident_count");
             if (!loadout.Residents.Any(r => r.Role == LoadoutRole.RangedLine)) errors.Add("loadout_no_ranged_line");

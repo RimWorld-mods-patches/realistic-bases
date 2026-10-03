@@ -515,3 +515,55 @@ analyzer, workshop21.06C and seated working cells; outdoors24.07C. Medicine
 remains the original shelf stack64076:25. Remaining primitive/constrained,
 quest/native-fallback and late-recovery checks are still open; P4E.5 is not
 complete from this bug fix alone.
+
+### Paused checkpoint (2026-10-03)
+
+Paused at the user's request after commitadeea58. The corrected failure save
+and both passing cycles are preserved as RealisticBases-P4E5-rearm-loop.rws
+(original failure), RealisticBases-P4E5-rearm-two-passes.rws (corrected17560),
+and p4e-service-rearm-two-cycles-reload-20261003.log. The disposable game was
+stopped after loading the untouched baseline for the remaining matrix; no new
+primitive/terrain/quest test was run. Its autostart currently holds a disposable
+copy of RealisticBases-P0-Disposable.rws, not the rearm snapshot.
+
+The new full layout run was intentionally interrupted, not passed. Its partial
+log is p4e5-final-layout-tests-20261003.txt; the focused P4E cases reached so far
+passed, but resume must finish the full suite and remaining integrated matrix.
+The exact test container was stopped; unrelated Docker buildkit was preserved.
+No merge or push was performed. P4E.5 remains in progress.
+
+### Resumed integrated checks and primitive quality correction
+
+The resumed full layout suite passed at770947ms, then a live explicit Neolithic
+case found a previously hidden item-capability mismatch: Core's club has no
+CompQuality, but all planned weapons received quality. The failed flat spawn
+rolled back696 owned things and all394 cleared plants, recovered=True. The
+runtime catalog and generated Core fixture now explicitly record quality
+capability; resident/spare gear only receives quality when that capability
+exists, and validation rejects unsupported quality. Native spawn still fails
+closed on an impossible quality request; it does not silently discard it.
+Seeded quality remains unchanged for quality-bearing gear, while ungraded clubs
+use their actual unmodified value. All loadout tests, including six-stage
+realizability and the club regression, pass. The full updated layout suite
+passes again at802144ms (p4e5-quality-final-full-tests-20261003.txt).
+
+An explicit one-shot Neolithic stage action was added for repeatable API tests;
+the tribal profile action alone does not override faction tech. Fresh ordinary
+Neolithic flat layout347DBAD6DEAC515C committed six residents, nine rooms,
+210 crops, no electrical network/coolers/turrets/mortars or smoke packs, and
+retained its identities/finish through active reload. Three actual clubs are
+present without invented quality. Its simple decorative research bench and
+crafting working cells are seated; heating campfires are not all workstations.
+Unavailable medical shelving deliberately falls back to the same finite herbal
+stack55804:17, shelves=0. Primitive room samples are not claims of electric
+21C regulation. Evidence: p4e5-neolithic-flat-reload-20261003.log and the saved
+RealisticBases-P4E5-primitive.rws.
+
+Separate accepted constrained coverage is the industrial mountainous
+layout6AA837E949B7718E: nine residents, thirteen rooms,206 excavated cells,
+128 retained roofs,159 smooth walls, and native final terrain/roof/edge audits
+plus active reload. Its tribal profile label does not make its IndustrialMid
+stage primitive. The actual primitive mountainous candidate rejected before
+mutation on rock-blocked OpenGround spines; this omission is not counted as
+successful generation. Evidence: p4e5-industrial-mountain-reload-20261003.log
+and p4e5-primitive-quality-rollback-20261003.log.

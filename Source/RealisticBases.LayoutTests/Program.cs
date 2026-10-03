@@ -133,6 +133,7 @@ internal static partial class Program
         Run("loadout: cold adds shells, hot never does", LoadoutClimate);
         Run("loadout: spacer shield belts only on melee, one helmet", LoadoutSpacer);
         Run("loadout: quality is seeded and deterministic", LoadoutQualityDeterminism);
+        Run("loadout: quality requires a native quality component", LoadoutQualityCapability);
         Run("loadout: armoury, medicine and component stocks", LoadoutStocks);
         Run("loadout: tribal has no gun, flak or industrial medicine", LoadoutTribal);
         Run("loadout: temperate kits fit the stage default budget", LoadoutBudgetDefaults);
@@ -2202,7 +2203,8 @@ internal static partial class Program
             Equal(100, weights.Sum(), level + " quality weights sum to 100");
             int top = Enumerable.Range(0, weights.Count).Last(q => weights[q] > 0);
             SettlementLoadout loadout = Loadout(level, Temperate, 16, 3, 10000000);
-            True(loadout.Residents.Where(r => !r.Elite).SelectMany(r => r.Items).All(i => (int)i.Quality.Value <= top), level + " quality within the stage table");
+            True(loadout.Residents.Where(r => !r.Elite).SelectMany(r => r.Items).Where(i => i.Quality.HasValue)
+                .All(i => (int)i.Quality.Value <= top), level + " quality-bearing gear within the stage table");
         }
         True(Loadout(SettlementTechStageLevel.Neolithic, Temperate, 16, 3, 10000000).AllItems.Where(i => i.Quality.HasValue)
             .Count(i => i.Quality.Value <= LoadoutQuality.Poor) > 0, "tribal gear is often poor");
@@ -2232,6 +2234,24 @@ internal static partial class Program
     {
         CatalogDef def;
         return CoreCatalog.TryGet(defName, out def) && def.Category == CatalogCategory.Weapon;
+    }
+
+    private static void LoadoutQualityCapability()
+    {
+        True(CoreCatalog.TryGet("MeleeWeapon_Club", out CatalogDef club) && !club.SupportsQuality,
+            "resolved Core club has no quality component");
+        True(CoreCatalog.TryGet("Gun_AssaultRifle", out CatalogDef rifle) && rifle.SupportsQuality,
+            "quality-bearing weapons retain their native capability");
+        SettlementLoadout primitive = Loadout(SettlementTechStageLevel.Neolithic, Temperate, 12, 5, 10000000);
+        var clubs = primitive.AllItems.Where(i => i.DefName == "MeleeWeapon_Club").ToArray();
+        True(clubs.Length > 0 && clubs.All(i => !i.Quality.HasValue), "resident and spare clubs have no invented quality");
+        foreach (SettlementTechStageLevel level in TechStageModel.Levels)
+        {
+            var loadout = Loadout(level, Temperate, 12, 5, 10000000);
+            True(loadout.AllItems.All(i => !i.Quality.HasValue ||
+                CoreCatalog.TryGet(i.DefName, out CatalogDef def) && def.SupportsQuality), level + " all planned quality is realizable");
+            LoadoutValid(level, Temperate, loadout);
+        }
     }
 
     private static void LoadoutTribal()
