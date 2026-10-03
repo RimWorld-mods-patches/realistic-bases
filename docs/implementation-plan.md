@@ -231,6 +231,7 @@ The defense-budget increase is explicitly authorized here; choose a bounded docu
 3. Add more shells. At least 30 HE + 10 incendiary shells per mortar.
 4. Cabinets are incorrectly oriented.
 5. We still have no floors in some rooms.
+6. The wealthiest spacer settlements can have uranium/plasteel walls.
 
 ### P5 — Encounter supplies, trade stock, and persistent consequences
 
