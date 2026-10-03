@@ -87,6 +87,31 @@ namespace RealisticBases.Diagnostics
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
         private static void LoadingProbe() => Find.CurrentMap?.GetComponent<P4EArtilleryProbe>().Start();
 
+        [DebugAction(Category, "P4E move funded spare barrels to warehouse", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void WarehouseBarrels()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("Disposable profile only");
+            Map map = Find.CurrentMap;
+            var barrels = map.listerThings.AllThings.Where(t => t.def.defName == "ReinforcedBarrel").ToArray();
+            int before = barrels.Sum(t => t.stackCount);
+            if (before != 2 || map.GetComponent<RealisticBases.AI.P3GarrisonController>().DebugOperatingStock("ReinforcedBarrel") != before)
+                throw new InvalidOperationException("Requires unchanged funded two-barrel reserve");
+            var shelves = map.listerThings.AllThings.OfType<Building_Storage>().Where(s => s.GetRoom()?.CellCount > 1 &&
+                s.GetStoreSettings().AllowedToAccept(ThingDefOf.ReinforcedBarrel)).OrderBy(s => s.thingIDNumber).ToArray();
+            foreach (Thing stock in barrels)
+            {
+                IntVec3 cell = shelves.SelectMany(s => s.OccupiedRect().Cells).FirstOrDefault(c =>
+                    c.GetThingList(map).Count(t => t.def.category == ThingCategory.Item) < c.GetMaxItemsAllowedInCell(map));
+                if (!cell.IsValid || cell.GetEdifice(map) == null) throw new InvalidOperationException("No funded warehouse shelf space");
+                stock.DeSpawn(); GenSpawn.Spawn(stock, cell, map);
+                P2Log.Message("P4E_WAREHOUSE_BARREL_PROBE", "map=" + map.uniqueID + " id=" + stock.ThingID +
+                    " count=" + stock.stackCount + " cell=" + cell + " addedSupplies=0");
+            }
+            if (map.GetComponent<RealisticBases.AI.P3GarrisonController>().DebugOperatingStock("ReinforcedBarrel") != before)
+                throw new InvalidOperationException("Funded barrel ledger changed during move");
+        }
+
         [DebugAction(Category, "P4E fail next generation after magazine stocks", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.Playing)]
         private static void FailMagazine()

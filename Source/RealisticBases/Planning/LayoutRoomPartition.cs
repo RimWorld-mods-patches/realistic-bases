@@ -42,12 +42,17 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> excavated = new HashSet<GridPoint>(layout.Excavation);
             HashSet<GridPoint> cleared = new HashSet<GridPoint>(layout.ExhaustRoofClearance);
             HashSet<GridPoint> constructed = new HashSet<GridPoint>(layout.ConstructedRoof);
+            // Room construction clears its vegetation before the native room
+            // audit. A standing tree is not a permanent thermal separator in
+            // that owned footprint; untouched vegetation outside it still is.
+            HashSet<GridPoint> plantClearance = new HashSet<GridPoint>(layout.Rooms.SelectMany(r => r.Bounds.Points())
+                .Concat(layout.ExhaustPockets.Select(p => p.Cell)));
 
             LayoutRoomPartition partition = new LayoutRoomPartition(terrain.Width, terrain.Height);
             Queue<GridPoint> queue = new Queue<GridPoint>();
             foreach (GridPoint start in terrain.Points())
             {
-                if (partition.roomOf[partition.Index(start)] >= 0 || Separates(terrain, start, separators, excavated)) continue;
+                if (partition.roomOf[partition.Index(start)] >= 0 || Separates(terrain, start, separators, excavated, plantClearance)) continue;
                 int id = partition.cellCount.Count;
                 int cells = 0, open = 0;
                 bool edge = false;
@@ -61,7 +66,7 @@ namespace RealisticBases.Planning
                     edge |= c.X == 0 || c.Z == 0 || c.X == terrain.Width - 1 || c.Z == terrain.Height - 1;
                     foreach (GridPoint n in ProceduralLayoutValidator.Neighbors(c))
                     {
-                        if (!terrain.InBounds(n) || partition.roomOf[partition.Index(n)] >= 0 || Separates(terrain, n, separators, excavated)) continue;
+                        if (!terrain.InBounds(n) || partition.roomOf[partition.Index(n)] >= 0 || Separates(terrain, n, separators, excavated, plantClearance)) continue;
                         partition.roomOf[partition.Index(n)] = id;
                         queue.Enqueue(n);
                     }
@@ -89,11 +94,14 @@ namespace RealisticBases.Planning
 
         private int Index(GridPoint c) => c.Z * width + c.X;
 
-        private static bool Separates(TerrainSnapshot terrain, GridPoint c, HashSet<GridPoint> separators, HashSet<GridPoint> excavated)
+        private static bool Separates(TerrainSnapshot terrain, GridPoint c, HashSet<GridPoint> separators,
+            HashSet<GridPoint> excavated, HashSet<GridPoint> plantClearance)
         {
             if (separators.Contains(c)) return true;
             if (excavated.Contains(c)) return false;
             TerrainCell cell = terrain[c];
+            if (plantClearance.Contains(c) && cell.Has(TerrainTraits.ClearablePlant | TerrainTraits.Buildable) &&
+                (cell.Traits & (TerrainTraits.NaturalRock | TerrainTraits.Occupied | TerrainTraits.Water)) == 0) return false;
             return cell.Has(TerrainTraits.NaturalRock) || cell.Has(TerrainTraits.Occupied) || !cell.Has(TerrainTraits.Standable);
         }
 

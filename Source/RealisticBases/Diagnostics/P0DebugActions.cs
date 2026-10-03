@@ -284,6 +284,10 @@ namespace RealisticBases.Diagnostics
                 string path = System.IO.Path.Combine(saves,
                     "P4-flat-terrain-" + map.uniqueID + "-" + terrain.Digest + ".rle");
                 System.IO.File.WriteAllLines(path, rows);
+                P4PlannerFixtureExporter.Write(System.IO.Path.Combine(saves, "P4-flat-runtime-catalog.cs"), P4ARuntimeCatalog.Capture());
+                var resources = P4AMapPlanner.CaptureResources(map);
+                P0Log.Message("DEBUG_TERRAIN_RESOURCES", "wood=" + resources.LocalWoodYield + " stones=" +
+                    string.Join(",", resources.LocalStoneStuffs) + " climate=" + P4AMapPlanner.CaptureClimate(map));
                 P0Log.Message("DEBUG_TERRAIN_CAPTURE", "map=" + map.uniqueID + " digest=" + terrain.Digest +
                     " path=" + path + " width=" + terrain.Width + " height=" + terrain.Height +
                     " active=" + (map.GetComponent<P0MapState>()?.Active ?? false));

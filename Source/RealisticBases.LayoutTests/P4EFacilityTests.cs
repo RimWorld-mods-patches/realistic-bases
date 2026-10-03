@@ -100,6 +100,64 @@ internal static partial class Program
             "legacy/native quest profile budgets unchanged without ordinary wealth contract");
     }
 
+    private static void P4EBarrelWarehouse()
+    {
+        var magazine = new[] { new GridPoint(1, 1) };
+        var warehouse = new[] { new GridPoint(9, 9), new GridPoint(1, 1), new GridPoint(9, 10) };
+        var barrels = LayoutStockCells.ForArtillerySupply("ReinforcedBarrel", magazine, warehouse);
+        Equal(magazine[0], barrels[0], "magazine remains preferred");
+        Equal(3, barrels.Count, "bounded warehouse overflow without duplicated cells");
+        foreach (string shell in new[] { "Shell_HighExplosive", "Shell_Incendiary" })
+            Equal(1, LayoutStockCells.ForArtillerySupply(shell, magazine, warehouse).Count, "ammunition stays in magazine");
+    }
+
+    private static void P4EClearedThermalPlants()
+    {
+        var req = LayoutRequirements.FromPopulation(7, Industrial, new LayoutClimate(-1, 40),
+            stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialLate), importValueLimit: 16000);
+        var input = Input(Plains(120), req, 15);
+        var result = ProceduralLayoutPlanner.Plan(input); Accepted(result);
+        var room = result.Layout.Rooms.First(r => r.Fixtures.Any(f => f.Kind == LayoutFixtureKind.WallCooler));
+        var cooler = room.Fixtures.First(f => f.Kind == LayoutFixtureKind.WallCooler);
+        var reference = new GridPoint(room.Interior.MinX, room.Interior.MinZ);
+        var untouched = new GridPoint(0, 0);
+        var plants = new HashSet<GridPoint> { reference, cooler.ColdCell.Value, untouched };
+        var terrain = new TerrainSnapshot(120, 120, input.Terrain.Points().Select(c => plants.Contains(c)
+            ? new TerrainCell(TerrainTraits.Buildable | TerrainTraits.ClearablePlant | TerrainTraits.Fertile | TerrainTraits.SupportsHeavy)
+            : input.Terrain[c]), "blocking plants cleared by planned room");
+        var partition = LayoutRoomPartition.Build(terrain, result.Layout);
+        True(partition.RoomAt(reference) >= 0, "owned room clears a non-standable tree at its reference cell");
+        Equal(partition.RoomAt(reference), partition.RoomAt(cooler.ColdCell.Value), "same final served room");
+        Equal(-1, partition.RoomAt(untouched), "unowned blocking vegetation remains a separator");
+    }
+
+    private static void P4EFlatCoolerTile()
+    {
+        var cells = new List<TerrainCell>();
+        foreach (string row in System.IO.File.ReadAllLines(System.IO.Path.Combine(AppContext.BaseDirectory, "p4e-flat-cooler-traits.rle")))
+            foreach (string token in row.Split(','))
+            {
+                string[] p = token.Split('*');
+                for (int n = 0; n < int.Parse(p[1]); n++) cells.Add(new TerrainCell((TerrainTraits)Convert.ToUInt16(p[0], 16)));
+            }
+        Equal(25600, cells.Count, "same captured map dimensions");
+        var climate = new LayoutClimate(-1, 40);
+        var stage = TechStageModel.Create(SettlementTechStageLevel.IndustrialLate);
+        var budget = OrdinarySettlementPopulation.Create(P2ProfileCatalog.IndustrialTemperate, stage, climate, 150);
+        var req = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, climate, stage: stage,
+            populationBudget: budget, mortarBiasPercent: 100);
+        var input = new ProceduralLayoutInput(req, new TerrainSnapshot(160, 160, cells, "live-flat-cooler-93DDC95416B2BC26"),
+            0xB0CC855318FF46C8UL, RuntimeFlatCatalogFixture.Build(), new LayoutFortificationReservation(1), resources:
+            new LayoutLocalResources(29888, new[] { "BlocksGranite", "BlocksLimestone", "BlocksSlate" },
+                steamGeyserCells: new[] { new GridPoint(65, 124), new GridPoint(25, 32) }));
+        var result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+        if (!result.Success) foreach (var diagnostic in result.Diagnostics.Where(d => d.Stage == "attempt" && d.ToString().Contains("cooler")).Take(6))
+            Console.WriteLine("  cooler fixture " + diagnostic);
+        Accepted(result);
+        Equal(10, LayoutLoadoutModel.Build(input, result.Layout).Residents.Count, "no roster shrink");
+        Console.WriteLine("  flat cooler tile layout=" + result.Layout.Digest + " " + result.Stats);
+    }
+
     private static void P4ETenRejectedTile()
     {
         string[] rows = System.IO.File.ReadAllLines(System.IO.Path.Combine(AppContext.BaseDirectory, "p4e-ten-rejected-traits.rle"));

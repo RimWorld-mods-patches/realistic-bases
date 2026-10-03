@@ -567,3 +567,97 @@ stage primitive. The actual primitive mountainous candidate rejected before
 mutation on rock-blocked OpenGround spines; this omission is not counted as
 successful generation. Evidence: p4e5-industrial-mountain-reload-20261003.log
 and p4e5-primitive-quality-rollback-20261003.log.
+
+Core quest smoke on the updated assembly passed. Bandit Quest1/site94 retained
+its four authoritative tribal defenders and exact loot identities through
+reload (layout86374389B557DC65, finishBF8FD9C13C744689), no crops/static threat,
+and native NoActiveThreats585/AllEnemiesDefeated589. Core ended Success and
+removed the site after departure; the saved quest is ended/Success with cleanup.
+An earlier disabled-generator run stayed native and is not an adapter pass;
+the test now explicitly checks enablement after fresh startup.
+
+Mountain rescue Quest2/site97 retained original Human98964 at health1 in one
+planned prison, outside P3 membership, and four original guards through reload
+(layout6AA4FF13A2C0DE22, finishD1D5DFC6BE2F907E). A native OfferHelp order right
+after door destruction returned an empty path; retry after native grid/tick
+settling recruited that same98964 as a Colonist/PlayerColony, not a replacement.
+Released-target reload retained identity. Native departure emitted removal at
+75738; serialization confirms ended=True with default unknown outcome, exactly
+the Core rescue contract. No success/failure signal was manufactured.
+
+Forced mountain rescue failure after original Human181968 transfer plus
+loot/controller/metadata recovered all238 created things and terrain/rock,
+UsedRects0/roots0/absent interest key. The same target returned to its original
+holder at health1/join=False. Native fallback spawned4/4 prepared guards once,
+staging empty, and the same prisoner in exactly one native prison. The fallback
+has no adapter state. Skipped unentered Turrets composition stayed outside the
+support matrix. Evidence: p4e5-core-quest-reload-success-holder-recovery-20261003.log
+and RealisticBases-P4E5-core-quest-matrix.rws.
+
+### Flat search, late recovery and fresh-map resource comparison (still open)
+
+Captured same-tile failure seedB0CC855318FF46C8/terrain93DDC95416B2BC26 is
+tracked with its resolved runtime catalog, not inferred XML data. Thermal
+partitioning incorrectly retained non-standable trees inside rooms that the
+transaction clears; the focused failure/pass test now preserves untouched
+outside vegetation while clearing only owned room/exhaust footprints. Cold-side
+room mismatch has a distinct diagnostic rather than a misleading exhaust error.
+Search also gave the first four same-tile candidates the entire evaluation
+budget. Reallocating remaining work fairly across all ranked candidates accepts
+the captured tile at1137943 evaluations within its unchanged2500000 limit,
+ten residents retained. The earlier captured rejection also passes. Full suite
+passes at829726ms; the subsequent barrel routing test passes separately.
+
+Native exact-tile forced failure after finite magazine stocks removed1604 owned
+things/restored1066 plants, with terrain/roof recovery verified. Same-input retry
+committed layout273A7929DDBAA651, fourteen rooms, ten residents,342 crops, one
+mortar and supported autocannon defense. A transient spare-barrel stock-cell
+failure exposed loose items occupying magazine storage after rollback; per the
+user's authorization, spare barrels may overflow into ordinary warehouse cells
+without moving ammunition or increasing the shared reserve. Warehouse fetch
+validation and installed GL closeout still remain.
+
+The user's resource screenshot exposed an additional REAL recovery defect:
+P4SpawnTransaction.Rollback calls TerrainGrid.RemoveTopLayer with its default
+doLeavings=True. Native RemoveTopLayer invokes deconstruction resource refunds,
+creating untracked steel/stone/silver while restoring the original terrain.
+Thus recovered=True currently proves terrain/rock/plant restoration, NOT the
+absence of refund items. The contaminated map has292 steel stacks/717 units,
+88 granite-block stacks/176 units and66 silver. This must be fixed and checked
+against physical item counts before P4E.5 can close.
+
+At the user's request a new map was generated without forced failure/retry:
+map2/layoutBDD1507ECB7EF94F, ten residents, thirteen rooms,342 crops. It has only
+five funded steel stacks/340 units, zero stone-block/silver piles, and four wood
+stacks/255 units at storage cells. The flood does NOT repeat in normal fresh
+generation. Evidence: p4e5-map-things-resource-question.json versus
+p4e5-fresh-map-resource-comparison.json, p4e5-fresh-map-no-refund-artifact-20261003.log,
+and RealisticBases-P4E5-fresh-no-rollbacks.rws. The earlier contaminated snapshot
+is preserved as RealisticBases-P4E5-rollback-refund-artifact.rws. The live game
+was paused on the fresh map for inspection. P4E.5 is still in progress; no cleanup,
+merge or push was performed.
+
+### User-requested pause and commit checkpoint (2026-10-03)
+
+The current search/thermal/barrel work and captured regression data are committed
+as a checkpoint, not P4E completion. The exact disposable game process was stopped;
+no test container remains, and unrelated Docker buildkit is untouched. Runtime
+saves/logs remain ignored and recoverable. The latest fresh-map snapshot is
+RealisticBases-P4E5-fresh-no-rollbacks.rws (map2 clean; the same saved game also
+contains the earlier contaminated map1). The autostart copy still holds the
+pre-comparison recovered map1, so explicitly choose the intended snapshot on resume.
+
+Resume priorities:
+1. Fix floor rollback to suppress native deconstruction refunds, and prove no
+   extra physical resource items remain after forced failure plus same-map retry.
+2. Run the existing funded-barrel warehouse move/loading probe; it was added and
+   built but NOT invoked. Keep ammunition finite and original barrel identities.
+3. Finish installed GL/native-fallback compatibility and final acceptance review.
+4. Update closeout status only after those gates pass; P4E.0–.4 remain complete,
+   P4E.5 remains open. Do not treat the current commit as a merge/push request.
+
+Latest evidence before pause: Release build0 warnings/errors; full layout suite
+PASS failures0 at829726ms before the small warehouse routing/probe addition;
+the subsequent focused warehouse routing test also passes. Native exact-tile
+generation and the clean fresh-map comparison pass. The rollback refund defect
+is deliberately still unfixed in this checkpoint.

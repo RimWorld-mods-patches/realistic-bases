@@ -8,6 +8,11 @@ namespace RealisticBases.Planning
     // live building def; the pure layout conservatively reserves one stack/cell.
     public static class LayoutStockCells
     {
+        public static IReadOnlyList<GridPoint> ForArtillerySupply(string defName,
+            IEnumerable<GridPoint> magazine, IEnumerable<GridPoint> warehouse) =>
+            magazine.Concat(defName == "ReinforcedBarrel" ? warehouse : Enumerable.Empty<GridPoint>())
+                .Distinct().ToList().AsReadOnly();
+
         public static IReadOnlyList<GridPoint> ForRooms(IEnumerable<LayoutRoom> rooms, params LayoutRoomKind[] kinds)
         {
             LayoutRoom[] selected = rooms.Where(r => kinds.Contains(r.Kind)).ToArray();

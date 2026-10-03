@@ -787,7 +787,12 @@ namespace RealisticBases.Planning
                     if (stats.SitesTried >= siteLimit) break;
                     stats.SitesTried++;
                     int siteEvaluationStart = stats.Evaluations;
-                    int siteAllowance = input.Budget.MaxEvaluations / Math.Max(1, Math.Min(4, anchors.Count));
+                    // Every already-ranked same-tile candidate gets a fair
+                    // share. Capping the divisor at four allowed those first
+                    // four to consume the entire budget and starve a viable
+                    // fifth field/compound pair. Reuse unspent early shares.
+                    int siteAllowance = Math.Max(1, (input.Budget.MaxEvaluations - stats.Evaluations) /
+                        Math.Max(1, anchors.Count - siteIndex));
                     P4BJointSite originalSite = paired == null ? null : paired[siteIndex];
                     IEnumerable<P4BJointSite> variants = originalSite == null
                         ? new P4BJointSite[] { null }
@@ -2382,8 +2387,14 @@ namespace RealisticBases.Planning
                 foreach (LayoutFixture cooler in room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.WallCooler))
                 {
                     GridPoint hot = cooler.HotCell.Value;
-                    if (partition.RoomAt(cooler.ColdCell.Value) != partition.RoomAt(new GridPoint(room.Interior.MinX, room.Interior.MinZ)) ||
-                        !partition.IsOutdoor(hot))
+                    GridPoint reference = new GridPoint(room.Interior.MinX, room.Interior.MinZ);
+                    if (partition.RoomAt(cooler.ColdCell.Value) != partition.RoomAt(reference))
+                    {
+                        Fail("cooler_served_room_mismatch", room.Id + " cold " + cooler.ColdCell.Value + " " +
+                            partition.Describe(cooler.ColdCell.Value) + " reference " + reference + " " + partition.Describe(reference));
+                        return null;
+                    }
+                    if (!partition.IsOutdoor(hot))
                     {
                         bool publicExhaust = !pockets.ContainsKey(hot);
                         if (publicExhaust && !pocketsOnly) NeedsPocketsOnly = true;

@@ -31,6 +31,9 @@ internal static partial class Program
         Run("P4E compact mortar magazine geometry and rotated access", P4EMortarMagazine);
         Run("P4E population artillery caps shared stock and cost", P4EArtilleryCapacity);
         Run("P4E exact ten-resident rejected flat tile packs required rooms", P4ETenRejectedTile);
+        Run("P4E exact flat cooler tile keeps a valid served room", P4EFlatCoolerTile);
+        Run("P4E cleared vegetation does not split cooler served rooms", P4EClearedThermalPlants);
+        Run("P4E spare barrels may use warehouse without moving ammunition", P4EBarrelWarehouse);
         Run("P4E ordinary defense allowance power and weapon sweep", P4EDefenseAllowance);
         Run("P4E legal logistics smoke top-up preserves population", P4ELogisticsSmokeBudget);
         Run("seed derivation is stable and purpose-separated", SeedDerivation);

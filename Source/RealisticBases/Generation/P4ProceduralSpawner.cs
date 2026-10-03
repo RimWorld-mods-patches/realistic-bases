@@ -439,8 +439,18 @@ namespace RealisticBases.Generation
                     for (int i = 0; i < layout.Courts.Count; i++)
                     {
                         int share = supply.Count / layout.Courts.Count + (i < supply.Count % layout.Courts.Count ? 1 : 0);
-                        if (share > 0) combatStocks.AddRange(SpawnStacks(tx, Require(supply.DefName), share,
-                            layout.MagazineFor(layout.Courts[i]).Interior.Points().ToArray(), map));
+                        if (share > 0)
+                        {
+                            var magazine = layout.MagazineFor(layout.Courts[i]).Interior.Points().ToArray();
+                            var placed = SpawnStacks(tx, Require(supply.DefName), share,
+                                LayoutStockCells.ForArtillerySupply(supply.DefName, magazine, storageCells), map);
+                            combatStocks.AddRange(placed);
+                            if (supply.DefName == "ReinforcedBarrel")
+                                P2Log.Message("P4E_BARREL_STORAGE", "map=" + map.uniqueID + " count=" + share +
+                                    " magazine=" + placed.Where(t => magazine.Contains(new GridPoint(t.Position.x, t.Position.z))).Sum(t => t.stackCount) +
+                                    " warehouse=" + placed.Where(t => !magazine.Contains(new GridPoint(t.Position.x, t.Position.z))).Sum(t => t.stackCount) +
+                                    " sharedReserveUnchanged=True");
+                        }
                     }
                 }
                 if (mortars.Count > 0 && P4EFacilityDebugActions.FailNextMagazineStocks)
@@ -917,7 +927,9 @@ namespace RealisticBases.Generation
                     tx.Own(result[result.Count - 1]);
                 }
             }
-            if (count != 0) throw new InvalidOperationException("Insufficient stock cells for " + def.defName + ":" + count);
+            if (count != 0) throw new InvalidOperationException("Insufficient stock cells for " + def.defName + ":" + count +
+                " contents=" + string.Join("|", cells.Select(p => p + ":" + string.Join(",", ToCell(p).GetThingList(map)
+                    .Where(t => t.def.category == ThingCategory.Item).Select(t => t.ThingID + "x" + t.stackCount)))));
             return result;
         }
 
