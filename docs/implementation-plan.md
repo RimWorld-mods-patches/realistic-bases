@@ -223,16 +223,6 @@ The defense-budget increase is explicitly authorized here; choose a bounded docu
 
 **Exit:** all six requests have validated production behavior: observed work-room thermal control and eligible labs, functional oriented seating and medicine shelves, accessible finite mortar stores with distinct crews up to the roster cap, and an increased useful ordinary turret defense including live autocannon operation. Relevant full suites/build, old/new active reload, late rollback/retry, representative terrain/compatibility and P4D regressions pass; findings and limitations are recorded.
 
-
-### P4F — Additional improvements
-
-1. A room with fueled generators can be overheated, add a ventilation connected to a room with outdoor temperature.
-2. Add more wood to the warehouse, the generators must be filled fully from the start (do not cut this fill from the storage).
-3. Add more shells. At least 30 HE + 10 incendiary shells per mortar.
-4. Cabinets are incorrectly oriented.
-5. We still have no floors in some rooms.
-6. The wealthiest spacer settlements can have uranium/plasteel walls.
-
 ### P5 — Encounter supplies, trade stock, and persistent consequences
 
 **Depends on:** P3, P4, P4A and P4B. Revised by the user on 2026-09-20; [supply and MVP scope](supply-and-mvp-scope.md) defines the detailed contract.
@@ -250,6 +240,15 @@ Retain loaded-map serialization and unloaded damage/depletion/casualty reconcili
 **Exit: MVP encounter-readiness milestone.** Supported profiles have quantified routine/combat coverage, essential support actually works without player orders, stocks deplete honestly, and declared loads/horizons are observed in representative encounter tests. Supported trade items match the canonical offer/transactions and never count twice or regenerate on empty reads, reload or re-entry. Negative tests include exhausted fuel/ammo, loss of a critical worker or generator, buy-then-attack, sell-then-attack, loot-then-revisit, empty stock and a restock boundary. Failure under overwhelming damage is allowed; unexplained refill or fabricated pass evidence is not. Check required state/capture persistence independently of long-term sustainability.
 
 **Outside MVP:** two completed crop cycles, seasonal/winter self-sufficiency, long-running balanced shell manufacture, sustained labor/economic optimization, and off-map production/convoy simulation. Keep facilities and plausible supporting resources, and document unverified long-term behavior. P6 can release the MVP without these deferred tests; use the explicit post-MVP backlog in the supply scope document.
+
+### P5A — Additional improvements
+
+1. A room with fueled generators can be overheated, add a ventilation connected to a room with outdoor temperature.
+2. Add more wood to the warehouse, the generators must be filled fully from the start (do not cut this fill from the storage).
+3. Add more shells. At least 30 HE + 10 incendiary shells per mortar.
+4. Cabinets are incorrectly oriented.
+5. We still have no floors in some rooms.
+6. The wealthiest spacer settlements can have uranium/plasteel walls.
 
 ### P6 — Balance, specialized tactics, and release
 
