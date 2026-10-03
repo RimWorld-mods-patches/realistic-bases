@@ -9,7 +9,7 @@ namespace RealisticBases.Planning
     // generator references these types yet; see docs/p4a-foundations.md.
     public static class ProceduralLayoutVersions
     {
-        public const string Planner = "p4e-facilities.3-multi-mortar";
+        public const string Planner = "p4e-facilities.4-defense-allowance";
         public const int Schema = 1;
     }
 
@@ -151,7 +151,8 @@ namespace RealisticBases.Planning
         public LayoutRequirements(int residents, SettlementCapability capabilities, HousingStandard housing,
             LayoutClimate climate, int mortarBiasPercent, int excavationBudgetCells, int fieldCells,
             IEnumerable<KeyValuePair<LayoutRoomKind, int>> capacityFloors = null, SettlementTechStage stage = null, int importValueLimit = -1,
-            int equipmentValueLimit = -1, int stockpileRoomCapacityTarget = 0, bool compactQuestCamp = false)
+            int equipmentValueLimit = -1, int stockpileRoomCapacityTarget = 0, bool compactQuestCamp = false,
+            int defenseReserveWatts = 0, int logisticsUtilityValueLimit = 0)
         {
             if (residents <= 0) throw new ArgumentOutOfRangeException(nameof(residents));
             if (mortarBiasPercent < 0 || mortarBiasPercent > 100) throw new ArgumentOutOfRangeException(nameof(mortarBiasPercent));
@@ -160,6 +161,11 @@ namespace RealisticBases.Planning
             if (stockpileRoomCapacityTarget < 0) throw new ArgumentOutOfRangeException(nameof(stockpileRoomCapacityTarget));
             Residents = residents;
             CompactQuestCamp = compactQuestCamp;
+            if (defenseReserveWatts < 0 || compactQuestCamp && defenseReserveWatts != 0) throw new ArgumentOutOfRangeException(nameof(defenseReserveWatts));
+            DefenseReserveWatts = defenseReserveWatts;
+            if (logisticsUtilityValueLimit < 0 || compactQuestCamp && logisticsUtilityValueLimit != 0)
+                throw new ArgumentOutOfRangeException(nameof(logisticsUtilityValueLimit));
+            LogisticsUtilityValueLimit = logisticsUtilityValueLimit;
             Capabilities = capabilities;
             Housing = housing;
             Climate = climate ?? throw new ArgumentNullException(nameof(climate));
@@ -199,6 +205,8 @@ namespace RealisticBases.Planning
 
         public int Residents { get; }
         public bool CompactQuestCamp { get; }
+        public int DefenseReserveWatts { get; }
+        public int LogisticsUtilityValueLimit { get; }
         public SettlementCapability Capabilities { get; }
         public HousingStandard Housing { get; }
         public LayoutClimate Climate { get; }
@@ -263,7 +271,9 @@ namespace RealisticBases.Planning
             return new LayoutRequirements(residents, profile.Capabilities, housing, climate,
                 mortarBiasPercent ?? (electric ? 50 : 0), 60 + residents * (electric ? 70 : 35), fieldCells, floors, resolved,
                 populationBudget?.ImportValue ?? profile.Budget.ImportValueLimit, equipment,
-                stockpileRoomCapacityTarget: populationBudget == null ? 0 : 48);
+                stockpileRoomCapacityTarget: populationBudget == null ? 0 : 48,
+                defenseReserveWatts: populationBudget?.DefenseAllowancePercent > 100 ? OrdinarySettlementPopulation.P4EDefenseReserveWatts : 0,
+                logisticsUtilityValueLimit: populationBudget?.DefenseAllowancePercent > 100 ? 300 : 0);
         }
 
         private static bool TryMap(FacilityKind kind, out LayoutRoomKind result)
@@ -302,6 +312,8 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, Stage.Digest);
             hash = StableHash.Add(hash, ImportValueLimit);
             hash = StableHash.Add(hash, EquipmentValueLimit);
+            if (DefenseReserveWatts > 0) hash = StableHash.Add(hash, DefenseReserveWatts);
+            if (LogisticsUtilityValueLimit > 0) hash = StableHash.Add(hash, LogisticsUtilityValueLimit);
             if (StockpileRoomCapacityTarget > 0)
             {
                 hash = StableHash.Add(hash, "stockpile-room-capacity-target");
@@ -577,19 +589,24 @@ namespace RealisticBases.Planning
             if (kit.Powered && kit.GeneratorWatts > 0 && rejections.Count == 0)
             {
                 // Dispatchable-only worst case; the power room's own draw is part of the load it must cover.
-                int batteries = LayoutPowerModel.Batteries(critical);
-                for (int generators = Math.Max(1, Ceil(load, kit.GeneratorWatts)); generators <= MaxSplit; generators++)
+                int reserve = requirements.DefenseReserveWatts;
+                int batteries = LayoutPowerModel.Batteries(critical + reserve);
+                // MaxSplit limits room splitting, not the number of generators
+                // one legal power room can hold. Use a physical area bound;
+                // furnishing still enforces batteries, working cells and aisles.
+                int maximumGenerators = MaxInterior * MaxInterior / Math.Max(1, kit.Generator.SizeX * kit.Generator.SizeZ);
+                for (int generators = Math.Max(1, Ceil(load + reserve, kit.GeneratorWatts)); generators <= maximumGenerators; generators++)
                 {
                     LayoutRoomDemand power = BuildPowerRoom(requirements, kit, generators, batteries, roomSeed);
                     if (power == null) { rejections.Add("room_demand_exceeds_legal_dimensions:Power:" + generators); break; }
-                    int total = load + MaxLoad(power, requirements, kit);
+                    int total = load + reserve + MaxLoad(power, requirements, kit);
                     if (generators * kit.GeneratorWatts < total) continue;
                     rooms.Add(power);
                     load = total;
                     generatorsNeeded = generators;
                     break;
                 }
-                if (generatorsNeeded == 0 && rejections.Count == 0) rejections.Add("room_demand_exceeds_legal_dimensions:Power:" + MaxSplit);
+                if (generatorsNeeded == 0 && rejections.Count == 0) rejections.Add("room_demand_exceeds_legal_dimensions:Power:" + maximumGenerators);
             }
             return new LayoutDemandSet(rooms, Relationships(rooms, roomSeed), rejections, load, critical, generatorsNeeded);
         }

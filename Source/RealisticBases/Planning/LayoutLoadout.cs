@@ -285,6 +285,17 @@ namespace RealisticBases.Planning
             SettlementLoadout result = assemble();
             if (result.EquipmentValue > limit) { qualityShift = -1; degradations.Add("quality_degraded"); result = assemble(); }
             if (result.EquipmentValue > limit) { keepArmoury = false; degradations.Add("armoury_dropped"); result = assemble(); }
+            if (result.EquipmentValue > limit && requirements.LogisticsUtilityValueLimit > 0)
+            {
+                int smokeValue = result.Residents.Where(r => r.Utility?.DefName == "Apparel_SmokepopBelt").Sum(r => r.Utility.Value);
+                int topUp = Math.Min(requirements.LogisticsUtilityValueLimit, smokeValue);
+                if (topUp > 0 && result.EquipmentValue <= limit + topUp)
+                {
+                    limit += topUp;
+                    diagnostics.Add("logistics_utility_topup=" + topUp + " rosterUnchanged=True");
+                    result = assemble();
+                }
+            }
             if (result.EquipmentValue > limit) { keepUtility = false; degradations.Add("utility_dropped"); result = assemble(); }
             if (result.EquipmentValue > limit)
                 result = new SettlementLoadout(stage, result.Residents, result.Armoury, result.Medicine, result.Components, limit, degradations,

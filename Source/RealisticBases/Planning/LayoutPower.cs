@@ -51,7 +51,8 @@ namespace RealisticBases.Planning
     public sealed class LayoutPowerPlan
     {
         internal LayoutPowerPlan(int criticalWatts, int nonCriticalWatts, CatalogDef generator, int generators, int batteries,
-            IEnumerable<LayoutPowerYard> yards, CatalogDef fuel, int fuelStock, IEnumerable<string> diagnostics)
+            IEnumerable<LayoutPowerYard> yards, CatalogDef fuel, int fuelStock, IEnumerable<string> diagnostics,
+            int defenseReserveWatts = 0, int defenseGenerators = 0)
         {
             CriticalWatts = criticalWatts;
             NonCriticalWatts = nonCriticalWatts;
@@ -59,6 +60,8 @@ namespace RealisticBases.Planning
             GeneratorWatts = generator == null ? 0 : -generator.BasePowerConsumption;
             Generators = generators;
             Batteries = batteries;
+            DefenseReserveWatts = defenseReserveWatts;
+            DefenseGenerators = defenseGenerators;
             Yards = new ReadOnlyCollection<LayoutPowerYard>(yards.ToList());
             FuelDef = fuel == null ? string.Empty : fuel.DefName;
             FuelStock = fuelStock;
@@ -74,6 +77,8 @@ namespace RealisticBases.Planning
         public int GeneratorWatts { get; }
         public int Generators { get; }
         public int Batteries { get; }
+        public int DefenseReserveWatts { get; }
+        public int DefenseGenerators { get; }
         public IReadOnlyList<LayoutPowerYard> Yards { get; }
         public int RenewableWatts => Yards.Sum(y => y.EffectiveWatts);
         // Generator fuel def and the units stocked for LayoutEquipment.FuelHorizonDays.
@@ -96,6 +101,7 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, GeneratorDef);
             hash = StableHash.Add(hash, Generators);
             hash = StableHash.Add(hash, Batteries);
+            if (DefenseReserveWatts > 0) { hash = StableHash.Add(hash, DefenseReserveWatts); hash = StableHash.Add(hash, DefenseGenerators); }
             foreach (LayoutPowerYard yard in Yards) hash = yard.AddTo(hash);
             hash = StableHash.Add(hash, FuelDef);
             hash = StableHash.Add(hash, FuelStock);

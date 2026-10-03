@@ -362,3 +362,110 @@ its crew and keeps operators64264/64313 on their original surviving guns.
 All three available roles return only when explicitly reloading the preserved
 pre-loss save, not by production replacement or replenishment. P4E.3 is
 verified; ordinary budget/autocannon policy and integrated P4E.4/P4E.5 remain.
+
+## P4E.4 — Paused draft checkpoint
+
+2026-10-03, explicitly paused by the user. P4E.3 is committed as fd635da.
+P4E.4 is uncommitted. The disposable game and all test containers are stopped;
+no merge/push or tooling installation was performed.
+
+Draft: ordinary IndustrialMid+ electric budgets get a named125% import
+allowance and960W dispatchable reservation; equipment/population and primitive/
+early/quest budgets stay unchanged. Extra generator construction and finite
+fuel are charged. Heavy selection considers near/long-only approaches and
+complementary groups instead of unconditional uranium-first selection.
+
+Matched three-seed sweeps passed. Aggregate guns100→125%: Mid average7→7,
+Mid wealthy6→11, Late average5→8, Late wealthy4→14. Each gun passed concurrent
+guard/close-support audits;150% gave no extra guns in this corpus. Eight
+autocannons and four uranium guns were selected. These are three-map totals.
+Evidence: p4e-defense-allowance-sweep-20261003.txt.
+
+Native autocannon63497 fired at2316, one actual projectile, fuel90→89.
+Rearm timed out at12316 with fuel0, untouched reserveSteel260 and no service
+pawn. Core WorkGiver_Refuel excludes turrets; the correct RearmTurrets worker
+uses WorkGiver_Refuel_Turret and RearmTurret/Atomic jobs. Source now selects
+that worker, but the latest correction is not rebuilt/live tested. Funded
+critical logistics under threat has pure doctrine coverage. Seed already-
+in-flight projectile IDs at probe-phase start to avoid counting stale launches.
+
+The first full P4E.4 suite failed the old5500 import assertion (new6875) and
+the added power room on clutter. Assertion is corrected. Upfront reserve-aware
+demand now repairs four/seven-resident clutter but rejects twelve residents
+with room_demand_exceeds_legal_dimensions before search (sites0/mutation0).
+This still needs a fix, not a relaxed resident/load requirement. Do not mark
+P4E.4 green. Evidence: p4e-defense-full-tests-20261003.txt and
+p4e-autocannon-first-shot-rearm-reject-20261003.log.
+
+Resume: repair funded twelve-resident power-room demand/packing; rebuild and
+run both suites; validate real finite rearm, close support, power loss and a
+fresh new-policy generation/reload. Then commit P4E.4 and finish P4E.5's
+integrated primitive/terrain/quest/fallback/recovery matrix. Preserved save
+RealisticBases-P4E3-three-manned.rws and the captured rejected-map regression
+remain reusable. Normal user profiles/saves were not changed.
+
+## P4E.4 — Policy and native service verification
+
+The pause was explicitly revoked by the user's continuation. Corrected the
+preflight power-room cap: MaxSplit=8 limits room splitting, not generator count.
+The generator bound now comes from legal12x12 room area; actual furnishings
+still enforce working cells, aisles and batteries. The added dispatchable load
+is included in upfront demand, not hidden until late placement. Original
+four/seven/twelve-resident clutter acceptance passes with the full roster.
+
+Final matched three-map totals at100→125%: Mid normal7→7, Mid wealthy6→10,
+Late normal5→8, Late wealthy4→14. 150% again provides no additional guns in
+this corpus. Eight actual autocannons/four uranium guns are selected; every
+claimed gun passes concurrent guard/close-support, geometry, cost and power
+checks. Adopt125% provisionally, retaining the original wealth distribution
+and equipment-funded mean7/cap4..12. Primitive/early/quest exclusions pass.
+Latest complete suite: PASS failures0,776561ms; earlier reserve-aware full
+suite PASS846486ms. Smoke top-up and new doctrine fixtures also pass.
+
+Native autocannon63497 firing: actual projectile, fuel90→89. Rearm now uses
+the actual RearmTurrets worker. Movement receives bounded gateway stages around
+the native JobDriver_Refuel pipeline, retaining reservations, pickup/opportunity
+pickup,240-tick service and Toils_Refuel finalization. At4889, real funded
+worker64313 rearmed with75 existing steel, fuel0→37.5 and reserve260→185;
+outsideBounds0. Artillery is explicitly depleted only by this disposable probe
+to isolate direct-fire service and keep the visitor alive; no extra supplies.
+
+Actual conduit loss:303 owned conduits removed, unpowered but fueled gun fires
+zero shots and consumes no fuel over300ticks (37.5 unchanged). Native close
+support: defender64212 fired Bullet_AssaultRifle from covered(61,21), about ten
+cells from gun(62,31), while the gun was unpowered. These probes auto-pause.
+Evidence: p4e-autocannon-rearm-powerloss-pass-20261003.log and
+p4e-nearby-pawn-support-smoke-charge-20261003.log.
+
+User-authorized logistics smoke: the existing support kit already resolves
+Apparel_SmokepopBelt only at legal IndustrialMid+ research. Prefer its existing
+carrier for critical logistics and preserve healthy crews. Native NPC
+automatic activation is limited to nearby hostile-turret bullet impacts, so a
+logistics worker may proactively pop before an already-approved exposed
+exterior leg. Smoke never grants unbounded movement permission. Three finite
+native charges; no automatic refills/technology grants. Native probe consumed
+64313's existing charge3→2, then blind smoke was observed at the original cell
+fifteen ticks later (queued explosion effect). Evidence:
+p4e-native-smoke-observed-20261003.log.
+
+If ordinary gear degradation would drop that legal pack, a separate bounded
+utility allowance funds at most its actual value (cap300), without affecting
+resident affordability/count. Otherwise no top-up is used. Pure boundary and
+primitive/early legality cases pass; authoritative quest gear budgets remain
+unchanged. Fresh new-policy generation/reload and integrated P4E.5 follow.
+
+Fresh new-policy generation on the same saved160x160 tile/seed passed:
+layout7DA8A26BC6B45C25, ten residents (unchanged), sixteen rooms,342 crops,
+three magazines/mortars and five turrets in four coherent groups. All5/5 guns
+are concurrently guarded and close-supported;470W, defense import4344.
+Declared base imports8250→10313 at125%, dispatchable reservation960W,
+four actual generators with60 startup/204 finite stored wood. No extra roster,
+research or trade-stock appropriation. Native smoke was observed at the
+original pop cell after15ticks with real charge3→2; the invocation-tick false
+gas sample was queued-effect timing, not a refill.
+
+Fresh active reload584→585 preserves ten defenders/assignments, three gun/post
+identities and untouched twelve-HE/two-incendiary/two-spare ledger; medicine
+remains the same25-unit shelf stack64076. Initial generation-tick power/room
+temperature samples are not thermal settling evidence. P4E.4 is complete;
+integrated settling/primitive/terrain/quest/recovery coverage remains P4E.5.

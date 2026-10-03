@@ -1626,21 +1626,26 @@ namespace RealisticBases.Planning
             int critical, nonCritical;
             LayoutPowerModel.Loads(rooms, out critical, out nonCritical);
             int renewable = yards.Sum(y => y.EffectiveWatts);
-            int batteries = LayoutPowerModel.Batteries(critical);
-            int generators = LayoutPowerModel.Generators(critical, nonCritical, renewable, kit.GeneratorWatts);
+            int reserve = input.Requirements.DefenseReserveWatts;
+            int batteries = LayoutPowerModel.Batteries(critical + reserve);
+            int generators = LayoutPowerModel.Generators(critical + reserve, nonCritical, renewable, kit.GeneratorWatts);
             LayoutRoomDemand demand = null;
+            int ownLoad = 0;
             for (int guard = 0; guard <= LayoutDemandModel.MaxSplit; guard++)
             {
                 demand = equipment.PowerRoom(input.Requirements, generators, batteries, input.Seed);
                 if (demand == null) { Fail("power_room_unbuildable", generators + " generators"); return false; }
                 int own = LayoutDemandModel.MaxLoad(demand, input.Requirements, kit);
-                int needed = LayoutPowerModel.Generators(critical, nonCritical + own, renewable, kit.GeneratorWatts);
+                ownLoad = own;
+                int needed = LayoutPowerModel.Generators(critical + reserve, nonCritical + own, renewable, kit.GeneratorWatts);
                 if (needed <= generators) break;
                 generators = needed;
             }
             if (!PlaceWithRepairs(demand)) return false;
             power = new LayoutPowerPlan(critical, nonCritical, kit.Generator, generators, batteries, yards, kit.GeneratorFuel,
-                LayoutPowerModel.FuelStock(kit.Generator, generators), powerDiagnostics);
+                LayoutPowerModel.FuelStock(kit.Generator, generators), powerDiagnostics, reserve,
+                Math.Max(0, generators - LayoutPowerModel.Generators(critical, nonCritical + ownLoad, renewable, kit.GeneratorWatts)));
+            if (reserve > 0) notes.Add("ordinary_defense_reserve=" + reserve + "W extraGenerators=" + power.DefenseGenerators);
             return true;
         }
 

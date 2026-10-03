@@ -173,6 +173,15 @@ namespace RealisticBases.AI
         }
 
         public IntVec3 SupportCenter => supportCenter;
+        public int DebugOperatingStock(string defName) => CountStock(defName);
+        public int DebugDisconnectConduits()
+        {
+            if (!RealisticBases.Diagnostics.P4DQuestDebugActions.Disposable) throw new InvalidOperationException("Disposable profile only");
+            var conduits = ownedThings.Where(t => t != null && t.Spawned &&
+                (t.def.defName == "PowerConduit" || t.def.defName == "HiddenConduit")).ToList();
+            foreach (Thing conduit in conduits) conduit.Destroy(DestroyMode.Vanish);
+            return conduits.Count;
+        }
 
         public override void MapComponentTick()
         {
@@ -528,7 +537,10 @@ namespace RealisticBases.AI
                 threat, sector, breached, outerViable, safeNeeds,
                 new GridPoint(supportCenter.x, supportCenter.z), new GridPoint(innerFallback.x, innerFallback.z),
                 routineSupportWorkers, hostileCells, opaqueCells, safeTransferPosts, currentThreatSeverity,
-                reserveStage, fieldIntrusionNow, compoundIntrusionNow, fieldFallbackPostIds));
+                reserveStage, fieldIntrusionNow, compoundIntrusionNow, fieldFallbackPostIds,
+                ownedThings.Any(t => t != null && t.Spawned && t.TryGetComp<CompRefuelable>()?.ShouldAutoRefuelNow == true &&
+                    (t is Building_TurretGun gun && gun.def != ThingDefOf.Turret_Mortar ||
+                        t.TryGetComp<CompPowerPlant>() != null))));
             UpdateIncendiaryGate(lord, threat);
             bool changed = force || plan.State != currentState || plan.ActiveSector != currentSector || AssignmentsChanged(plan);
             currentState = plan.State;
@@ -590,9 +602,21 @@ namespace RealisticBases.AI
                 if (tend != null && tend.HasJobOnThing(pawn, patient)) return tend.JobOnThing(pawn, patient);
             }
             WorkGiver_Refuel refuel = DefDatabase<WorkGiverDef>.GetNamedSilentFail("Refuel")?.Worker as WorkGiver_Refuel;
+            WorkGiver_Refuel rearm = DefDatabase<WorkGiverDef>.GetNamedSilentFail("RearmTurrets")?.Worker as WorkGiver_Refuel;
             foreach (Thing thing in ownedThings.Where(t => t != null && t.Spawned && t.TryGetComp<CompRefuelable>() != null)
-                .OrderBy(t => t.thingIDNumber))
-                if (refuel != null && refuel.HasJobOnThing(pawn, thing)) return refuel.JobOnThing(pawn, thing);
+                .OrderByDescending(t => t is Building_TurretGun && t.TryGetComp<CompMannable>() == null)
+                .ThenBy(t => t.thingIDNumber))
+            {
+                if (thing is Building_TurretGun && thing.TryGetComp<CompMannable>() != null) continue;
+                WorkGiver_Refuel worker = thing is Building_Turret ? rearm : refuel;
+                if (worker != null && worker.HasJobOnThing(pawn, thing))
+                {
+                    Job native = worker.JobOnThing(pawn, thing);
+                    if (thing is Building_Turret && native?.def == JobDefOf.RearmTurret)
+                        native.def = RBDefOf.RB_P3_BoundedRearm;
+                    return native;
+                }
+            }
             WorkGiver_HaulGeneral haul = DefDatabase<WorkGiverDef>.GetNamedSilentFail("HaulGeneral")?.Worker as WorkGiver_HaulGeneral;
             foreach (Thing thing in operatingStocks.Where(t => t != null && t.Spawned).OrderBy(t => t.thingIDNumber))
             {
@@ -781,7 +805,7 @@ namespace RealisticBases.AI
             P3Log.Message("SCENARIO_NEEDS_DRAINED", "map=" + map.uniqueID + " pawn=" + pawn.thingIDNumber);
         }
 
-        private bool Controls(Pawn pawn) => pawn != null && pawn.Spawned && pawn.Map == map && !pawn.Dead &&
+        internal bool Controls(Pawn pawn) => pawn != null && pawn.Spawned && pawn.Map == map && !pawn.Dead &&
             !pawn.Downed && pawn.Faction == faction && !pawn.IsPrisoner && !pawn.IsSlave && defenders.Contains(pawn);
 
         private void EnforceDefendedBounds(Lord lord)
@@ -821,7 +845,7 @@ namespace RealisticBases.AI
             bool tend = pawn.health?.HasHediffsNeedingTend() ?? false;
             return new DefenderCandidate(pawn.thingIDNumber, weaponClass, (int)Math.Round(range),
                 mortars.Any(GunAvailable) && weaponClass != DefenderWeaponClass.Melee, true, food, rest, tend,
-                previousPost, previousRole, previousTick, new GridPoint(pawn.Position.x, pawn.Position.z));
+                previousPost, previousRole, previousTick, new GridPoint(pawn.Position.x, pawn.Position.z), SmokePack(pawn) != null);
         }
 
         private List<DefensivePost> RuntimePosts(Pawn reachPawn)
@@ -1031,9 +1055,64 @@ namespace RealisticBases.AI
                     " total=" + postIds.Count);
         }
 
-        private GridPoint? ResponseWaypoint(Pawn pawn, IntVec3 destination, IReadOnlyCollection<GridPoint> opaque)
+        internal IntVec3 ServiceWaypoint(Pawn pawn, Thing target)
         {
-            IntVec3 gate = AssignedAccessGate(pawn);
+            var opaque = RuntimeOpaqueCells();
+            var candidates = target.OccupiedRect().ExpandedBy(1).Cells.Where(c => InsideBounds(c) &&
+                c.Standable(map) && ReachabilityImmediate.CanReachImmediate(c, target, map, PathEndMode.Touch, pawn))
+                .OrderBy(c => c.DistanceToSquared(pawn.Position)).ToArray();
+            foreach (IntVec3 cell in candidates)
+            {
+                var route = ResponseRouteAllowed(pawn, pawn.Position, cell, opaque);
+                if (route.Allowed) { SmokeForServiceLeg(pawn, route); return cell; }
+            }
+            foreach (IntVec3 cell in candidates)
+            {
+                IntVec3 gate = gateCells.Where(c => c.IsValid && InsideBounds(c) && c.Standable(map))
+                    .OrderBy(c => c.DistanceToSquared(cell)).FirstOrDefault();
+                var next = ResponseWaypoint(pawn, cell, opaque, gate);
+                if (next.HasValue)
+                {
+                    SmokeForServiceLeg(pawn, ResponseRouteAllowed(pawn, pawn.Position, ToCell(next.Value), opaque));
+                    return ToCell(next.Value);
+                }
+            }
+            return IntVec3.Invalid;
+        }
+
+        private CompApparelReloadable SmokePack(Pawn pawn) => pawn.apparel?.WornApparel
+            .Where(a => a.def.defName == "Apparel_SmokepopBelt")
+            .Select(a => a.TryGetComp<CompApparelReloadable>()).FirstOrDefault(c => c != null && c.RemainingCharges > 0);
+
+        private void SmokeForServiceLeg(Pawn pawn, P3DefenderRouteAudit route)
+        {
+            // Smoke supplements an already bounded approved leg; it never
+            // grants permission for a long exposed transfer or new technology.
+            if (!route.Allowed || route.Exterior == 0 || route.Exposed == 0 ||
+                pawn.Position.AnyGas(map, GasType.BlindSmoke)) return;
+            var pack = SmokePack(pawn);
+            if (pack == null || !pack.CanBeUsed(out string reason)) return;
+            int before = pack.RemainingCharges;
+            Verb_SmokePop.Pop(pack);
+            P3Log.Message("LOGISTICS_SMOKE", "map=" + map.uniqueID + " pawn=" + pawn.thingIDNumber +
+                " charges=" + before + "->" + pack.RemainingCharges + " exterior=" + route.Exterior + " exposed=" + route.Exposed);
+        }
+
+        public void DebugLogisticsSmoke()
+        {
+            if (!RealisticBases.Diagnostics.P4DQuestDebugActions.Disposable) throw new InvalidOperationException("Disposable profile only");
+            Pawn pawn = defenders.Where(Controls).OrderByDescending(p => AssignedRole(p) == GarrisonRole.Support)
+                .FirstOrDefault(p => SmokePack(p) != null) ?? throw new InvalidOperationException("No funded legal smoke pack");
+            var pack = SmokePack(pawn); int before = pack.RemainingCharges;
+            SmokeForServiceLeg(pawn, new P3DefenderRouteAudit(true, "disposable_exposed_leg_probe", 2, 1, 1));
+            P3Log.Message("LOGISTICS_SMOKE_PROBE", "pawn=" + pawn.thingIDNumber + " charges=" + before + "->" +
+                pack.RemainingCharges + " blindSmoke=" + pawn.Position.AnyGas(map, GasType.BlindSmoke) + " extraSupply=False");
+            map.GetComponent<RealisticBases.Diagnostics.P4ETurretProbe>().ObserveSmoke(pawn);
+        }
+
+        private GridPoint? ResponseWaypoint(Pawn pawn, IntVec3 destination, IReadOnlyCollection<GridPoint> opaque, IntVec3? serviceGate = null)
+        {
+            IntVec3 gate = serviceGate ?? AssignedAccessGate(pawn);
             var enemies = map.mapPawns.AllPawnsSpawned.Where(p => p.Faction != null && faction != null &&
                 p.HostileTo(faction) && !p.Dead && !p.Downed).Select(p => new GridPoint(p.Position.x, p.Position.z)).ToArray();
             return P3DefenderRoute.NextWaypoint(new GridPoint(pawn.Position.x, pawn.Position.z),

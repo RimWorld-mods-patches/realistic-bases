@@ -97,6 +97,25 @@ namespace RealisticBases.Planning
         private static readonly GridPoint[] Cardinal =
         { new GridPoint(0, -1), new GridPoint(-1, 0), new GridPoint(1, 0), new GridPoint(0, 1) };
 
+        public static IReadOnlyList<string> HeavyWeaponOrder(IEnumerable<GridPoint> targets, IEnumerable<GridPoint> positions,
+            IEnumerable<string> previousGuns, double autocannonRange, double slugRange)
+        {
+            var posts = positions.Distinct().ToArray();
+            int near = 0, longOnly = 0;
+            foreach (GridPoint target in targets.Distinct())
+            {
+                double distance = posts.Length == 0 ? double.MaxValue : posts.Min(p => Distance(p, target));
+                if (distance <= autocannonRange) near++;
+                else if (distance <= slugRange) longOnly++;
+            }
+            var previous = new HashSet<string>(previousGuns, StringComparer.Ordinal);
+            bool preferAuto = near >= longOnly;
+            if (previous.Contains("Turret_Sniper") && !previous.Contains("Turret_Autocannon") && near > 0) preferAuto = true;
+            if (previous.Contains("Turret_Autocannon") && !previous.Contains("Turret_Sniper") && longOnly > 0) preferAuto = false;
+            return preferAuto ? new[] { "Turret_Autocannon", "Turret_Sniper", "Turret_MiniTurret" } :
+                new[] { "Turret_Sniper", "Turret_Autocannon", "Turret_MiniTurret" };
+        }
+
         public static IReadOnlyList<string> Validate(ProceduralLayoutInput input, ProceduralLayout layout,
             P4BTurretPlan turret, IEnumerable<GridPoint> additionalBlocked = null,
             SettlementLoadout loadout = null)
@@ -430,7 +449,10 @@ namespace RealisticBases.Planning
             List<GridPoint> staffedPosts = currentStaffing == null ? new List<GridPoint>() :
                 currentStaffing.SniperPosts.Concat(currentStaffing.LinePosts).ToList();
             Dictionary<string, int> rejected = new Dictionary<string, int>(StringComparer.Ordinal);
-            string[] order = { "Turret_Sniper", "Turret_Autocannon", "Turret_MiniTurret" };
+            input.Catalog.TryGet("Turret_Autocannon", out CatalogDef autocannon);
+            input.Catalog.TryGet("Turret_Sniper", out CatalogDef slug);
+            IReadOnlyList<string> order = HeavyWeaponOrder(targets, frames.Select(f => f.Anchor),
+                previous.Select(g => g.DefName), autocannon?.MaximumRange ?? 0, slug?.MaximumRange ?? 0);
             foreach (string name in order)
             {
                 if (!input.Catalog.TryGet(name, out CatalogDef def) ||

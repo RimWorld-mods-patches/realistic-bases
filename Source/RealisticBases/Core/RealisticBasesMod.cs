@@ -68,6 +68,7 @@ namespace RealisticBases.Core
     [DefOf]
     public static class RBDefOf
     {
+        public static Verse.JobDef RB_P3_BoundedRearm;
         public static MapGeneratorDef RB_P0_Base_Faction;
         public static DutyDef RB_P0_WorkSettlement;
         public static DutyDef RB_P0_HoldPost;

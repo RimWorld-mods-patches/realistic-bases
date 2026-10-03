@@ -429,8 +429,11 @@ namespace RealisticBases.Planning
                     errors.Add("hot_climate_cold_gear_" + resident.Index);
                 if (cold && !worn.Any(d => d.ApparelLayers.Contains("Shell"))) errors.Add("cold_without_shell_" + resident.Index);
             }
-            if (loadout.Success && loadout.EquipmentValue > input.Requirements.EquipmentValueLimit) errors.Add("equipment_budget");
-            if (loadout.EquipmentValueLimit != input.Requirements.EquipmentValueLimit) errors.Add("equipment_limit_mismatch");
+            int utilityTopUp = loadout.EquipmentValueLimit - input.Requirements.EquipmentValueLimit;
+            int smokeValue = loadout.Residents.Where(r => r.Utility?.DefName == "Apparel_SmokepopBelt").Sum(r => r.Utility.Value);
+            if (loadout.Success && loadout.EquipmentValue > loadout.EquipmentValueLimit) errors.Add("equipment_budget");
+            if (utilityTopUp < 0 || utilityTopUp > input.Requirements.LogisticsUtilityValueLimit || utilityTopUp > smokeValue)
+                errors.Add("equipment_limit_mismatch");
             return new ReadOnlyCollection<string>(errors.Distinct().ToList());
         }
 

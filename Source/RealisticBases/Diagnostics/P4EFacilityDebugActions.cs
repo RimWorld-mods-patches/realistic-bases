@@ -18,6 +18,23 @@ namespace RealisticBases.Diagnostics
         private const string Category = "Realistic Bases P4E";
         internal static bool FailNextMagazineStocks;
 
+        [DebugAction(Category, "Start P4E autocannon firing probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void AutocannonFiring() => Find.CurrentMap.GetComponent<P4ETurretProbe>().StartFiring();
+        [DebugAction(Category, "Start P4E autocannon rearm probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void AutocannonRearm() => Find.CurrentMap.GetComponent<P4ETurretProbe>().StartRearm();
+        [DebugAction(Category, "Start P4E autocannon power loss probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void AutocannonPowerLoss() => Find.CurrentMap.GetComponent<P4ETurretProbe>().StartPowerLoss();
+        [DebugAction(Category, "Start P4E autocannon close support probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void AutocannonCloseSupport() => Find.CurrentMap.GetComponent<P4ETurretProbe>().StartCloseSupport();
+
+        [DebugAction(Category, "P4E pop funded logistics smoke once", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void SmokeOnce() => Find.CurrentMap.GetComponent<RealisticBases.AI.P3GarrisonController>().DebugLogisticsSmoke();
+
         [DebugAction(Category, "Capture rejected P4 terrain fixture", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.Playing)]
         private static void CaptureRejected()

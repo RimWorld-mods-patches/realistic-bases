@@ -5,6 +5,101 @@ using RealisticBases.Planning;
 
 internal static partial class Program
 {
+    private static void P4ELogisticsSmokeBudget()
+    {
+        var stage = TechStageModel.Create(SettlementTechStageLevel.IndustrialMid);
+        var tiny = LayoutRequirements.FromPopulation(7, Industrial, Temperate, stage: stage, equipmentValueLimit: 1);
+        var kit = LayoutEquipment.Resolve(tiny, CoreCatalog, null, 2, 77).Kit;
+        var minimal = LayoutLoadoutModel.Build(tiny, kit, CoreCatalog, 77, 1, false);
+        True(minimal.Degradations.Contains("utility_dropped"), "fixture reaches the actual utility-drop boundary");
+        var req = new LayoutRequirements(7, Industrial, HousingStandard.Barracks, Temperate, 50, 500, 0,
+            stage: stage, equipmentValueLimit: minimal.EquipmentValue, logisticsUtilityValueLimit: 300);
+        var retained = LayoutLoadoutModel.Build(req, kit, CoreCatalog, 77, 1, false);
+        True(retained.Success, "bounded top-up retains otherwise affordable gear and smoke");
+        Equal(7, retained.Residents.Count, "no additional resident from utility budget");
+        var smoke = retained.Residents.Single(r => r.Role == LoadoutRole.Support).Utility;
+        Equal("Apparel_SmokepopBelt", smoke.DefName, "resolved legal support pack retained");
+        True(retained.EquipmentValueLimit > req.EquipmentValueLimit &&
+            retained.EquipmentValueLimit - req.EquipmentValueLimit <= smoke.Value, "only actual pack value funded");
+        True(retained.Diagnostics.Any(d => d.StartsWith("logistics_utility_topup=")), "named allowance visible");
+        foreach (var level in new[] { SettlementTechStageLevel.Neolithic, SettlementTechStageLevel.Medieval, SettlementTechStageLevel.IndustrialEarly })
+        {
+            var lower = LayoutRequirements.FromPopulation(7, level < SettlementTechStageLevel.IndustrialEarly ? Tribal : Industrial,
+                Temperate, stage: TechStageModel.Create(level));
+            var lowerKit = LayoutEquipment.Resolve(lower, CoreCatalog, null, 2, 77).Kit;
+            var lowerLoadout = LayoutLoadoutModel.Build(lower, lowerKit, CoreCatalog, 77, 1, false);
+            True(!lowerLoadout.Residents.Any(r => r.Utility?.DefName == "Apparel_SmokepopBelt"), "research capability not granted at " + level);
+        }
+    }
+
+    private static void P4EDefenseAllowance()
+    {
+        var post = new[] { new GridPoint(0, 0) };
+        Equal("Turret_Autocannon", P4BTurretPlanner.HeavyWeaponOrder(new[] { new GridPoint(20, 0) }, post,
+            new string[0], 34.9, 45.9)[0], "near approaches prefer autocannon");
+        Equal("Turret_Sniper", P4BTurretPlanner.HeavyWeaponOrder(new[] { new GridPoint(40, 0) }, post,
+            new string[0], 34.9, 45.9)[0], "long-only lanes retain uranium");
+        Equal("Turret_Sniper", P4BTurretPlanner.HeavyWeaponOrder(new[] { new GridPoint(20, 0), new GridPoint(40, 0) }, post,
+            new[] { "Turret_Autocannon" }, 34.9, 45.9)[0], "existing autocannon permits complementary long-range group");
+        int autos = 0, slugs = 0;
+        foreach (var level in new[] { SettlementTechStageLevel.IndustrialMid, SettlementTechStageLevel.IndustrialLate })
+        {
+            var stage = TechStageModel.Create(level);
+            foreach (int wealth in new[] { 100, 180 })
+            {
+                foreach (int allowance in new[] { 100, 125, 150 })
+                {
+                    int guns = 0, groups = 0, guards = 0, value = 0, generators = 0, watts = 0;
+                    for (ulong seed = 1; seed <= 3; seed++)
+                    {
+                        var budget = OrdinarySettlementPopulation.Create(P2ProfileCatalog.IndustrialTemperate, stage, Temperate, wealth, allowance);
+                        var baseline = OrdinarySettlementPopulation.Create(P2ProfileCatalog.IndustrialTemperate, stage, Temperate, wealth, 100);
+                        Equal(baseline.Residents, budget.Residents, "no roster inflation");
+                        Equal(baseline.EquipmentValue, budget.EquipmentValue, "no equipment-budget inflation");
+                        var req = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, Temperate, stage: stage, populationBudget: budget);
+                        Equal(allowance == 100 ? 0 : 960, req.DefenseReserveWatts, "ordinary-only dispatchable reservation");
+                        var input = new ProceduralLayoutInput(req, Plains(180), seed, CoreCatalog,
+                            new LayoutFortificationReservation(1), resources:
+                            new LayoutLocalResources(100000, new[] { "BlocksGranite" }));
+                        var result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true); Accepted(result);
+                        var layout = result.Layout;
+                        True(layout.Materials.ImportValue <= req.ImportValueLimit, "construction and fuel remain funded");
+                        if (layout.Power != null)
+                        {
+                            True(layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.RenewableWatts -
+                                layout.Power.CriticalWatts - layout.Power.NonCriticalWatts >= req.DefenseReserveWatts, "real dispatchable headroom");
+                            Equal(LayoutPowerModel.Batteries(layout.Power.CriticalWatts + req.DefenseReserveWatts),
+                                layout.Power.Batteries, "defense included in outage buffer");
+                            generators += layout.Power.Generators;
+                        }
+                        if (layout.Turret == null) continue;
+                        var staffing = P4BStaffing.Audit(input, layout, layout.Turret);
+                        Equal(staffing.Guns, staffing.GuardedGuns, "all guns concurrently guarded");
+                        Equal(staffing.Guns, staffing.CloseSupportedGuns, "all guns close-supported");
+                        guns += layout.Turret.All.Count(); groups += layout.Turret.Groups.Count();
+                        guards += staffing.GuardedGuns; value += layout.Turret.ImportValue; watts += layout.Turret.TotalWatts;
+                        autos += layout.Turret.All.Count(t => t.DefName == "Turret_Autocannon");
+                        slugs += layout.Turret.All.Count(t => t.DefName == "Turret_Sniper");
+                    }
+                    Console.WriteLine("  sweep stage=" + level + " wealth=" + wealth + " allowance=" + allowance +
+                        " guns=" + guns + " groups=" + groups + " guards=" + guards + " turretValue=" + value +
+                        " generators=" + generators + " turretWatts=" + watts);
+                }
+            }
+        }
+        True(autos > 0, "autocannons actually selected in resolved eligible layouts");
+        Console.WriteLine("  sweep autocannons=" + autos + " uranium=" + slugs);
+        foreach (var level in new[] { SettlementTechStageLevel.Neolithic, SettlementTechStageLevel.Medieval, SettlementTechStageLevel.IndustrialEarly })
+        {
+            bool primitive = level < SettlementTechStageLevel.IndustrialEarly;
+            var profile = primitive ? P2ProfileCatalog.TribalTemperate : P2ProfileCatalog.IndustrialTemperate;
+            var budget = OrdinarySettlementPopulation.Create(profile, TechStageModel.Create(level), Temperate, 100);
+            Equal(100, budget.DefenseAllowancePercent, "primitive/early exclusions");
+        }
+        Equal(0, LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, Temperate).DefenseReserveWatts,
+            "legacy/native quest profile budgets unchanged without ordinary wealth contract");
+    }
+
     private static void P4ETenRejectedTile()
     {
         string[] rows = System.IO.File.ReadAllLines(System.IO.Path.Combine(AppContext.BaseDirectory, "p4e-ten-rejected-traits.rle"));
@@ -20,7 +115,7 @@ internal static partial class Program
         var terrain = new TerrainSnapshot(160, 160, cells, "p4e-live-ten-rejected-ED06EE5676C0012E");
         var climate = new LayoutClimate(-4, 37);
         var stage = TechStageModel.Create(SettlementTechStageLevel.IndustrialLate);
-        var budget = OrdinarySettlementPopulation.Create(P2ProfileCatalog.IndustrialTemperate, stage, climate, 150);
+        var budget = OrdinarySettlementPopulation.Create(P2ProfileCatalog.IndustrialTemperate, stage, climate, 150, defenseAllowancePercent: 100);
         var requirements = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, climate, stage: stage,
             populationBudget: budget, mortarBiasPercent: 100);
         var input = new ProceduralLayoutInput(requirements, terrain, 0x15A894EE21B8FC83UL, CoreCatalog,

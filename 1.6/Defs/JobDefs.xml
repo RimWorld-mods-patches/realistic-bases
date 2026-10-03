@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+  <JobDef>
+    <defName>RB_P3_BoundedRearm</defName>
+    <driverClass>RealisticBases.AI.JobDriver_P3BoundedRearm</driverClass>
+    <reportString>Rearming TargetA.</reportString>
+    <casualInterruptible>false</casualInterruptible>
+  </JobDef>
+</Defs>

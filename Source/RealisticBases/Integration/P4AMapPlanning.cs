@@ -94,6 +94,9 @@ namespace RealisticBases.Integration
                 " residents=" + requirements.Residents + " populationMode=" + (populationBudget == null ? "legacy-profile" : OrdinarySettlementPopulation.Version) +
                 " wealthPercent=" + wealthPercent + " equipmentBudget=" + requirements.EquipmentValueLimit +
                 " importBudget=" + requirements.ImportValueLimit +
+                " baseImportBudget=" + (populationBudget?.BaseImportValue ?? requirements.ImportValueLimit) +
+                " defenseAllowancePercent=" + (populationBudget?.DefenseAllowancePercent ?? 100) +
+                " defenseReserveWatts=" + requirements.DefenseReserveWatts +
                 " effectiveLayers=" + input.Fortification.WallLayers + " layerFallback=" + layerFallback +
                 " layerMode=" + (requestedWallLayers == 0 ? "tech-budget-weighted" : "debug-override") +
                 " catalogDefs=" + catalog.Defs.Count + " catalogResearch=" + catalog.Research.Count +

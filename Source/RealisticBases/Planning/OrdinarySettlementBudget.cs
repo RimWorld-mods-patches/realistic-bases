@@ -7,12 +7,15 @@ namespace RealisticBases.Planning
     // derived from the resulting equipment budget before rooms/stocks are planned.
     public sealed class OrdinarySettlementBudget
     {
-        internal OrdinarySettlementBudget(int wealthPercent, int equipmentValue, int importValue, int residentCost)
+        internal OrdinarySettlementBudget(int wealthPercent, int equipmentValue, int importValue, int residentCost,
+            int defenseAllowancePercent = 100, int baseImportValue = -1)
         {
             WealthPercent = wealthPercent;
             EquipmentValue = equipmentValue;
             ImportValue = importValue;
             StandardResidentCost = residentCost;
+            DefenseAllowancePercent = defenseAllowancePercent;
+            BaseImportValue = baseImportValue < 0 ? importValue : baseImportValue;
             Residents = OrdinarySettlementPopulation.AffordableResidents(equipmentValue, residentCost);
         }
 
@@ -21,6 +24,8 @@ namespace RealisticBases.Planning
         public int ImportValue { get; }
         public int StandardResidentCost { get; }
         public int Residents { get; }
+        public int DefenseAllowancePercent { get; }
+        public int BaseImportValue { get; }
     }
 
     public static class OrdinarySettlementPopulation
@@ -31,6 +36,8 @@ namespace RealisticBases.Planning
         public const int MinimumWealthPercent = 60;
         public const int MaximumWealthPercent = 180;
         public const string Version = "ordinary-population.1";
+        public const int P4EDefenseAllowancePercent = 125;
+        public const int P4EDefenseReserveWatts = 960;
 
         // Provisional relative-budget distribution. With the affordability rule,
         // these weights give populations 4..12 and an exact expected mean of 7.
@@ -66,7 +73,7 @@ namespace RealisticBases.Planning
         }
 
         public static OrdinarySettlementBudget Create(PhysicalSettlementProfile profile,
-            SettlementTechStage stage, LayoutClimate climate, int wealthPercent)
+            SettlementTechStage stage, LayoutClimate climate, int wealthPercent, int defenseAllowancePercent = -1)
         {
             if (profile == null || stage == null || climate == null) throw new ArgumentNullException();
             if (wealthPercent < MinimumWealthPercent || wealthPercent > MaximumWealthPercent)
@@ -74,10 +81,12 @@ namespace RealisticBases.Planning
             int residentCost = Math.Max((int)Math.Ceiling(profile.Budget.EquipmentValue / (double)profile.Residents),
                 LayoutRequirements.DefaultEquipmentValueLimit(1, stage, climate));
             int equipment = Scale(checked(residentCost * Average), wealthPercent);
-            // Keep the existing import allowance at average wealth; poor/rich
-            // settlements share the same multiplier, without counting imports as gear.
-            int imports = Scale(profile.Budget.ImportValueLimit, wealthPercent);
-            return new OrdinarySettlementBudget(wealthPercent, equipment, imports, residentCost);
+            int baseImports = Scale(profile.Budget.ImportValueLimit, wealthPercent);
+            bool industrialDefense = profile.Has(SettlementCapability.Electricity) &&
+                stage.Level >= SettlementTechStageLevel.IndustrialMid;
+            int allowance = industrialDefense ? (defenseAllowancePercent < 0 ? P4EDefenseAllowancePercent : defenseAllowancePercent) : 100;
+            if (allowance < 100 || allowance > 150) throw new ArgumentOutOfRangeException(nameof(defenseAllowancePercent));
+            return new OrdinarySettlementBudget(wealthPercent, equipment, Scale(baseImports, allowance), residentCost, allowance, baseImports);
         }
 
         private static int Scale(int value, int percent) =>

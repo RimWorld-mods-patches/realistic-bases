@@ -860,6 +860,17 @@ internal static class Program
         Equal(2, Assign(roster, guns.Skip(1).Concat(direct)).Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "destroyed gun releases one role");
         Equal(0, Assign(roster, direct).Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "exhaustion releases all crew");
         Equal(2, Assign(roster.Take(4), guns.Concat(direct)).Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "casualty staffing leaves two direct defenders");
+        var logistics = GarrisonDoctrine.Assign(new GarrisonSituation(1000, roster, guns.Concat(direct), true, "north", false, true, true,
+            new GridPoint(20, 18), new GridPoint(21, 18), criticalSupportRequired: true));
+        Equal(1, logistics.Assignments.Count(a => a.Role == GarrisonRole.Support), "one existing funded reserve services low ammunition under threat");
+        Equal(10, logistics.Assignments.Count, "logistics does not add residents");
+        True(logistics.Assignments.Where(a => a.PostId.Length > 0).GroupBy(a => a.PostId).All(g => g.Count() == 1), "logistics cannot double-book guard or mortar posts");
+        var smokeRoster = roster.Select(d => new DefenderCandidate(d.Id, d.WeaponClass, d.WeaponRange, true, true,
+            false, false, false, hasSmokepop: d.Id == 10)).ToArray();
+        var smokeLogistics = GarrisonDoctrine.Assign(new GarrisonSituation(1000, smokeRoster, guns.Concat(direct),
+            true, "north", false, true, true, new GridPoint(20, 18), new GridPoint(21, 18), criticalSupportRequired: true));
+        Equal(GarrisonRole.Support, smokeLogistics.Assignments.Single(a => a.DefenderId == 10).Role,
+            "the existing smoke-equipped reserve supplies critical logistics");
     }
 
     private static void P3InnerGatePostsBeforeIdleReserve()
