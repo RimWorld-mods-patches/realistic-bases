@@ -67,6 +67,9 @@ internal static partial class Program
         Run("workbenches stand against a wall with an interior work cell", WorkbenchesAgainstWall);
         RunCoolerExhaustTests();
         RunLayoutEngineV2Tests();
+        Run("natural barriers: shallow water walks, deep water and rock block", ExposureRules);
+        Run("joint sites prefer natural barriers on beach and lakeshore maps", BarrierSiting);
+        Run("inner yards become crop patches without touching circulation", InnerYardCrops);
         RunLayoutEngineV2Matrix();
         Run("identical inputs replay identical layouts", Determinism);
         Run("seeds vary internal layout beyond translation and rotation", SeedVariation);

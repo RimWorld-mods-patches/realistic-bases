@@ -285,8 +285,9 @@ namespace RealisticBases.Planning
             IEnumerable<LayoutExhaustPocket> exhaustPockets = null, IEnumerable<LayoutWallSection> outerSections = null,
             P4BJointSite jointSite = null, P4BFieldWallPlan fieldWall = null, P4BTurretPlan turret = null,
             P4BApproachDefensePlan approachDefense = null, IEnumerable<GridPoint> perimeterReinforcement = null,
-            IEnumerable<LayoutFixture> courts = null)
+            IEnumerable<LayoutFixture> courts = null, IEnumerable<GridPoint> bonusFields = null)
         {
+            BonusFields = Sorted(bonusFields);
             JointSite = jointSite;
             FieldWall = fieldWall;
             Turret = turret;
@@ -358,6 +359,9 @@ namespace RealisticBases.Planning
         public P4BTurretPlan Turret { get; }
         public P4BApproachDefensePlan ApproachDefense { get; }
         public IReadOnlyList<LayoutRelationship> Relationships { get; }
+        // Optional extra crops on enclosed, unroofed, fertile yard left over by
+        // the final layout. Never counted toward FieldCellsRequired.
+        public IReadOnlyList<GridPoint> BonusFields { get; }
         // Test-only planned blockers used to prove the validator sees final obstacles.
         public IReadOnlyList<GridPoint> ExtraObstacles { get; }
         public IReadOnlyList<string> Notes { get; }
@@ -398,7 +402,13 @@ namespace RealisticBases.Planning
             new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court, Enclosure, BuiltWalls,
                 NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof, WallLayers, FieldCellsRequired, Relationships,
                 ExtraObstacles.Concat(obstacles ?? Enumerable.Empty<GridPoint>()), Notes, TechStage, RolesDigest, EquipmentDigest, WallStuff, Materials, Power,
-                ExhaustPockets, OuterSections, JointSite, FieldWall, Turret, ApproachDefense, PerimeterReinforcement, Courts);
+                ExhaustPockets, OuterSections, JointSite, FieldWall, Turret, ApproachDefense, PerimeterReinforcement, Courts, BonusFields);
+
+        public ProceduralLayout WithBonusFields(IEnumerable<GridPoint> cells) =>
+            new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court, Enclosure, BuiltWalls,
+                NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof, WallLayers, FieldCellsRequired, Relationships,
+                ExtraObstacles, Notes, TechStage, RolesDigest, EquipmentDigest, WallStuff, Materials, Power,
+                ExhaustPockets, OuterSections, JointSite, FieldWall, Turret, ApproachDefense, PerimeterReinforcement, Courts, cells);
 
         public ProceduralLayout WithFieldWall(ProceduralLayoutInput input, P4BFieldWallPlan fieldWall)
         {
@@ -418,7 +428,7 @@ namespace RealisticBases.Planning
                 WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
                 Notes.Concat(new[] { "fieldWall=" + fieldWall.Digest + " materials " + materials }),
                 TechStage, RolesDigest, EquipmentDigest, WallStuff, materials, Power,
-                ExhaustPockets, OuterSections, JointSite, fieldWall, Turret, ApproachDefense, PerimeterReinforcement, Courts);
+                ExhaustPockets, OuterSections, JointSite, fieldWall, Turret, ApproachDefense, PerimeterReinforcement, Courts, BonusFields);
         }
 
         public ProceduralLayout WithApproachDefense(ProceduralLayoutInput input, P4BApproachDefensePlan defense)
@@ -432,7 +442,7 @@ namespace RealisticBases.Planning
                 NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof,
                 WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
                 Notes.Concat(new[] { "approachDefense=" + defense.Digest }), TechStage, RolesDigest,
-                EquipmentDigest, WallStuff, materials, Power, ExhaustPockets, OuterSections, JointSite, fieldWall, null, defense, PerimeterReinforcement, Courts);
+                EquipmentDigest, WallStuff, materials, Power, ExhaustPockets, OuterSections, JointSite, fieldWall, null, defense, PerimeterReinforcement, Courts, BonusFields);
         }
 
         public ProceduralLayout WithTurret(ProceduralLayoutInput input, P4BTurretPlan turret)
@@ -452,7 +462,7 @@ namespace RealisticBases.Planning
                 Notes.Concat(new[] { "turret=" + turret.Digest + " import=" + turret.ImportValue }),
                 TechStage, RolesDigest, EquipmentDigest, WallStuff, materials, Power,
                 ExhaustPockets, OuterSections, JointSite, FieldWall, turret,
-                ApproachDefense?.WithoutTransit(turret.All.SelectMany(t => t.Footprint)), PerimeterReinforcement, Courts);
+                ApproachDefense?.WithoutTransit(turret.All.SelectMany(t => t.Footprint)), PerimeterReinforcement, Courts, BonusFields);
         }
 
         private static IReadOnlyList<GridPoint> Sorted(IEnumerable<GridPoint> cells) =>
@@ -514,6 +524,11 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, WallStuff);
             if (Materials != null) hash = Materials.AddTo(hash);
             hash = StableHash.Add(hash, Power == null ? string.Empty : Power.Digest);
+            if (BonusFields.Count > 0)
+            {
+                hash = StableHash.Add(hash, "bonus-fields");
+                foreach (GridPoint c in BonusFields) hash = Point(hash, c);
+            }
             foreach (LayoutExhaustPocket pocket in ExhaustPockets)
             {
                 hash = Point(hash, pocket.Cell);
@@ -779,6 +794,18 @@ namespace RealisticBases.Planning
                     int gaps;
                     ProceduralLayout finished = Finish(input, entry.Run, entry.Layout, entry.Site, entry.Anchor, diagnostics, out gaps);
                     if (finished == null) continue;
+                    if (input.QuestContract == null)
+                    {
+                        IReadOnlyList<GridPoint> bonus = LayoutBonusFields.Select(input, finished);
+                        if (bonus.Count > 0)
+                        {
+                            ProceduralLayout planted = finished.WithBonusFields(bonus);
+                            IReadOnlyList<string> bonusErrors = ProceduralLayoutValidator.Validate(input, planted);
+                            if (bonusErrors.Count == 0) finished = planted;
+                            Note(diagnostics, "bonus_field", bonusErrors.Count == 0 ? "planted" : "omitted",
+                                "cells=" + bonus.Count + (bonusErrors.Count == 0 ? string.Empty : " " + string.Join("+", bonusErrors.Take(4))));
+                        }
+                    }
                     LayoutCandidateScore final = LayoutCandidateScore.Evaluate(input, finished, gaps, Downgrades(finished));
                     if (input.Terrain.Digest != terrainDigest || input.Digest != inputDigest) throw new InvalidOperationException("P4A planner mutated its input.");
                     diagnostics.Add(new LayoutDiagnostic("result", "accepted", stats + " digest=" + finished.Digest +
