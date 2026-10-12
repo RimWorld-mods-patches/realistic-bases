@@ -9,6 +9,8 @@ internal static class Program
 
     private static int Main()
     {
+        Run("P5 explicit stock epochs reject empty reads and loaded restock", P5StockTests.Epochs);
+        Run("P5 immutable stock conserves allocations and physical stack identities", P5StockTests.Conservation);
         Run("stable seed and input digest", StableSeedAndInputDigest);
         Run("snapshot copies source cells", SnapshotCopiesSourceCells);
         Run("connected regions are deterministic", ConnectedRegionsAreDeterministic);
