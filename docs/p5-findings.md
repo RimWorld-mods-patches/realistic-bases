@@ -585,3 +585,81 @@ and allocated-reference pruning also compile cleanly and leave pure geometry
 unchanged. The original loss is fixed; trade/attack, full-transfer rollback/
 overflow, expiry/defeat, broader asset/roster persistence and integrated P5/V2.6
 remain open. No full P5 closeout is claimed.
+
+## 2026-10-13 pause checkpoint — traded settlement still rejects after dense-storage merge
+
+The user requested merging `main`'s storage-density update into this P5 branch.
+Merge `1cd5d31` includes main `d6a2aef`, dense storage `6db1421`, and coastal/
+barrier siting plus inner-yard crops. The four pending P5 probe/spawner edits
+were saved in a named stash and restored without conflicts; no prior work was
+discarded and nothing was merged into main or pushed.
+
+### Native trade/attack before that merge
+
+Using the untouched disposable baseline, existing negotiator `Human185` and
+existing currency, native buy7/sell3 succeeds at583: offer steel714→710,
+playerSteelDelta4, total silver2040 conserved, epoch1. The70 ordinary native
+stacks plus26 unsupported native Things survive a cold reload. This is a new
+actual offer, not the older526→522 prototype case.
+
+At584, that original caravan's native attack acquires the already-published
+offer without regeneration (`offerUnits=6368`, playerSteel4, epoch1). Generation
+rejects before mutation, so the attack verifier correctly reports
+`passed=False sameOffer=True`. Native hostility is the normal attack consequence;
+no relations, research, pawns or supplies were granted. The subsequent diagnostic
+map audit cannot resolve a realized encounter; its post-event exception is a
+fixture/error-reporting limitation, not successful generation. A generic active
+save explicitly preserves the failed world/map afterwards.
+
+Native input:250×250, seed `8DD10F58FC412C58`, IndustrialEarly/faction stage,
+wealth75, five residents, sale storage111 ordinary/hazardous plus13 perishable
+stacks, wood63713, local granite/marble, climate−2..38°C. Original rejection:
+`room_unplaceable ... RockProtected_storage-4`,90 attempts/221463 evaluations,
+`budgetExhausted=False`, zero mutations. Terrain capture digest
+`CDF248A8E1087ABF` is preserved as
+`Source/RealisticBases.LayoutTests/p5-native-trade-rejected-traits.rle`.
+
+Logs: `p5-native-trade-attack-20261013.log` and
+`p5-native-trade-attack-arrival-20261013.log`. Saves:
+`RealisticBases-P5-native-partial-trade-20261013.rws`,
+`RealisticBases-P5-before-native-trade-attack.rws`, and
+`RealisticBases-P5-native-trade-attack-rejection-20261013.rws`.
+Raw capture/catalog and saves/logs remain under ignored `.runtime/`.
+
+### Post-merge pure result: one pass, one failure
+
+P5 storage-capacity assertions now count actual shelf slots, not floor cells;
+this is required by the merged three-stacks-per-shelf-cell model. Existing sale/
+retained storage sizing passes (81 ordinary slots,59 food slots in its fixture).
+The new named regression, `P5 captured native trade tile fits its whole offer
+with dense storage`, **still fails**:
+
+```text
+no_valid_layout sites=10 attempts=93 evaluations=263300 repairs=88 routeNodes=585170 budgetExhausted=False
+validate:rejected 131,48 pocket_137,31_not_sealed
+gate:route_budget_exhausted 131,48/RockProtected
+repair:connected_room_extension 131,48/RockProtected room=power corridor=5 bounds=150,38,5x13
+```
+
+Shared-wall room packing now progresses through both storage rooms, but final
+cooler-pocket sealing/gate routing still rejects the recorded candidate. This
+does not prove those are the only failure modes across all attempts. Do not
+replace the remaining diagnosis with a larger timeout or silently trim the offer.
+The pure replay uses captured terrain traits, observed stage/wealth/stock demand
+and the existing version-matched runtime catalog fixture; it is not a complete
+serialized live planner input (for example captured geyser coordinates are not
+included). Compare input fidelity when diagnosing. No post-merge live retry or
+successful post-merge native attack is claimed.
+
+Reproduce in Docker using the configured environment from `build-mod`:
+`dotnet run --project Source/RealisticBases.LayoutTests/RealisticBases.LayoutTests.csproj -c Release -- --only "P5 captured native trade"`.
+Focused combined run log: `p5-main-density-captured-tests-20261013.txt`,
+failures1/16497ms. Its failing exit stopped the chained Release build, so no
+post-merge Release/full-suite pass is claimed. Pre-merge trade/failure probes
+compiled cleanly, but full-materialization forced rollback and forced overflow
+actions have not yet been invoked or validated. They are committed as pending
+instrumentation, including the corrected `nativeOnly` fallback diagnostic.
+
+Per the user's explicit instruction, preserve the named failing test as red,
+document/commit the current work, and **pause** rather than implement another fix.
+The disposable game is stopped. P5 and V2.6 are not complete.

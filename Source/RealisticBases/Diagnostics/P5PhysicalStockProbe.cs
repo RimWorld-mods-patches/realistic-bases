@@ -99,7 +99,7 @@ namespace RealisticBases.Diagnostics
                 " aggregate=" + Aggregate(snapshot) + " duplicatePhysicalNative=" + physical.Any(native.Contains) +
                 " unsupportedNative=" + unsupported.Count + " mapped=" + ids);
         }
-        private static string Aggregate(P5StockSnapshot stock)
+        internal static string Aggregate(P5StockSnapshot stock)
         {
             var groups = stock.Items.GroupBy(i => i.Def + ":" + i.Stuff + ":" + i.Quality + ":" + i.HitPoints + ":" + i.MaxHitPoints)
                 .OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => g.Key + "=" + g.Sum(i => (long)i.Count));

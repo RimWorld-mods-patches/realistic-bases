@@ -119,6 +119,48 @@ namespace RealisticBases.Diagnostics
                 " unsupportedNative=" + unsupported.Count + " pawnIds=" + string.Join(",", caravan.PawnsListForReading.Select(p => p.thingIDNumber)) +
                 " readOnly=True");
         }
+
+        [DebugAction("Realistic Bases P5", "P5 attack native partial-trade settlement", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        public static void AttackTradedSettlement()
+        {
+            if (!P4DQuestDebugActions.Disposable || !RealisticBasesMod.Settings.enableP0Generator)
+                throw new InvalidOperationException("Requires disposable profile and explicitly enabled generator");
+            var targets = Find.WorldObjects.Settlements.Where(s => P5TradeStock.Supported(s) && !s.HasMap &&
+                P5TradeStock.Record(s.trader) != null).ToList();
+            if (targets.Count != 1) throw new InvalidOperationException("Require one previously traded native settlement");
+            Settlement target = targets[0];
+            Caravan caravan = Find.WorldObjects.Caravans.Single(c => c.Faction == Faction.OfPlayer && c.Tile == target.Tile);
+            if (!CaravanArrivalAction_AttackSettlement.CanAttack(caravan, target))
+                throw new InvalidOperationException("Native attack authorization rejected");
+            Pawn negotiator = caravan.PawnsListForReading.Single(p => p.Faction == Faction.OfPlayer);
+            var before = P5TradeStock.Snapshot(target.trader, out _);
+            string aggregate = P5PhysicalStockProbe.Aggregate(before);
+            int playerSteel = negotiator.inventory.innerContainer.Where(t => t.def == ThingDefOf.Steel).Sum(t => t.stackCount);
+            int epoch = P5TradeStock.Record(target.trader).epoch;
+            GameDataSaveLoader.SaveGame("RealisticBases-P5-before-native-trade-attack");
+            P0Log.Message("P5_NATIVE_TRADE_ATTACK_START", "settlement=" + target.ID + " epoch=" + epoch +
+                " offerUnits=" + before.Items.Sum(t => (long)t.Count) + " playerSteel=" + playerSteel + " suppliesAdded=0");
+            new CaravanArrivalAction_AttackSettlement(target).Arrived(caravan);
+            // ExecuteWhenFinished can run immediately while a newly queued
+            // arrival is still waiting. Queue verification behind that arrival.
+            LongEventHandler.QueueLongEvent(() =>
+            {
+                var after = P5TradeStock.Snapshot(target.trader, out _);
+                bool passed = target.Map?.GetComponent<RealisticBases.Persistence.P0MapState>().Active == true &&
+                    target.Faction.HostileTo(Faction.OfPlayer) && negotiator.Spawned && negotiator.Map == target.Map &&
+                    aggregate == P5PhysicalStockProbe.Aggregate(after) && P5TradeStock.Record(target.trader).epoch == epoch &&
+                    negotiator.inventory.innerContainer.Where(t => t.def == ThingDefOf.Steel).Sum(t => t.stackCount) == playerSteel;
+                P0Log.Message("P5_NATIVE_TRADE_ATTACK_COMPLETE", "settlement=" + target.ID + " map=" + target.Map?.uniqueID +
+                    " passed=" + passed + " sameOffer=" + (aggregate == P5PhysicalStockProbe.Aggregate(after)) +
+                    " epoch=" + P5TradeStock.Record(target.trader).epoch + " offerUnits=" + after.Items.Sum(t => (long)t.Count) +
+                    " saleSteel=" + after.Count("Steel", RealisticBases.Planning.P5Allocation.Sale) +
+                    " playerSteel=" + playerSteel + " player=" + negotiator.ThingID + " suppliesAdded=0 nativeHostility=True");
+                Find.TickManager.Pause();
+                if (target.Map != null) P5DebugActions.AuditPhysical();
+                GameDataSaveLoader.SaveGame("RealisticBases-P5-native-trade-attack-result");
+            }, "Verifying P5 native trade attack", doAsynchronously: false, null);
+        }
         private static long Silver(Settlement settlement, Pawn negotiator) =>
             P5TradeStock.Holder(settlement.trader).Where(t => t.def == ThingDefOf.Silver).Sum(t => (long)t.stackCount) +
             negotiator.inventory.innerContainer.Where(t => t.def == ThingDefOf.Silver).Sum(t => (long)t.stackCount);

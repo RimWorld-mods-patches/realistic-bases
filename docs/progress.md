@@ -4,6 +4,12 @@ Updated: 2026-10-13
 
 ## Current state
 
+**Paused at the user's request (2026-10-13).** Main's dense-storage/siting updates
+were merged into the P5 branch as `1cd5d31`. The captured native trade-site test
+still rejects on cooler-pocket sealing/gate routing; its named regression is
+deliberately red and no post-merge live/build closeout is claimed. See the
+[failure checkpoint](p5-findings.md#2026-10-13-pause-checkpoint--traded-settlement-still-rejects-after-dense-storage-merge).
+
 Design, source review, P0–P3, bounded P4D and P4E are complete. P5 is now authorized and active from P4E `be39af9`; see [checkpoint plan](p5-encounter-plan.md) and [findings](p5-findings.md). Earlier P4/P4A/P4B/C tracker rows and fixed-compound observations are historical and are not new closeout claims. P5A remains separate.
 
 Specification: [design and feasibility](design-feasibility.md). Delivery gates: [implementation plan](implementation-plan.md). Detailed evidence: [P0 findings](p0-findings.md).
@@ -38,7 +44,7 @@ PlannerTests and clean Release builds pass. Broader P5 remains open; see
 | P4C — Visually realistic bases | Planned; implementation authorized | Coherent room/path finishes and selected interior rock smoothing, bounded materials, transactional terrain/rock recovery, visual and live validation. See [P4C visual plan](p4c-visual-plan.md); no implementation evidence yet |
 | P4D — Quest-location support | Complete for bounded Core contracts | Exact bandit/rescue strategies, authoritative native content, original prisoner/join, native reward/expiry/death/departure/reload and verified late recovery; Core terrain/tech and GL-native compatibility matrix, complete suites/build. GL competing pipelines remain native. See [P4D findings](p4d-findings.md) |
 | P4E — Facility and defense adjustments | Complete (2026-10-12) | Climate/decorative labs, seats/medicine, compact magazines/up to three funded crews, budgeted autocannon defense, finite warehouse fetching, refund-/delayed-collapse-free rollback, Core/GL compatibility and full regression verified. See [P4E findings](p4e-findings.md) |
-| P5 — Encounter supplies, trade stock, and persistent consequences | In progress (2026-10-13) | Stock epoch/conservation spike and ten-resident three-day native food/bed/refuel case verified; bounded relief deadlock/post-sleep fixed. Full-offer generation/reload and real stock return/re-entry observed, full pure/build gates pass. Exact allocated Things now survive off-map reload, repeated entry and partial/native consumption, including raw-food HP/rot. Trade/attack, full late rollback/overflow, expiry/defeat, broader asset/roster persistence, other profiles, combat/outage/tending and P5.5 remain open. See [P5 findings](p5-findings.md) |
+| P5 — Encounter supplies, trade stock, and persistent consequences | In progress; paused (2026-10-13) | Exact emergency allocations/native use are committed and verified. Native trade conserves quantities, but its attacked site rejects; the captured regression still fails after merging dense storage/siting. Earlier full pure/build passes remain historical, not post-merge acceptance. Full attack, rollback/overflow, expiry/defeat, broader asset/roster persistence, other profiles, combat/outage/tending and P5.5 remain open. See [P5 findings](p5-findings.md) |
 | P5A — Additional improvements | Planned, separate from P5 | Generator ventilation/fill, shell minimums, cabinets/floors and richest-spacer wall materials retained from main |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage; add route diagnostics, evidence-driven soft-preference tuning, reproducibility and encounter-quality review |
 | P7 — Settlement specialization | Not started (post-MVP) | Final planned step: agriculture/industry first; evaluate mining, ranching, forestry, trading, military, medical and research profiles; verify trade-product influence feasibility |

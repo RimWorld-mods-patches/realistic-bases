@@ -14,6 +14,23 @@ namespace RealisticBases.Diagnostics
     public static class P5DebugActions
     {
         private const string Category = "Realistic Bases P5";
+        internal static bool FailNextFullStock, ForceNextSaleOverflow;
+        [DebugAction(Category, "P5 fail next spawn after full stock transfer", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        public static void ArmFullStockFailure()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("Disposable profile only");
+            FailNextFullStock = true;
+            P0Log.Message("P5_FULL_STOCK_FAILURE_ARMED", "suppliesAdded=0");
+        }
+        [DebugAction(Category, "P5 force next sale storage overflow", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        public static void ArmSaleOverflow()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("Disposable profile only");
+            ForceNextSaleOverflow = true;
+            P0Log.Message("P5_SALE_OVERFLOW_ARMED", "forcedNoSaleSlots=True suppliesAdded=0");
+        }
         [DebugAction(Category, "Audit P5 finite encounter readiness", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
         public static void Readiness() => P5ReadinessAudit.Audit(CurrentSettlement().Map);

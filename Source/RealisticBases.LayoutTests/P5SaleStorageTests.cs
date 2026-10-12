@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using RealisticBases.Planning;
 
@@ -27,8 +29,8 @@ internal static partial class Program
         ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
         Accepted(result);
         Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count, "sized settlement validates");
-        int storageCells = LayoutStockCells.ForRooms(result.Layout.Rooms, LayoutRoomKind.Storage).Count;
-        int foodCells = LayoutStockCells.ForRooms(result.Layout.Rooms, LayoutRoomKind.Freezer, LayoutRoomKind.Pantry).Count;
+        int storageCells = P5StockSlots(input, result.Layout, LayoutRoomKind.Storage);
+        int foodCells = P5StockSlots(input, result.Layout, LayoutRoomKind.Freezer, LayoutRoomKind.Pantry);
         True(storageCells >= capacity(sale, LayoutRoomKind.Storage), "storage cells cover operating plus sale stacks: " + storageCells);
         True(foodCells >= capacity(sale, LayoutRoomKind.Freezer), "food cells cover operating plus perishable sale: " + foodCells);
         bool rejected = false;
@@ -46,7 +48,7 @@ internal static partial class Program
         ProceduralLayoutInput retainedInput = Input(Plains(180), retained, 1, new LayoutFortificationReservation(1));
         ProceduralLayoutResult retainedPlan = ProceduralLayoutPlanner.Plan(retainedInput, requireJointSite: true);
         Accepted(retainedPlan);
-        True(LayoutStockCells.ForRooms(retainedPlan.Layout.Rooms, LayoutRoomKind.Storage).Count >= capacity(retained, LayoutRoomKind.Storage),
+        True(P5StockSlots(retainedInput, retainedPlan.Layout, LayoutRoomKind.Storage) >= capacity(retained, LayoutRoomKind.Storage),
             "physical storage covers both authorities");
         bool questRetainedRejected = false;
         try { new LayoutRequirements(4, Industrial, HousingStandard.Barracks, Temperate, 0, 0, 0,
@@ -54,5 +56,50 @@ internal static partial class Program
         catch (ArgumentOutOfRangeException) { questRetainedRejected = true; }
         True(questRetainedRejected, "quest camps reject retained ordinary operating stock");
         Console.WriteLine("  sale sizing storageCells=" + storageCells + " foodCells=" + foodCells + " " + result.Stats);
+    }
+
+    private static int P5StockSlots(ProceduralLayoutInput input, ProceduralLayout layout, params LayoutRoomKind[] kinds)
+    {
+        var rooms = layout.Rooms.Where(r => kinds.Contains(r.Kind)).ToArray();
+        var shelves = rooms.SelectMany(r => r.Fixtures).Where(f => f.Kind == LayoutFixtureKind.Shelf)
+            .SelectMany(f => f.Cells.Select(c => new { Cell = c, Slots = input.Catalog.Defs.Single(d => d.DefName == f.DefName).MaxItemsInCell }))
+            .ToDictionary(p => p.Cell, p => p.Slots);
+        return LayoutStockCells.ForRooms(rooms, kinds).Sum(c => shelves.TryGetValue(c, out int slots) ? slots : 1);
+    }
+
+    private static void P5NativeTradeStorage()
+    {
+        var cells = new List<TerrainCell>();
+        string[] rows = File.ReadAllLines(Path.Combine(AppContext.BaseDirectory, "p5-native-trade-rejected-traits.rle"));
+        Equal(250, rows.Length, "captured native settlement height");
+        foreach (string row in rows)
+        {
+            int width = 0;
+            foreach (string token in row.Split(','))
+            {
+                string[] parts = token.Split('*');
+                int count = int.Parse(parts[1]); width += count;
+                for (int i = 0; i < count; i++) cells.Add(new TerrainCell((TerrainTraits)Convert.ToUInt16(parts[0], 16)));
+            }
+            Equal(250, width, "captured native settlement width");
+        }
+        var terrain = new TerrainSnapshot(250, 250, cells, "p5-native-trade-CDF248A8E1087ABF");
+        var climate = new LayoutClimate(-2, 38);
+        var stage = TechStageModel.Create(SettlementTechStageLevel.IndustrialEarly);
+        var budget = OrdinarySettlementPopulation.Create(P2ProfileCatalog.IndustrialTemperate, stage, climate, 75);
+        var req = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, climate, stage: stage,
+            populationBudget: budget, saleStorageStacks: 111, salePerishableStacks: 13);
+        Equal(5, req.Residents, "keep the actual funded roster");
+        var input = new ProceduralLayoutInput(req, terrain, 0x8DD10F58FC412C58UL, RuntimeFlatCatalogFixture.Build(),
+            new LayoutFortificationReservation(1), resources: new LayoutLocalResources(63713, new[] { "BlocksGranite", "BlocksMarble" }));
+        var result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+        Accepted(result);
+        True(P5StockSlots(input, result.Layout, LayoutRoomKind.Storage) >=
+            result.Demand.Rooms.Where(r => r.Kind == LayoutRoomKind.Storage).Sum(r => r.Capacity), "whole ordinary/hazardous offer fits racks");
+        True(P5StockSlots(input, result.Layout, LayoutRoomKind.Freezer, LayoutRoomKind.Pantry) >=
+            result.Demand.Rooms.Where(r => r.Kind == LayoutRoomKind.Freezer || r.Kind == LayoutRoomKind.Pantry).Sum(r => r.Capacity),
+            "whole perishable offer fits food storage");
+        Console.WriteLine("  native traded tile layout=" + result.Layout.Digest + " storageRooms=" +
+            result.Layout.Rooms.Count(r => r.Kind == LayoutRoomKind.Storage) + " " + result.Stats);
     }
 }

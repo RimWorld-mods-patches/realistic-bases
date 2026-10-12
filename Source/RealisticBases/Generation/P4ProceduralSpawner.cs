@@ -344,6 +344,11 @@ namespace RealisticBases.Generation
             var mortars = new List<Thing>();
             Dictionary<P4BTurretPlan, Thing> turrets = new Dictionary<P4BTurretPlan, Thing>();
             int crops = 0;
+            bool failFullStock = quest == null && run.SaleStock != null && P5DebugActions.FailNextFullStock;
+            bool forceOverflow = quest == null && run.SaleStock != null && P5DebugActions.ForceNextSaleOverflow;
+            if (failFullStock) P5DebugActions.FailNextFullStock = false;
+            if (forceOverflow) P5DebugActions.ForceNextSaleOverflow = false;
+            var originalSale = failFullStock ? P5TradeStock.Holder(((Settlement)settlement).trader).ToDictionary(t => t, t => t.stackCount) : null;
             if (quest != null) quest.RecoveryVerified = false;
             using var questSignals = quest == null ? null : new P4DProvisionalSignals();
             try
@@ -595,12 +600,15 @@ namespace RealisticBases.Generation
                     combatStocks.AddRange(retainedOperating);
                     P5PhysicalSaleStock saleStock = map.GetComponent<P5PhysicalSaleStock>();
                     List<Thing> sale = run.SaleStock == null ? new List<Thing>() : saleStock.Materialize(tx, (Settlement)settlement,
-                        storageCells.Select(ToCell), foodCells.Select(ToCell), run.SaleStock);
+                        forceOverflow ? Enumerable.Empty<IntVec3>() : storageCells.Select(ToCell),
+                        forceOverflow ? Enumerable.Empty<IntVec3>() : foodCells.Select(ToCell), run.SaleStock);
                     if (sale.Count > 0) saleStock.RecordOperatingDefs(reserves.Defs);
                     RealisticBases.Core.P0Log.Message("P5_STOCK_SPAWN", "map=" + map.uniqueID + " settlement=" + settlement.ID +
                         " revisitLedger=" + (ledger != null) + " capped=" + (reserveCaps.Count == 0 ? "none" : string.Join(",", reserveCaps)) +
                         " saleStacks=" + sale.Count + " saleUnits=" + sale.Sum(t => t.stackCount) +
-                        " saleItems=" + (run.SaleStock?.Items.Count ?? 0) + " nativeOnly=" + (run.SaleStock == null));
+                        " saleItems=" + (run.SaleStock?.Items.Count ?? 0) + " nativeOnly=" +
+                        (run.SaleStock == null || run.SaleStock.Items.Count > 0 && sale.Count == 0));
+                    if (failFullStock) throw new InvalidOperationException("forced failure after full stock transfer");
                 }
                 if (quest != null) P4DQuestDebugActions.Log("QUEST_FOOD_LEDGER", "site=" + settlement.ID +
                     " def=" + startupFood.defName + " units=" + startupFoodUnits +
@@ -873,6 +881,17 @@ namespace RealisticBases.Generation
                 if (quest?.Committed == true) throw;
                 bool restored = false;
                 try { restored = tx.Rollback(); } catch (Exception recovery) { P2Log.Error("PROCEDURAL_RECOVERY_ERROR", recovery.ToString()); }
+                if (originalSale != null)
+                {
+                    var holder = P5TradeStock.Holder(((Settlement)settlement).trader);
+                    bool exact = originalSale.Count == holder.Count && originalSale.All(p => holder.Contains(p.Key) &&
+                        p.Key.stackCount == p.Value && !p.Key.Spawned && p.Key.holdingOwner == holder);
+                    bool attributes = P5PhysicalStockProbe.Aggregate(run.SaleStock) ==
+                        P5PhysicalStockProbe.Aggregate(P5TradeStock.Snapshot(((Settlement)settlement).trader, out _));
+                    RealisticBases.Core.P0Log.Message("P5_FULL_STOCK_ROLLBACK", "map=" + map.uniqueID +
+                        " recovered=" + restored + " exactNativeThings=" + exact + " quantitiesAttributes=" + attributes +
+                        " itemLedgerRestored=" + tx.ItemLedgerRestored + " nativeThings=" + originalSale.Count);
+                }
                 if (quest != null) quest.RecoveryVerified = restored;
                 failure = ex.GetType().Name + ":" + ex.Message;
                 P2Log.Error("PROCEDURAL_SPAWN_ABORT", "map=" + map.uniqueID + " error=" + failure +
