@@ -162,15 +162,11 @@ namespace RealisticBases.Planning
                 }
             }
 
-            // Public circulation, including the attached field crossing, gets
-            // the remaining finish allowance before optional room decoration.
-            // Defense/facilities still have first claim on the shared budget.
-            FinishPaths();
-            foreach (LayoutRoom room in layout.Rooms.OrderBy(r => Priority(r.Kind)).ThenBy(r => r.Id, StringComparer.Ordinal))
+            List<GridPoint> RoomCells(LayoutRoom room) =>
+                room.Interior.Points().Where(floorable.Contains).OrderBy(c => c).ToList();
+
+            List<string> Choices(LayoutRoom room, List<GridPoint> cells)
             {
-                List<GridPoint> cells = room.Interior.Points().OrderBy(c => c).ToList();
-                if (cells.Count == 0 || cells.Any(c => !floorable.Contains(c) || floors.ContainsKey(c)))
-                { reasons.Add("room:" + room.Id + ":unsupported_ground"); continue; }
                 bool domestic = room.Kind == LayoutRoomKind.Barracks || room.Kind == LayoutRoomKind.Bedroom ||
                     room.Kind == LayoutRoomKind.Dining;
                 bool clean = room.Kind == LayoutRoomKind.Kitchen || room.Kind == LayoutRoomKind.Medical ||
@@ -184,22 +180,59 @@ namespace RealisticBases.Planning
                     if (clean || domestic) choices.Add("PavedTile");
                     choices.Add("Concrete");
                 }
+                // Every room gets some floor: a pre-industrial workshop or
+                // store is flagstone or planks, never bare soil.
+                if (flagstone != null) choices.Add(flagstone);
+                choices.Add("WoodPlankFloor");
                 // A pre-existing natural-rock floor can be smoothed only when
                 // the whole interior resolves to one smooth terrain def.
                 string smooth = cells.All(c => site.SmoothFloors.ContainsKey(c))
                     ? site.SmoothFloors[cells[0]] : null;
                 if (smooth != null && cells.Any(c => site.SmoothFloors[c] != smooth)) smooth = null;
                 if (smooth != null) choices.Insert(0, smooth);
+                return choices.Distinct(StringComparer.Ordinal).Where(defs.ContainsKey).ToList();
+            }
+
+            int Cost(P4CFloorDef def, int count, int woodLeft)
+            {
+                int wood = Math.Min(woodLeft, checked(count * def.WoodPerCell));
+                return def.WoodPerCell == 0 ? checked(count * def.ValuePerCell) :
+                    (int)Math.Ceiling((count * def.WoodPerCell - wood) * (double)def.ValuePerCell / def.WoodPerCell);
+            }
+
+            // Every room's cheapest floor is reserved before paths or nicer
+            // floors spend the allowance, so the last rooms are not left bare.
+            List<LayoutRoom> ordered = layout.Rooms.OrderBy(r => Priority(r.Kind)).ThenBy(r => r.Id, StringComparer.Ordinal).ToList();
+            int baselineWood = localWoodLeft;
+            Dictionary<LayoutRoom, int> baseline = new Dictionary<LayoutRoom, int>();
+            foreach (LayoutRoom r in ordered)
+            {
+                List<GridPoint> cells = RoomCells(r);
+                List<string> choices = Choices(r, cells);
+                string cheapest = choices.OrderBy(n => Cost(defs[n], cells.Count, baselineWood)).FirstOrDefault();
+                baseline[r] = cells.Count == 0 || cheapest == null ? 0 : Cost(defs[cheapest], cells.Count, baselineWood);
+                if (cheapest != null) baselineWood -= Math.Min(baselineWood, cells.Count * defs[cheapest].WoodPerCell);
+            }
+            int reserve = baseline.Values.Sum();
+
+            // Public circulation, including the attached field crossing, gets
+            // the remaining finish allowance before optional room decoration.
+            // Defense/facilities still have first claim on the shared budget.
+            FinishPaths();
+            foreach (LayoutRoom room in ordered)
+            {
+                reserve -= baseline[room];
+                List<GridPoint> cells = RoomCells(room).Where(c => !floors.ContainsKey(c)).ToList();
+                if (cells.Count == 0) { reasons.Add("room:" + room.Id + ":unsupported_ground"); continue; }
+                if (cells.Count < room.Interior.Width * room.Interior.Height) reasons.Add("room:" + room.Id + ":partial_ground");
+                List<string> choices = Choices(room, cells);
                 bool placed = false;
-                foreach (string name in choices.Distinct(StringComparer.Ordinal))
+                foreach (string name in choices)
                 {
-                    P4CFloorDef def;
-                    if (!defs.TryGetValue(name, out def)) continue;
+                    P4CFloorDef def = defs[name];
                     int wood = Math.Min(localWoodLeft, checked(cells.Count * def.WoodPerCell));
-                    int cost = def.WoodPerCell == 0 ? checked(cells.Count * def.ValuePerCell) :
-                        (int)Math.Ceiling((cells.Count * def.WoodPerCell - wood) *
-                            (double)def.ValuePerCell / def.WoodPerCell);
-                    if (cost > allowance - spent) continue;
+                    int cost = Cost(def, cells.Count, localWoodLeft);
+                    if (cost > allowance - spent - reserve) continue;
                     foreach (GridPoint c in cells) floors.Add(c, name);
                     spent += cost;
                     localWood += wood;
@@ -250,7 +283,7 @@ namespace RealisticBases.Planning
                     int cost = pathDef.WoodPerCell == 0 ? checked(missing.Count * pathDef.ValuePerCell) :
                         (int)Math.Ceiling((missing.Count * pathDef.WoodPerCell - wood) *
                             (double)pathDef.ValuePerCell / pathDef.WoodPerCell);
-                    if (cost > allowance - spent) { reasons.Add(route.Key + ":budget"); continue; }
+                    if (cost > allowance - spent - reserve) { reasons.Add(route.Key + ":budget"); continue; }
                     foreach (GridPoint c in missing) floors.Add(c, pathDef.DefName);
                     spent += cost;
                     localWood += wood;

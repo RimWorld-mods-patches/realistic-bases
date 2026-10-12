@@ -76,8 +76,14 @@ namespace RealisticBases.Planning
 
     public static class P3EncounterProfiles
     {
+        // Per-gun magazine: well above the declared six-hour duty (12 HE), so
+        // a mortar can keep firing through a long siege. One shelf cell holds
+        // exactly these three stacks (25 + 5 HE, 10 incendiary).
+        public const int HeShellsPerMortar = 30;
+        public const int IncendiaryShellsPerMortar = 10;
+
         public static readonly EncounterProfile Industrial = new EncounterProfile(
-            "industrial-encounter-v1", true, 6, 2, 12, 2, 2, 4, 2, 1, 1, 0);
+            "industrial-encounter-v1", true, 6, 2, HeShellsPerMortar, IncendiaryShellsPerMortar, 2, 4, 2, 1, 1, 0);
 
         public static readonly EncounterProfile Tribal = new EncounterProfile(
             "tribal-encounter-v1", false, 6, 0, 0, 0, 0, 4, 2, 0, 1, 0);
@@ -89,7 +95,7 @@ namespace RealisticBases.Planning
         {
             if (guns < 1 || guns > 3) throw new ArgumentOutOfRangeException(nameof(guns));
             return guns == 1 ? Industrial : new EncounterProfile("industrial-encounter-p4e-" + guns,
-                true, 6, 2, 12 * guns, 2, 2, 4, 2, guns, 1, 0);
+                true, 6, 2, HeShellsPerMortar * guns, IncendiaryShellsPerMortar * guns, 2, 4, 2, guns, 1, 0);
         }
 
         public static EncounterProfile For(PhysicalSettlementProfile profile) =>

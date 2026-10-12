@@ -905,8 +905,10 @@ internal static class Program
             basis.PublicCirculation, basis.MagazineCandidates, artillery[0].Origin, artillery[0].Operating, positions);
         EncounterPlan geometry = GeometryEncounterPlanner.Plan(Geometry(artillery));
         Equal(3, geometry.Artillery.Count, "stable gun/post/magazine coordinates");
-        Equal(36, geometry.Supplies.Single(s => s.DefName == "Shell_HighExplosive").Count,
-            "one shared ledger covers each of three guns at two shots per hour over six hours");
+        Equal(3 * P3EncounterProfiles.HeShellsPerMortar, geometry.Supplies.Single(s => s.DefName == "Shell_HighExplosive").Count,
+            "one shared ledger: 30 HE per gun, above two shots per hour over six hours");
+        Equal(3 * P3EncounterProfiles.IncendiaryShellsPerMortar, geometry.Supplies.Single(s => s.DefName == "Shell_Incendiary").Count,
+            "10 incendiary per gun");
         Equal(2, geometry.Supplies.Single(s => s.DefName == "ReinforcedBarrel").Count, "shared barrel reserve");
         Equal(geometry.Digest, GeometryEncounterPlanner.Plan(Geometry(artillery)).Digest, "multi-artillery replay");
         bool duplicateRejected = false;
@@ -1119,8 +1121,8 @@ internal static class Program
         True(encounter.MortarCell.X >= 0 && !input.Terrain[encounter.MortarCell].Has(TerrainTraits.Roofed), "mortar unroofed");
         True(input.Terrain[encounter.MortarInteractionCell].Has(TerrainTraits.Standable), "operator cell standable");
         True(encounter.Posts.Single(p => p.Mortar).Cell.Equals(encounter.MortarInteractionCell), "operator post matches interaction cell");
-        Equal(12, encounter.Supplies.Single(s => s.DefName == "Shell_HighExplosive").Count, "six-hour HE duty");
-        Equal(2, encounter.Supplies.Single(s => s.DefName == "Shell_Incendiary").Count, "bounded incendiary reserve");
+        Equal(30, encounter.Supplies.Single(s => s.DefName == "Shell_HighExplosive").Count, "30 HE per mortar");
+        Equal(10, encounter.Supplies.Single(s => s.DefName == "Shell_Incendiary").Count, "10 incendiary per mortar");
         Equal(2, encounter.Supplies.Single(s => s.DefName == "ReinforcedBarrel").Count, "barrel reserve");
     }
 
