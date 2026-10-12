@@ -139,11 +139,18 @@ namespace RealisticBases.Integration
 
         private bool OperatingAvailable(string category)
         {
+            Func<Thing, bool> available = thing => thing != null && !thing.Destroyed &&
+                thing.def.category == ThingCategory.Item && P5PhysicalSaleStock.Tracked(thing) == null &&
+                Category(thing) == category;
             foreach (Thing thing in map.listerThings.ThingsInGroup(ThingRequestGroup.HaulableEver))
             {
-                if (thing.Spawned && thing.def.category == ThingCategory.Item && Tracked(thing) == null &&
-                    Category(thing) == category) return true;
+                if (thing.Spawned && available(thing)) return true;
             }
+            // Native hauling/refueling and personal inventories do not exhaust
+            // operating stock merely by removing it from the map item lister.
+            foreach (Pawn pawn in map.mapPawns.SpawnedPawnsInFaction(owner.Faction).Where(p => !p.IsPrisoner))
+                if (pawn.inventory?.innerContainer.Any(available) == true || available(pawn.carryTracker?.CarriedThing))
+                    return true;
             return false;
         }
 

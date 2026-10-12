@@ -128,6 +128,30 @@ namespace RealisticBases.Diagnostics
             AuditPhysical();
         }
 
+        [DebugAction(Category, "P5 test carried medicine protects sale allocation", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void CarriedMedicineGuard()
+        {
+            Settlement settlement = CurrentSettlement();
+            Map map = settlement.Map;
+            var physical = map.GetComponent<P5PhysicalSaleStock>();
+            Func<Thing, bool> operatingMedicine = t => t != null && !t.Destroyed && t.def.IsMedicine &&
+                P5PhysicalSaleStock.Tracked(t) == null;
+            int carried = map.GetComponent<RealisticBases.AI.P3GarrisonController>().P5Residents.Sum(p =>
+                (p.inventory?.innerContainer.Where(operatingMedicine).Sum(t => t.stackCount) ?? 0) +
+                (operatingMedicine(p.carryTracker?.CarriedThing) ? p.carryTracker.CarriedThing.stackCount : 0));
+            var before = physical.Goods.Where(t => t.def.IsMedicine).ToDictionary(t => t, t => t.stackCount);
+            if (carried <= 0 || before.Count == 0 || map.listerThings.AllThings.Any(t => t.Spawned && operatingMedicine(t)))
+                throw new InvalidOperationException("Require existing carried operating medicine, no loose operating medicine, and sale medicine");
+            physical.EmergencyTransfer();
+            var after = physical.Goods.Where(t => t.def.IsMedicine).ToDictionary(t => t, t => t.stackCount);
+            bool passed = before.Count == after.Count && before.All(p => after.TryGetValue(p.Key, out int count) && count == p.Value);
+            P0Log.Message("P5_CARRIED_RESERVE_GUARD_COMPLETE", "map=" + map.uniqueID + " passed=" + passed +
+                " carriedMedicine=" + carried + " saleMedicineBefore=" + before.Values.Sum() +
+                " saleMedicineAfter=" + after.Values.Sum() + " suppliesAdded=0 npcOrdersIssued=0");
+            if (!passed) throw new InvalidOperationException("Carried operating medicine failed to protect sale allocation");
+        }
+
         // Real native removal (DeinitAndRemoveMap) and regeneration of the same
         // settlement. Disposable profile only; refuses while player pawns are
         // on the map so no player asset is passed to the world by the test.
