@@ -227,6 +227,8 @@ namespace RealisticBases.Planning
             {
                 ValidateRoom(room, requirements, grid, excavation, retained, extra, reach, errors);
                 ValidateSeatsAndMedicalShelf(input, room, errors);
+                if (room.Kind == LayoutRoomKind.Power && input.Equipment.Kit.Vent != null &&
+                    !room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.WallVent)) errors.Add("generator_vent_" + room.Id);
             }
             ValidateCoolersAndPockets(input, layout, grid, enclosure, roomCells, reach, errors);
 
@@ -414,7 +416,7 @@ namespace RealisticBases.Planning
 
         internal static bool IsSharableWall(LayoutRoom room, GridPoint cell) =>
             room.IsEdge(cell) && !cell.Equals(room.Door) &&
-            !room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.WallCooler && f.Cells.Contains(cell));
+            !room.Fixtures.Any(f => LayoutFixtureKinds.ThroughWall(f.Kind) && f.Cells.Contains(cell));
 
         // Loadout rules (plan step 6): catalog legality and no prohibited content for every item and
         // stuff, role and climate rules, apparel layering, and the equipment budget.
@@ -542,13 +544,13 @@ namespace RealisticBases.Planning
             }
             if (room.ProtectedByRock && interior.Points().Any(c => !retained.Contains(c) && grid.At(c) != LayoutCellClass.Covered)) errors.Add("protection_claim_" + id);
 
-            HashSet<GridPoint> blocking = new HashSet<GridPoint>(room.Fixtures.Where(f => f.Blocking && f.Kind != LayoutFixtureKind.WallCooler).SelectMany(f => f.Cells));
+            HashSet<GridPoint> blocking = new HashSet<GridPoint>(room.Fixtures.Where(f => f.Blocking && !LayoutFixtureKinds.ThroughWall(f.Kind)).SelectMany(f => f.Cells));
             blocking.UnionWith(extra);
             HashSet<GridPoint> local = Flood(room.Door, c => c.Equals(room.Door) || (interior.Contains(c) && !blocking.Contains(c)));
             foreach (LayoutFixture fixture in room.Fixtures)
             {
                 string label = id + "_" + fixture.Kind;
-                if (fixture.Kind == LayoutFixtureKind.WallCooler)
+                if (LayoutFixtureKinds.ThroughWall(fixture.Kind))
                 {
                     GridPoint cell = fixture.Cells[0];
                     bool coolerCorner = (cell.X == room.Bounds.MinX || cell.X == room.Bounds.MaxX) && (cell.Z == room.Bounds.MinZ || cell.Z == room.Bounds.MaxZ);
@@ -564,7 +566,7 @@ namespace RealisticBases.Planning
                 }
                 else if (fixture.Cells.Any(c => !interior.Contains(c))) errors.Add("fixture_outside_interior_" + label);
                 if (fixture.Access.Any(c => blocking.Contains(c) || !local.Contains(c))) errors.Add("interaction_unreachable_" + label);
-                if (fixture.Blocking && fixture.Kind != LayoutFixtureKind.WallCooler && !fixture.Cells.Any(c => Neighbors(c).Any(local.Contains)))
+                if (fixture.Blocking && !LayoutFixtureKinds.ThroughWall(fixture.Kind) && !fixture.Cells.Any(c => Neighbors(c).Any(local.Contains)))
                     errors.Add("job_access_" + label);
                 if (!fixture.Blocking && fixture.Cells.Any(c => !local.Contains(c))) errors.Add("zone_unreachable_" + label);
                 if ((fixture.Kind == LayoutFixtureKind.Stove || fixture.Kind == LayoutFixtureKind.Workbench || fixture.Kind == LayoutFixtureKind.Generator) &&
@@ -618,7 +620,7 @@ namespace RealisticBases.Planning
         {
             LayoutRoomPartition partition = LayoutRoomPartition.Build(input.Terrain, layout);
             foreach (LayoutRoom room in layout.Rooms)
-                foreach (LayoutFixture cooler in room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.WallCooler))
+                foreach (LayoutFixture cooler in room.Fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind)))
                 {
                     string label = room.Id + "_" + cooler.Cells[0];
                     int served = partition.RoomAt(new GridPoint(room.Interior.MinX, room.Interior.MinZ));
@@ -648,12 +650,11 @@ namespace RealisticBases.Planning
                 if (grid.Roofed(c) != pocket.RoofCleared || (pocket.RoofCleared && !pocket.Excavated)) errors.Add(label + "_roof_ledger");
                 if (pocket.Excavated != (grid.At(c) == LayoutCellClass.Rock) || (pocket.Excavated && !excavation.Contains(c))) errors.Add(label + "_excavation_ledger");
                 if (pocket.Walls.Any(w => grid.At(w) != LayoutCellClass.Open && grid.At(w) != LayoutCellClass.Covered)) errors.Add(label + "_wall_terrain");
-                if (!layout.Rooms.Any(r => r.Fixtures.Any(f => f.Kind == LayoutFixtureKind.WallCooler && f.HotCell.Value.Equals(c)))) errors.Add(label + "_unused");
+                if (!layout.Rooms.Any(r => r.Fixtures.Any(f => LayoutFixtureKinds.ThroughWall(f.Kind) && f.HotCell.Value.Equals(c)))) errors.Add(label + "_unused");
             }
             if (layout.Doctrine == LayoutDoctrine.RockProtected)
             {
-                int cooled = input.Equipment.Demand.Rooms.Count(r => r.Kind == LayoutRoomKind.Freezer ||
-                    (input.Requirements.Climate.CoolingRequired && LayoutDemandModel.IsLiving(r.Kind)));
+                int cooled = input.Equipment.Demand.Rooms.Count(r => LayoutDemandModel.NeedsOutdoorAir(r.Kind, input.Requirements, input.Equipment.Kit));
                 if (layout.ExhaustRoofClearance.Count > (cooled + 1) / 2) errors.Add("exhaust_roof_hole_budget");
             }
         }
@@ -1040,6 +1041,7 @@ namespace RealisticBases.Planning
                 case LayoutFixtureKind.Heater: return 'h';
                 case LayoutFixtureKind.Campfire: return 'f';
                 case LayoutFixtureKind.WallCooler: return 'C';
+                case LayoutFixtureKind.WallVent: return 'v';
                 case LayoutFixtureKind.PassiveCooler: return 'p';
                 case LayoutFixtureKind.Lamp: return 'L';
                 case LayoutFixtureKind.Torch: return 't';

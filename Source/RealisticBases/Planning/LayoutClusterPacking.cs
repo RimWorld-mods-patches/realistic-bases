@@ -92,7 +92,7 @@ namespace RealisticBases.Planning
         {
             foreach (GridPoint c in room.Bounds.Points())
                 if (room.IsEdge(c) && !c.Equals(room.Door) && !wallOwner.ContainsKey(c)) wallOwner[c] = room.Id;
-            foreach (LayoutFixture cooler in room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.WallCooler)) coolerCells.UnionWith(cooler.Cells);
+            foreach (LayoutFixture cooler in room.Fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind))) coolerCells.UnionWith(cooler.Cells);
             if (sharedWith != null && sharedWith.Count > 0)
                 ProceduralLayoutPlanner.Note(diagnostics, "cluster", "shared_walls", room.Id + " cells=" + sharedWith.Count +
                     " with=" + string.Join("+", sharedWith.Distinct().OrderBy(s => s, StringComparer.Ordinal)));
