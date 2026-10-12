@@ -23,6 +23,20 @@ namespace RealisticBases.Persistence
         public string proceduralFinishDigest;
         // -1 = unassigned, 0 = retain an already-generated legacy four-resident plan.
         public int ordinaryWealthPercent = -1;
+        // P5 operating-reserve remainder recorded at the last map unload.
+        public List<string> reserveKeys = new List<string>();
+        public List<int> reserveRemaining = new List<int>();
+        public int reserveLedgerTick = -1;
+
+        public P5ReserveLedger ReserveLedger() => reserveLedgerTick < 0 ? null :
+            new P5ReserveLedger(reserveKeys.Zip(reserveRemaining, (k, v) => new KeyValuePair<string, int>(k, v)));
+
+        public void StoreReserveLedger(P5ReserveLedger ledger, int tick)
+        {
+            reserveKeys = ledger.Remaining.Keys.OrderBy(k => k, System.StringComparer.Ordinal).ToList();
+            reserveRemaining = reserveKeys.Select(k => ledger.Remaining[k]).ToList();
+            reserveLedgerTick = tick;
+        }
 
         public void ExposeData()
         {
@@ -38,9 +52,18 @@ namespace RealisticBases.Persistence
             Scribe_Values.Look(ref proceduralLayoutDigest, "proceduralLayoutDigest");
             Scribe_Values.Look(ref proceduralFinishDigest, "proceduralFinishDigest");
             Scribe_Values.Look(ref ordinaryWealthPercent, "ordinaryWealthPercent", -1);
+            Scribe_Collections.Look(ref reserveKeys, "p5ReserveKeys", LookMode.Value);
+            Scribe_Collections.Look(ref reserveRemaining, "p5ReserveRemaining", LookMode.Value);
+            Scribe_Values.Look(ref reserveLedgerTick, "p5ReserveLedgerTick", -1);
             if (Scribe.mode == LoadSaveMode.PostLoadInit && pawnIds == null)
             {
                 pawnIds = new List<int>();
+            }
+            if (Scribe.mode == LoadSaveMode.PostLoadInit)
+            {
+                reserveKeys = reserveKeys ?? new List<string>();
+                reserveRemaining = reserveRemaining ?? new List<int>();
+                if (reserveKeys.Count != reserveRemaining.Count) { reserveKeys.Clear(); reserveRemaining.Clear(); reserveLedgerTick = -1; }
             }
         }
     }

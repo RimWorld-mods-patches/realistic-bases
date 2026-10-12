@@ -60,6 +60,7 @@ internal static partial class Program
         Run("ordinary population fits cluttered flat tiles without reducing residents", OrdinaryPopulationClutter);
         Run("ordinary population reserves usable layered gate frontage", OrdinaryPopulationLayeredFrontage);
         Run("ordinary population stocks use all split rooms and prefer shelves", OrdinaryPopulationStocks);
+        Run("P5 sale offer is sized into storage without changing other inputs", P5SaleStorageSizing);
         Run("demand scales with population and splits barracks", DemandScalesWithPopulation);
         Run("rich settlements get personal bedrooms", PersonalRooms);
         Run("climate drives heating, cooling and lighting fixtures", ClimateFixtures);

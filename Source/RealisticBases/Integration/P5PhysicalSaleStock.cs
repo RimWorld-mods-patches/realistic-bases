@@ -18,6 +18,9 @@ namespace RealisticBases.Integration
         private Settlement owner;
         private int factionId = -1;
         private List<Thing> sale = new List<Thing>();
+        // Operating-reserve defs this settlement relies on (fuel, ammunition,
+        // reload materials). Food and medicine are matched by category.
+        private List<string> operatingDefs = new List<string>();
         private static Game cacheGame;
         private static readonly Dictionary<Thing, P5PhysicalSaleStock> cache = new Dictionary<Thing, P5PhysicalSaleStock>();
         public P5PhysicalSaleStock(Map map) : base(map) { }
@@ -102,13 +105,142 @@ namespace RealisticBases.Integration
                 Clear(); return;
             }
             Prune(); Protect();
+            if (GenTicks.TicksGame % 2500 == 0) EmergencyTransfer();
+        }
+
+        // Emergency allocation transfer: when the residents' own reserve of a
+        // category is exhausted on the map, one sale stack of that category
+        // stops being merchandise first (removed from the offer, unforbidden),
+        // and only then becomes available for operation. Never the reverse.
+        internal int EmergencyTransfer()
+        {
+            if (!Active) return 0;
+            int transferred = 0;
+            foreach (IGrouping<string, Thing> group in Goods.Where(t => t.Spawned).GroupBy(Category).Where(g => g.Key != null).ToList())
+            {
+                if (OperatingAvailable(group.Key)) continue;
+                Thing stack = group.OrderBy(t => t.thingIDNumber).First();
+                Release(stack);
+                transferred++;
+                P0Log.Message("P5_EMERGENCY_TRANSFER", "map=" + map.uniqueID + " settlement=" + owner.ID +
+                    " category=" + group.Key + " thing=" + stack.ThingID + " count=" + stack.stackCount +
+                    " remainingSaleStacks=" + sale.Count + " offerReduced=True");
+            }
+            return transferred;
+        }
+
+        private string Category(Thing thing)
+        {
+            if (thing.def.IsMedicine) return "medicine";
+            if (thing.def.IsNutritionGivingIngestible && thing.def.ingestible.HumanEdible &&
+                !thing.def.IsDrug && thing.def.ingestible.preferability >= FoodPreferability.RawBad) return "food";
+            return operatingDefs.Contains(thing.def.defName) ? "def:" + thing.def.defName : null;
+        }
+
+        private bool OperatingAvailable(string category)
+        {
+            foreach (Thing thing in map.listerThings.ThingsInGroup(ThingRequestGroup.HaulableEver))
+            {
+                if (thing.Spawned && thing.def.category == ThingCategory.Item && Tracked(thing) == null &&
+                    Category(thing) == category) return true;
+            }
+            return false;
+        }
+
+        private void Release(Thing thing)
+        {
+            sale.Remove(thing); cache.Remove(thing);
+            foreach (var lord in map.lordManager.lords) lord.extraForbiddenThings.Remove(thing);
+        }
+
+        internal void RecordOperatingDefs(IEnumerable<string> defs)
+        {
+            foreach (string def in defs.Distinct()) if (!operatingDefs.Contains(def)) operatingDefs.Add(def);
+        }
+
+        // Pre-teardown boundary (MapDeiniter.Deinit prefix, before pawns pass to
+        // the world): every unsold physical sale object returns to the native
+        // holder as itself. Nothing is cloned, merged or destroyed; re-entry
+        // materializes the same objects again from the canonical holder.
+        internal void ReturnToNative()
+        {
+            if (!Active) return;
+            ThingOwner<Thing> holder = P5TradeStock.Holder(owner.trader);
+            if (holder == null) throw new InvalidOperationException("Canonical native holder missing at unload");
+            Prune();
+            int returned = 0, units = 0;
+            foreach (Thing thing in sale.ToArray())
+            {
+                if (thing.Spawned) thing.DeSpawn();
+                else thing.holdingOwner?.Remove(thing);
+                Release(thing);
+                if (!holder.TryAdd(thing, canMergeWithExistingStacks: false))
+                    throw new InvalidOperationException("Native holder refused returned sale stock " + thing.ThingID);
+                returned++; units += thing.stackCount;
+            }
+            P0Log.Message("P5_SALE_RETURNED", "map=" + map.uniqueID + " settlement=" + owner.ID + " stacks=" + returned +
+                " units=" + units + " nativeStacks=" + holder.Count + " copies=0");
+            sale.Clear(); owner = null; factionId = -1;
+        }
+
+        // The ordinary generation path: explicit, guarded native acquisition.
+        // Failures keep the native offer (and native-only trading) unchanged.
+        internal static Planning.P5StockSnapshot AcquireForGeneration(Settlement settlement)
+        {
+            if (!P5TradeStock.Supported(settlement)) return null;
+            try
+            {
+                Planning.P5StockSnapshot snapshot = P5TradeStock.Acquire(settlement);
+                P0Log.Message("P5_SALE_SNAPSHOT", "settlement=" + settlement.ID + " items=" + snapshot.Items.Count +
+                    " ordinaryStacks=" + snapshot.StorageCells(Planning.P5StorageKind.Ordinary) +
+                    " perishableStacks=" + snapshot.StorageCells(Planning.P5StorageKind.Perishable) +
+                    " hazardousStacks=" + snapshot.StorageCells(Planning.P5StorageKind.Hazardous) +
+                    " saleValue=" + snapshot.Value(Planning.P5Allocation.Sale).ToString("F0"));
+                return snapshot;
+            }
+            catch (Exception ex)
+            {
+                P0Log.Message("P5_SALE_NATIVE_ONLY", "settlement=" + settlement.ID + " reason=" + ex.Message);
+                return null;
+            }
+        }
+
+        // Materialize every supported ordinary item of the canonical offer
+        // inside the generation transaction. Perishables use food storage.
+        internal List<Thing> Materialize(P4SpawnTransaction tx, Settlement settlement, IEnumerable<IntVec3> storage,
+            IEnumerable<IntVec3> food, Planning.P5StockSnapshot planned)
+        {
+            ThingOwner<Thing> holder = P5TradeStock.Holder(settlement.trader);
+            List<Thing> supported = holder == null ? new List<Thing>() :
+                holder.InnerListForReading.Where(t => P5TradeStock.Unsupported(t) == null).OrderBy(t => t.thingIDNumber).ToList();
+            HashSet<int> plannedIds = new HashSet<int>(planned.Items.Select(i => i.Id));
+            if (supported.Any(t => !plannedIds.Contains(t.thingIDNumber)) || supported.Count != planned.Items.Count)
+                throw new InvalidOperationException("Native offer changed between planning and spawning");
+            if (supported.Count == 0) return new List<Thing>();
+            List<IntVec3> storageCells = storage.ToList(), foodCells = food.ToList();
+            try
+            {
+                return Transfer(tx, settlement, supported, t => t.TryGetComp<CompRottable>() != null ? foodCells : storageCells);
+            }
+            catch (P5StorageCapacityException ex)
+            {
+                // Preflight fails before any ownership change: the whole offer
+                // stays native and sellable rather than being truncated.
+                P0Log.Message("P5_SALE_NATIVE_ONLY", "settlement=" + settlement.ID + " reason=" + ex.Message);
+                return new List<Thing>();
+            }
         }
         public override void ExposeData()
         {
             Scribe_References.Look(ref owner, "p5SaleOwner");
             Scribe_Values.Look(ref factionId, "p5SaleFaction", -1);
             Scribe_Collections.Look(ref sale, "p5PhysicalSaleGoods", LookMode.Reference);
-            if (Scribe.mode == LoadSaveMode.PostLoadInit) sale = sale?.Where(t => t != null && !t.Destroyed).ToList() ?? new List<Thing>();
+            Scribe_Collections.Look(ref operatingDefs, "p5OperatingDefs", LookMode.Value);
+            if (Scribe.mode == LoadSaveMode.PostLoadInit)
+            {
+                sale = sale?.Where(t => t != null && !t.Destroyed).ToList() ?? new List<Thing>();
+                operatingDefs = operatingDefs ?? new List<string>();
+            }
         }
         public override void FinalizeInit()
         {
@@ -119,7 +251,10 @@ namespace RealisticBases.Integration
         // Capacity is preflighted for every selected original Thing before any
         // ownership changes. Caller must supply legal planned storage cells.
         internal List<Thing> Transfer(P4SpawnTransaction tx, Settlement settlement, IEnumerable<Thing> selected,
-            IEnumerable<IntVec3> storageCells)
+            IEnumerable<IntVec3> storageCells) => Transfer(tx, settlement, selected, t => storageCells);
+
+        internal List<Thing> Transfer(P4SpawnTransaction tx, Settlement settlement, IEnumerable<Thing> selected,
+            Func<Thing, IEnumerable<IntVec3>> storageFor)
         {
             if (owner != null || sale.Count != 0) throw new InvalidOperationException("Physical stock already initialized");
             var holder = P5TradeStock.Holder(settlement.trader);
@@ -127,11 +262,13 @@ namespace RealisticBases.Integration
             if (originals.Count == 0 || originals.Distinct().Count() != originals.Count ||
                 originals.Any(t => !holder.Contains(t) || P5TradeStock.Unsupported(t) != null))
                 throw new InvalidOperationException("Unsupported or unowned physical stock transfer");
-            var cells = storageCells.Distinct().ToList();
-            var used = cells.ToDictionary(c => c, c => c.GetThingList(map).Count(t => t.def.category == ThingCategory.Item));
+            var used = new Dictionary<IntVec3, int>();
             var locations = new Dictionary<Thing, List<IntVec3>>();
             foreach (Thing thing in originals)
             {
+                var cells = storageFor(thing).Distinct().ToList();
+                foreach (IntVec3 c in cells)
+                    if (!used.ContainsKey(c)) used[c] = c.InBounds(map) ? c.GetThingList(map).Count(t => t.def.category == ThingCategory.Item) : int.MaxValue;
                 int stacks = checked((int)(((long)thing.stackCount + thing.def.stackLimit - 1) / thing.def.stackLimit));
                 var slots = new List<IntVec3>();
                 for (int i = 0; i < stacks; i++)
@@ -145,7 +282,7 @@ namespace RealisticBases.Integration
                         return legal && used[c] < (shelf == null ? 1 : c.GetMaxItemsAllowedInCell(map));
                     }).Select(c => (IntVec3?)c).FirstOrDefault();
                     if (!selectedSlot.HasValue)
-                        throw new InvalidOperationException("Full published stock cannot fit legal storage: " + thing.ThingID);
+                        throw new P5StorageCapacityException("Full published stock cannot fit legal storage: " + thing.ThingID);
                     IntVec3 slot = selectedSlot.Value;
                     used[slot]++; slots.Add(slot);
                 }
@@ -186,6 +323,11 @@ namespace RealisticBases.Integration
             Protect();
             return placed;
         }
+    }
+
+    internal sealed class P5StorageCapacityException : InvalidOperationException
+    {
+        internal P5StorageCapacityException(string message) : base(message) { }
     }
 
     [HarmonyPatch(typeof(Thing), nameof(Thing.CanStackWith))]

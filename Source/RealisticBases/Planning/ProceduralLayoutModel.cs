@@ -162,8 +162,12 @@ namespace RealisticBases.Planning
             LayoutClimate climate, int mortarBiasPercent, int excavationBudgetCells, int fieldCells,
             IEnumerable<KeyValuePair<LayoutRoomKind, int>> capacityFloors = null, SettlementTechStage stage = null, int importValueLimit = -1,
             int equipmentValueLimit = -1, int stockpileRoomCapacityTarget = 0, bool compactQuestCamp = false,
-            int defenseReserveWatts = 0, int logisticsUtilityValueLimit = 0)
+            int defenseReserveWatts = 0, int logisticsUtilityValueLimit = 0, int saleStorageStacks = 0, int salePerishableStacks = 0)
         {
+            if (saleStorageStacks < 0 || salePerishableStacks < 0 ||
+                compactQuestCamp && saleStorageStacks + salePerishableStacks > 0) throw new ArgumentOutOfRangeException(nameof(saleStorageStacks));
+            SaleStorageStacks = saleStorageStacks;
+            SalePerishableStacks = salePerishableStacks;
             if (residents <= 0) throw new ArgumentOutOfRangeException(nameof(residents));
             if (mortarBiasPercent < 0 || mortarBiasPercent > 100) throw new ArgumentOutOfRangeException(nameof(mortarBiasPercent));
             if (excavationBudgetCells < 0) throw new ArgumentOutOfRangeException(nameof(excavationBudgetCells));
@@ -233,6 +237,10 @@ namespace RealisticBases.Planning
         // Zero retains the historical split policy; positive values prefer
         // smaller connected stockpiles without discarding any capacity.
         public int StockpileRoomCapacityTarget { get; }
+        // P5: the settlement's published trade offer, stored physically in
+        // addition to operating reserves (one stack per cell, conservatively).
+        public int SaleStorageStacks { get; }
+        public int SalePerishableStacks { get; }
         // All new ordinary bases need an attached-field connection reserved
         // before the larger P4E facility set is packed, including four residents.
         public bool ReservePopulationCirculation => !CompactQuestCamp || Residents > 4 || StockpileRoomCapacityTarget > 0;
@@ -261,7 +269,8 @@ namespace RealisticBases.Planning
         // P2 profile capacities act as floors; population rules may raise them.
         public static LayoutRequirements FromProfile(PhysicalSettlementProfile profile, LayoutClimate climate,
             HousingStandard housing = HousingStandard.Barracks, SettlementTechStage stage = null,
-            OrdinarySettlementBudget populationBudget = null, int? mortarBiasPercent = null)
+            OrdinarySettlementBudget populationBudget = null, int? mortarBiasPercent = null,
+            int saleStorageStacks = 0, int salePerishableStacks = 0)
         {
             if (profile == null) throw new ArgumentNullException(nameof(profile));
             List<KeyValuePair<LayoutRoomKind, int>> floors = new List<KeyValuePair<LayoutRoomKind, int>>();
@@ -283,7 +292,8 @@ namespace RealisticBases.Planning
                 populationBudget?.ImportValue ?? profile.Budget.ImportValueLimit, equipment,
                 stockpileRoomCapacityTarget: populationBudget == null ? 0 : 48,
                 defenseReserveWatts: populationBudget?.DefenseAllowancePercent > 100 ? OrdinarySettlementPopulation.P4EDefenseReserveWatts : 0,
-                logisticsUtilityValueLimit: populationBudget?.DefenseAllowancePercent > 100 ? 300 : 0);
+                logisticsUtilityValueLimit: populationBudget?.DefenseAllowancePercent > 100 ? 300 : 0,
+                saleStorageStacks: saleStorageStacks, salePerishableStacks: salePerishableStacks);
         }
 
         private static bool TryMap(FacilityKind kind, out LayoutRoomKind result)
@@ -330,6 +340,12 @@ namespace RealisticBases.Planning
                 hash = StableHash.Add(hash, StockpileRoomCapacityTarget);
             }
             if (CompactQuestCamp) hash = StableHash.Add(hash, "compact-finite-quest-camp-v1");
+            if (SaleStorageStacks + SalePerishableStacks > 0)
+            {
+                hash = StableHash.Add(hash, "p5-sale-stock");
+                hash = StableHash.Add(hash, SaleStorageStacks);
+                hash = StableHash.Add(hash, SalePerishableStacks);
+            }
             return StableHash.Hex(hash);
         }
     }
@@ -570,7 +586,8 @@ namespace RealisticBases.Planning
                 Add(wanted, requirements, LayoutRoomKind.Jail, requirements.CompactQuestCamp ? 1 : Math.Max(1, Ceil(r, 8)));
             Add(wanted, requirements, LayoutRoomKind.Medical, Math.Max(1, Ceil(r, 6)));
             Add(wanted, requirements, LayoutRoomKind.Kitchen, Ceil(r, 8));
-            Add(wanted, requirements, kit.Refrigerated ? LayoutRoomKind.Freezer : LayoutRoomKind.Pantry, Math.Max(12, 6 * r));
+            Add(wanted, requirements, kit.Refrigerated ? LayoutRoomKind.Freezer : LayoutRoomKind.Pantry,
+                Math.Max(12, 6 * r) + requirements.SalePerishableStacks);
             Add(wanted, requirements, LayoutRoomKind.Dining, r);
             // Every distinct craft bench once, then more benches up to the population target.
             if (!requirements.CompactQuestCamp)
@@ -579,7 +596,7 @@ namespace RealisticBases.Planning
                 if (kit.DefFor(SettlementRole.Research) != null) Add(wanted, requirements, LayoutRoomKind.Laboratory, 1);
             }
             // Generator fuel stock is stored physically: its stacks raise the storage demand.
-            Add(wanted, requirements, LayoutRoomKind.Storage, Math.Max(12, 6 * r) + extraStorageCells);
+            Add(wanted, requirements, LayoutRoomKind.Storage, Math.Max(12, 6 * r) + extraStorageCells + requirements.SaleStorageStacks);
 
             List<string> rejections = new List<string>();
             List<LayoutRoomDemand> rooms = new List<LayoutRoomDemand>();

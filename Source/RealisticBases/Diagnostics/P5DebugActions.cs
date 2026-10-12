@@ -84,6 +84,77 @@ namespace RealisticBases.Diagnostics
                 " epoch=" + epoch + " tickRestored=" + (now == GenTicks.TicksGame) + " mappedRetained=" + mappedCount + " physicalCopiesAdded=0");
             Audit();
         }
+        // Supported ordinary goods of the whole canonical offer (native holder
+        // plus physical map objects): def|stuff|quality -> units.
+        internal static string OfferFingerprint(Settlement settlement, out long units)
+        {
+            var snapshot = P5TradeStock.Snapshot(settlement.trader, out _);
+            units = snapshot.Items.Sum(i => (long)i.Count);
+            return string.Join(",", snapshot.Items.GroupBy(i => i.Def + "|" + i.Stuff + "|q" + i.Quality)
+                .OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => g.Key + "=" + g.Sum(i => (long)i.Count)));
+        }
+
+        [DebugAction(Category, "Audit P5 physical sale stock and reserves", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void AuditPhysical()
+        {
+            Settlement settlement = CurrentSettlement();
+            Map map = settlement.Map;
+            var physical = map.GetComponent<P5PhysicalSaleStock>();
+            var holder = P5TradeStock.Holder(settlement.trader);
+            var goods = physical.Goods.ToList();
+            string fingerprint = OfferFingerprint(settlement, out long units);
+            bool duplicate = holder != null && goods.Any(holder.Contains);
+            var reserves = map.GetComponent<P5ReserveState>();
+            var state = Current.Game.GetComponent<RealisticBases.Persistence.P0WorldState>()?.FindExisting(settlement.ID);
+            P0Log.Message("P5_PHYSICAL_AUDIT", "map=" + map.uniqueID + " settlement=" + settlement.ID +
+                " physicalActive=" + physical.Active + " physicalStacks=" + goods.Count + " physicalUnits=" + goods.Sum(t => (long)t.stackCount) +
+                " spawned=" + goods.Count(t => t.Spawned) + " nativeStacks=" + (holder?.Count ?? 0) +
+                " nativeUnits=" + (holder?.Sum(t => (long)t.stackCount) ?? 0) + " offerUnits=" + units + " duplicateIdentity=" + duplicate +
+                " fingerprint=" + fingerprint);
+            P0Log.Message("P5_RESERVE_AUDIT", "map=" + map.uniqueID + " settlement=" + settlement.ID +
+                " current=" + string.Join(",", reserves.Keys.Select(k => k + ":" + reserves.Observe(k))) +
+                " ledgerTick=" + (state?.reserveLedgerTick ?? -1) + " ledger=" + (state == null ? "none" :
+                    string.Join(",", state.reserveKeys.Zip(state.reserveRemaining, (k, v) => k + ":" + v))));
+        }
+
+        [DebugAction(Category, "P5 run emergency allocation transfer now", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void EmergencyTransfer()
+        {
+            Settlement settlement = CurrentSettlement();
+            int moved = settlement.Map.GetComponent<P5PhysicalSaleStock>().EmergencyTransfer();
+            P0Log.Message("P5_EMERGENCY_TRANSFER_CHECK", "settlement=" + settlement.ID + " transferred=" + moved);
+            AuditPhysical();
+        }
+
+        // Real native removal (DeinitAndRemoveMap) and regeneration of the same
+        // settlement. Disposable profile only; refuses while player pawns are
+        // on the map so no player asset is passed to the world by the test.
+        [DebugAction(Category, "P5 unload and re-enter current settlement", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void UnloadAndReenter()
+        {
+            Settlement settlement = CurrentSettlement();
+            Map map = settlement.Map;
+            if (map.mapPawns.FreeColonistsSpawned.Any() || map.mapPawns.AllPawnsSpawned.Any(p => p.Faction != null && p.Faction.IsPlayer))
+                throw new InvalidOperationException("Move player pawns off the encounter map first");
+            string before = OfferFingerprint(settlement, out long beforeUnits);
+            P0Log.Message("P5_REENTRY_BEFORE", "settlement=" + settlement.ID + " map=" + map.uniqueID +
+                " offerUnits=" + beforeUnits + " fingerprint=" + before);
+            Map home = Find.Maps.FirstOrDefault(m => m.IsPlayerHome);
+            Current.Game.DeinitAndRemoveMap(map, false);
+            string unloaded = OfferFingerprint(settlement, out long unloadedUnits);
+            P0Log.Message("P5_REENTRY_UNLOADED", "settlement=" + settlement.ID + " offerUnits=" + unloadedUnits +
+                " sameOffer=" + (unloaded == before) + " hasMap=" + settlement.HasMap);
+            Map reopened = GetOrGenerateMapUtility.GetOrGenerateMap(settlement.Tile, Find.World.info.initialMapSize, null);
+            if (home != null) Current.Game.CurrentMap = home;
+            string after = OfferFingerprint(settlement, out long afterUnits);
+            P0Log.Message("P5_REENTRY_AFTER", "settlement=" + settlement.ID + " map=" + reopened.uniqueID +
+                " offerUnits=" + afterUnits + " sameOffer=" + (after == before) +
+                " physicalStacks=" + reopened.GetComponent<P5PhysicalSaleStock>().Goods.Count());
+        }
+
         [DebugAction(Category, "Audit P5 native stock ownership", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
         public static void Audit()

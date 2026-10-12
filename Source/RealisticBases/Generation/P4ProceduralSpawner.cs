@@ -410,7 +410,25 @@ namespace RealisticBases.Generation
                 ThingDef startupFood = Require(food.Kind == LayoutRoomKind.Freezer ? "MealSimple" : "Pemmican");
                 int startupFoodUnits = quest == null ? input.Requirements.Residents * 12 :
                     quest.Contract.StartupFoodUnits(startupFood.GetStatValueAbstract(StatDefOf.Nutrition));
-                int fuel = layout.Power?.FuelStock ?? 0;
+                // P5 stock persistence: ordinary settlements record each operating
+                // reserve and, on re-entry, spawn at most the remainder left at
+                // the last unload. Quest sites keep their native contracts.
+                P5ReserveState reserves = quest == null ? map.GetComponent<P5ReserveState>() : null;
+                P5ReserveLedger ledger = quest == null ? Current.Game.GetComponent<P0WorldState>()
+                    ?.FindExisting(settlement.ID)?.ReserveLedger() : null;
+                reserves?.Begin((Settlement)settlement, tx);
+                List<string> reserveCaps = new List<string>();
+                Dictionary<string, int> reserveGranted = new Dictionary<string, int>(StringComparer.Ordinal);
+                Func<string, string, int, int> Planned = (defName, stuffName, count) =>
+                {
+                    if (reserves == null) return count;
+                    string key = P5ReserveLedger.Key(defName, stuffName);
+                    int capped = ledger?.Grant(key, count, reserveGranted) ?? count;
+                    reserves.Record(key, capped);
+                    if (capped != count) reserveCaps.Add(key + ":" + count + "->" + capped);
+                    return capped;
+                };
+                int fuel = layout.Power == null ? 0 : Planned(layout.Power.FuelDef, null, layout.Power.FuelStock);
                 int internalFuel = 0;
                 if (layout.Power != null)
                     foreach (Thing generator in tx.OwnedThings.Where(t => t.def.defName == layout.Power.GeneratorDef))
@@ -425,18 +443,29 @@ namespace RealisticBases.Generation
                     }
                 if (fuel > 0) SpawnStacks(tx, Require(layout.Power.FuelDef), fuel, storageCells, map);
                 if (quest == null && layout.Materials.FuelWood > 0)
-                    SpawnStacks(tx, ThingDefOf.WoodLog, layout.Materials.FuelWood, storageCells, map);
-                foreach (LoadoutItem item in loadout.Medicine) SpawnStacks(tx, Require(item.DefName), item.Count, medicalCells, map);
+                {
+                    int fuelWood = Planned(ThingDefOf.WoodLog.defName, null, layout.Materials.FuelWood);
+                    if (fuelWood > 0) SpawnStacks(tx, ThingDefOf.WoodLog, fuelWood, storageCells, map);
+                }
+                foreach (LoadoutItem item in loadout.Medicine)
+                {
+                    int count = Planned(item.DefName, null, item.Count);
+                    if (count > 0) SpawnStacks(tx, Require(item.DefName), count, medicalCells, map);
+                }
                 foreach (LoadoutItem item in loadout.Components.Concat(loadout.Armoury))
-                    SpawnStacks(tx, Require(item.DefName), item.Count, storageCells, map, item.Stuff, item.Quality);
+                {
+                    int count = Planned(item.DefName, item.Stuff, item.Count);
+                    if (count > 0) SpawnStacks(tx, Require(item.DefName), count, storageCells, map, item.Stuff, item.Quality);
+                }
                 foreach (CombatSupply supply in encounter.Supplies)
                 {
                     if (supply.DefName == "ReinforcedBarrel" && Find.Storyteller.difficulty.classicMortars) continue;
+                    int supplyCount = Planned(supply.DefName, null, supply.Count);
                     // Split, never copy, the one encounter-wide reserve. A
                     // single shelf permits three types; zero shares are omitted.
                     for (int i = 0; i < layout.Courts.Count; i++)
                     {
-                        int share = supply.Count / layout.Courts.Count + (i < supply.Count % layout.Courts.Count ? 1 : 0);
+                        int share = supplyCount / layout.Courts.Count + (i < supplyCount % layout.Courts.Count ? 1 : 0);
                         if (share > 0)
                         {
                             var magazine = layout.MagazineFor(layout.Courts[i]).Interior.Points().ToArray();
@@ -457,8 +486,10 @@ namespace RealisticBases.Generation
                     throw new InvalidOperationException("forced P4E failure after finite magazine stocks");
                 }
                 foreach (IGrouping<string, P4BTurretPlan> group in turretPlans.GroupBy(t => t.FuelDefName))
-                    combatStocks.AddRange(SpawnStacks(tx, Require(group.Key), group.Sum(t => t.ReserveFuelUnits),
-                        storageCells, map));
+                {
+                    int reload = Planned(group.Key, null, group.Sum(t => t.ReserveFuelUnits));
+                    if (reload > 0) combatStocks.AddRange(SpawnStacks(tx, Require(group.Key), reload, storageCells, map));
+                }
                 Thing[] shelfStocks = tx.OwnedThings.Where(t => t.def.category == ThingCategory.Item &&
                     t.Position.GetEdifice(map) is Building_Storage).ToArray();
                 P2Log.Message("PROCEDURAL_STOCK_PLACEMENT", "map=" + map.uniqueID +
@@ -544,10 +575,21 @@ namespace RealisticBases.Generation
                 }
                 double nutritionPerDay = defenders.Sum(p => (p.needs?.food?.FoodFallPerTickAssumingCategory(HungerCategory.Fed) ?? 0) * 60000);
                 if (quest == null)
-                    startupFoodUnits = P5Readiness.FoodUnits(defenders.Count,
+                    startupFoodUnits = Planned(startupFood.defName, null, P5Readiness.FoodUnits(defenders.Count,
                         Math.Max(P5Readiness.DefaultDailyNutrition, nutritionPerDay / defenders.Count),
-                        startupFood.GetStatValueAbstract(StatDefOf.Nutrition), startupFoodUnits);
-                SpawnStacks(tx, startupFood, startupFoodUnits, foodCells, map);
+                        startupFood.GetStatValueAbstract(StatDefOf.Nutrition), startupFoodUnits));
+                if (startupFoodUnits > 0) SpawnStacks(tx, startupFood, startupFoodUnits, foodCells, map);
+                if (reserves != null)
+                {
+                    P5PhysicalSaleStock saleStock = map.GetComponent<P5PhysicalSaleStock>();
+                    List<Thing> sale = run.SaleStock == null ? new List<Thing>() : saleStock.Materialize(tx, (Settlement)settlement,
+                        storageCells.Select(ToCell), foodCells.Select(ToCell), run.SaleStock);
+                    if (sale.Count > 0) saleStock.RecordOperatingDefs(reserves.Defs);
+                    RealisticBases.Core.P0Log.Message("P5_STOCK_SPAWN", "map=" + map.uniqueID + " settlement=" + settlement.ID +
+                        " revisitLedger=" + (ledger != null) + " capped=" + (reserveCaps.Count == 0 ? "none" : string.Join(",", reserveCaps)) +
+                        " saleStacks=" + sale.Count + " saleUnits=" + sale.Sum(t => t.stackCount) +
+                        " saleItems=" + (run.SaleStock?.Items.Count ?? 0) + " nativeOnly=" + (run.SaleStock == null));
+                }
                 if (quest != null) P4DQuestDebugActions.Log("QUEST_FOOD_LEDGER", "site=" + settlement.ID +
                     " def=" + startupFood.defName + " units=" + startupFoodUnits +
                     " nutrition=" + startupFoodUnits * startupFood.GetStatValueAbstract(StatDefOf.Nutrition));

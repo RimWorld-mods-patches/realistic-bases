@@ -311,3 +311,68 @@ p5-physical-stock-planner-tests-20261012.txt;
 RealisticBases-P5-inert-physical-stock-20261012.rws. Exact game stopped. P5.3
 remains open for full-offer admission/storage, emergency transfer, buy/sell/loot/
 destruction/capture/re-entry and the complete restock/compatibility matrix.
+
+## P5.3b/P5.4-stock — Full-offer materialization and stock persistence (implemented, live verification pending)
+
+2026-10-12, branch `claude/p5-stock-completion` (from `main` `966d7a3`, layout
+engine v2 default). The scope was agreed with the user: the trade offer and stock
+persistence across unload/re-entry. Survivor and casualty identity keeps the
+existing coarse P0 behaviour. **Only pure/build evidence exists.** Nothing below
+has been observed in a running game. Codex verifies live.
+
+What is implemented:
+
+- **Normal generation materializes the canonical offer.** For an ordinary funded settlement, `P4AMapPlanner.Run` explicitly acquires the native offer (`P5PhysicalSaleStock.AcquireForGeneration` → `P5TradeStock.Acquire`) before planning.
+  - The settlement's planning requirements (`LayoutRequirements`) gain `SaleStorageStacks` (ordinary + hazardous) and `SalePerishableStacks`, added to warehouse and freezer/pantry capacity. They enter the requirements digest only when non-zero.
+  - After the operating stocks, the spawner moves every supported ordinary item from the native holder into those rooms through `Materialize`. This happens inside the same spawn transaction, using Codex's exact borrow/split/rollback `Transfer`. Perishables go to food storage.
+  - The planned snapshot must equal the holder's supported items at spawn, or generation fails rather than silently diverging.
+  - If legal storage cannot take the whole offer, the capacity preflight (before any ownership change) keeps the **entire** offer native and sellable (`P5_SALE_NATIVE_ONLY`) instead of truncating it.
+  - Quest sites, legacy four-resident plans, unsupported trackers and unsupported Things (pawns, animals, nested containers, unknown behaviour) stay native, as before.
+- **Emergency allocation transfer.** Every 2500 ticks, when the residents' own stock of a category is exhausted on the map, one sale stack of that category is released, and only then becomes usable. It leaves the offer, the lord's forbidden list and the sale cache (`P5_EMERGENCY_TRANSFER`).
+  - Categories: medicine, human food, and the exact operating defs (fuel, shells, barrels, reload materials) recorded at generation.
+- **Unload returns sale goods.** A `MapDeiniter.Deinit` prefix runs before pawns pass to the world.
+  - Every still-owned physical sale object, including items in resident inventories, returns to the native holder as itself, unmerged (`P5_SALE_RETURNED ... copies=0`).
+  - Defeated or claimed settlements are inactive and keep their goods as map loot.
+  - Re-entry acquires the same canonical epoch (no regeneration) and materializes the same objects again.
+- **Operating-reserve ledger.** The spawner records each operating reserve (generator fuel, primitive fuel wood, medicine, components and armoury by def|stuff, mortar shells and barrels, turret reload stock, startup food) at the amount it actually granted, **including zero**.
+  - At unload (`P5_RESERVE_LEDGER`) the remainder per key is recorded: loose non-sale items, resident inventories and fuel loaded in generators. It is capped at what was granted, so player-dropped items never become reserves.
+  - Re-entry grants at most that remainder, as one allowance per key shared by every stock of that key (`P5_STOCK_SPAWN capped=`). Off-map balances stay frozen.
+
+Pure evidence:
+
+- PlannerTests `P5 reserve ledger caps re-entry at the unload remainder` covers the remainder cap, the shared-key allowance, an exhausted reserve staying exhausted across three visits despite stray items, and invalid ledgers.
+- LayoutTests `P5 sale offer is sized into storage without changing other inputs` covers digest invariance with no offer, warehouse and freezer growth, accepted joint-site plans whose stock cells cover operating plus sale stacks, and quest camps refusing an offer.
+- Full PlannerTests and LayoutTests 127/127 pass, and the Release build has 0 warnings and 0 errors.
+
+Known limitations, deliberately not claimed:
+
+- Turret and mortar loaded charge and the residents' personal gear reset on re-entry (the roster is regenerated, per P0).
+- Hazardous sale goods use ordinary warehouse cells, not a separate hazard store.
+- Sale-goods spoilage while loaded is native behaviour.
+- The six-hour measured combat duty and the full-load outage deficit recorded in P5.2a remain open.
+
+### Live verification checklist for Codex (disposable profile)
+
+New debug actions, category "Realistic Bases P5":
+- "Audit P5 physical sale stock and reserves"
+- "P5 run emergency allocation transfer now"
+- "P5 unload and re-enter current settlement" (real `DeinitAndRemoveMap` plus regeneration; refuses while player pawns are on the map).
+
+1. **Fresh ordinary funded settlement** (`Generate playable flat P4 settlement`). Expect:
+   - `P5_SALE_SNAPSHOT` before `PROCEDURAL_PLAN saleStacks=a+b`.
+   - `P5_STOCK_SPAWN saleStacks>0 nativeOnly=False`.
+   - Audit: `duplicateIdentity=False`, with physical plus native units equal to the snapshot units and fingerprint.
+   - Goods on legal shelves or cells, perishables in the freezer.
+   - Then save/reload and compare IDs and the fingerprint.
+2. **Native buy and sell, then attack.** Buy some physical stock and sell one item.
+   - The purchased objects leave the map, the sold item stays native, and the offer equals the native trade window.
+   - In the attack, residents do not consume sale goods while they have reserves.
+3. **Emergency transfer.** Exhaust or remove the residents' medicine (or meals), then run the transfer action.
+   - Exactly one sale stack of that category is released, the offer is reduced, and residents may use it.
+4. **Unload and re-entry with depletion.** Consume or loot some reserves and buy some goods, move the player pawns away, then run the unload action. Expect:
+   - `P5_SALE_RETURNED copies=0` and `P5_RESERVE_LEDGER` with reduced values.
+   - `P5_REENTRY_UNLOADED sameOffer=True`.
+   - On regeneration, `P5_STOCK_SPAWN revisitLedger=True capped=...` and `P5_REENTRY_AFTER sameOffer=True`, with no restored purchases or refilled reserves.
+   - Repeat once to confirm a stable balance.
+5. **Overflow and failure.** If storage overflows, expect `P5_SALE_NATIVE_ONLY` with the full offer still tradeable. Forced late rollback after `Materialize` must return the exact native Things (as in P5.3a).
+6. **Expiry and defeat.** A 30-day off-map boundary followed by re-entry gives a new epoch, legitimately. Defeat leaves goods as loot with no return to the native holder.

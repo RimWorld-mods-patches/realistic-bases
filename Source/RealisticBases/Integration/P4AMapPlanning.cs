@@ -11,12 +11,17 @@ namespace RealisticBases.Integration
 {
     public sealed class P4AMapPlanningRun
     {
-        public P4AMapPlanningRun(ProceduralLayoutInput input, ProceduralLayoutResult result, string profileId)
-        { Input = input; Result = result; ProfileId = profileId; }
+        public P4AMapPlanningRun(ProceduralLayoutInput input, ProceduralLayoutResult result, string profileId,
+            P5StockSnapshot saleStock = null)
+        { Input = input; Result = result; ProfileId = profileId; SaleStock = saleStock; }
 
         public ProceduralLayoutInput Input { get; }
         public ProceduralLayoutResult Result { get; }
         public string ProfileId { get; }
+        // P5: supported ordinary goods of the settlement's canonical native
+        // offer, acquired once before planning and sized into storage. Null
+        // when the settlement keeps native-only trade stock.
+        public P5StockSnapshot SaleStock { get; }
     }
 
     public static class P4AMapPlanner
@@ -62,8 +67,11 @@ namespace RealisticBases.Integration
             }
             OrdinarySettlementBudget populationBudget = wealthPercent == 0 ? null :
                 OrdinarySettlementPopulation.Create(profile, stage, climate, wealthPercent);
+            P5StockSnapshot saleStock = populationBudget == null ? null : P5PhysicalSaleStock.AcquireForGeneration(settlement);
             LayoutRequirements requirements = LayoutRequirements.FromProfile(profile, climate, stage: stage,
-                populationBudget: populationBudget, mortarBiasPercent: DebugMortarBiasNext);
+                populationBudget: populationBudget, mortarBiasPercent: DebugMortarBiasNext,
+                saleStorageStacks: saleStock == null ? 0 : saleStock.StorageCells(P5StorageKind.Ordinary) + saleStock.StorageCells(P5StorageKind.Hazardous),
+                salePerishableStacks: saleStock?.StorageCells(P5StorageKind.Perishable) ?? 0);
             DebugMortarBiasNext = null;
             int targetLayers = requestedWallLayers >= 1 && requestedWallLayers <= 3 ? requestedWallLayers :
                 P4BLayerPolicy.Select(seed, stage.Level, requirements.EquipmentValueLimit,
@@ -104,7 +112,8 @@ namespace RealisticBases.Integration
                 " baseImportBudget=" + (populationBudget?.BaseImportValue ?? requirements.ImportValueLimit) +
                 " defenseAllowancePercent=" + (populationBudget?.DefenseAllowancePercent ?? 100) +
                 " defenseReserveWatts=" + requirements.DefenseReserveWatts +
-                " engine=" + input.Engine + " effectiveLayers=" + input.Fortification.WallLayers + " layerFallback=" + layerFallback +
+                " engine=" + input.Engine + " saleStacks=" + requirements.SaleStorageStacks + "+" + requirements.SalePerishableStacks +
+                " effectiveLayers=" + input.Fortification.WallLayers + " layerFallback=" + layerFallback +
                 " layerMode=" + (requestedWallLayers == 0 ? "tech-budget-weighted" : "debug-override") +
                 " catalogDefs=" + catalog.Defs.Count + " catalogResearch=" + catalog.Research.Count +
                 " wood=" + resources.LocalWoodYield + " stone=" + resources.LocalStoneStuffs.Count +
@@ -116,7 +125,7 @@ namespace RealisticBases.Integration
                     .Select(d => d.ToString()).Take(2).ToArray()) +
                 terrainStats + " rejectionCode=" + (result.RejectionCode ?? "none") +
                 " rejected=" + RejectionSummary(result));
-            return new P4AMapPlanningRun(input, result, profile.Id);
+            return new P4AMapPlanningRun(input, result, profile.Id, saleStock);
         }
 
         public static string RejectionSummary(ProceduralLayoutResult result)
