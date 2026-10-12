@@ -376,3 +376,139 @@ New debug actions, category "Realistic Bases P5":
    - Repeat once to confirm a stable balance.
 5. **Overflow and failure.** If storage overflows, expect `P5_SALE_NATIVE_ONLY` with the full offer still tradeable. Forced late rollback after `Materialize` must return the exact native Things (as in P5.3a).
 6. **Expiry and defeat.** A 30-day off-map boundary followed by re-entry gives a new epoch, legitimately. Defeat leaves goods as loot with no return to the native holder.
+
+## Live verification — 2026-10-12, stock-completion branch
+
+Tested implementation tip `229273c` on `claude/p5-stock-completion`, with the
+existing 75e8 mod link, isolated profile and five-mod baseline only. No normal
+profile, research, relation, currency, NPC or stock grants were used. Steam was
+not required. One disposable game process ran at a time. The branch was initially
+tested detached because the main checkout held it; after that checkout moved to
+unrelated coastal-layout work, this worktree attached to the requested branch.
+That unrelated checkout was not modified. Nothing was merged or pushed.
+
+### Build/pure gates
+
+Release build: zero warnings/errors. PlannerTests: zero failures. LayoutTests
+was built once, then all ten `--shard i/10` processes ran in parallel: **127/127
+tests passed**, every shard reporting zero failures. The slowest shard took
+559637ms. Evidence: `p5-completion-release-20261012.txt`,
+`p5-completion-planner-20261012.txt`, `p5-completion-layout-build-20261012.txt`,
+and `p5-completion-layout-shard-0` through `-9-20261012.txt`, under
+`.runtime/logs/`. After the small carried-reserve fix below, Release and
+PlannerTests passed again (`p5-carried-reserve-release-20261012.txt` and
+`p5-carried-reserve-planner-20261012.txt`). No pure layout code changed in the fix;
+the ten-shard result is the preceding implementation-tip result, not a second run.
+
+### Case results
+
+| Requested case | Result | Observed evidence / remaining gate |
+|---|---|---|
+| 1. Fresh generation and active reload | Partial pass | At583, map1/site91: `PROCEDURAL_PLAN engine=Clusters saleStacks=93+15`, followed by `P5_STOCK_SPAWN saleStacks=108 saleUnits=6924 nativeOnly=False` and `PROCEDURAL_SPAWN_COMPLETE`. Audit: `duplicateIdentity=False`, offer6924, physical6924;21 unsupported native Things remain native. Active reload583→584 preserves all108 mapped object IDs and API item facts, counts and positions; mapped audit text is identical. Exact legal floor-cell/room checks and the whole protection matrix are not closed. |
+| 2. Native buy/sell, then attack | Not run | Stopped at the conservation failure below. The old independent native trade spike is not a mapped-stock buy/sell/attack pass. Core `CaravanArrivalAction_Trade.CanTradeWith` explicitly requires `!settlement.HasMap`; a proper off-map trade→attack sequence is needed, not bypassing native authorization on the already-loaded hostile debug site. |
+| 3. Emergency transfer | Failed, with one small defect fixed | Removing loose operating medicine while retaining one resident-carried medicine incorrectly releases ten sale medicines. Fixed/replayed below. With the carried unit subsequently removed, exactly one ten-unit sale stack is released, offer medicine35→25 and operating medicine0→10. Actual native use is not established: the tending probe rejects its setup because it only counts original owned medicine, not released sale medicine. |
+| 4. Depletion and repeated re-entry | Partial pass; conservation failure after emergency transfer | At26897, map1→2→3: both cycles report `P5_SALE_RETURNED copies=0`, `P5_REENTRY_UNLOADED sameOffer=True`, `P5_REENTRY_AFTER sameOffer=True`;107 remaining sale stacks/6918 units persist. Wood230 and HE11 are capped. After magazine depletion, HE/incendiary/spare-barrel keys remain0 on the next entry. However, newly allocated sale barrels are then omitted from the unload allowance (below). Purchases and a second unchanged exhausted-key cycle were not exercised. |
+| 5. Full-materialization rollback / overflow | Not run | No storage overflow occurred in the accepted108-stack case. The existing late-rollback action selects steel/medicine from the native holder, which normal materialization has already emptied of those goods; the generation `forceFailure` hook precedes materialization. Prior P5.3a evidence is not a fresh full-offer late-rollback pass. |
+| 6. Off-map expiry / defeat loot | Not run | Neither a new off-map expiry epoch nor defeated-settlement loot ownership was observed in this run. Loaded-expiry suppression from previous checkpoints does not substitute for either case. |
+| 7. V2.6 three-style smoke | Partial, industrial only | One accepted flat IndustrialLate clusters settlement,15 rooms/eight residents; active reload, real temperatures and native post/mortar occupation observed. Town, mountain, shared-wall visual inspection and native bed/stove/bench route completion remain unobserved. |
+
+First run: `p5-completion-live-first-20261012.log`. Named saves:
+`RealisticBases-P5-completion-fresh-20261012`,
+`RealisticBases-P5-completion-premature-emergency-20261012`,
+`RealisticBases-P5-completion-first-reentry-20261012`,
+`RealisticBases-P5-completion-zero-ammo-before-reentry-20261012`, and
+`RealisticBases-P5-completion-zero-ammo-after-reentry-20261012` (all `.rws`).
+
+The first layout is `BCE3BE9EFE54DF88`, seed `4D94FBA67FBEE725`, with a
+debug-once IndustrialLate stage and effective one-layer fallback. Re-entry uses
+the real faction's IndustrialMid stage and the native250-cell map size, rather
+than the initial debug160-cell map. Consequently the re-entry result proves
+stock/ledger behavior, **not** identical layouts, stage persistence or pawn
+identity. Generated personal inventories still change under the disclosed P0
+roster policy (for example observed medicine21→24 despite a21 ledger allowance).
+
+Read-only saved/API analysis: all108 sale references are present and unchanged
+across reload;90 map to accepting saved shelves, and18 occupy non-shelf cells
+whose full room/walkability checks were not independently completed. All15
+perishable sale stacks map to accepting food shelves. The first analysis used an
+incorrect even-size shelf rotation offset; it was corrected and is not reported
+as illegal storage. Evidence: `p5-completion-fresh-items-20261012.json`,
+`p5-completion-reload-items-20261012.json`,
+`p5-completion-saved-storage-comparison-20261012.json`.
+
+Native elapsed observation584→26897 is **26313 ticks**, not a three-day pass.
+At10757, actual room temperatures include storerooms175/188 at−10.0/−9.65°C,
+laboratory/kitchen/dining/hospital/prison at21°C, barracks20.89°C and
+workshop20.74°C. The generator room181 is50.69°C (generator ventilation is
+separate P5A work). At26549, P3 reports eight assigned residents, seven occupied
+posts, no out-of-bounds defenders and a manned mortar with one loaded HE shell.
+The routine probe recorded four native refuels, but no complete food/bed horizon
+was obtained. These results do not close V2.6. Room and pawn snapshots are retained.
+
+### Fixed defect: carried operating reserves do not protect sale allocation
+
+At26897 on map3, removing only the loose operating-medicine cell `(173,165)`
+(including its shelf) leaves `MedicineIndustrial122660:1` in resident
+`Human122655`'s inventory. The reserve audit observes medicine1, but emergency
+allocation releases sale `MedicineIndustrial52913:10`, taking operating stock
+to11. `OperatingAvailable` was scanning spawned map items only.
+
+Commit **`f7f4708`** includes resident inventories/carry trackers in this check
+and adds the disposable regression action
+`P5 test carried medicine protects sale allocation`. It creates no supplies and
+issues no NPC jobs. Replaying the same saved fixture after a cold restart gives:
+
+```text
+P5_CARRIED_RESERVE_GUARD_COMPLETE tick=26898 map=3 passed=True carriedMedicine=1 saleMedicineBefore=35 saleMedicineAfter=35 suppliesAdded=0 npcOrdersIssued=0
+```
+
+The action may release an unrelated exhausted category: in this fixture it also
+releases the single three-barrel sale stack, which is recorded explicitly rather
+than concealed. Pre-fix save: `RealisticBases-P5-completion-carried-medicine-failure-20261012.rws`.
+Fixed replay: `p5-completion-carried-reserve-fixed-20261012.log` and
+`RealisticBases-P5-completion-carried-medicine-fixed-20261012.rws`.
+
+### Open conservation defect: emergency allocation is not handed to the reserve allowance
+
+On map3 the generated spare-barrel allowance is correctly0 following depletion.
+At26898, emergency allocation releases original sale `ReinforcedBarrel52914:3`;
+the offer loses three units and `P5_RESERVE_AUDIT` observes operating barrels3.
+On native map removal at26900:
+
+```text
+P5_SALE_RETURNED tick=26900 map=3 settlement=91 stacks=105 units=6905 nativeStacks=126 copies=0
+P5_RESERVE_LEDGER tick=26900 ... ReinforcedBarrel:0 ...
+MAP_REMOVED tick=26900 map=3 settlement=91 ...
+```
+
+The sale stack is no longer returned as merchandise, but the reserve ledger still
+caps it at its original generation allowance0. The legitimate transfer therefore
+has no persisted remaining allowance; re-entry's grant for that key is0. This is
+not the desired rule that arbitrary player-dropped items must not create reserves:
+these are the settlement's exact existing sale objects, explicitly reallocated.
+The failure save `RealisticBases-P5-completion-emergency-unload-20261012.rws`
+retains the reduced native offer and zero-barrel ledger; the fixed-replay save
+above retains the pre-unload three operating barrels. The consumed-medicine
+setup also demonstrates native removal, but is not a tending pass.
+
+Source review identifies the missing handoff: `EmergencyTransfer.Release` removes
+sale/cache/forbidden references without registering the transferred objects with
+`P5ReserveState`'s allowance or P3's operating-stock references. This also leaves
+released mortar supplies outside `GunAvailable`/`CountStock`'s original-stock
+view. The live tending probe similarly rejects released medicine as absent
+because its measurement reads original `P5OwnedThings`; that is a diagnostic
+limitation, **not** proof that the native doctor cannot use it. These linked
+allocation/consumer/persistence issues were left for the implementation owner;
+no redesign was attempted and no native-use pass is claimed.
+
+A separate early wood release at10000 occurred while substantial generator fuel
+remained (225.26 loaded at26897). The scoped fix does not change whether loaded
+fuel/charge counts as an available reserve; that policy/consumer check remains
+open rather than being silently assumed fixed.
+
+The player-free replay map unloaded natively when ticks were resumed after the
+tending setup rejection. That fixture failure and the subsequent save are kept;
+no death, attack, successful tending or full routine horizon is inferred from it.
+The broader matrix stopped on the conservation defect. The disposable game was
+stopped and its autostart copy restored from the immutable reset save. All named
+evidence remains ignored under `.runtime/`. **P5 and V2.6 remain incomplete.**
