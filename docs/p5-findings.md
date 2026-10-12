@@ -226,3 +226,39 @@ a gate for this isolated NPC operation test or evidence for player protection.
 Restore the untouched baseline before the next independent trade probe. The
 exact disposable game is stopped. P5 remains open for other profiles, measured
 combat/outage/tending/failures, canonical physical trade and unload persistence.
+
+## P5.1b — Native partial buy/sell prototype
+
+The canonical ownership hook is now exercised through actual Core TradeDeal,
+not a replacement pricing/transfer routine. The untouched disposable reset has
+three existing colonists. The first setup selected a pawn that failed native
+negotiation checks and was refused before stock acquisition; it is preserved in
+p5-native-partial-trade-first-20261012.log, not counted as a pass. Selection now
+requires native CanTradeWith, enabled Social/trade stats and normal caravan
+trade authorization. No skill, faction relation, permit or money is granted.
+
+Successful case at583: original Human185 negotiates from caravan91 at ordinary
+friendly Industrial settlement0. Existing home silver funds the wallet through
+a real physical transfer; testCurrencyAdded=0. Explicit native stock acquisition
+generates epoch1 once. Native purchase7steel then sale3 yields offer526→522 and
+caravan+4. Combined physical silver remains2608. Native holder is sole owner;
+no operating reserve or map copy is created. Ordinary stack count65→67 reflects
+native non-merging transaction fragments, not multiplied quantities. The18
+unsupported native animals/containers retain their native ownership.
+
+Cold load followed by active save/reload583→584→585 preserves67 ordinary
+stacks, exact ID/def/count/stuff/quality/condition fingerprint61809FC698FE832B,
+steel522, playerSteel4, silver2608, original negotiator185, epoch1/generated583,
+and nativeOwnership=True. The audit reads the real holder without its lazy
+getter. Current holder back-reference recovery also passes on these85 total
+stock Things. Native trade authorization remains unchanged and no attack has
+yet been performed. This establishes the hook/ownership prototype before the
+physical adapter, not P5.3/full trade fidelity or buy-then-attack acceptance.
+
+Evidence: p5-native-partial-trade-negotiator-20261012.log;
+p5-native-partial-trade-reload-20261012.log;
+RealisticBases-P5-native-partial-trade.rws. Release build0 warnings/errors.
+The exact disposable game was stopped. Full layout/planner passes remain the
+preceding checkpoint; this adds only isolated debug instrumentation, not layout
+or garrison changes. Physical stock/capacity, unmanaged-existing-offer adoption,
+allocation transfers, loot/capture/expiry and unload reconciliation remain open.
