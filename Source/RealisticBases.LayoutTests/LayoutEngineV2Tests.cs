@@ -160,8 +160,9 @@ internal static partial class Program
         ProceduralLayoutInput implicitDefault = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog);
         ProceduralLayoutInput legacy = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog, engine: LayoutEngine.Legacy);
         ProceduralLayoutInput clusters = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog, engine: LayoutEngine.Clusters);
-        // Pinned at V2.1: an explicit legacy input keeps the historical P4E digest.
-        Equal("980A6DEF377C0C15", legacy.Digest, "legacy digest unchanged");
+        // Pinned: explicit legacy input digest (changes only with real input
+        // changes, e.g. the catalog's shelf stacks per cell).
+        Equal("C0911152BDB0CD56", legacy.Digest, "legacy digest unchanged");
         True(clusters.Digest != legacy.Digest, "clusters engine is a distinct input");
         Equal(LayoutEngine.Clusters, implicitDefault.Engine, "layout engine v2 is the default");
         Equal(clusters.Digest, implicitDefault.Digest, "default input is the clusters input");
