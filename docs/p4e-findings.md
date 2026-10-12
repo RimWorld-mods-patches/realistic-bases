@@ -697,3 +697,47 @@ p4e5-warehouse-delayed-collapse-failure-20261012.log. Release build has0 warning
 errors; full planner/garrison suite passes; full layout suite passes at860440ms
 with zero failures (p4e5-final-regression-20261012.txt). Core protected recovery
 and installed GL/native-fallback closeout are the remaining final live checks.
+
+### 2026-10-12 — Final compatibility and P4E closeout
+
+The corrected transaction also passed late protected recovery on Core mountain
+rescue Quest0/site91: original Human41204 returned to its original holder at
+health1/join=False, itemLedgerRestored=True, recovered=True. Native fallback used
+all5/5 prepared guards once with staging empty. Evidence:
+p4e5-core-protected-recovery-final-20261012.log.
+
+Installed Geological Landforms1.7.13.1 plus Map Preview loaded44 landforms.
+Both exact quest contracts were exercised on actual GL_Cliff tiles, with the
+guarded generator explicitly enabled. GL adds UnnamedDef@225 to Encounter;
+both therefore remained native with competing_step_inventory, no procedural
+commit, no extra ordinary budget/gear/crew and no suppression of GL generation.
+Mixed-case optional-mod XML entries initially made IsActive diagnostics false
+despite loading; lowercase test entries corrected that instrumentation issue.
+The final normalized runs report GL=True and GL_Cliff explicitly.
+
+Rescue Quest3/site96 kept original Human111084 in one native prison, same custody
+through active reload; vanilla OfferHelp recruited that same pawn at full health,
+and released-target reload retained identity. Departure emitted native removal
+at62565, and the saved quest is ended with the default unknown outcome. Bandit
+Quest4/site99 stayed native on GL_Cliff, completed via native defeat signals and
+EndedSuccess, then native removal at83697. Serialization confirms rescue unknown
+and bandit Success. Evidence: p4e5-gl-final-native-matrix-20261012.log and
+RealisticBases-P4E5-gl-final-native-20261012.rws. Earlier GL bandit baseline
+success/reload evidence is retained separately; unentered Turrets compositions
+were never admitted to the adapter matrix.
+
+P4E.5 and P4E are complete for the stated support matrix. Acceptance combines
+the prior stage/climate/seat/medicine, one/two/three-mortar crew/finite-stock/hazard,
+autocannon fire/rearm/power-loss/close-support proofs with the final primitive,
+constrained terrain, Core/native GL, physical-item/roof-queue rollback, same-tile
+retry, warehouse-fetch and reload checks above. Full layout suite: PASS0 failures,
+860440ms; full planner/garrison suite: PASS0 failures; final Release build:
+0 warnings/errors, only RealisticBases.dll shipped. The deliberate primitive
+mountain omission, unsupported quest/arrival contracts and GL-native routing
+remain documented limitations, not new universal terrain/quest claims.
+
+No resource-flood cleanup was performed on the preserved contaminated snapshot;
+the fix prevents new refunds and the clean/failure evidence stays recoverable.
+No normal profile or save was changed, no mod/tool was installed, no merge/push
+was performed. Final profile restoration/startup and stopped-process confirmation
+are recorded by the closeout tooling; runtime files remain ignored.

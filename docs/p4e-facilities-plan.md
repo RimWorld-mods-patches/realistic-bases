@@ -91,11 +91,11 @@ Use `docs/p4e-findings.md` for evidence and document chosen defaults. Commit eve
 | Step | Scope | Validation gate | Status |
 |---|---|---|---|
 | P4E.0 | Baseline room/seat/storage/mortar/budget audit and resolved stage matrix | Recorded in p4e-findings; one-cell source feasibility remains subject to live fetching | Complete |
-| P4E.1 | Room-use temperature policy and laboratory demand/equipment | Six-stage/climate, power/bench and 12/12 clutter fixtures; live hot/cold industrial room temperatures and active analyzer in findings | Complete; integrated matrix remains P4E.5 |
+| P4E.1 | Room-use temperature policy and laboratory demand/equipment | Six-stage/climate, power/bench and 12/12 clutter fixtures; live hot/cold industrial room temperatures and active analyzer in findings | Complete |
 | P4E.2 | Correct seated work/dining orientations and medical shelving | Cardinal/primitive/fallback fixtures, actual native seated chewing and medicine fetch, same thirteen-unit shelf stack through active reload; full suites and live post transfers in findings | Complete |
 | P4E.3 | Compact roofed mortar magazines and multi-mortar planning/controller | 1/2/3 caps, shared finite stocks, legacy migration, native two/three crews, active reload, casualty/exhaustion/gun loss and real magazine cookoff; exact 160x160 rejection fixed in synthetic and native checks; full suites/Release pass | Complete |
 | P4E.4 | Explicit increased ordinary defense allowance and meaningful autocannon selection | Named125% allowance/960W reservation; matched sweep, actual auto/uranium selection, native fire/finite routed rearm/power loss/nearby defender shot; legal finite logistics smoke and bounded no-roster top-up | Complete |
-| P4E.5 | Integrated regression, recovery and closeout | Exact new-layout rearm retry/arrival-mode/stack-overflow fix, two native finite rearm cycles plus active reload, settled lab/workshop verified; primitive/constrained/quest/fallback/late rollback and final regression remain | In progress |
+| P4E.5 | Integrated regression, recovery and closeout | Full suites/Release; primitive/constrained, Core/GL lifecycle; exact item-ledger and deferred-roof rollback/retry; native warehouse fetch and active reload verified in findings | Complete (2026-10-12) |
 
 Pure cases include supported tech stages; hot/cold/mild room policy; all seat rotations; medicine capacity/filter failures; 8/9/10/12-resident mortar boundaries plus illegal/understaffed/underfunded cases; duplicate crew/stock rejection; deterministic replay and unchanged authoritative quest rosters/budgets. Preserve P4C finish classification for the new lab and any new roofed store, and the existing no-field quest path.
 
