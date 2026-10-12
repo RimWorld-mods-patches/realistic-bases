@@ -246,7 +246,7 @@ Retain loaded-map serialization and unloaded damage/depletion/casualty reconcili
 1. A room with fueled generators can be overheated, add a ventilation connected to a room with outdoor temperature.
 2. Add more wood to the warehouse, the generators must be filled fully from the start (do not cut this fill from the storage).
 3. Add more shells. At least 30 HE + 10 incendiary shells per mortar.
-4. Cabinets are incorrectly oriented.
+4. The fridge rooms should be used only for the things that require freezing. Other things must be stored in the regular warehouses. Add more cabinets if needed. Cabinets are incorrectly oriented.
 5. We still have no floors in some rooms.
 6. The wealthiest spacer settlements can have uranium/plasteel walls.
 
