@@ -66,7 +66,7 @@ namespace RealisticBases.Generation
                 layout.Excavation.Where(c => !layout.RetainedThickRoof.Contains(c) && input.Terrain[c].Has(TerrainTraits.Roofed)),
                 roofsToBuild, layout.NaturalWalls, retainedThickRoofCells: layout.RetainedThickRoof);
             HashSet<GridPoint> coolers = new HashSet<GridPoint>(layout.AllFixtures
-                .Where(f => f.Kind == LayoutFixtureKind.WallCooler).SelectMany(f => f.Cells));
+                .Where(f => LayoutFixtureKinds.ThroughWall(f.Kind)).SelectMany(f => f.Cells));
             HashSet<GridPoint> natural = new HashSet<GridPoint>(layout.NaturalWalls.Concat(layout.Rooms.SelectMany(r => r.NaturalWalls)));
             // Cooler exhaust pockets are sealed by their own walls; their cleared roof is part of the
             // excavation-without-retained-roof clearance above.
@@ -364,7 +364,21 @@ namespace RealisticBases.Generation
                 if (finishFailure == P4CFailurePoint.AfterFloors)
                     throw new InvalidOperationException("forced P4C failure after floors");
                 ThingDef wallStuff = Require(layout.WallStuff);
-                foreach (GridPoint c in walls.OrderBy(c => c)) Spawn(tx, ThingDefOf.Wall, wallStuff, c, map, settlement.Faction, Rot4.North);
+                // The wealthiest spacer settlements show it on their defensive perimeter.
+                ThingDef perimeterStuff = input.Equipment.PerimeterStuff == null ? wallStuff : Require(input.Equipment.PerimeterStuff);
+                HashSet<GridPoint> perimeter = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.OuterWalls)
+                    .Concat(layout.Gates.SelectMany(g => g.BandWalls)));
+                foreach (GridPoint c in walls.OrderBy(c => c))
+                    Spawn(tx, ThingDefOf.Wall, perimeter.Contains(c) ? perimeterStuff : wallStuff, c, map, settlement.Faction, Rot4.North);
+                if (perimeterStuff != wallStuff)
+                {
+                    // Tracked apart from the ordinary import budget: the settlement's own wealth.
+                    int premiumCells = walls.Count(perimeter.Contains);
+                    P2Log.Message("PROCEDURAL_PERIMETER_STUFF", "map=" + map.uniqueID + " stuff=" + perimeterStuff.defName +
+                        " cells=" + premiumCells + " residents=" + input.Requirements.Residents +
+                        " premiumValue=" + Math.Ceiling(premiumCells * ThingDefOf.Wall.CostStuffCount * perimeterStuff.BaseMarketValue) +
+                        " importBudgetCharged=0");
+                }
                 foreach (GridPoint c in doors.OrderBy(c => c)) Spawn(tx, ThingDefOf.Door, wallStuff, c, map, settlement.Faction, Rot4.North);
                 if (fieldWall != null || approachDefense != null)
                 {
@@ -386,7 +400,7 @@ namespace RealisticBases.Generation
                     if (!fixture.Cells.All(c => thing.OccupiedRect().Contains(ToCell(c))) || thing.OccupiedRect().Area != fixture.Cells.Count)
                         throw new InvalidOperationException("Fixture footprint differs from plan: " + fixture.DefName + " at " + fixture.Cells[0]);
                     LayoutRoom owner = layout.Rooms.FirstOrDefault(room => room.Id == fixture.RoomId);
-                    Configure(thing, fixture.Kind, owner?.Kind);
+                    Configure(thing, fixture.Kind, owner?.Kind, layout.Rooms.Any(r => r.Kind == LayoutRoomKind.Freezer));
                 }
                 foreach (LayoutPowerYard yard in layout.PowerYards)
                     Spawn(tx, Require(yard.DefName), null, yardOrigins[yard], map, settlement.Faction, Rotation(yard.Rotation));
@@ -450,7 +464,8 @@ namespace RealisticBases.Generation
                     {
                         CompRefuelable refuelable = generator.TryGetComp<CompRefuelable>();
                         if (refuelable == null) continue;
-                        int add = Math.Min(fuel, Math.Min(15, (int)Math.Ceiling(refuelable.Props.fuelCapacity)));
+                        // Full tanks at spawn; the plan stocks them on top of the warehouse fuel.
+                        int add = Math.Min(fuel, (int)Math.Ceiling(refuelable.Props.fuelCapacity - refuelable.Fuel));
                         if (add <= 0) continue;
                         refuelable.Refuel(add);
                         fuel -= add;
@@ -1019,8 +1034,18 @@ namespace RealisticBases.Generation
             return result;
         }
 
-        private static void Configure(Thing thing, LayoutFixtureKind kind, LayoutRoomKind? roomKind)
+        private static void Configure(Thing thing, LayoutFixtureKind kind, LayoutRoomKind? roomKind, bool hasFreezer)
         {
+            // Like a player: the freezer holds only what rots, and warehouse
+            // shelves leave perishables to it so haulers never fill the freezer
+            // with steel or move food into the warm warehouse.
+            if (thing is Building_Storage storage && (roomKind == LayoutRoomKind.Freezer ||
+                roomKind == LayoutRoomKind.Storage && hasFreezer))
+            {
+                ThingFilter filter = storage.GetStoreSettings().filter;
+                if (roomKind == LayoutRoomKind.Freezer) filter.SetDisallowAll();
+                foreach (ThingDef def in Perishables) filter.SetAllow(def, roomKind == LayoutRoomKind.Freezer);
+            }
             Building_Bed bed = thing as Building_Bed;
             if (bed != null)
             {
@@ -1073,9 +1098,9 @@ namespace RealisticBases.Generation
 
         private static int AuditCoolerExhaust(Map map, ProceduralLayout layout)
         {
-            int count = 0, freezerCount = 0, roomCount = 0;
+            int count = 0, freezerCount = 0, roomCount = 0, ventCount = 0;
             foreach (LayoutRoom room in layout.Rooms)
-                foreach (LayoutFixture cooler in room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.WallCooler))
+                foreach (LayoutFixture cooler in room.Fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind)))
                 {
                     IntVec3 cold = ToCell(cooler.ColdCell.Value);
                     IntVec3 hot = ToCell(cooler.HotCell.Value);
@@ -1085,6 +1110,13 @@ namespace RealisticBases.Generation
                         served.UsesOutdoorTemperature || !exhaust.UsesOutdoorTemperature)
                         throw new InvalidOperationException("Cooler lacks a sealed served room and outdoor exhaust: " +
                             room.Id + " cold=" + cold + " hot=" + hot);
+                    if (cooler.Kind == LayoutFixtureKind.WallVent)
+                    {
+                        if (!(ToCell(cooler.Cells[0]).GetEdifice(map) is Building_Vent))
+                            throw new InvalidOperationException("Generator vent did not spawn: " + room.Id);
+                        ventCount++;
+                        continue;
+                    }
                     CompTempControl control = ToCell(cooler.Cells[0]).GetEdifice(map)?.TryGetComp<CompTempControl>();
                     if (control == null || control.TargetTemperature != SettlementTemperatureTargets.ForRoom(room.Kind))
                         throw new InvalidOperationException("Cooler target temperature differs from room policy: " + room.Id);
@@ -1094,11 +1126,14 @@ namespace RealisticBases.Generation
                 }
             P2Log.Message("PROCEDURAL_COOLER_AUDIT", "map=" + map.uniqueID + " freezer=" + freezerCount +
                 " targetC=" + SettlementTemperatureTargets.FreezerC + " rooms=" + roomCount +
-                " targetC=" + SettlementTemperatureTargets.OccupiedRoomC);
+                " targetC=" + SettlementTemperatureTargets.OccupiedRoomC + " generatorVents=" + ventCount);
             return count;
         }
 
         private static ThingDef Require(string name) => DefDatabase<ThingDef>.GetNamed(name, true);
+        private static List<ThingDef> perishables;
+        private static IEnumerable<ThingDef> Perishables => perishables ??= DefDatabase<ThingDef>.AllDefsListForReading
+            .Where(d => d.category == ThingCategory.Item && !d.IsCorpse && d.HasComp(typeof(CompRottable))).ToList();
         public static IEnumerable<P3PerimeterSegment> PerimeterSegments(ProceduralLayout layout, GridPoint center)
         {
             HashSet<GridPoint> field = new HashSet<GridPoint>(layout.FieldWall?.Walls ?? new GridPoint[0]);

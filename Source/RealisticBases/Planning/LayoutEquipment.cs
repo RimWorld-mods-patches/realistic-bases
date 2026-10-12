@@ -46,6 +46,9 @@ namespace RealisticBases.Planning
                 if (!catalog.TryGet("Steel", out CatalogDef steel)) return int.MaxValue;
                 value += guns * gun.CostStuffCount * steel.MarketValue;
             }
+            // Only the declared six-hour duty is an import charge; the larger
+            // per-gun magazine (P3EncounterProfiles.HeShellsPerMortar) is the
+            // settlement's operating stock, logged apart from this budget.
             foreach (var stock in new[] { new KeyValuePair<string, int>("Shell_HighExplosive", 12 * guns),
                 new KeyValuePair<string, int>("Shell_Incendiary", 2), new KeyValuePair<string, int>("ReinforcedBarrel", 2 + guns) })
             {
@@ -116,6 +119,7 @@ namespace RealisticBases.Planning
         public const string BatteryDefName = "Battery";
         public const string MortarDefName = "Turret_Mortar";
         public const string CoolerThingClass = "Building_Cooler";
+        public const string VentDefName = "Vent";
 
         // Roles whose fixtures the layout places; only these decide whether it needs power.
         public static IReadOnlyList<SettlementRole> FurnishingRoles { get; } = new ReadOnlyCollection<SettlementRole>(new[]
@@ -156,6 +160,8 @@ namespace RealisticBases.Planning
             Generator = DispatchableOptions.FirstOrDefault(d => generatorDefName == null || d.DefName == generatorDefName);
             GeneratorFuel = Generator == null ? null : FuelOf(catalog, Generator, roles.Stage);
             Battery = Powered && catalog.TryGet(BatteryDefName, out battery) && catalog.IsLegal(BatteryDefName, roles.Stage) ? battery : null;
+            Vent = Generator != null && Generator.Fuel.Count > 0 && catalog.TryGet(VentDefName, out CatalogDef vent) &&
+                catalog.IsLegal(VentDefName, roles.Stage) ? vent : null;
             List<string> notes = new List<string>();
             if (requirements.Electric && !Powered) notes.Add("capability_exceeds_stage:Electricity");
             if (requirements.Refrigerated && !Refrigerated) notes.Add("refrigeration_unavailable_at_stage");
@@ -168,6 +174,8 @@ namespace RealisticBases.Planning
         public bool Powered { get; }
         public bool Refrigerated { get; }
         public bool MortarCapable { get; }
+        // Fueled generators heat their room: a vent to outdoor air, when legal.
+        public CatalogDef Vent { get; }
         // Distinct workshop bench defs (craft roles deduplicated), in CraftRoles order.
         public IReadOnlyList<CatalogDef> WorkshopDefs { get; }
         // Legal dispatchable generators whose fuel is also legal, in LayoutPowerModel.DispatchableOrder.
@@ -284,6 +292,7 @@ namespace RealisticBases.Planning
         public const string StonecuttingResearch = "Stonecutting";
         public const string StuffWoody = "Woody";
         public const string StuffStony = "Stony";
+        public const string StuffMetallic = "Metallic";
         // Stonecutting adaptation when local wood < construction need x 1.25. PROVISIONAL.
         public const int WoodScarcityNumerator = 5;
         public const int WoodScarcityDenominator = 4;
@@ -298,12 +307,13 @@ namespace RealisticBases.Planning
         public const string InteractionOffsetUnsupported = "interaction_offset_unsupported";
 
         private LayoutEquipment(LayoutKit kit, LayoutDemandSet demand, LayoutLocalResources resources, string constructionStuff,
-            bool adapted, LayoutMaterialLedger estimate, string rejection, IEnumerable<string> notes)
+            bool adapted, LayoutMaterialLedger estimate, string rejection, IEnumerable<string> notes, string perimeterStuff = null)
         {
             Kit = kit;
             Demand = demand;
             Resources = resources;
             ConstructionStuff = constructionStuff;
+            PerimeterStuff = perimeterStuff;
             StonecuttingAdapted = adapted;
             Estimate = estimate;
             Rejection = rejection;
@@ -316,6 +326,10 @@ namespace RealisticBases.Planning
         public LayoutLocalResources Resources { get; }
         // Wall, door and furniture stuff: WoodLog or a local stone block def.
         public string ConstructionStuff { get; }
+        // Wealthiest spacer settlements only: plasteel or uranium for the
+        // defensive perimeter (outline, outer layers, gate bands); else null.
+        // It is the settlement's own wealth on display, not an import charge.
+        public string PerimeterStuff { get; }
         public bool StonecuttingAdapted { get; }
         public LayoutMaterialLedger Estimate { get; }
         // Pre-search rejection code, or null.
@@ -377,7 +391,7 @@ namespace RealisticBases.Planning
                     kit = new LayoutKit(requirements, catalog, kit.Roles, generatorChoice);
                     demand = LayoutDemandModel.Derive(requirements, kit, roomSeed);
                 }
-                int stock = LayoutPowerModel.FuelStock(kit.Generator, demand.PowerGenerators);
+                int stock = LayoutPowerModel.WarehouseFuel(kit.Generator, demand.PowerGenerators);
                 int stackLimit = kit.GeneratorFuel == null ? 1 : kit.GeneratorFuel.StackLimit;
                 int cells = (stock + stackLimit - 1) / stackLimit;
                 if (cells > 0) demand = LayoutDemandModel.Derive(requirements, kit, roomSeed, cells);
@@ -395,7 +409,9 @@ namespace RealisticBases.Planning
             else if (offset != null) rejection = InteractionOffsetUnsupported + ":" + offset;
             else if (kit.Powered && (kit.Generator == null || kit.Battery == null)) rejection = PowerEquipmentUnresolved;
             else if (estimate.ImportValue > requirements.ImportValueLimit) rejection = MaterialBudgetExceeded;
-            return new LayoutEquipment(kit, demand, resources, stuff, adapted, estimate, rejection, notes);
+            string perimeter = ChoosePerimeterStuff(kit, requirements, seed);
+            if (perimeter != null) notes.Add("perimeter_stuff:" + perimeter);
+            return new LayoutEquipment(kit, demand, resources, stuff, adapted, estimate, rejection, notes, perimeter);
         }
 
         // Every Core bench uses the straight-ahead offset (0,0,-1); other offsets are not modelled.
@@ -434,6 +450,19 @@ namespace RealisticBases.Planning
             if (def.StuffCategories.Count == 0) return null;
             if (construction != Wood && def.StuffCategories.Contains(StuffStony)) return construction;
             return def.StuffCategories.Contains(StuffWoody) ? Wood : null;
+        }
+
+        public const int WealthiestResidents = 11;
+        public static readonly IReadOnlyList<string> PremiumPerimeterStuffs = new ReadOnlyCollection<string>(new[] { "Plasteel", "Uranium" });
+
+        // Population follows the wealth roll, so 11+ residents are the top
+        // wealth bands (165% and 180%).
+        private static string ChoosePerimeterStuff(LayoutKit kit, LayoutRequirements requirements, ulong seed)
+        {
+            if (kit.Stage.Level != SettlementTechStageLevel.Spacer || requirements.Residents < WealthiestResidents) return null;
+            List<string> premium = PremiumPerimeterStuffs.Where(s => kit.Catalog.TryGet(s, out CatalogDef def) &&
+                def.StuffProvides.Contains(StuffMetallic) && kit.Catalog.IsLegal(def, kit.Stage)).ToList();
+            return premium.Count == 0 ? null : premium[LayoutSeed.Roll(seed, "perimeter-stuff", premium.Count)];
         }
 
         private static string ChooseConstructionStuff(LayoutKit kit, LayoutLocalResources resources, ulong seed)
@@ -480,7 +509,7 @@ namespace RealisticBases.Planning
             foreach (LayoutRoom room in list)
             {
                 HashSet<GridPoint> excluded = new HashSet<GridPoint>(room.NaturalWalls) { room.Door };
-                foreach (LayoutFixture f in room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.WallCooler)) excluded.UnionWith(f.Cells);
+                foreach (LayoutFixture f in room.Fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind))) excluded.UnionWith(f.Cells);
                 roomWalls.UnionWith(room.Bounds.Points().Where(p => room.IsEdge(p) && !excluded.Contains(p)));
             }
             wallCells += roomWalls.Count;
@@ -583,6 +612,7 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, Kit.Roles.Digest);
             hash = StableHash.Add(hash, Resources.Digest);
             hash = StableHash.Add(hash, ConstructionStuff);
+            if (PerimeterStuff != null) hash = StableHash.Add(hash, "perimeter:" + PerimeterStuff);
             hash = StableHash.Add(hash, StonecuttingAdapted ? 1 : 0);
             hash = Estimate.AddTo(hash);
             hash = StableHash.Add(hash, Rejection ?? string.Empty);

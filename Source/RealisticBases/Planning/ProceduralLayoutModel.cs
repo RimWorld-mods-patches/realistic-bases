@@ -67,7 +67,17 @@ namespace RealisticBases.Planning
         MortarCourt,
         MedicalMonitor,
         Shelf,
-        ResearchAnalyzer
+        ResearchAnalyzer,
+        // A vanilla vent in a power-room wall: fueled generators heat the room,
+        // so it exchanges air with outdoor space like a cooler's exhaust side.
+        WallVent
+    }
+
+    public static class LayoutFixtureKinds
+    {
+        // Mounted in a wall cell with the room on one side and outdoor air on the other.
+        public static bool ThroughWall(LayoutFixtureKind kind) =>
+            kind == LayoutFixtureKind.WallCooler || kind == LayoutFixtureKind.WallVent;
     }
 
     public enum LayoutDoctrine
@@ -581,6 +591,12 @@ namespace RealisticBases.Planning
             kind == LayoutRoomKind.Jail || kind == LayoutRoomKind.Medical || kind == LayoutRoomKind.Dining ||
             kind == LayoutRoomKind.Kitchen || kind == LayoutRoomKind.Workshop || kind == LayoutRoomKind.Laboratory;
 
+        // Rooms whose wall fixtures need outdoor air behind them: freezer and
+        // cooled living-room coolers, and the vented generator room.
+        public static bool NeedsOutdoorAir(LayoutRoomKind kind, LayoutRequirements requirements, LayoutKit kit) =>
+            kind == LayoutRoomKind.Freezer || (kind == LayoutRoomKind.Power && kit.Vent != null) ||
+            (requirements.Climate.CoolingRequired && IsLiving(kind));
+
         public static bool IsStockpile(LayoutRoomKind kind) => kind == LayoutRoomKind.Storage || kind == LayoutRoomKind.Freezer || kind == LayoutRoomKind.Pantry;
 
         public static LayoutDemandSet Derive(LayoutRequirements requirements, LayoutKit kit, ulong roomSeed, int extraStorageCells = 0)
@@ -967,6 +983,11 @@ namespace RealisticBases.Planning
                         capacity = PlaceAll(room, From(kit.Generator, LayoutFixtureKind.Generator, null, true), capacityTarget);
                         Template battery = From(kit.Battery, LayoutFixtureKind.Battery, null, true);
                         if (capacity >= capacityTarget && (battery == null || !room.Place(battery, Math.Max(1, context.Batteries)))) failure = "batteries";
+                        // One vent per two fueled generators, exhausting like a cooler.
+                        Template vent = From(kit.Vent, LayoutFixtureKind.WallVent, null, true);
+                        if (vent != null) vent.WallMounted = true;
+                        if (failure == null && capacity >= capacityTarget && vent != null &&
+                            !room.PlaceWallCoolers(vent, Ceil(capacity, 2), context.ExhaustCost, true)) failure = "generator_vent";
                         break;
                 }
                 if (failure == null && capacity < capacityTarget) failure = "capacity";
@@ -1319,7 +1340,7 @@ namespace RealisticBases.Planning
                     // Two pockets may not touch: one would have to be the other's wall.
                     if (hot.Any(o => (o.Key > 0 || candidate.Key > 0) && Math.Abs(o.Value.X - hotCell.X) + Math.Abs(o.Value.Z - hotCell.Z) == 1)) continue;
                     if (!TryCommit(new List<GridPoint>(), new List<GridPoint> { cold })) continue;
-                    Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.WallCooler, cooler.Def, new[] { wall },
+                    Fixtures.Add(new LayoutLocalFixture(cooler.Kind, cooler.Def, new[] { wall },
                         new[] { cold }, inward, true, cooler.Watts, cooler.Fuel, cooler.Role));
                     hot.Add(new KeyValuePair<int, GridPoint>(candidate.Key, hotCell));
                     placed++;
@@ -1345,7 +1366,7 @@ namespace RealisticBases.Planning
                     for (int x = 1; x <= w; x++)
                         if (state[Index(x, z)] == KeepFree && !reach.Contains(new GridPoint(x, z))) return false;
                 // Every placed fixture, blocking or not, keeps a reachable neighbour (job access).
-                IEnumerable<IEnumerable<GridPoint>> blockers = Fixtures.Where(f => f.Kind != LayoutFixtureKind.WallCooler &&
+                IEnumerable<IEnumerable<GridPoint>> blockers = Fixtures.Where(f => !LayoutFixtureKinds.ThroughWall(f.Kind) &&
                         f.Kind != LayoutFixtureKind.Chair && f.Kind != LayoutFixtureKind.Stockpile)
                     .Select(f => (IEnumerable<GridPoint>)f.Cells);
                 if (newBlocking.Count > 0) blockers = blockers.Concat(new[] { (IEnumerable<GridPoint>)newBlocking });

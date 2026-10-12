@@ -81,7 +81,8 @@ namespace RealisticBases.Planning
         public int DefenseGenerators { get; }
         public IReadOnlyList<LayoutPowerYard> Yards { get; }
         public int RenewableWatts => Yards.Sum(y => y.EffectiveWatts);
-        // Generator fuel def and the units stocked for LayoutEquipment.FuelHorizonDays.
+        // Generator fuel def and all generator fuel: full tanks at spawn plus
+        // the warehouse stock for LayoutEquipment.FuelHorizonDays.
         public string FuelDef { get; }
         public int FuelStock { get; }
         // power_source_unplaceable:<def>:<reason>, renewables_skipped_rock_protected, ...
@@ -185,6 +186,13 @@ namespace RealisticBases.Planning
             Math.Max(1, (int)Math.Ceiling(criticalWatts * (double)BatteryBridgeHours / (24.0 * BatteryStoredWattDays)));
 
         public static int FuelStock(CatalogDef generator, int generators) =>
+            generator == null ? 0 : TankFill(generator) * generators + WarehouseFuel(generator, generators);
+
+        // A generator starts with a full tank; the warehouse stock is never cut to fill it.
+        public static int TankFill(CatalogDef generator) =>
+            generator == null ? 0 : (int)Math.Ceiling(generator.FuelCapacity);
+
+        public static int WarehouseFuel(CatalogDef generator, int generators) =>
             generator == null ? 0 : (int)Math.Ceiling(generators * generator.FuelPerDay * LayoutEquipment.FuelHorizonDays);
     }
 }

@@ -72,6 +72,9 @@ internal static partial class Program
         Run("natural barriers: shallow water walks, deep water and rock block", ExposureRules);
         Run("joint sites prefer natural barriers on beach and lakeshore maps", BarrierSiting);
         Run("inner yards become crop patches without touching circulation", InnerYardCrops);
+        Run("P5A: fueled generator rooms vent to outdoor air", GeneratorRoomVents);
+        Run("P5A: shelves face into their rooms", ShelvesFaceTheRoom);
+        Run("P5A: wealthiest spacer settlements get premium perimeter walls", PremiumPerimeterStuff);
         RunLayoutEngineV2Matrix();
         Run("identical inputs replay identical layouts", Determinism);
         Run("seeds vary internal layout beyond translation and rotation", SeedVariation);
@@ -1948,12 +1951,16 @@ internal static partial class Program
             LayoutPowerPlan power = result.Layout.Power;
             CatalogDef generator;
             CoreCatalog.TryGet(power.GeneratorDef, out generator);
-            Equal((int)Math.Ceiling(power.Generators * generator.FuelPerDay * LayoutEquipment.FuelHorizonDays), power.FuelStock, "stock = units x rate x horizon");
+            Equal(power.Generators * (int)Math.Ceiling(generator.FuelCapacity) +
+                (int)Math.Ceiling(power.Generators * generator.FuelPerDay * LayoutEquipment.FuelHorizonDays), power.FuelStock,
+                "stock = full tanks + units x rate x horizon");
+            True(generator.FuelCapacity > 0, "fixture generator has a tank");
             Equal(power.FuelStock, result.Layout.Materials.GeneratorFuel, "ledger carries the stock");
         }
         LayoutRequirements requirements = LayoutRequirements.FromPopulation(8, Industrial, Temperate);
         LayoutEquipment equipment = LayoutEquipment.Resolve(requirements, CoreCatalog, null, 2, 1);
-        int worstStock = LayoutPowerModel.FuelStock(equipment.Kit.Generator, equipment.Demand.PowerGenerators);
+        // Tanks are filled at spawn; only the horizon stock takes warehouse space.
+        int worstStock = LayoutPowerModel.WarehouseFuel(equipment.Kit.Generator, equipment.Demand.PowerGenerators);
         int storage = equipment.Demand.Rooms.Where(r => r.Kind == LayoutRoomKind.Storage).Sum(r => r.Capacity);
         Equal(Math.Max(12, 6 * 8) + (worstStock + 74) / 75, storage, "storage raised by the worst-case fuel stacks");
     }
@@ -2383,11 +2390,8 @@ internal static partial class Program
         True(!first.Floors.Keys.Intersect(result.Layout.FieldWall.Fields).Any(),
             "the field path does not pave crop cells");
         foreach (LayoutRoom room in result.Layout.Rooms)
-        {
-            int count = room.Interior.Points().Count(first.Floors.ContainsKey);
-            True(count == 0 || count == room.Interior.Points().Count(),
-                "room " + room.Id + " is finished coherently or omitted");
-        }
+            True(room.Interior.Points().Where(eligible.Contains).All(first.Floors.ContainsKey),
+                "room " + room.Id + " gets a floor on every supported cell");
         P4CFinishPlan unavailable = P4CFinishPlanner.Plan(input, result.Layout, site, new P4CFloorDef[0]);
         Equal(0, unavailable.Floors.Count, "unsupported definitions cause omission, not rejection");
         True(unavailable.Reasons.Any(r => r.Contains("no_legal_affordable_finish")), "omission is diagnosed");
@@ -2403,6 +2407,15 @@ internal static partial class Program
         P4CFinishPlan tribalFinish = P4CFinishPlanner.Plan(tribal, tribalResult.Layout, mountainSite, finishes);
         True(tribalFinish.Floors.Values.All(name => name == "WoodPlankFloor"),
             "poor tribal profile gets no industrial or luxury floor");
+        // With local timber every pre-industrial room gets planks, not bare soil.
+        TerrainSnapshot woods = Plains(120);
+        ProceduralLayoutInput wooded = new ProceduralLayoutInput(LayoutRequirements.FromPopulation(6, Tribal, Temperate), woods, 4,
+            CoreCatalog, resources: new LayoutLocalResources(4000));
+        ProceduralLayoutResult woodedResult = ProceduralLayoutPlanner.Plan(wooded);
+        Accepted(woodedResult);
+        P4CFinishPlan woodedFinish = P4CFinishPlanner.Plan(wooded, woodedResult.Layout, new P4CFinishSite(woods.Points()), finishes);
+        foreach (LayoutRoom room in woodedResult.Layout.Rooms)
+            True(room.Interior.Points().All(woodedFinish.Floors.ContainsKey), "tribal room " + room.Id + " is floored, not bare soil");
         True(tribalFinish.ImportValue <= tribalFinish.Allowance, "tribal finishes remain bounded");
         True(tribalFinish.Walls.Keys.All(tribalResult.Layout.NaturalWalls.Contains),
             "only retained planned natural boundaries are smoothed");

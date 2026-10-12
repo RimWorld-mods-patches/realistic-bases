@@ -253,6 +253,14 @@ Retain loaded-map serialization and unloaded damage/depletion/casualty reconcili
 5. We still have no floors in some rooms.
 6. The wealthiest spacer settlements can have uranium/plasteel walls.
 
+**Status (2026-10-13, branch `claude/p5a-improvements`):** implemented; pure tests and the layout matrix pass, live checks pending.
+1. Power rooms with fueled generators get one vanilla `Vent` per two generators (`LayoutFixtureKind.WallVent`). The vents reuse the cooler exhaust path (street or sealed vent shaft), and the validator and spawner audit check that each one opens to outdoor air.
+2. Generators spawn with full tanks. `LayoutPowerPlan.FuelStock` = full tanks + the three-day warehouse stock, and storage space is sized from the warehouse part only.
+3. 30 HE + 10 incendiary per mortar. One magazine shelf cell holds exactly those three stacks. The import budget is still charged only the declared six-hour duty (12 HE + 2 incendiary); the larger reserve is operating stock.
+4. Freezer shelves accept only perishables (defs with `CompRottable`). Warehouse shelves refuse them when a freezer exists. Shelves now face into their rooms, and the magazine shelf faces its door.
+5. Every room has a floor choice (flagstone or planks before industrial floors). Each room's cheapest floor is reserved before paths and upgrades spend the allowance, and a room with some unsupported cells is still floored on the rest.
+6. Spacer-stage settlements with 11+ residents (the 165–180% wealth rolls) build their perimeter, outer-layer and gate-band walls from plasteel or uranium. This is logged with its value and kept apart from the import budget (`PROCEDURAL_PERIMETER_STUFF`).
+
 ### P5B — Better management
 
 1. All the defenders shouldn't sleep at the same time, they should have some rotation.

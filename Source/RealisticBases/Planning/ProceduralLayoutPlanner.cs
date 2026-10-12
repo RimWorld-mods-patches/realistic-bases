@@ -76,19 +76,20 @@ namespace RealisticBases.Planning
 
         // Wall coolers only. Vanilla Building_Cooler cools Position + South.RotatedBy(rot)
         // and heats Position + North.RotatedBy(rot); Facing points into the cooled room.
-        public GridPoint? ColdCell => Kind == LayoutFixtureKind.WallCooler
+        public GridPoint? ColdCell => LayoutFixtureKinds.ThroughWall(Kind)
             ? new GridPoint(Cells[0].X + Facing.X, Cells[0].Z + Facing.Z) : (GridPoint?)null;
-        public GridPoint? HotCell => Kind == LayoutFixtureKind.WallCooler
+        public GridPoint? HotCell => LayoutFixtureKinds.ThroughWall(Kind)
             ? new GridPoint(Cells[0].X - Facing.X, Cells[0].Z - Facing.Z) : (GridPoint?)null;
 
         // Vanilla rotation convention. Benches and campfires use interactionCellOffset
         // (0,0,-1): North puts the work cell south. Beds point their head at the wall.
         // A cooler's rotation names its hot side, so it points away from the cooled room.
+        // Shelves show their open front in their rotation, so they face the room.
         public string Rotation
         {
             get
             {
-                GridPoint d = new GridPoint(-Facing.X, -Facing.Z);
+                GridPoint d = Kind == LayoutFixtureKind.Shelf ? Facing : new GridPoint(-Facing.X, -Facing.Z);
                 if (d.Z > 0) return "North";
                 if (d.Z < 0) return "South";
                 return d.X > 0 ? "East" : "West";
@@ -1231,8 +1232,7 @@ namespace RealisticBases.Planning
             this.diagnostics = diagnostics;
             occ = new byte[grid.Width * grid.Height];
             // Rock-protect doctrine: at most one cleared exhaust hole per two cooled rooms (provisional).
-            int cooled = demand.Rooms.Count(r => r.Kind == LayoutRoomKind.Freezer ||
-                (input.Requirements.Climate.CoolingRequired && LayoutDemandModel.IsLiving(r.Kind)));
+            int cooled = demand.Rooms.Count(r => LayoutDemandModel.NeedsOutdoorAir(r.Kind, input.Requirements, input.Equipment.Kit));
             roofHoleBudget = doctrine == LayoutDoctrine.RockProtected ? (cooled + 1) / 2 : int.MaxValue;
             foreach (GridPoint c in input.Resources.GeyserFootprints())
                 if (grid.InBounds(c)) occ[grid.Index(c)] = GeyserReserve;
@@ -2085,8 +2085,8 @@ namespace RealisticBases.Planning
                 LayoutRoom partner;
                 if (placed.TryGetValue(rel.A == room.Id ? rel.B : rel.A, out partner) && Manhattan(outside, partner.DoorOutside) > rel.MaxDistance) return null;
             }
-            bool needsCoolers = room.Kind == LayoutRoomKind.Freezer ||
-                (input.Requirements.Climate.CoolingRequired && LayoutDemandModel.IsLiving(room.Kind) && !thick);
+            bool needsCoolers = LayoutDemandModel.NeedsOutdoorAir(room.Kind, input.Requirements, input.Equipment.Kit) &&
+                (room.Kind != LayoutRoomKind.Freezer && room.Kind != LayoutRoomKind.Power ? !thick : true);
             Dictionary<GridPoint, int> exhaustCosts = new Dictionary<GridPoint, int>();
             string costKey = string.Empty;
             if (needsCoolers)
@@ -2111,7 +2111,7 @@ namespace RealisticBases.Planning
             }
             if (!furnish.Success) return null;
             int newHoles = 0, newDigs = 0;
-            foreach (LayoutLocalFixture cooler in furnish.Fixtures.Where(f => f.Kind == LayoutFixtureKind.WallCooler))
+            foreach (LayoutLocalFixture cooler in furnish.Fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind)))
             {
                 GridPoint hotCell = ToWorld(door, facing, doorX, new GridPoint(cooler.Cells[0].X - cooler.Facing.X, cooler.Cells[0].Z - cooler.Facing.Z));
                 if (occ[grid.Index(hotCell)] != Free) continue;
@@ -2119,7 +2119,7 @@ namespace RealisticBases.Planning
                 if (grid.At(hotCell) == LayoutCellClass.Rock) newDigs++;
             }
             if (pockets.Values.Count(p => p.RoofCleared) + newHoles > roofHoleBudget) return null;
-            foreach (LayoutLocalFixture fixture in furnish.Fixtures.Where(f => f.Kind == LayoutFixtureKind.WallCooler))
+            foreach (LayoutLocalFixture fixture in furnish.Fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind)))
             {
                 GridPoint wall = ToWorld(door, facing, doorX, fixture.Cells[0]);
                 if (grid.At(wall) == LayoutCellClass.Rock) dig.Add(wall);
@@ -2154,7 +2154,7 @@ namespace RealisticBases.Planning
             foreach (LayoutLocalFixture f in c.Furnish.Fixtures)
             {
                 GridPoint? exhaust = null;
-                if (f.Kind == LayoutFixtureKind.WallCooler)
+                if (LayoutFixtureKinds.ThroughWall(f.Kind))
                     exhaust = ToWorld(c.Door, c.Facing, c.DoorX, new GridPoint(f.Cells[0].X - f.Facing.X, f.Cells[0].Z - f.Facing.Z));
                 CatalogDef def;
                 string stuff = input.Catalog.TryGet(f.DefName, out def) ? input.Equipment.StuffFor(def) : null;
@@ -2173,7 +2173,7 @@ namespace RealisticBases.Planning
                 if (placedRoom.IsEdge(p) && !p.Equals(c.Door)) roomWalls.Add(p);
             }
             foreach (GridPoint p in c.Dig) dug.Add(p);
-            foreach (LayoutFixture cooler in fixtures.Where(f => f.Kind == LayoutFixtureKind.WallCooler)) ClaimExhaust(cooler, room.Id);
+            foreach (LayoutFixture cooler in fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind))) ClaimExhaust(cooler, room.Id);
             rooms.Add(placedRoom);
             placed[room.Id] = placedRoom;
             if (clusters) RecordClusterRoom(placedRoom, c.SharedWith);
@@ -2333,8 +2333,9 @@ namespace RealisticBases.Planning
                     GridPoint door = new GridPoint(street.X + facing.X, street.Z + facing.Z);
                     LayoutRoomDemand demand = new LayoutRoomDemand(courts.Count == 0 ? "mortar-magazine" : "mortar-magazine-" + courts.Count, LayoutRoomKind.MortarMagazine,
                         1, "shelf_cells", new[] { new GridRect(0, 0, 3, 3) });
+                    // The shelf front faces the magazine door.
                     var fixture = new LayoutFixture(LayoutFixtureKind.Shelf, shelf.DefName, new[] { center }, null,
-                        new GridPoint(0, -1), true, 0, false, demand.Id, role: SettlementRole.MortarStorage,
+                        new GridPoint(-facing.X, -facing.Z), true, 0, false, demand.Id, role: SettlementRole.MortarStorage,
                         stuff: input.Equipment.StuffFor(shelf));
                     return new LayoutRoom(demand, bounds, door, facing, 1, new[] { fixture }, false, new GridPoint[0]);
                 }
@@ -2524,7 +2525,7 @@ namespace RealisticBases.Planning
             // exhausts into a room that uses outdoor temperature.
             LayoutRoomPartition partition = LayoutRoomPartition.Build(input.Terrain, layout);
             foreach (LayoutRoom room in rooms)
-                foreach (LayoutFixture cooler in room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.WallCooler))
+                foreach (LayoutFixture cooler in room.Fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind)))
                 {
                     GridPoint hot = cooler.HotCell.Value;
                     GridPoint reference = new GridPoint(room.Interior.MinX, room.Interior.MinZ);
