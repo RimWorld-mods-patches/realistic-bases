@@ -811,7 +811,8 @@ namespace RealisticBases.Generation
                 failure = ex.GetType().Name + ":" + ex.Message;
                 P2Log.Error("PROCEDURAL_SPAWN_ABORT", "map=" + map.uniqueID + " error=" + failure +
                     " owned=" + tx.OwnedCount + " plantsRestored=" + tx.RestoredPlantCount +
-                    "/" + tx.ClearedPlantCount + " recovered=" + restored);
+                    "/" + tx.ClearedPlantCount + " itemLedgerRestored=" + tx.ItemLedgerRestored +
+                    " provisionalRoofCollapsesDiscarded=" + tx.DiscardedProvisionalRoofCollapses + " recovered=" + restored);
                 return false;
             }
         }

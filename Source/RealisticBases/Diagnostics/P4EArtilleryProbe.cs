@@ -44,7 +44,7 @@ namespace RealisticBases.Diagnostics
             Thing[] initial = map.listerThings.AllThings.Where(t => t.Position.GetEdifice(map) is Building_Storage &&
                 t.GetRoom()?.CellCount == 1).ToArray();
             if (initial.Where(t => t.def.defName == "Shell_HighExplosive").Sum(t => t.stackCount) != 12 ||
-                initial.Where(t => t.def.defName == "ReinforcedBarrel").Sum(t => t.stackCount) != 2)
+                map.GetComponent<RealisticBases.AI.P3GarrisonController>().DebugOperatingStock("ReinforcedBarrel") != 2)
                 throw new InvalidOperationException("Loading probe requires fresh, unconsumed finite stocks");
             Pawn anchor = map.mapPawns.FreeColonistsSpawned.FirstOrDefault() ?? throw new InvalidOperationException("No disposable visitor");
             gun = guns[0];
@@ -94,7 +94,7 @@ namespace RealisticBases.Diagnostics
             Thing[] stocks = map.listerThings.AllThings.Where(t => t.Position.GetEdifice(map) is Building_Storage &&
                 t.GetRoom()?.CellCount == 1).ToArray();
             int he = stocks.Where(t => t.def.defName == "Shell_HighExplosive").Sum(t => t.stackCount);
-            int barrels = stocks.Where(t => t.def.defName == "ReinforcedBarrel").Sum(t => t.stackCount);
+            int barrels = map.GetComponent<RealisticBases.AI.P3GarrisonController>().DebugOperatingStock("ReinforcedBarrel");
             var operators = artillery.Select(t => t?.TryGetComp<CompMannable>()?.ManningPawn).ToArray();
             bool passed = artillery.Count > 0 && operators.All(p => p != null) && operators.Distinct().Count() == artillery.Count &&
                 artillery.All(t => t != null && t.Spawned && t.TryGetComp<CompRefuelable>().Fuel > 0 &&

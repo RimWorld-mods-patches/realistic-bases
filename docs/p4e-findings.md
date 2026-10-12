@@ -661,3 +661,39 @@ PASS failures0 at829726ms before the small warehouse routing/probe addition;
 the subsequent focused warehouse routing test also passes. Native exact-tile
 generation and the clean fresh-map comparison pass. The rollback refund defect
 is deliberately still unfixed in this checkpoint.
+
+### 2026-10-12 — Refund-free undo and warehouse fetching verified
+
+Resumed from cb8269f. Floor rollback now passes doLeavings=False to native
+RemoveTopLayer: undo never grants deconstruction resources. Recovery also checks
+the exact pre-transaction physical item objects and stack counts. The captured
+seedB0CC855318FF46C8 late magazine-stock failure restored all787 original item
+stacks with identical IDs/defs/counts, added0/removed0; all1066 plants and both
+terrain layers/roofs recovered. Native log reports itemLedgerRestored=True.
+
+Tick-based retry verification exposed another previously invisible recovery
+defect: deleting provisional supports queued548 roof collapses. Restoring roofs
+alone did not cancel these delayed events; the first resumed ticks crushed the
+retried magazine and detonated ammunition. That failed warehouse probe is retained
+as failure evidence, not acceptance. Rollback now snapshots/restores the exact
+pre-existing collapse queue, preserving legitimate older queued work while
+discarding only effects introduced by the provisional transaction. Repeating the
+same forced failure reports548 discarded provisional cells and recovered=True.
+
+The exact same tile/input/layout273A7929DDBAA651 then commits with ten residents
+and resumes safely. The funded spare stackReinforcedBarrel68291:2 was moved to
+the existing warehouse shelf at(81,78), with no added stock. Native operator68353
+fetched one barrel, rearmed gun67908 and loaded one HE shell: probe passed at2610,
+looseHE11 + loaded1, spareBarrels1, barrelFuel20. All ten defenders remain assigned,
+outsideBounds0, no player control. Active reload2610→2611 retained the operator,
+gun, loaded shell and original warehouse stack68291:1 at the same cell. The probe
+now audits the finite barrel ledger regardless of magazine/warehouse location.
+
+Evidence: p4e5-rollback-before-items-20261012.json and after-items counterpart;
+p4e5-rollback-items-roof-warehouse-pass-20261012.log;
+p4e5-warehouse-loaded-reload-items-20261012.json; saved
+RealisticBases-P4E5-warehouse-loaded-20261012.rws. Earlier failed probe log is
+p4e5-warehouse-delayed-collapse-failure-20261012.log. Release build has0 warnings/
+errors; full planner/garrison suite passes; full layout suite passes at860440ms
+with zero failures (p4e5-final-regression-20261012.txt). Core protected recovery
+and installed GL/native-fallback closeout are the remaining final live checks.
