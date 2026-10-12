@@ -57,6 +57,7 @@ internal static partial class Program
         Run("freezer and occupied-room cooler targets differ", CoolerTemperatureTargets);
         Run("workbenches stand against a wall with an interior work cell", WorkbenchesAgainstWall);
         RunCoolerExhaustTests();
+        RunLayoutEngineV2Tests();
         Run("identical inputs replay identical layouts", Determinism);
         Run("seeds vary internal layout beyond translation and rotation", SeedVariation);
         Run("population change alters capacity and geometry coherently", PopulationChangesGeometry);
