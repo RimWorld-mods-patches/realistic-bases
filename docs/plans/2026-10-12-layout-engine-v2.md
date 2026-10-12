@@ -168,6 +168,24 @@ Open follow-ups:
 - **Town cohesion:** a town kitchen can land across the street from its pantry. Tune the cluster score with matrix evidence.
 - **Test speed:** the long P4E defense-allowance sweep dominates suite time. Run the suite as `--shard i/n` processes on one build.
 
+## Follow-up: natural-barrier siting and inner-yard crops (2026-10-12)
+
+The user observed a beach tile where the base sat inland with every side open, and a walled courtyard left empty.
+
+**Siting.** The joint field/compound score gains `3 ×` the cells of a ring just outside the whole site that attackers cannot reach from the map edge (`LayoutExposure`; `P4BJointSitePlanner.ProtectionWeight`).
+- Deep water, natural rock and edifices block. Shallow water and clearable plants are walkable, so they give no credit. Cells beyond the map are not counted.
+- The term applies to both engines: siting is shared.
+- On the synthetic beach the envelope now backs onto the shore; on the lakeshore the chosen site has 143 protected ring cells against a candidate median of 118.
+- The open-ground anchor ordering for non-joint sites is unchanged.
+
+**Inner-yard crops.** After the P4B finishing passes, the clusters engine plants extra crops (`ProceduralLayout.BonusFields`, `LayoutBonusFields`) on enclosed, open-sky, fertile yard.
+- Excluded: rooms, streets, door fronts, fixtures and their access cells, courts, power yards and wind zones, pockets, roofs, the area around each gate approach, and defense posts, routes, cover and turrets.
+- The cells are eroded by 3×3, so a walkway remains around each patch, and only patches of at least 16 cells are kept.
+- They are additive (never counted toward `FieldCellsRequired`) and kept only if the layout still validates. The validator checks them, and the spawner plants them like the main field except on conduit cells.
+- Quest camps and legacy plans get none.
+
+Evidence: LayoutTests 129/129 and PlannerTests pass; matrix clusters 80/80 (legacy 79/80), including the new beach and lakeshore cases. Pure planner evidence only.
+
 ## Out of scope for v2
 
 Internal doors and room chains; roofed hallways (streets stay unroofed so the

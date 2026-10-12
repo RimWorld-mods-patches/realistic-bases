@@ -24,6 +24,8 @@
     <Compile Include="../RealisticBases/Planning/LayoutStyle.cs" Link="Planning/LayoutStyle.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutClusterPacking.cs" Link="Planning/LayoutClusterPacking.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutCandidateScore.cs" Link="Planning/LayoutCandidateScore.cs" />
+    <Compile Include="../RealisticBases/Planning/LayoutExposure.cs" Link="Planning/LayoutExposure.cs" />
+    <Compile Include="../RealisticBases/Planning/LayoutBonusFields.cs" Link="Planning/LayoutBonusFields.cs" />
     <Compile Include="../RealisticBases/Planning/ProceduralLayoutValidator.cs" Link="Planning/ProceduralLayoutValidator.cs" />
     <Compile Include="../RealisticBases/Planning/SettlementTechStage.cs" Link="Planning/SettlementTechStage.cs" />
     <Compile Include="../RealisticBases/Planning/P4BLayerPolicy.cs" Link="Planning/P4BLayerPolicy.cs" />
