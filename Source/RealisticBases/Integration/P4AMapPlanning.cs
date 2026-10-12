@@ -22,6 +22,7 @@ namespace RealisticBases.Integration
     public static class P4AMapPlanner
     {
         private static TechCatalog cachedCatalog;
+        private static float cachedMaintenanceFactor = float.NaN;
         // Developer-action override for one disposable generation only. The
         // faction's persisted stage remains unchanged for ordinary maps.
         public static SettlementTechStageLevel? DebugStageNext;
@@ -67,7 +68,13 @@ namespace RealisticBases.Integration
             int targetLayers = requestedWallLayers >= 1 && requestedWallLayers <= 3 ? requestedWallLayers :
                 P4BLayerPolicy.Select(seed, stage.Level, requirements.EquipmentValueLimit,
                     requirements.ImportValueLimit, requirements.Residents);
-            TechCatalog catalog = cachedCatalog ?? (cachedCatalog = P4ARuntimeCatalog.Capture());
+            float maintenanceFactor = Find.Storyteller?.difficulty?.maintenanceCostFactor ?? 1f;
+            if (cachedCatalog == null || cachedMaintenanceFactor != maintenanceFactor)
+            {
+                cachedCatalog = P4ARuntimeCatalog.Capture();
+                cachedMaintenanceFactor = maintenanceFactor;
+            }
+            TechCatalog catalog = cachedCatalog;
             ProceduralLayoutInput input = null;
             ProceduralLayoutResult result = null;
             int wallLayers = targetLayers;

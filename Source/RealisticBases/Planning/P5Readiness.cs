@@ -23,6 +23,13 @@ namespace RealisticBases.Planning
             double required = residents * dailyNutrition * RoutineDays * FoodSafetyFactor / nutritionPerUnit;
             return Math.Max(existingMinimum, checked((int)Math.Ceiling(required - 0.000001)));
         }
+        public static int ReloadReserve(double capacity, double startingFraction, double perShot, double fuelMultiplier, int existingMinimum)
+        {
+            if (!Positive(capacity) || !Nonnegative(startingFraction) || startingFraction > 1 ||
+                !Positive(perShot) || !Positive(fuelMultiplier) || existingMinimum < 0) throw new ArgumentOutOfRangeException();
+            double missing = DirectFireShotsPerGunPerHour * CombatHours * perShot - capacity * startingFraction;
+            return Math.Max(existingMinimum, checked((int)Math.Ceiling(Math.Max(0, missing) / fuelMultiplier - 0.000001)));
+        }
         internal static bool Positive(double value) => value > 0 && !double.IsNaN(value) && !double.IsInfinity(value);
         internal static bool Nonnegative(double value) => value >= 0 && !double.IsNaN(value) && !double.IsInfinity(value);
     }

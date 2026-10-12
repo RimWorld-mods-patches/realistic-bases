@@ -46,7 +46,7 @@ namespace RealisticBases.Planning
                 if (!catalog.TryGet("Steel", out CatalogDef steel)) return int.MaxValue;
                 value += guns * gun.CostStuffCount * steel.MarketValue;
             }
-            foreach (var stock in new[] { new KeyValuePair<string, int>("Shell_HighExplosive", 12),
+            foreach (var stock in new[] { new KeyValuePair<string, int>("Shell_HighExplosive", 12 * guns),
                 new KeyValuePair<string, int>("Shell_Incendiary", 2), new KeyValuePair<string, int>("ReinforcedBarrel", 2 + guns) })
             {
                 if (!catalog.TryGet(stock.Key, out CatalogDef item)) return int.MaxValue;

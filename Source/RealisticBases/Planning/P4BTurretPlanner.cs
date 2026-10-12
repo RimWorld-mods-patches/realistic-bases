@@ -324,7 +324,8 @@ namespace RealisticBases.Planning
                     layout.Power.CriticalWatts - layout.Power.NonCriticalWatts < turret.TotalWatts ||
                 turret.Watts != def.BasePowerConsumption) errors.Add("power_budget");
             if (turret.LoadedFuelUnits != (int)Math.Ceiling(def.FuelCapacity * def.InitialFuelPercent / def.FuelMultiplier) ||
-                turret.ReserveFuelUnits != (int)Math.Ceiling(def.FuelCapacity / def.FuelMultiplier) ||
+                turret.ReserveFuelUnits != P5Readiness.ReloadReserve(def.FuelCapacity, def.InitialFuelPercent, def.FuelPerShot,
+                    def.FuelMultiplier, (int)Math.Ceiling(def.FuelCapacity / def.FuelMultiplier)) ||
                 turret.ImportValue != ImportValue(input.Catalog, def, fuel,
                     turret.LoadedFuelUnits + turret.ReserveFuelUnits) +
                     CoverImportValue(input, fieldWall.CoverDefName, turret.CoverCells.Count) +
@@ -468,7 +469,8 @@ namespace RealisticBases.Planning
                 if (availableWatts < def.BasePowerConsumption || totalWatts < def.BasePowerConsumption)
                 { Reject("critical_power_headroom"); continue; }
                 int loadedUnits = (int)Math.Ceiling(def.FuelCapacity * def.InitialFuelPercent / def.FuelMultiplier);
-                int reserveUnits = (int)Math.Ceiling(def.FuelCapacity / def.FuelMultiplier);
+                int reserveUnits = P5Readiness.ReloadReserve(def.FuelCapacity, def.InitialFuelPercent, def.FuelPerShot,
+                    def.FuelMultiplier, (int)Math.Ceiling(def.FuelCapacity / def.FuelMultiplier));
                 int value = ImportValue(input.Catalog, def, fuel, loadedUnits + reserveUnits);
                 if (value == int.MaxValue) { Reject("construction_cost_unresolved"); continue; }
                 if (baseValue + spentValue + value > input.Requirements.ImportValueLimit)
@@ -600,7 +602,8 @@ namespace RealisticBases.Planning
                 !input.Catalog.TryGet(mini.Fuel[0], out CatalogDef fuel) ||
                 !input.Catalog.IsLegal(fuel, input.Equipment.Kit.Stage)) return null;
             int loaded = (int)Math.Ceiling(mini.FuelCapacity * mini.InitialFuelPercent / mini.FuelMultiplier);
-            int reserve = (int)Math.Ceiling(mini.FuelCapacity / mini.FuelMultiplier);
+            int reserve = P5Readiness.ReloadReserve(mini.FuelCapacity, mini.InitialFuelPercent, mini.FuelPerShot,
+                mini.FuelMultiplier, (int)Math.Ceiling(mini.FuelCapacity / mini.FuelMultiplier));
             int value = ImportValue(input.Catalog, mini, fuel, loaded + reserve);
             int baseValue = BaseMaterialValue(input, layout);
             if (value == int.MaxValue || baseValue + spentValue + heavyValue + value >

@@ -71,7 +71,7 @@ namespace RealisticBases.Planning
         public int MortarOperators { get; }
         public int SupportWorkers { get; }
         public int AddedContinuousPowerWatts { get; }
-        public int DeclaredMortarShots => CombatHours * MortarShotsPerHour;
+        public int DeclaredMortarShots => checked(CombatHours * MortarShotsPerHour * MortarOperators);
     }
 
     public static class P3EncounterProfiles
@@ -89,7 +89,7 @@ namespace RealisticBases.Planning
         {
             if (guns < 1 || guns > 3) throw new ArgumentOutOfRangeException(nameof(guns));
             return guns == 1 ? Industrial : new EncounterProfile("industrial-encounter-p4e-" + guns,
-                true, 6, 2, 12, 2, 2, 4, 2, guns, 1, 0);
+                true, 6, 2, 12 * guns, 2, 2, 4, 2, guns, 1, 0);
         }
 
         public static EncounterProfile For(PhysicalSettlementProfile profile) =>

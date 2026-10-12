@@ -905,7 +905,8 @@ internal static class Program
             basis.PublicCirculation, basis.MagazineCandidates, artillery[0].Origin, artillery[0].Operating, positions);
         EncounterPlan geometry = GeometryEncounterPlanner.Plan(Geometry(artillery));
         Equal(3, geometry.Artillery.Count, "stable gun/post/magazine coordinates");
-        Equal(12, geometry.Supplies.Single(s => s.DefName == "Shell_HighExplosive").Count, "shared HE reserve not tripled");
+        Equal(36, geometry.Supplies.Single(s => s.DefName == "Shell_HighExplosive").Count,
+            "one shared ledger covers each of three guns at two shots per hour over six hours");
         Equal(2, geometry.Supplies.Single(s => s.DefName == "ReinforcedBarrel").Count, "shared barrel reserve");
         Equal(geometry.Digest, GeometryEncounterPlanner.Plan(Geometry(artillery)).Digest, "multi-artillery replay");
         bool duplicateRejected = false;

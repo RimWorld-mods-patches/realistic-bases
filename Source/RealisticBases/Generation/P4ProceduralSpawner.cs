@@ -410,10 +410,6 @@ namespace RealisticBases.Generation
                 ThingDef startupFood = Require(food.Kind == LayoutRoomKind.Freezer ? "MealSimple" : "Pemmican");
                 int startupFoodUnits = quest == null ? input.Requirements.Residents * 12 :
                     quest.Contract.StartupFoodUnits(startupFood.GetStatValueAbstract(StatDefOf.Nutrition));
-                SpawnStacks(tx, startupFood, startupFoodUnits, foodCells, map);
-                if (quest != null) P4DQuestDebugActions.Log("QUEST_FOOD_LEDGER", "site=" + settlement.ID +
-                    " def=" + startupFood.defName + " units=" + startupFoodUnits +
-                    " nutrition=" + startupFoodUnits * startupFood.GetStatValueAbstract(StatDefOf.Nutrition));
                 int fuel = layout.Power?.FuelStock ?? 0;
                 int internalFuel = 0;
                 if (layout.Power != null)
@@ -428,6 +424,8 @@ namespace RealisticBases.Generation
                         internalFuel += add;
                     }
                 if (fuel > 0) SpawnStacks(tx, Require(layout.Power.FuelDef), fuel, storageCells, map);
+                if (quest == null && layout.Materials.FuelWood > 0)
+                    SpawnStacks(tx, ThingDefOf.WoodLog, layout.Materials.FuelWood, storageCells, map);
                 foreach (LoadoutItem item in loadout.Medicine) SpawnStacks(tx, Require(item.DefName), item.Count, medicalCells, map);
                 foreach (LoadoutItem item in loadout.Components.Concat(loadout.Armoury))
                     SpawnStacks(tx, Require(item.DefName), item.Count, storageCells, map, item.Stuff, item.Quality);
@@ -544,6 +542,20 @@ namespace RealisticBases.Generation
                     tx.Own(GenSpawn.Spawn(pawn, ToCell(homes[i]), map));
                     defenders.Add(pawn);
                 }
+                double nutritionPerDay = defenders.Sum(p => (p.needs?.food?.FoodFallPerTickAssumingCategory(HungerCategory.Fed) ?? 0) * 60000);
+                if (quest == null)
+                    startupFoodUnits = P5Readiness.FoodUnits(defenders.Count,
+                        Math.Max(P5Readiness.DefaultDailyNutrition, nutritionPerDay / defenders.Count),
+                        startupFood.GetStatValueAbstract(StatDefOf.Nutrition), startupFoodUnits);
+                SpawnStacks(tx, startupFood, startupFoodUnits, foodCells, map);
+                if (quest != null) P4DQuestDebugActions.Log("QUEST_FOOD_LEDGER", "site=" + settlement.ID +
+                    " def=" + startupFood.defName + " units=" + startupFoodUnits +
+                    " nutrition=" + startupFoodUnits * startupFood.GetStatValueAbstract(StatDefOf.Nutrition));
+                else RealisticBases.Core.P0Log.Message("P5_INITIAL_SUPPLIES", "map=" + map.uniqueID + " residents=" + defenders.Count +
+                    " routineDays=3 nutritionPerDay=" + nutritionPerDay.ToString("F2") + " food=" + startupFood.defName +
+                    ":" + startupFoodUnits + " nutrition=" + (startupFoodUnits * startupFood.GetStatValueAbstract(StatDefOf.Nutrition)).ToString("F2") +
+                    " primitiveFuelWood=" + layout.Materials.FuelWood + " generatorFuelTotal=" + (fuel + internalFuel) +
+                    " futureProductionCredited=0");
                 if (fieldWall != null)
                 {
                     HashSet<IntVec3> defendedCells = new HashSet<IntVec3>(encounter.DefendedCells.Select(ToCell));

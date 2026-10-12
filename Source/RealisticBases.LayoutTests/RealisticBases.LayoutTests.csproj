@@ -6,6 +6,7 @@
     <Nullable>disable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../RealisticBases/Planning/P5Readiness.cs" Link="Planning/P5Readiness.cs" />
     <Compile Include="../RealisticBases/Planning/P4DQuestContract.cs" Link="Planning/P4DQuestContract.cs" />
     <Content Include="flat-rejected-traits.rle" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="p4e-ten-rejected-traits.rle" CopyToOutputDirectory="PreserveNewest" />

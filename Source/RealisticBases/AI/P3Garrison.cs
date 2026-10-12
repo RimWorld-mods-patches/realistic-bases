@@ -543,6 +543,7 @@ namespace RealisticBases.AI
                 new GridPoint(supportCenter.x, supportCenter.z), new GridPoint(innerFallback.x, innerFallback.z),
                 routineSupportWorkers, hostileCells, opaqueCells, safeTransferPosts, currentThreatSeverity,
                 reserveStage, fieldIntrusionNow, compoundIntrusionNow, fieldFallbackPostIds,
+                defenders.Any(p => p != null && p.Spawned && !p.Dead && p.health.HasHediffsNeedingTend()) ||
                 ownedThings.Any(t => t != null && t.Spawned && t.TryGetComp<CompRefuelable>()?.ShouldAutoRefuelNow == true &&
                     (t is Building_TurretGun gun && gun.def != ThingDefOf.Turret_Mortar ||
                         t.TryGetComp<CompPowerPlant>() != null))));

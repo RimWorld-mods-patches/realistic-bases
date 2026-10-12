@@ -91,7 +91,7 @@ namespace RealisticBases.Integration
                     Name(Member(thing, "designationCategory")), Bool(Member(building, "isTrap")),
                     madeAt, raw, Math.Max(1, Int(Member(thing, "stackLimit"), 1)), work,
                     Name(turretGun), Number(Member(combatVerb, "minRange")), Number(Member(combatVerb, "range")),
-                    Number(Member(fuel, "fuelCapacity")), Number(Member(fuel, "fuelMultiplier")),
+                    Number(Member(fuel, "fuelCapacity")), Number(Member(fuel, "FuelMultiplierCurrentDifficulty")),
                     Number(Member(fuel, "initialFuelPercent")), Number(Member(turretVerb, "consumeFuelPerShot")),
                     Bool(Member(fuel, "factorByDifficulty")), Number(Member(explosive, "explosiveRadius")),
                     Number(Member(building, "combatPower")), Names(Member(affected, "linkableFacilities")),

@@ -15,6 +15,7 @@ namespace RealisticBases.Diagnostics
         private Thing gun;
         private List<Thing> artillery = new List<Thing>();
         private int deadline;
+        private int initialHe = 12;
         private Thing hazardShell;
         private int hazardObserved;
         private readonly List<Tuple<Thing, int>> hazardBuildings = new List<Tuple<Thing, int>>();
@@ -43,9 +44,11 @@ namespace RealisticBases.Diagnostics
             if (guns.Length < 1 || guns.Length > 3 || Find.Storyteller.difficulty.classicMortars) throw new InvalidOperationException("Requires one to three non-classic mortars");
             Thing[] initial = map.listerThings.AllThings.Where(t => t.Position.GetEdifice(map) is Building_Storage &&
                 t.GetRoom()?.CellCount == 1).ToArray();
-            if (initial.Where(t => t.def.defName == "Shell_HighExplosive").Sum(t => t.stackCount) != 12 ||
+            int heStock = initial.Where(t => t.def.defName == "Shell_HighExplosive").Sum(t => t.stackCount);
+            if ((heStock != 12 && heStock != 12 * guns.Length) ||
                 map.GetComponent<RealisticBases.AI.P3GarrisonController>().DebugOperatingStock("ReinforcedBarrel") != 2)
                 throw new InvalidOperationException("Loading probe requires fresh, unconsumed finite stocks");
+            initialHe = heStock;
             Pawn anchor = map.mapPawns.FreeColonistsSpawned.FirstOrDefault() ?? throw new InvalidOperationException("No disposable visitor");
             gun = guns[0];
             artillery = guns.OrderBy(t => t.thingIDNumber).ToList();
@@ -61,7 +64,7 @@ namespace RealisticBases.Diagnostics
             barrel.ConsumeFuel(previous); // Consumes one embedded barrel; adds nothing.
             deadline = Find.TickManager.TicksGame + 10000;
             P2Log.Message("P4E_LOGISTICS_PROBE_STARTED", "map=" + map.uniqueID + " gun=" + gun.thingIDNumber +
-                " guns=" + guns.Length + " embeddedBarrelConsumed=" + previous + " visitor=" + anchor.thingIDNumber + "@" + edge + " deadline=" + deadline);
+                " guns=" + guns.Length + " initialHe=" + initialHe + " embeddedBarrelConsumed=" + previous + " visitor=" + anchor.thingIDNumber + "@" + edge + " deadline=" + deadline);
         }
 
         public override void ExposeData()
@@ -69,6 +72,7 @@ namespace RealisticBases.Diagnostics
             Scribe_References.Look(ref gun, "p4eLoadingProbeGun");
             Scribe_Collections.Look(ref artillery, "p4eLoadingProbeGuns", LookMode.Reference);
             Scribe_Values.Look(ref deadline, "p4eLoadingProbeDeadline");
+            Scribe_Values.Look(ref initialHe, "p5LoadingProbeInitialHe", 12);
             if (Scribe.mode == LoadSaveMode.PostLoadInit && artillery == null)
                 artillery = gun == null ? new List<Thing>() : new List<Thing> { gun };
         }
@@ -99,13 +103,13 @@ namespace RealisticBases.Diagnostics
             bool passed = artillery.Count > 0 && operators.All(p => p != null) && operators.Distinct().Count() == artillery.Count &&
                 artillery.All(t => t != null && t.Spawned && t.TryGetComp<CompRefuelable>().Fuel > 0 &&
                     (t as Building_TurretGun)?.gun?.TryGetComp<CompChangeableProjectile>() is CompChangeableProjectile p &&
-                    p.LoadedShell?.defName == "Shell_HighExplosive" && p.loadedCount == 1) && he <= 12 - artillery.Count && barrels == 1;
+                    p.LoadedShell?.defName == "Shell_HighExplosive" && p.loadedCount == 1) && he <= initialHe - artillery.Count && barrels == 1;
             if (!passed && Find.TickManager.TicksGame < deadline) return;
             P2Log.Message("P4E_LOGISTICS_PROBE_COMPLETE", "map=" + map.uniqueID + " passed=" + passed +
                 " guns=" + artillery.Count + " operators=" + string.Join(",", operators.Select(p => p?.thingIDNumber.ToString() ?? "none")) +
                 " operator=" + (op?.thingIDNumber.ToString() ?? "none") + " looseHE=" + he +
                 " loadedTotal=" + artillery.OfType<Building_TurretGun>().Sum(t => t.gun?.TryGetComp<CompChangeableProjectile>()?.loadedCount ?? 0) +
-                " firedBeforeAllReady=" + (12 - he - artillery.Count) + " loaded=" + (shell?.loadedCount ?? 0) +
+                " initialHe=" + initialHe + " firedBeforeAllReady=" + (initialHe - he - artillery.Count) + " loaded=" + (shell?.loadedCount ?? 0) +
                 " spareBarrels=" + barrels + " barrelFuel=" + gun?.TryGetComp<CompRefuelable>()?.Fuel);
             deadline = 0; gun = null; artillery.Clear();
             Find.TickManager.Pause();

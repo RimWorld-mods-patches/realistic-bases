@@ -15,6 +15,10 @@ internal static class P5ReadinessTests
     }
     public static void Combat()
     {
+        Check(P5Readiness.ReloadReserve(30, 1, 1, 0.5, 60) == 180);
+        Check(P5Readiness.ReloadReserve(90, 1, 1, 0.5, 180) == 180);
+        Check(P5Readiness.ReloadReserve(60, 1, 1, 0.75, 80) == 80);
+        Check(P5Readiness.ReloadReserve(30, 1, 1, 0.25, 120) == 360);
         var guns = new[] { new P5GunDuty("m1", "HE", 2, 1, 1), new P5GunDuty("m2", "HE", 2, 1, 1),
             new P5GunDuty("auto", "Steel", 20, 2, 180), new P5GunDuty("mini", "Steel", 20, 0.5, 60),
             new P5GunDuty("uranium", "Uranium", 20, 2, 60) };
