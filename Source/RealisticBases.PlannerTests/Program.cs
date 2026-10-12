@@ -11,6 +11,9 @@ internal static class Program
     {
         Run("P5 explicit stock epochs reject empty reads and loaded restock", P5StockTests.Epochs);
         Run("P5 immutable stock conserves allocations and physical stack identities", P5StockTests.Conservation);
+        Run("P5 food uses nutrition and preserves larger finite reserves", P5ReadinessTests.Food);
+        Run("P5 combat aggregates all installed guns without copying shared stock", P5ReadinessTests.Combat);
+        Run("P5 outage uses actual load and battery self-discharge without zero-clamp passes", P5ReadinessTests.Outage);
         Run("stable seed and input digest", StableSeedAndInputDigest);
         Run("snapshot copies source cells", SnapshotCopiesSourceCells);
         Run("connected regions are deterministic", ConnectedRegionsAreDeterministic);

@@ -7,6 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../RealisticBases/Planning/P5Stock.cs" Link="Planning/P5Stock.cs" />
+    <Compile Include="../RealisticBases/Planning/P5Readiness.cs" Link="Planning/P5Readiness.cs" />
     <Compile Include="../RealisticBases/Planning/P1Model.cs" Link="Planning/P1Model.cs" />
     <Compile Include="../RealisticBases/Planning/P1Planner.cs" Link="Planning/P1Planner.cs" />
     <Compile Include="../RealisticBases/Planning/P2Profiles.cs" Link="Planning/P2Profiles.cs" />

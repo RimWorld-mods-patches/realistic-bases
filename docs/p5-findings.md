@@ -103,3 +103,39 @@ made here. The exact disposable processes were stopped before every build.
 This is P5.1a only. Native buy/sell and off-map restock execution, physical
 ownership integration/rollback, horizon/readiness, support and unloaded
 persistence remain open. No P5 completion or full-category fidelity claim.
+
+## P5.2a — Quantified readiness audit (not horizon acceptance)
+
+Pure nutrition, shared whole-defense ammunition and actual-load outage models
+pass in the complete planner/garrison suite. Food calculations use nutrition,
+preserve larger existing minima and credit no production. Gun demand aggregates
+all installed identities against each shared finite input exactly once. Outage
+accounting includes native5W self-discharge per battery and does not let a
+clamp-to-zero pass an exhausted system. Release build0 warnings/errors.
+
+The runtime audit copies current P3-owned operating stocks plus residents' held
+items, excluding the native sale holder. It records real roster hunger, ready
+food/spoilage at current temperature, weapon fuel/difficulty multipliers,
+per-shot plus per-burst consumption, connected loads/charge and fuel. The first
+audit failed because the mortar uses per-shot rather than per-burst fuel; that
+failed attempt is preserved, not counted as acceptance.
+
+Corrected native ten-resident map1 at2612: nutrition/day16.80, ready/stable food
+133.20 versus required63.00 for three days with1.25safety. Five installed guns
+(one mortar and four direct guns) cover six hours at2mortar shots/gun/hour and
+20direct projectiles/gun/hour: HE12/12, barrel charges40/12, Steel840/720.
+These are current-stock calculations, **not** observed horizon operation.
+
+One actual power net draws7175W; stored charge649.79Wd cannot bridge six hours
+with zero generation, even at reserve floor0. No lower-load success substitutes
+for that deficit. Seven wood-consuming devices require462 units for three more
+days; current loaded99.80 + loose357 =456.80, a5.20 deficit consistent with prior
+operation. Future horizon tests must name their start tick and elapsed time;
+inspection does not reset or refill their reserves. Fuel readiness/support and
+full-load outage remain open rather than declared universally sufficient.
+
+Evidence: p5-readiness-planner-tests-20261012.txt;
+p5-readiness-baseline-20261012.log (failed audit);
+p5-readiness-audit-corrected-20261012.log (actual quantified baseline).
+Usage-limit approval review briefly blocked one test invocation; it was retried
+normally after the user's continuation. No bypass or unexecuted test is counted.

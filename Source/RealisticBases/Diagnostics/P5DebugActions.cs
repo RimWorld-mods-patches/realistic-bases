@@ -13,6 +13,9 @@ namespace RealisticBases.Diagnostics
     public static class P5DebugActions
     {
         private const string Category = "Realistic Bases P5";
+        [DebugAction(Category, "Audit P5 finite encounter readiness", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void Readiness() => P5ReadinessAudit.Audit(CurrentSettlement().Map);
         internal static Settlement CurrentSettlement()
         {
             if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("Disposable profile only");

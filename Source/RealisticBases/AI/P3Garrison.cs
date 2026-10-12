@@ -174,6 +174,8 @@ namespace RealisticBases.AI
         }
 
         public IntVec3 SupportCenter => supportCenter;
+        internal IEnumerable<Thing> P5OwnedThings => ownedThings.Where(t => t != null && !t.Destroyed);
+        internal IEnumerable<Pawn> P5Residents => defenders.Where(p => p != null && !p.Dead && p.Spawned && p.Faction == faction);
         public int DebugOperatingStock(string defName) => CountStock(defName);
         public int DebugDisconnectConduits()
         {
