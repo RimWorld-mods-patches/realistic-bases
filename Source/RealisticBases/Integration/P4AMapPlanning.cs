@@ -68,10 +68,17 @@ namespace RealisticBases.Integration
             OrdinarySettlementBudget populationBudget = wealthPercent == 0 ? null :
                 OrdinarySettlementPopulation.Create(profile, stage, climate, wealthPercent);
             P5StockSnapshot saleStock = populationBudget == null ? null : P5PhysicalSaleStock.AcquireForGeneration(settlement);
+            var retained = populationBudget == null ? new List<Thing>() :
+                worldState.FindExisting(settlement.ID).allocatedReserves.ToList();
+            int retainedOrdinary = retained.Where(t => t.TryGetComp<CompRottable>() == null)
+                .Sum(t => checked((int)(((long)t.stackCount + t.def.stackLimit - 1) / t.def.stackLimit)));
+            int retainedPerishable = retained.Where(t => t.TryGetComp<CompRottable>() != null)
+                .Sum(t => checked((int)(((long)t.stackCount + t.def.stackLimit - 1) / t.def.stackLimit)));
             LayoutRequirements requirements = LayoutRequirements.FromProfile(profile, climate, stage: stage,
                 populationBudget: populationBudget, mortarBiasPercent: DebugMortarBiasNext,
                 saleStorageStacks: saleStock == null ? 0 : saleStock.StorageCells(P5StorageKind.Ordinary) + saleStock.StorageCells(P5StorageKind.Hazardous),
-                salePerishableStacks: saleStock?.StorageCells(P5StorageKind.Perishable) ?? 0);
+                salePerishableStacks: saleStock?.StorageCells(P5StorageKind.Perishable) ?? 0,
+                retainedStorageStacks: retainedOrdinary, retainedPerishableStacks: retainedPerishable);
             DebugMortarBiasNext = null;
             int targetLayers = requestedWallLayers >= 1 && requestedWallLayers <= 3 ? requestedWallLayers :
                 P4BLayerPolicy.Select(seed, stage.Level, requirements.EquipmentValueLimit,
@@ -113,6 +120,7 @@ namespace RealisticBases.Integration
                 " defenseAllowancePercent=" + (populationBudget?.DefenseAllowancePercent ?? 100) +
                 " defenseReserveWatts=" + requirements.DefenseReserveWatts +
                 " engine=" + input.Engine + " saleStacks=" + requirements.SaleStorageStacks + "+" + requirements.SalePerishableStacks +
+                " retainedStacks=" + retainedOrdinary + "+" + retainedPerishable +
                 " effectiveLayers=" + input.Fortification.WallLayers + " layerFallback=" + layerFallback +
                 " layerMode=" + (requestedWallLayers == 0 ? "tech-budget-weighted" : "debug-override") +
                 " catalogDefs=" + catalog.Defs.Count + " catalogResearch=" + catalog.Research.Count +

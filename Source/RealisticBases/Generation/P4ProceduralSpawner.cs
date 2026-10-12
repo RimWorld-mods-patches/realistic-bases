@@ -331,6 +331,7 @@ namespace RealisticBases.Generation
             catch (Exception ex) { failure = "mutation_preflight_rejected:" + ex.Message; return false; }
             List<Pawn> defenders = new List<Pawn>();
             List<Thing> combatStocks = new List<Thing>();
+            List<Thing> retainedOperating = new List<Thing>();
             var mortars = new List<Thing>();
             Dictionary<P4BTurretPlan, Thing> turrets = new Dictionary<P4BTurretPlan, Thing>();
             int crops = 0;
@@ -581,6 +582,8 @@ namespace RealisticBases.Generation
                 if (startupFoodUnits > 0) SpawnStacks(tx, startupFood, startupFoodUnits, foodCells, map);
                 if (reserves != null)
                 {
+                    retainedOperating.AddRange(reserves.RestoreAllocated(tx, storageCells.Select(ToCell), foodCells.Select(ToCell)));
+                    combatStocks.AddRange(retainedOperating);
                     P5PhysicalSaleStock saleStock = map.GetComponent<P5PhysicalSaleStock>();
                     List<Thing> sale = run.SaleStock == null ? new List<Thing>() : saleStock.Materialize(tx, (Settlement)settlement,
                         storageCells.Select(ToCell), foodCells.Select(ToCell), run.SaleStock);
@@ -820,7 +823,7 @@ namespace RealisticBases.Generation
                     .Concat(approachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0])
                     .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() :
                         new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }), encounter,
-                    defenders, tx.OwnedThings, mortars.FirstOrDefault(), combatStocks, PerimeterSegments(layout, encounter.SupportCenter),
+                    defenders, tx.OwnedThings.Concat(retainedOperating), mortars.FirstOrDefault(), combatStocks, PerimeterSegments(layout, encounter.SupportCenter),
                     P4BPerimeterDepth.Envelope(input.Terrain, layout).Concat(layout.JointSite.Compound.Points())
                         .Concat(layout.JointSite.Field.Points()),
                     fieldWall == null ? Enumerable.Empty<GridPoint>() : layout.JointSite.Field.Points()

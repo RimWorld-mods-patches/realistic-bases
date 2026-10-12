@@ -8,7 +8,7 @@ using Verse;
 
 namespace RealisticBases.Persistence
 {
-    public sealed class P0SettlementState : IExposable
+    public sealed class P0SettlementState : IExposable, IThingHolder
     {
         public int settlementId = -1;
         public int generationCount;
@@ -27,6 +27,14 @@ namespace RealisticBases.Persistence
         public List<string> reserveKeys = new List<string>();
         public List<int> reserveRemaining = new List<int>();
         public int reserveLedgerTick = -1;
+        // Sole owner only while off-map; on-map allocated reserves are references
+        // in P5ReserveState. These actual Things are never recreated from counts.
+        public ThingOwner<Thing> allocatedReserves;
+        public P0SettlementState() { allocatedReserves = new ThingOwner<Thing>(this); }
+        public IThingHolder ParentHolder => null;
+        public ThingOwner GetDirectlyHeldThings() => allocatedReserves;
+        public void GetChildHolders(List<IThingHolder> children) =>
+            ThingOwnerUtility.AppendThingHoldersFromThings(children, allocatedReserves);
 
         public P5ReserveLedger ReserveLedger() => reserveLedgerTick < 0 ? null :
             new P5ReserveLedger(reserveKeys.Zip(reserveRemaining, (k, v) => new KeyValuePair<string, int>(k, v)));
@@ -55,6 +63,7 @@ namespace RealisticBases.Persistence
             Scribe_Collections.Look(ref reserveKeys, "p5ReserveKeys", LookMode.Value);
             Scribe_Collections.Look(ref reserveRemaining, "p5ReserveRemaining", LookMode.Value);
             Scribe_Values.Look(ref reserveLedgerTick, "p5ReserveLedgerTick", -1);
+            Scribe_Deep.Look(ref allocatedReserves, "p5AllocatedReserves", this);
             if (Scribe.mode == LoadSaveMode.PostLoadInit && pawnIds == null)
             {
                 pawnIds = new List<int>();
@@ -63,6 +72,7 @@ namespace RealisticBases.Persistence
             {
                 reserveKeys = reserveKeys ?? new List<string>();
                 reserveRemaining = reserveRemaining ?? new List<int>();
+                allocatedReserves = allocatedReserves ?? new ThingOwner<Thing>(this);
                 if (reserveKeys.Count != reserveRemaining.Count) { reserveKeys.Clear(); reserveRemaining.Clear(); reserveLedgerTick = -1; }
             }
         }

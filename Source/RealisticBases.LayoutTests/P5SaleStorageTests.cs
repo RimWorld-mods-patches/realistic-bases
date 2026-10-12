@@ -35,6 +35,24 @@ internal static partial class Program
         try { new LayoutRequirements(4, Industrial, HousingStandard.Barracks, Temperate, 0, 0, 0, compactQuestCamp: true, saleStorageStacks: 1); }
         catch (ArgumentOutOfRangeException) { rejected = true; }
         True(rejected, "quest camps never materialize an ordinary offer");
+        LayoutRequirements retained = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, Temperate,
+            stage: stage, populationBudget: budget, saleStorageStacks: 30, salePerishableStacks: 12,
+            retainedStorageStacks: 3, retainedPerishableStacks: 25);
+        True(retained.Digest != sale.Digest, "retained original Things are explicit planning inputs");
+        True(capacity(retained, LayoutRoomKind.Storage) >= capacity(sale, LayoutRoomKind.Storage) + 3,
+            "operating archive adds storage without reducing sale storage");
+        Equal(capacity(sale, LayoutRoomKind.Freezer) + 25, capacity(retained, LayoutRoomKind.Freezer),
+            "retained perishables keep their own food-storage demand");
+        ProceduralLayoutInput retainedInput = Input(Plains(180), retained, 1, new LayoutFortificationReservation(1));
+        ProceduralLayoutResult retainedPlan = ProceduralLayoutPlanner.Plan(retainedInput, requireJointSite: true);
+        Accepted(retainedPlan);
+        True(LayoutStockCells.ForRooms(retainedPlan.Layout.Rooms, LayoutRoomKind.Storage).Count >= capacity(retained, LayoutRoomKind.Storage),
+            "physical storage covers both authorities");
+        bool questRetainedRejected = false;
+        try { new LayoutRequirements(4, Industrial, HousingStandard.Barracks, Temperate, 0, 0, 0,
+            compactQuestCamp: true, retainedStorageStacks: 1); }
+        catch (ArgumentOutOfRangeException) { questRetainedRejected = true; }
+        True(questRetainedRejected, "quest camps reject retained ordinary operating stock");
         Console.WriteLine("  sale sizing storageCells=" + storageCells + " foodCells=" + foodCells + " " + result.Stats);
     }
 }

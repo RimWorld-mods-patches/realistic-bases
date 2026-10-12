@@ -5,6 +5,7 @@ using LudeonTK;
 using RealisticBases.Core;
 using RealisticBases.Integration;
 using RealisticBases.Planning;
+using RimWorld;
 using RimWorld.Planet;
 using Verse;
 
@@ -116,6 +117,94 @@ namespace RealisticBases.Diagnostics
                 " current=" + string.Join(",", reserves.Keys.Select(k => k + ":" + reserves.Observe(k))) +
                 " ledgerTick=" + (state?.reserveLedgerTick ?? -1) + " ledger=" + (state == null ? "none" :
                     string.Join(",", state.reserveKeys.Zip(state.reserveRemaining, (k, v) => k + ":" + v))));
+            var allocated = reserves.Allocated.OrderBy(t => t.thingIDNumber).ToList();
+            P0Log.Message("P5_ALLOCATED_AUDIT", "map=" + map.uniqueID + " settlement=" + settlement.ID +
+                " mappedStacks=" + allocated.Count + " mappedUnits=" + allocated.Sum(t => t.stackCount) +
+                " archivedStacks=" + (state?.allocatedReserves.Count ?? 0) +
+                " archivedUnits=" + (state?.allocatedReserves.Sum(t => t.stackCount) ?? 0) +
+                " items=" + string.Join("|", allocated.Select(t => t.ThingID + ":" + t.stackCount +
+                    ":" + t.Stuff?.defName + ":hp" + t.HitPoints + ":rot" + t.TryGetComp<CompRottable>()?.RotProgress + "@" + t.Position)));
+        }
+
+        [DebugAction(Category, "P5 attach existing test visitor", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        public static void AttachVisitor()
+        {
+            Settlement settlement = CurrentSettlement();
+            Map map = settlement.Map;
+            if (map.mapPawns.FreeColonistsSpawned.Any()) throw new InvalidOperationException("Test visitor already present");
+            Pawn visitor = Find.Maps.Where(m => m.IsPlayerHome).SelectMany(m => m.mapPawns.FreeColonistsSpawned)
+                .Where(p => p.HostFaction == null && p.questTags.NullOrEmpty()).OrderBy(p => p.thingIDNumber).FirstOrDefault()
+                ?? throw new InvalidOperationException("No existing disposable visitor");
+            IntVec3 edge = map.AllCells.Where(c => c.OnEdge(map) && c.Standable(map))
+                .OrderByDescending(c => c.DistanceToSquared(map.GetComponent<RealisticBases.AI.P3GarrisonController>().SupportCenter)).First();
+            visitor.jobs.StopAll(); visitor.DeSpawn(); GenSpawn.Spawn(visitor, edge, map);
+            visitor.drafter.Drafted = true;
+            Current.Game.CurrentMap = map;
+            P0Log.Message("P5_VISITOR_ATTACHED", "map=" + map.uniqueID + " pawn=" + visitor.ThingID + " cell=" + edge + " pawnsAdded=0");
+        }
+
+        [DebugAction(Category, "P5 exhaust original spare barrels", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void ExhaustOriginalBarrels()
+        {
+            Settlement settlement = CurrentSettlement();
+            var stocks = settlement.Map.GetComponent<RealisticBases.AI.P3GarrisonController>().P5OwnedThings
+                .Where(t => t.def.defName == "ReinforcedBarrel" && P5ReserveState.AllocationFor(t) == null).ToArray();
+            int units = stocks.Sum(t => t.stackCount);
+            foreach (Thing t in stocks) t.Destroy(DestroyMode.Vanish);
+            P0Log.Message("P5_ORIGINAL_BARRELS_EXHAUSTED", "map=" + settlement.Map.uniqueID + " removed=" + units + " suppliesAdded=0");
+        }
+
+        [DebugAction(Category, "P5 exhaust operating food for allocation test", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void ExhaustFood()
+        {
+            Settlement settlement = CurrentSettlement();
+            var c = settlement.Map.GetComponent<RealisticBases.AI.P3GarrisonController>();
+            var food = c.P5OwnedThings.Concat(c.P5Residents.SelectMany(p => p.inventory.innerContainer))
+                .Where(t => t.def.category == ThingCategory.Item && t.def.IsNutritionGivingIngestible &&
+                    t.def.ingestible.HumanEdible && !t.def.IsDrug && P5PhysicalSaleStock.Tracked(t) == null)
+                .Distinct().ToArray();
+            int count = food.Sum(t => t.stackCount);
+            foreach (Thing t in food) t.Destroy(DestroyMode.Vanish);
+            P0Log.Message("P5_TEST_FOOD_EXHAUSTED", "map=" + settlement.Map.uniqueID + " unitsRemoved=" + count + " suppliesAdded=0");
+        }
+
+        [DebugAction(Category, "P5 damage allocated ingredient once", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void DamageAllocatedIngredient()
+        {
+            Settlement settlement = CurrentSettlement();
+            Thing ingredient = settlement.Map.GetComponent<P5ReserveState>().Allocated
+                .FirstOrDefault(t => t.TryGetComp<CompRottable>() != null) ?? throw new InvalidOperationException("No retained ingredient");
+            int before = ingredient.HitPoints;
+            ingredient.HitPoints = Math.Max(1, before - 7);
+            P0Log.Message("P5_TEST_INGREDIENT_DAMAGED", "map=" + settlement.Map.uniqueID + " thing=" + ingredient.ThingID +
+                " beforeHp=" + before + " hp=" + ingredient.HitPoints + " rot=" + ingredient.TryGetComp<CompRottable>().RotProgress);
+        }
+
+        [DebugAction(Category, "P5 test emergency transfer rollback", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void EmergencyRollback()
+        {
+            Settlement settlement = CurrentSettlement();
+            var physical = settlement.Map.GetComponent<P5PhysicalSaleStock>();
+            var reserves = settlement.Map.GetComponent<P5ReserveState>();
+            var controller = settlement.Map.GetComponent<RealisticBases.AI.P3GarrisonController>();
+            var saleBefore = physical.Goods.ToDictionary(t => t, t => t.stackCount);
+            var allocatedBefore = reserves.Allocated.ToList();
+            var ownedBefore = controller.P5OwnedThings.ToList();
+            bool forced = false;
+            try { physical.EmergencyTransfer(forceRollback: true); }
+            catch (InvalidOperationException ex) when (ex.Message == "forced emergency allocation rollback") { forced = true; }
+            var saleAfter = physical.Goods.ToDictionary(t => t, t => t.stackCount);
+            bool passed = forced && saleBefore.Count == saleAfter.Count &&
+                saleBefore.All(p => saleAfter.TryGetValue(p.Key, out int count) && count == p.Value) &&
+                allocatedBefore.SequenceEqual(reserves.Allocated) && ownedBefore.SequenceEqual(controller.P5OwnedThings);
+            P0Log.Message("P5_EMERGENCY_ROLLBACK_COMPLETE", "map=" + settlement.Map.uniqueID + " passed=" + passed +
+                " exactSaleThings=" + saleBefore.Count + " operatingReferencesRestored=True copies=0 suppliesAdded=0");
+            if (!passed) throw new InvalidOperationException("Emergency allocation rollback fixture failed");
         }
 
         [DebugAction(Category, "P5 run emergency allocation transfer now", actionType = DebugActionType.Action,
@@ -158,6 +247,13 @@ namespace RealisticBases.Diagnostics
         [DebugAction(Category, "P5 unload and re-enter current settlement", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
         public static void UnloadAndReenter()
+            => UnloadAndReenter(true);
+
+        [DebugAction(Category, "P5 unload current settlement only", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void UnloadOnly() => UnloadAndReenter(false);
+
+        private static void UnloadAndReenter(bool reopen)
         {
             Settlement settlement = CurrentSettlement();
             Map map = settlement.Map;
@@ -171,12 +267,47 @@ namespace RealisticBases.Diagnostics
             string unloaded = OfferFingerprint(settlement, out long unloadedUnits);
             P0Log.Message("P5_REENTRY_UNLOADED", "settlement=" + settlement.ID + " offerUnits=" + unloadedUnits +
                 " sameOffer=" + (unloaded == before) + " hasMap=" + settlement.HasMap);
+            if (!reopen)
+            {
+                if (home != null) Current.Game.CurrentMap = home;
+                return;
+            }
             Map reopened = GetOrGenerateMapUtility.GetOrGenerateMap(settlement.Tile, Find.World.info.initialMapSize, null);
             if (home != null) Current.Game.CurrentMap = home;
             string after = OfferFingerprint(settlement, out long afterUnits);
             P0Log.Message("P5_REENTRY_AFTER", "settlement=" + settlement.ID + " map=" + reopened.uniqueID +
                 " offerUnits=" + afterUnits + " sameOffer=" + (after == before) +
                 " physicalStacks=" + reopened.GetComponent<P5PhysicalSaleStock>().Goods.Count());
+        }
+
+        [DebugAction(Category, "P5 reopen saved allocated-stock settlement", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        public static void ReopenAllocated()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("Disposable profile only");
+            var candidates = Find.WorldObjects.Settlements.Where(s => P5TradeStock.Supported(s) && !s.HasMap &&
+                Current.Game.GetComponent<RealisticBases.Persistence.P0WorldState>().FindExisting(s.ID)?.allocatedReserves.Count > 0).ToList();
+            if (candidates.Count != 1) throw new InvalidOperationException("Require one saved allocated-stock settlement");
+            Settlement settlement = candidates[0];
+            string before = OfferFingerprint(settlement, out long units);
+            Map map = GetOrGenerateMapUtility.GetOrGenerateMap(settlement.Tile, Find.World.info.initialMapSize, null);
+            P0Log.Message("P5_REENTRY_AFTER", "settlement=" + settlement.ID + " map=" + map.uniqueID +
+                " offerUnits=" + units + " sameOffer=" + (before == OfferFingerprint(settlement, out _)) +
+                " physicalStacks=" + map.GetComponent<P5PhysicalSaleStock>().Goods.Count());
+            AuditPhysical();
+        }
+
+        [DebugAction(Category, "P5 consume one allocated barrel", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void ConsumeAllocatedBarrel()
+        {
+            Settlement settlement = CurrentSettlement();
+            Thing barrel = settlement.Map.GetComponent<P5ReserveState>().Allocated
+                .FirstOrDefault(t => t.def.defName == "ReinforcedBarrel") ?? throw new InvalidOperationException("No existing allocated barrel");
+            int before = barrel.stackCount;
+            barrel.SplitOff(1).Destroy(DestroyMode.Vanish);
+            P0Log.Message("P5_ALLOCATED_CONSUMED", "map=" + settlement.Map.uniqueID + " original=" + barrel.ThingID +
+                " before=" + before + " remaining=" + (barrel.Destroyed ? 0 : barrel.stackCount) + " removed=1 suppliesAdded=0");
         }
 
         [DebugAction(Category, "Audit P5 native stock ownership", actionType = DebugActionType.Action,

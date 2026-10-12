@@ -512,3 +512,76 @@ no death, attack, successful tending or full routine horizon is inferred from it
 The broader matrix stopped on the conservation defect. The disposable game was
 stopped and its autostart copy restored from the immutable reset save. All named
 evidence remains ignored under `.runtime/`. **P5 and V2.6 remain incomplete.**
+
+## P5.3c — Exact emergency-allocation handoff and retained operating goods
+
+2026-10-12/13 continuation: the user authorized the fix and further P5 work.
+Astra confirmed that legitimate retained inventory must exceed a fresh plan's
+cap when necessary, keep its actual type/attributes, and not close broader P5
+while P0 asset/roster regeneration remains coarse. No additional agents,
+merge or push. The preceding failed evidence remains intact above.
+
+Emergency allocation atomically removes the actual sale reference, registers it
+with P3's operating/owned consumers and tracks its operating allocation. Failure
+restores the original sale/consumer references. Native splits inherit allocation;
+merges with unrelated sale/base stock are blocked, consumed/looted references are
+pruned, and managed allocated IDs opt out of vanilla save compression.
+
+At unload the actual surviving allocated Things move into a sole-owner
+ThingOwner on the saved settlement record. Map tracking is references only;
+after restore the off-map holder is empty. These items are not recreated from the
+base count ledger. Thus an exhausted base barrel key correctly remains0 while
+`allocatedArchived=3` preserves the three separately owned original barrels.
+Retained ordinary/perishable capacity is reserved before planning. Restoration
+preflights legal slots and borrows through the existing spawn transaction, keeping
+type/stuff/quality/HP and component state. Oversized retained stacks currently
+reject before borrowing, not truncate; explicit oversized split recovery remains
+an untested follow-up. Raw ingredients are inventory, not guaranteed ready meals.
+
+### Observed regressions
+
+- At26898, forced handoff rollback: `P5_EMERGENCY_ROLLBACK_COMPLETE passed=True
+  exactSaleThings=107 copies=0`. Actual transfer of `ReinforcedBarrel52914:3`
+  reduces sale6918→6915 and creates no new units.
+- Real unload archives that exact stack: `P5_ALLOCATED_ARCHIVE stacks=1 units=3
+  copies=0`; base ledger0, `allocatedArchived=3`. Off-map save/active reload then
+  re-entry at26899 restores ID52914/count3/HP75 with `recreated=0`, despite a
+  fresh two-barrel target. Holder empty on-map; offer unchanged.
+- Explicit native SplitOff/destruction consumes one unit. Another real
+  unload/re-entry restores the same original ID with2, sale6915 unchanged.
+  A subsequent player-free active reload unloads naturally on its first tick;
+  the two-barrel archive survives. This is native removal evidence, not a mapped
+  active-reload pass.
+- Cold-load that off-map save and reopen at26901. Attach the original visitor
+  (no new pawn), exhaust119 operating-food units, then allocate existing sale
+  `Meat_Turkey52920:75`, a type absent from the generated meal ledger. Controlled
+  damage sets HP60→53; actual rot progress904.0806. Active reload26901→26902 keeps
+  ID/count/HP/rot/position. Real unload/re-entry at26902 keeps the same meat75,
+  HP53/rot904.0806 and original barrel2; sale6840 remains unchanged. The existing
+  routine action only parks the visitor before explicit removal: no elapsed
+  routine horizon or cooking/feeding pass is credited.
+- Independent fresh encounter, start584: destroy only the original two spare
+  barrels, allocate its actual three-unit sale stack, and run the native loading
+  probe. It accepts this explicit P5 case while retaining the ordinary two-spare
+  contract. At3540: `P4E_LOGISTICS_PROBE_COMPLETE passed=True operators=54706
+  looseHE=11 loadedTotal=1 spareBarrels=2 initialBarrels=3 barrelFuel=20`.
+  Elapsed2956ticks; initial embedded barrel20 deliberately consumed; real funded
+  crew fetched/consumed an allocated barrel with no NPC orders or new inputs.
+
+Logs under `.runtime/logs/`: `p5-operating-archive-live-20261012.log`,
+`p5-allocated-type-state-live-20261012.log`, and
+`p5-allocated-barrel-native-use-20261012.log`. Named `.rws` evidence saves use
+`RealisticBases-P5-allocated-` plus `three-before-unload`, `three-offmap`,
+`three-restored`, `two-second-visit`, `two-native-unload`,
+`ingredient-before-reload`, `ingredient-after-reload`, `ingredient-after-reentry`,
+or `native-barrel-use`, each suffixed `-20261012`. No normal profile was touched.
+
+Release builds: zero warnings/errors. PlannerTests passes allocation conservation
+and depleted-base allowance assertions. The focused layout fixture verifies
+retained storage/freezer growth, empty-input digest compatibility and quest
+exclusion. Full LayoutTests passes127/127 again in ten shards, slowest529330ms:
+`p5-retained-layout-shard-0` through `-9-20261012.txt`. Later probe-only additions
+and allocated-reference pruning also compile cleanly and leave pure geometry
+unchanged. The original loss is fixed; trade/attack, full-transfer rollback/
+overflow, expiry/defeat, broader asset/roster persistence and integrated P5/V2.6
+remain open. No full P5 closeout is claimed.

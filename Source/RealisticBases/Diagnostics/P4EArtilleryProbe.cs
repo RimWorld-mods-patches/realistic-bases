@@ -16,6 +16,7 @@ namespace RealisticBases.Diagnostics
         private List<Thing> artillery = new List<Thing>();
         private int deadline;
         private int initialHe = 12;
+        private int initialBarrels = 2;
         private Thing hazardShell;
         private int hazardObserved;
         private readonly List<Tuple<Thing, int>> hazardBuildings = new List<Tuple<Thing, int>>();
@@ -45,10 +46,14 @@ namespace RealisticBases.Diagnostics
             Thing[] initial = map.listerThings.AllThings.Where(t => t.Position.GetEdifice(map) is Building_Storage &&
                 t.GetRoom()?.CellCount == 1).ToArray();
             int heStock = initial.Where(t => t.def.defName == "Shell_HighExplosive").Sum(t => t.stackCount);
+            int barrelStock = map.GetComponent<RealisticBases.AI.P3GarrisonController>().DebugOperatingStock("ReinforcedBarrel");
+            bool allocatedBarrels = map.GetComponent<RealisticBases.Integration.P5ReserveState>().Allocated
+                .Where(t => t.def.defName == "ReinforcedBarrel").Sum(t => t.stackCount) == barrelStock;
             if ((heStock != 12 && heStock != 12 * guns.Length) ||
-                map.GetComponent<RealisticBases.AI.P3GarrisonController>().DebugOperatingStock("ReinforcedBarrel") != 2)
+                (barrelStock != 2 && !(allocatedBarrels && barrelStock == 3)))
                 throw new InvalidOperationException("Loading probe requires fresh, unconsumed finite stocks");
             initialHe = heStock;
+            initialBarrels = barrelStock;
             Pawn anchor = map.mapPawns.FreeColonistsSpawned.FirstOrDefault() ?? throw new InvalidOperationException("No disposable visitor");
             gun = guns[0];
             artillery = guns.OrderBy(t => t.thingIDNumber).ToList();
@@ -73,6 +78,7 @@ namespace RealisticBases.Diagnostics
             Scribe_Collections.Look(ref artillery, "p4eLoadingProbeGuns", LookMode.Reference);
             Scribe_Values.Look(ref deadline, "p4eLoadingProbeDeadline");
             Scribe_Values.Look(ref initialHe, "p5LoadingProbeInitialHe", 12);
+            Scribe_Values.Look(ref initialBarrels, "p5LoadingProbeInitialBarrels", 2);
             if (Scribe.mode == LoadSaveMode.PostLoadInit && artillery == null)
                 artillery = gun == null ? new List<Thing>() : new List<Thing> { gun };
         }
@@ -103,14 +109,14 @@ namespace RealisticBases.Diagnostics
             bool passed = artillery.Count > 0 && operators.All(p => p != null) && operators.Distinct().Count() == artillery.Count &&
                 artillery.All(t => t != null && t.Spawned && t.TryGetComp<CompRefuelable>().Fuel > 0 &&
                     (t as Building_TurretGun)?.gun?.TryGetComp<CompChangeableProjectile>() is CompChangeableProjectile p &&
-                    p.LoadedShell?.defName == "Shell_HighExplosive" && p.loadedCount == 1) && he <= initialHe - artillery.Count && barrels == 1;
+                    p.LoadedShell?.defName == "Shell_HighExplosive" && p.loadedCount == 1) && he <= initialHe - artillery.Count && barrels == initialBarrels - 1;
             if (!passed && Find.TickManager.TicksGame < deadline) return;
             P2Log.Message("P4E_LOGISTICS_PROBE_COMPLETE", "map=" + map.uniqueID + " passed=" + passed +
                 " guns=" + artillery.Count + " operators=" + string.Join(",", operators.Select(p => p?.thingIDNumber.ToString() ?? "none")) +
                 " operator=" + (op?.thingIDNumber.ToString() ?? "none") + " looseHE=" + he +
                 " loadedTotal=" + artillery.OfType<Building_TurretGun>().Sum(t => t.gun?.TryGetComp<CompChangeableProjectile>()?.loadedCount ?? 0) +
                 " initialHe=" + initialHe + " firedBeforeAllReady=" + (initialHe - he - artillery.Count) + " loaded=" + (shell?.loadedCount ?? 0) +
-                " spareBarrels=" + barrels + " barrelFuel=" + gun?.TryGetComp<CompRefuelable>()?.Fuel);
+                " spareBarrels=" + barrels + " initialBarrels=" + initialBarrels + " barrelFuel=" + gun?.TryGetComp<CompRefuelable>()?.Fuel);
             deadline = 0; gun = null; artillery.Clear();
             Find.TickManager.Pause();
         }

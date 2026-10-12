@@ -112,15 +112,31 @@ namespace RealisticBases.Integration
         // category is exhausted on the map, one sale stack of that category
         // stops being merchandise first (removed from the offer, unforbidden),
         // and only then becomes available for operation. Never the reverse.
-        internal int EmergencyTransfer()
+        internal int EmergencyTransfer(bool forceRollback = false)
         {
             if (!Active) return 0;
+            var reserves = map.GetComponent<P5ReserveState>();
+            var controller = map.GetComponent<P3GarrisonController>();
+            if (!reserves.Active || !controller.P5AcceptsOperatingStock(owner)) return 0;
             int transferred = 0;
             foreach (IGrouping<string, Thing> group in Goods.Where(t => t.Spawned).GroupBy(Category).Where(g => g.Key != null).ToList())
             {
                 if (OperatingAvailable(group.Key)) continue;
                 Thing stack = group.OrderBy(t => t.thingIDNumber).First();
-                Release(stack);
+                try
+                {
+                    Release(stack);
+                    reserves.RegisterAllocation(stack);
+                    controller.P5RegisterOperatingStock(stack);
+                    if (forceRollback) throw new InvalidOperationException("forced emergency allocation rollback");
+                }
+                catch
+                {
+                    controller.P5UnregisterOperatingStock(stack);
+                    reserves.ForgetAllocation(stack);
+                    Register(stack); Protect();
+                    throw;
+                }
                 transferred++;
                 P0Log.Message("P5_EMERGENCY_TRANSFER", "map=" + map.uniqueID + " settlement=" + owner.ID +
                     " category=" + group.Key + " thing=" + stack.ThingID + " count=" + stack.stackCount +
@@ -269,32 +285,7 @@ namespace RealisticBases.Integration
             if (originals.Count == 0 || originals.Distinct().Count() != originals.Count ||
                 originals.Any(t => !holder.Contains(t) || P5TradeStock.Unsupported(t) != null))
                 throw new InvalidOperationException("Unsupported or unowned physical stock transfer");
-            var used = new Dictionary<IntVec3, int>();
-            var locations = new Dictionary<Thing, List<IntVec3>>();
-            foreach (Thing thing in originals)
-            {
-                var cells = storageFor(thing).Distinct().ToList();
-                foreach (IntVec3 c in cells)
-                    if (!used.ContainsKey(c)) used[c] = c.InBounds(map) ? c.GetThingList(map).Count(t => t.def.category == ThingCategory.Item) : int.MaxValue;
-                int stacks = checked((int)(((long)thing.stackCount + thing.def.stackLimit - 1) / thing.def.stackLimit));
-                var slots = new List<IntVec3>();
-                for (int i = 0; i < stacks; i++)
-                {
-                    IntVec3? selectedSlot = cells.Where(c =>
-                    {
-                        if (!c.InBounds(map)) return false;
-                        var shelf = c.GetEdifice(map) as Building_Storage;
-                        bool legal = shelf == null ? c.Standable(map) && c.GetEdifice(map) == null :
-                            shelf.Faction == settlement.Faction && c.Walkable(map) && shelf.GetStoreSettings().AllowedToAccept(thing);
-                        return legal && used[c] < (shelf == null ? 1 : c.GetMaxItemsAllowedInCell(map));
-                    }).Select(c => (IntVec3?)c).FirstOrDefault();
-                    if (!selectedSlot.HasValue)
-                        throw new P5StorageCapacityException("Full published stock cannot fit legal storage: " + thing.ThingID);
-                    IntVec3 slot = selectedSlot.Value;
-                    used[slot]++; slots.Add(slot);
-                }
-                locations.Add(thing, slots);
-            }
+            var locations = StorageLocations(map, settlement, originals, storageFor);
             owner = settlement; factionId = settlement.Faction.loadID;
             tx.OnRollback(Clear);
             var placed = new List<Thing>();
@@ -330,6 +321,36 @@ namespace RealisticBases.Integration
             Protect();
             return placed;
         }
+
+        internal static Dictionary<Thing, List<IntVec3>> StorageLocations(Map map, Settlement settlement,
+            IEnumerable<Thing> originals, Func<Thing, IEnumerable<IntVec3>> storageFor)
+        {
+            var used = new Dictionary<IntVec3, int>();
+            var locations = new Dictionary<Thing, List<IntVec3>>();
+            foreach (Thing thing in originals)
+            {
+                var cells = storageFor(thing).Distinct().ToList();
+                foreach (IntVec3 c in cells)
+                    if (!used.ContainsKey(c)) used[c] = c.InBounds(map) ? c.GetThingList(map).Count(t => t.def.category == ThingCategory.Item) : int.MaxValue;
+                int stacks = checked((int)(((long)thing.stackCount + thing.def.stackLimit - 1) / thing.def.stackLimit));
+                var slots = new List<IntVec3>();
+                for (int i = 0; i < stacks; i++)
+                {
+                    IntVec3? selected = cells.Where(c =>
+                    {
+                        if (!c.InBounds(map)) return false;
+                        var shelf = c.GetEdifice(map) as Building_Storage;
+                        bool legal = shelf == null ? c.Standable(map) && c.GetEdifice(map) == null :
+                            shelf.Faction == settlement.Faction && c.Walkable(map) && shelf.GetStoreSettings().AllowedToAccept(thing);
+                        return legal && used[c] < (shelf == null ? 1 : c.GetMaxItemsAllowedInCell(map));
+                    }).Select(c => (IntVec3?)c).FirstOrDefault();
+                    if (!selected.HasValue) throw new P5StorageCapacityException("Retained stock cannot fit legal storage: " + thing.ThingID);
+                    used[selected.Value]++; slots.Add(selected.Value);
+                }
+                locations.Add(thing, slots);
+            }
+            return locations;
+        }
     }
 
     internal sealed class P5StorageCapacityException : InvalidOperationException
@@ -342,7 +363,8 @@ namespace RealisticBases.Integration
     {
         private static void Postfix(Thing __instance, Thing other, ref bool __result)
         {
-            if (__result && P5PhysicalSaleStock.Tracked(__instance) != P5PhysicalSaleStock.Tracked(other)) __result = false;
+            if (__result && (P5PhysicalSaleStock.Tracked(__instance) != P5PhysicalSaleStock.Tracked(other) ||
+                P5ReserveState.AllocationFor(__instance) != P5ReserveState.AllocationFor(other))) __result = false;
         }
     }
     [HarmonyPatch(typeof(Thing), nameof(Thing.SplitOff))]
@@ -359,7 +381,7 @@ namespace RealisticBases.Integration
     {
         private static bool Prefix(Thing t, ref bool __result)
         {
-            if (P5PhysicalSaleStock.Tracked(t) == null) return true;
+            if (P5PhysicalSaleStock.Tracked(t) == null && P5ReserveState.AllocationFor(t) == null) return true;
             __result = false; return false;
         }
     }

@@ -162,12 +162,16 @@ namespace RealisticBases.Planning
             LayoutClimate climate, int mortarBiasPercent, int excavationBudgetCells, int fieldCells,
             IEnumerable<KeyValuePair<LayoutRoomKind, int>> capacityFloors = null, SettlementTechStage stage = null, int importValueLimit = -1,
             int equipmentValueLimit = -1, int stockpileRoomCapacityTarget = 0, bool compactQuestCamp = false,
-            int defenseReserveWatts = 0, int logisticsUtilityValueLimit = 0, int saleStorageStacks = 0, int salePerishableStacks = 0)
+            int defenseReserveWatts = 0, int logisticsUtilityValueLimit = 0, int saleStorageStacks = 0, int salePerishableStacks = 0,
+            int retainedStorageStacks = 0, int retainedPerishableStacks = 0)
         {
-            if (saleStorageStacks < 0 || salePerishableStacks < 0 ||
-                compactQuestCamp && saleStorageStacks + salePerishableStacks > 0) throw new ArgumentOutOfRangeException(nameof(saleStorageStacks));
+            if (saleStorageStacks < 0 || salePerishableStacks < 0 || retainedStorageStacks < 0 || retainedPerishableStacks < 0 ||
+                compactQuestCamp && (saleStorageStacks + salePerishableStacks + retainedStorageStacks + retainedPerishableStacks > 0))
+                throw new ArgumentOutOfRangeException(nameof(saleStorageStacks));
             SaleStorageStacks = saleStorageStacks;
             SalePerishableStacks = salePerishableStacks;
+            RetainedStorageStacks = retainedStorageStacks;
+            RetainedPerishableStacks = retainedPerishableStacks;
             if (residents <= 0) throw new ArgumentOutOfRangeException(nameof(residents));
             if (mortarBiasPercent < 0 || mortarBiasPercent > 100) throw new ArgumentOutOfRangeException(nameof(mortarBiasPercent));
             if (excavationBudgetCells < 0) throw new ArgumentOutOfRangeException(nameof(excavationBudgetCells));
@@ -241,6 +245,8 @@ namespace RealisticBases.Planning
         // addition to operating reserves (one stack per cell, conservatively).
         public int SaleStorageStacks { get; }
         public int SalePerishableStacks { get; }
+        public int RetainedStorageStacks { get; }
+        public int RetainedPerishableStacks { get; }
         // All new ordinary bases need an attached-field connection reserved
         // before the larger P4E facility set is packed, including four residents.
         public bool ReservePopulationCirculation => !CompactQuestCamp || Residents > 4 || StockpileRoomCapacityTarget > 0;
@@ -270,7 +276,7 @@ namespace RealisticBases.Planning
         public static LayoutRequirements FromProfile(PhysicalSettlementProfile profile, LayoutClimate climate,
             HousingStandard housing = HousingStandard.Barracks, SettlementTechStage stage = null,
             OrdinarySettlementBudget populationBudget = null, int? mortarBiasPercent = null,
-            int saleStorageStacks = 0, int salePerishableStacks = 0)
+            int saleStorageStacks = 0, int salePerishableStacks = 0, int retainedStorageStacks = 0, int retainedPerishableStacks = 0)
         {
             if (profile == null) throw new ArgumentNullException(nameof(profile));
             List<KeyValuePair<LayoutRoomKind, int>> floors = new List<KeyValuePair<LayoutRoomKind, int>>();
@@ -293,7 +299,8 @@ namespace RealisticBases.Planning
                 stockpileRoomCapacityTarget: populationBudget == null ? 0 : 48,
                 defenseReserveWatts: populationBudget?.DefenseAllowancePercent > 100 ? OrdinarySettlementPopulation.P4EDefenseReserveWatts : 0,
                 logisticsUtilityValueLimit: populationBudget?.DefenseAllowancePercent > 100 ? 300 : 0,
-                saleStorageStacks: saleStorageStacks, salePerishableStacks: salePerishableStacks);
+                saleStorageStacks: saleStorageStacks, salePerishableStacks: salePerishableStacks,
+                retainedStorageStacks: retainedStorageStacks, retainedPerishableStacks: retainedPerishableStacks);
         }
 
         private static bool TryMap(FacilityKind kind, out LayoutRoomKind result)
@@ -345,6 +352,12 @@ namespace RealisticBases.Planning
                 hash = StableHash.Add(hash, "p5-sale-stock");
                 hash = StableHash.Add(hash, SaleStorageStacks);
                 hash = StableHash.Add(hash, SalePerishableStacks);
+            }
+            if (RetainedStorageStacks + RetainedPerishableStacks > 0)
+            {
+                hash = StableHash.Add(hash, "p5-retained-operating-stock");
+                hash = StableHash.Add(hash, RetainedStorageStacks);
+                hash = StableHash.Add(hash, RetainedPerishableStacks);
             }
             return StableHash.Hex(hash);
         }
@@ -587,7 +600,7 @@ namespace RealisticBases.Planning
             Add(wanted, requirements, LayoutRoomKind.Medical, Math.Max(1, Ceil(r, 6)));
             Add(wanted, requirements, LayoutRoomKind.Kitchen, Ceil(r, 8));
             Add(wanted, requirements, kit.Refrigerated ? LayoutRoomKind.Freezer : LayoutRoomKind.Pantry,
-                Math.Max(12, 6 * r) + requirements.SalePerishableStacks);
+                Math.Max(12, 6 * r) + requirements.SalePerishableStacks + requirements.RetainedPerishableStacks);
             Add(wanted, requirements, LayoutRoomKind.Dining, r);
             // Every distinct craft bench once, then more benches up to the population target.
             if (!requirements.CompactQuestCamp)
@@ -596,7 +609,8 @@ namespace RealisticBases.Planning
                 if (kit.DefFor(SettlementRole.Research) != null) Add(wanted, requirements, LayoutRoomKind.Laboratory, 1);
             }
             // Generator fuel stock is stored physically: its stacks raise the storage demand.
-            Add(wanted, requirements, LayoutRoomKind.Storage, Math.Max(12, 6 * r) + extraStorageCells + requirements.SaleStorageStacks);
+            Add(wanted, requirements, LayoutRoomKind.Storage, Math.Max(12, 6 * r) + extraStorageCells +
+                requirements.SaleStorageStacks + requirements.RetainedStorageStacks);
 
             List<string> rejections = new List<string>();
             List<LayoutRoomDemand> rooms = new List<LayoutRoomDemand>();

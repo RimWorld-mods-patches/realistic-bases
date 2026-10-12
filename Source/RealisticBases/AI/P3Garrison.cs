@@ -178,6 +178,13 @@ namespace RealisticBases.AI
         internal IEnumerable<Pawn> P5Residents => defenders.Where(p => p != null && !p.Dead && p.Spawned && p.Faction == faction);
         internal string P5AssignedRole(Pawn pawn) => AssignedRole(pawn).ToString();
         internal bool P5NeedsRelief(Pawn pawn) => AssignedRole(pawn) == GarrisonRole.NeedsRelief;
+        internal bool P5AcceptsOperatingStock(Settlement owner) => settlement == owner && faction == owner.Faction;
+        internal void P5RegisterOperatingStock(Thing thing)
+        {
+            if (!ownedThings.Contains(thing)) ownedThings.Add(thing);
+            if (!operatingStocks.Contains(thing)) operatingStocks.Add(thing);
+        }
+        internal void P5UnregisterOperatingStock(Thing thing) { ownedThings.Remove(thing); operatingStocks.Remove(thing); }
         public int DebugOperatingStock(string defName) => CountStock(defName);
         public int DebugDisconnectConduits()
         {
