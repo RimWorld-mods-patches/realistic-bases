@@ -97,6 +97,25 @@ namespace RealisticBases.Planning
         private static readonly GridPoint[] Cardinal =
         { new GridPoint(0, -1), new GridPoint(-1, 0), new GridPoint(1, 0), new GridPoint(0, 1) };
 
+        public static IReadOnlyList<string> HeavyWeaponOrder(IEnumerable<GridPoint> targets, IEnumerable<GridPoint> positions,
+            IEnumerable<string> previousGuns, double autocannonRange, double slugRange)
+        {
+            var posts = positions.Distinct().ToArray();
+            int near = 0, longOnly = 0;
+            foreach (GridPoint target in targets.Distinct())
+            {
+                double distance = posts.Length == 0 ? double.MaxValue : posts.Min(p => Distance(p, target));
+                if (distance <= autocannonRange) near++;
+                else if (distance <= slugRange) longOnly++;
+            }
+            var previous = new HashSet<string>(previousGuns, StringComparer.Ordinal);
+            bool preferAuto = near >= longOnly;
+            if (previous.Contains("Turret_Sniper") && !previous.Contains("Turret_Autocannon") && near > 0) preferAuto = true;
+            if (previous.Contains("Turret_Autocannon") && !previous.Contains("Turret_Sniper") && longOnly > 0) preferAuto = false;
+            return preferAuto ? new[] { "Turret_Autocannon", "Turret_Sniper", "Turret_MiniTurret" } :
+                new[] { "Turret_Sniper", "Turret_Autocannon", "Turret_MiniTurret" };
+        }
+
         public static IReadOnlyList<string> Validate(ProceduralLayoutInput input, ProceduralLayout layout,
             P4BTurretPlan turret, IEnumerable<GridPoint> additionalBlocked = null,
             SettlementLoadout loadout = null)
@@ -305,7 +324,8 @@ namespace RealisticBases.Planning
                     layout.Power.CriticalWatts - layout.Power.NonCriticalWatts < turret.TotalWatts ||
                 turret.Watts != def.BasePowerConsumption) errors.Add("power_budget");
             if (turret.LoadedFuelUnits != (int)Math.Ceiling(def.FuelCapacity * def.InitialFuelPercent / def.FuelMultiplier) ||
-                turret.ReserveFuelUnits != (int)Math.Ceiling(def.FuelCapacity / def.FuelMultiplier) ||
+                turret.ReserveFuelUnits != P5Readiness.ReloadReserve(def.FuelCapacity, def.InitialFuelPercent, def.FuelPerShot,
+                    def.FuelMultiplier, (int)Math.Ceiling(def.FuelCapacity / def.FuelMultiplier)) ||
                 turret.ImportValue != ImportValue(input.Catalog, def, fuel,
                     turret.LoadedFuelUnits + turret.ReserveFuelUnits) +
                     CoverImportValue(input, fieldWall.CoverDefName, turret.CoverCells.Count) +
@@ -430,7 +450,10 @@ namespace RealisticBases.Planning
             List<GridPoint> staffedPosts = currentStaffing == null ? new List<GridPoint>() :
                 currentStaffing.SniperPosts.Concat(currentStaffing.LinePosts).ToList();
             Dictionary<string, int> rejected = new Dictionary<string, int>(StringComparer.Ordinal);
-            string[] order = { "Turret_Sniper", "Turret_Autocannon", "Turret_MiniTurret" };
+            input.Catalog.TryGet("Turret_Autocannon", out CatalogDef autocannon);
+            input.Catalog.TryGet("Turret_Sniper", out CatalogDef slug);
+            IReadOnlyList<string> order = HeavyWeaponOrder(targets, frames.Select(f => f.Anchor),
+                previous.Select(g => g.DefName), autocannon?.MaximumRange ?? 0, slug?.MaximumRange ?? 0);
             foreach (string name in order)
             {
                 if (!input.Catalog.TryGet(name, out CatalogDef def) ||
@@ -446,7 +469,8 @@ namespace RealisticBases.Planning
                 if (availableWatts < def.BasePowerConsumption || totalWatts < def.BasePowerConsumption)
                 { Reject("critical_power_headroom"); continue; }
                 int loadedUnits = (int)Math.Ceiling(def.FuelCapacity * def.InitialFuelPercent / def.FuelMultiplier);
-                int reserveUnits = (int)Math.Ceiling(def.FuelCapacity / def.FuelMultiplier);
+                int reserveUnits = P5Readiness.ReloadReserve(def.FuelCapacity, def.InitialFuelPercent, def.FuelPerShot,
+                    def.FuelMultiplier, (int)Math.Ceiling(def.FuelCapacity / def.FuelMultiplier));
                 int value = ImportValue(input.Catalog, def, fuel, loadedUnits + reserveUnits);
                 if (value == int.MaxValue) { Reject("construction_cost_unresolved"); continue; }
                 if (baseValue + spentValue + value > input.Requirements.ImportValueLimit)
@@ -578,7 +602,8 @@ namespace RealisticBases.Planning
                 !input.Catalog.TryGet(mini.Fuel[0], out CatalogDef fuel) ||
                 !input.Catalog.IsLegal(fuel, input.Equipment.Kit.Stage)) return null;
             int loaded = (int)Math.Ceiling(mini.FuelCapacity * mini.InitialFuelPercent / mini.FuelMultiplier);
-            int reserve = (int)Math.Ceiling(mini.FuelCapacity / mini.FuelMultiplier);
+            int reserve = P5Readiness.ReloadReserve(mini.FuelCapacity, mini.InitialFuelPercent, mini.FuelPerShot,
+                mini.FuelMultiplier, (int)Math.Ceiling(mini.FuelCapacity / mini.FuelMultiplier));
             int value = ImportValue(input.Catalog, mini, fuel, loaded + reserve);
             int baseValue = BaseMaterialValue(input, layout);
             if (value == int.MaxValue || baseValue + spentValue + heavyValue + value >

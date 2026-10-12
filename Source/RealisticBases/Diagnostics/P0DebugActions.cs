@@ -255,7 +255,7 @@ namespace RealisticBases.Diagnostics
                 " remainingFog=" + map.AllCells.Count(cell => cell.Fogged(map)));
         }
 
-        private static void CaptureFlatTerrainFixture(Map map)
+        internal static void CaptureFlatTerrainFixture(Map map)
         {
             try
             {
@@ -284,6 +284,10 @@ namespace RealisticBases.Diagnostics
                 string path = System.IO.Path.Combine(saves,
                     "P4-flat-terrain-" + map.uniqueID + "-" + terrain.Digest + ".rle");
                 System.IO.File.WriteAllLines(path, rows);
+                P4PlannerFixtureExporter.Write(System.IO.Path.Combine(saves, "P4-flat-runtime-catalog.cs"), P4ARuntimeCatalog.Capture());
+                var resources = P4AMapPlanner.CaptureResources(map);
+                P0Log.Message("DEBUG_TERRAIN_RESOURCES", "wood=" + resources.LocalWoodYield + " stones=" +
+                    string.Join(",", resources.LocalStoneStuffs) + " climate=" + P4AMapPlanner.CaptureClimate(map));
                 P0Log.Message("DEBUG_TERRAIN_CAPTURE", "map=" + map.uniqueID + " digest=" + terrain.Digest +
                     " path=" + path + " width=" + terrain.Width + " height=" + terrain.Height +
                     " active=" + (map.GetComponent<P0MapState>()?.Active ?? false));
@@ -379,6 +383,15 @@ namespace RealisticBases.Diagnostics
         {
             P4AMapPlanner.DebugStageNext = SettlementTechStageLevel.IndustrialLate;
             P2Log.Message("DEBUG_ARM", "P4A stage=IndustrialLate once; faction stage unchanged");
+        }
+
+        [DebugAction(Category, "Use neolithic P4 stage once", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void ForceNeolithicStage()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new System.InvalidOperationException("Disposable profile only");
+            P4AMapPlanner.DebugStageNext = SettlementTechStageLevel.Neolithic;
+            P2Log.Message("DEBUG_ARM", "P4A stage=Neolithic once; faction stage unchanged");
         }
 
         [DebugAction(Category, "Use tribal profile for next generation", actionType = DebugActionType.Action,

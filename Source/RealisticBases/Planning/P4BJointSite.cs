@@ -256,7 +256,7 @@ namespace RealisticBases.Planning
         // the field or moves its gates, and the new anchor is still inside the
         // same connected site rather than a new location search.
         internal static IEnumerable<P4BJointSite> GrowthVariants(P4BJointSite site,
-            LayoutTerrainGrid grid, int margin, bool allowClippedGrowth = false)
+            LayoutTerrainGrid grid, int margin, bool allowClippedGrowth = false, bool extendedGrowth = false)
         {
             if (site == null) throw new ArgumentNullException(nameof(site));
             if (grid == null) throw new ArgumentNullException(nameof(grid));
@@ -264,7 +264,11 @@ namespace RealisticBases.Planning
             int direction = site.Compound.MaxZ < site.Field.MinZ ? 0 :
                 site.Compound.MinX > site.Field.MaxX ? 1 :
                 site.Compound.MinZ > site.Field.MaxZ ? 2 : 3;
-            for (int extra = 12; extra <= 24; extra += 12)
+            GridRect previousGrowth = site.Compound;
+            // Keep this field and connection fixed, but don't confuse the
+            // former 24-cell growth cap with the usable land on the tile.
+            // The map bounds and the global search budget still bound work.
+            for (int extra = 12; extra <= (extendedGrowth ? Math.Max(grid.Terrain.Width, grid.Terrain.Height) : 24); extra += 12)
             {
                 GridRect grown = CompoundAt(site.Field, site.Compound.Width + extra, direction);
                 if (!Fits(grown, grid.Terrain, margin))
@@ -281,6 +285,9 @@ namespace RealisticBases.Planning
                     grown = new GridRect(minX, minZ, maxX - minX + 1, maxZ - minZ + 1);
                     if (grown.Width == site.Compound.Width && grown.Height == site.Compound.Height) break;
                 }
+                if (grown.MinX == previousGrowth.MinX && grown.MinZ == previousGrowth.MinZ &&
+                    grown.Width == previousGrowth.Width && grown.Height == previousGrowth.Height) break;
+                previousGrowth = grown;
                 GridPoint center = new GridPoint((grown.MinX + grown.MaxX) / 2,
                     (grown.MinZ + grown.MaxZ) / 2);
                 // Do not "grow" across an impassable belt into a disconnected

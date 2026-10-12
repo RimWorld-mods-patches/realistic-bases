@@ -1,10 +1,10 @@
 # Realistic Bases: progress tracker
 
-Updated: 2026-10-01
+Updated: 2026-10-12
 
 ## Current state
 
-Design, source review, and P0–P3 are complete. P4 and P4A are active together: the procedural planner is the target for terrain, facilities, equipment and runtime work. P4B is active; coordinated exterior layers, turrets and cover belong there. P5 remains unstarted. Earlier fixed-compound P4 observations are historical evidence only.
+Design, source review, P0–P3, bounded P4D and P4E are complete. P5 is now authorized and active from P4E `be39af9`; see [checkpoint plan](p5-encounter-plan.md) and [findings](p5-findings.md). Earlier P4/P4A/P4B/C tracker rows and fixed-compound observations are historical and are not new closeout claims. P5A remains separate.
 
 Specification: [design and feasibility](design-feasibility.md). Delivery gates: [implementation plan](implementation-plan.md). Detailed evidence: [P0 findings](p0-findings.md).
 
@@ -26,8 +26,9 @@ Verification: complete LayoutTests (132,637 ms) and PlannerTests suites pass wit
 | P4B — Defensive layout planner | In progress | All four exposed sides have live placement/access evidence for short gate-side projections/shared corners. A Core live run accepted four turrets in two supported groups with shared power, finite stocks and legal pawn/service paths; pure richer fixtures select six guns. Both suites pass, retaining 12/12 flat-clutter acceptance. Actual mutual support, measured cover, protected maintenance and the full live matrix remain open. See [P4B findings](p4b-findings.md) |
 | P4C — Visually realistic bases | Planned; implementation authorized | Coherent room/path finishes and selected interior rock smoothing, bounded materials, transactional terrain/rock recovery, visual and live validation. See [P4C visual plan](p4c-visual-plan.md); no implementation evidence yet |
 | P4D — Quest-location support | Complete for bounded Core contracts | Exact bandit/rescue strategies, authoritative native content, original prisoner/join, native reward/expiry/death/departure/reload and verified late recovery; Core terrain/tech and GL-native compatibility matrix, complete suites/build. GL competing pipelines remain native. See [P4D findings](p4d-findings.md) |
-| P4E — Facility and defense adjustments | Planned; implementation authorized | Room temperatures/labs, functional seats/medicine shelves, compact mortar stores and multiple crews, increased ordinary turret budget/autocannons. See [P4E plan](p4e-facilities-plan.md); no new implementation evidence yet |
-| P5 — Encounter supplies, trade stock, and persistent consequences | Not started | Bounded reserves, trade consistency, no-duplication persistence, and accessible/separate hazardous stock placement where justified; full sustainability deferred |
+| P4E — Facility and defense adjustments | Complete (2026-10-12) | Climate/decorative labs, seats/medicine, compact magazines/up to three funded crews, budgeted autocannon defense, finite warehouse fetching, refund-/delayed-collapse-free rollback, Core/GL compatibility and full regression verified. See [P4E findings](p4e-findings.md) |
+| P5 — Encounter supplies, trade stock, and persistent consequences | In progress (2026-10-12) | Stock epoch/conservation spike and ten-resident three-day native food/bed/refuel case verified; bounded relief deadlock/post-sleep fixed, full suites pass. Other profiles, combat/outage/tending/failures, physical trade and unload persistence remain open. See [P5 findings](p5-findings.md) |
+| P5A — Additional improvements | Planned, separate from P5 | Generator ventilation/fill, shell minimums, cabinets/floors and richest-spacer wall materials retained from main |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage; add route diagnostics, evidence-driven soft-preference tuning, reproducibility and encounter-quality review |
 | P7 — Settlement specialization | Not started (post-MVP) | Final planned step: agriculture/industry first; evaluate mining, ranching, forestry, trading, military, medical and research profiles; verify trade-product influence feasibility |
 
@@ -171,12 +172,12 @@ Detailed scope: [P4E facility and defense plan](p4e-facilities-plan.md). Preserv
 
 | Step | Scope | Validation gate | Status |
 |---|---|---|---|
-| P4E.0 | Baseline/definition/stage/budget audit | Current defects, store feasibility and single-mortar migration documented | Pending |
-| P4E.1 | Occupied work-room temperature and eligible labs | Stage/climate/packing/power cases and live thermal/bench/analyzer operation | Pending |
-| P4E.2 | Seats and medicine shelves | All orientations, actual seated use, legal storage/access and finite counts | Pending |
-| P4E.3 | Compact magazines and up to three mortars | Roster caps, unique crews, finite loading/depletion, loss/reassignment and legacy/new reload | Pending |
-| P4E.4 | Increased ordinary defense allowance/autocannons | Matched useful-defense/cost/power evidence, live fire/rearm, stage/quest exclusions | Pending |
-| P4E.5 | Integrated closeout | Relevant full suites/build, terrain/GL and P4D smoke, late recovery/retry and active reload | Pending |
+| P4E.0 | Baseline/definition/stage/budget audit | Core room/seat/storage/hazard facts, stage matrix, budget sources and legacy migration contract recorded in [findings](p4e-findings.md); live store access still pending | Complete |
+| P4E.1 | Occupied work-room temperature and eligible labs | Six-stage/climate fixtures, corrected packing/power checks and Core seven-resident live hot/cold lab/workshop operation with active analyzer | Complete |
+| P4E.2 | Seats and medicine shelves | All cardinal orientations, stage/fallback shelves, native seated chewing/fetch and identical thirteen-unit medicine stack through active reload | Complete |
+| P4E.3 | Compact magazines and up to three mortars | Pure caps/ledger/identity, native two/three crews and reload, legacy migration, loss/exhaustion/hazard, exact captured flat-map repair and full suites/Release verified (2026-10-03) | Complete |
+| P4E.4 | Increased ordinary defense allowance/autocannons | Matched125% allowance/real power, native auto fire/routed finite rearm/power loss/pawn support, legal finite smoke, unchanged roster/quest budgets | Complete |
+| P4E.5 | Integrated closeout | Primitive/constrained terrain, Core/GL lifecycle, exact physical-stock and deferred-roof rollback/retry, warehouse fetch/reload, full suites and Release verified in findings | Complete (2026-10-12) |
 
 ## Future planning update — 2026-09-24
 

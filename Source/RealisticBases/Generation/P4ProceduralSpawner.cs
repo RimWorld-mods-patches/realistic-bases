@@ -94,7 +94,7 @@ namespace RealisticBases.Generation
                 .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() : fieldWall.CoverCells)
                 .Concat(approachDefense?.CoverCells ?? new GridPoint[0])
                 .Concat(turretPlans.SelectMany(t => t.Footprint.Concat(t.CoverCells))));
-            if (layout.Court != null) structures.UnionWith(layout.Court.Cells);
+            structures.UnionWith(layout.Courts.SelectMany(c => c.Cells));
             List<GridPoint> layerServiceCells = layout.OuterSections
                 .SelectMany(section => section.ServiceLane(layout.Gates[section.GateIndex])).Distinct().ToList();
             List<GridPoint> serviceCells = new List<GridPoint>(layerServiceCells);
@@ -104,6 +104,7 @@ namespace RealisticBases.Generation
             Dictionary<LayoutFixture, GridPoint> fixtureOrigins = new Dictionary<LayoutFixture, GridPoint>();
             Dictionary<LayoutPowerYard, GridPoint> yardOrigins = new Dictionary<LayoutPowerYard, GridPoint>();
             Dictionary<P4BTurretPlan, GridPoint> turretOrigins = new Dictionary<P4BTurretPlan, GridPoint>();
+            var mortarOrigins = new Dictionary<LayoutFixture, GridPoint>();
             try
             {
                 foreach (LayoutFixture fixture in layout.AllFixtures.Where(f =>
@@ -118,6 +119,16 @@ namespace RealisticBases.Generation
                     turretOrigins[plan] = origin;
                     if (!GenConstruct.CanBuildOnTerrain(def, ToCell(origin), map, Rot4.North))
                         throw new InvalidOperationException("Turret terrain rejected at " + origin);
+                }
+                foreach (LayoutFixture court in layout.Courts)
+                {
+                    Rot4 rotation = Rotation(court.Rotation);
+                    GridPoint origin = FindOrigin(ThingDefOf.Turret_Mortar, rotation, court.Cells);
+                    mortarOrigins[court] = origin;
+                    IntVec3 interaction = ThingUtility.InteractionCellWhenAt(ThingDefOf.Turret_Mortar,
+                        ToCell(origin), rotation, map);
+                    if (interaction != ToCell(court.Access.Single()))
+                        throw new InvalidOperationException("Mortar operating cell differs from rotated plan");
                 }
             }
             catch (Exception ex) { failure = "spawn_origin_rejected:" + ex.Message; return false; }
@@ -192,7 +203,7 @@ namespace RealisticBases.Generation
             try
             {
                 IReadOnlyCollection<GridPoint> publicCells = ProceduralLayoutValidator.PublicCirculation(input, layout);
-                EncounterProfile profile = layout.Court != null ? P3EncounterProfiles.Industrial :
+                EncounterProfile profile = layout.Court != null ? P3EncounterProfiles.ForArtillery(layout.Courts.Count) :
                     input.Requirements.Capabilities.HasFlag(SettlementCapability.Electricity)
                         ? P3EncounterProfiles.IndustrialNoMortar : P3EncounterProfiles.Tribal;
                 encounter = GeometryEncounterPlanner.Plan(new GeometryEncounterInput(layout.Digest, profile,
@@ -200,8 +211,10 @@ namespace RealisticBases.Generation
                         new KeyValuePair<GridPoint, GridPoint>(g.Cell, g.Inside))
                         .Concat(approachDefense?.SallyPorts.Where(p => !p.Field).Select(p => new KeyValuePair<GridPoint, GridPoint>(p.Cell, p.Inside)) ??
                             Enumerable.Empty<KeyValuePair<GridPoint, GridPoint>>()), publicCells,
-                    LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Storage),
-                    layout.Court?.Cells.FirstOrDefault(), layout.Court?.Access.FirstOrDefault()));
+                    LayoutStockCells.ForRooms(layout.Rooms, layout.Court == null ? LayoutRoomKind.Storage : LayoutRoomKind.MortarMagazine),
+                    layout.Court == null ? (GridPoint?)null : mortarOrigins[layout.Court], layout.Court?.Access.FirstOrDefault(),
+                    layout.Courts.Select((c, i) => new ArtilleryPosition(P4EArtillery.PostId(i), mortarOrigins[c],
+                        c.Access.Single(), layout.MagazineFor(c).Interior.Points().Single()))));
                 if (fieldWall != null || quest != null)
                 {
                     HashSet<GridPoint> postOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
@@ -209,7 +222,10 @@ namespace RealisticBases.Generation
                     // The compound reservation also covers the short exterior
                     // crossing to the field. Vanilla pathfinding may leave the
                     // literal wall interior through a different compound gate.
-                    List<GridPoint> defended = layout.Enclosure.Concat(layout.JointSite?.Compound.Points() ?? Enumerable.Empty<GridPoint>())
+                    List<GridPoint> defended = P4BPerimeterDepth.Envelope(input.Terrain, layout)
+                        .Concat(layout.Gates.SelectMany(g => g.BandDoors.Concat(g.OuterVestibule).Concat(new[] { g.Cell, g.Staging })))
+                        .Concat(layerServiceCells)
+                        .Concat(layout.JointSite?.Compound.Points() ?? Enumerable.Empty<GridPoint>())
                         .Concat(layout.JointSite?.Field.Points() ?? Enumerable.Empty<GridPoint>())
                         .Concat(fieldWall?.Access ?? new GridPoint[0])
                         // Low cover is passable; vanilla paths can step over a
@@ -223,6 +239,12 @@ namespace RealisticBases.Generation
                         .Concat(fieldWall?.ExteriorPosts ?? new GridPoint[0])
                         .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() : new[] { fieldWall.OuterGate })
                         .Concat(turretPlans.SelectMany(t => t.ServiceRoute))
+                        .Concat(P3DefenderRoute.TransitEnvelope(input.Terrain,
+                            (fieldWall?.Access ?? new GridPoint[0]).Concat(fieldWall?.CoverCells ?? new GridPoint[0])
+                                .Concat(approachDefense?.TransitCells ?? new GridPoint[0])
+                                .Concat(approachDefense?.Posts.SelectMany(p => p.Route) ?? new GridPoint[0])
+                                .Concat(turretPlans.SelectMany(t => t.ServiceRoute)),
+                            postOpaque.Except(P4BApproachDefensePlanner.AccessGates(layout))))
                         .Distinct().ToList();
                     GridRect bounds = new GridRect(defended.Min(c => c.X), defended.Min(c => c.Z),
                         defended.Max(c => c.X) - defended.Min(c => c.X) + 1,
@@ -250,7 +272,7 @@ namespace RealisticBases.Generation
                             ?? Enumerable.Empty<DefensivePost>()),
                         bounds, encounter.SupportCenter, encounter.InnerFallback,
                         encounter.MortarCell, encounter.MortarInteractionCell, encounter.MagazineCell,
-                        encounter.Supplies, defended);
+                        encounter.Supplies, defended, encounter.Artillery);
                 }
                 // Audit the compound and field approaches separately. Field
                 // posts are intentionally too far from the compound gates to
@@ -309,7 +331,7 @@ namespace RealisticBases.Generation
             catch (Exception ex) { failure = "mutation_preflight_rejected:" + ex.Message; return false; }
             List<Pawn> defenders = new List<Pawn>();
             List<Thing> combatStocks = new List<Thing>();
-            Thing mortar = null;
+            var mortars = new List<Thing>();
             Dictionary<P4BTurretPlan, Thing> turrets = new Dictionary<P4BTurretPlan, Thing>();
             int crops = 0;
             if (quest != null) quest.RecoveryVerified = false;
@@ -366,9 +388,9 @@ namespace RealisticBases.Generation
                 foreach (GridPoint c in conduitCells)
                     if (ToCell(c).GetTransmitter(map) == null)
                         Spawn(tx, conduitDef, null, c, map, settlement.Faction, Rot4.North);
-                if (layout.Court != null)
-                    mortar = Spawn(tx, ThingDefOf.Turret_Mortar, ThingDefOf.Steel, encounter.MortarCell,
-                        map, settlement.Faction, Rot4.North);
+                foreach (LayoutFixture court in layout.Courts)
+                    mortars.Add(Spawn(tx, ThingDefOf.Turret_Mortar, ThingDefOf.Steel, mortarOrigins[court],
+                        map, settlement.Faction, Rotation(court.Rotation)));
 
                 ThingDef crop = DefDatabase<ThingDef>.GetNamedSilentFail(run.ProfileId == "tribal-temperate-v1" ? "Plant_Rice" : "Plant_Rice") ?? Require("Plant_Rice");
                 foreach (GridPoint c in fields)
@@ -388,10 +410,6 @@ namespace RealisticBases.Generation
                 ThingDef startupFood = Require(food.Kind == LayoutRoomKind.Freezer ? "MealSimple" : "Pemmican");
                 int startupFoodUnits = quest == null ? input.Requirements.Residents * 12 :
                     quest.Contract.StartupFoodUnits(startupFood.GetStatValueAbstract(StatDefOf.Nutrition));
-                SpawnStacks(tx, startupFood, startupFoodUnits, foodCells, map);
-                if (quest != null) P4DQuestDebugActions.Log("QUEST_FOOD_LEDGER", "site=" + settlement.ID +
-                    " def=" + startupFood.defName + " units=" + startupFoodUnits +
-                    " nutrition=" + startupFoodUnits * startupFood.GetStatValueAbstract(StatDefOf.Nutrition));
                 int fuel = layout.Power?.FuelStock ?? 0;
                 int internalFuel = 0;
                 if (layout.Power != null)
@@ -406,13 +424,37 @@ namespace RealisticBases.Generation
                         internalFuel += add;
                     }
                 if (fuel > 0) SpawnStacks(tx, Require(layout.Power.FuelDef), fuel, storageCells, map);
+                if (quest == null && layout.Materials.FuelWood > 0)
+                    SpawnStacks(tx, ThingDefOf.WoodLog, layout.Materials.FuelWood, storageCells, map);
                 foreach (LoadoutItem item in loadout.Medicine) SpawnStacks(tx, Require(item.DefName), item.Count, medicalCells, map);
                 foreach (LoadoutItem item in loadout.Components.Concat(loadout.Armoury))
                     SpawnStacks(tx, Require(item.DefName), item.Count, storageCells, map, item.Stuff, item.Quality);
                 foreach (CombatSupply supply in encounter.Supplies)
                 {
                     if (supply.DefName == "ReinforcedBarrel" && Find.Storyteller.difficulty.classicMortars) continue;
-                    combatStocks.AddRange(SpawnStacks(tx, Require(supply.DefName), supply.Count, storageCells, map));
+                    // Split, never copy, the one encounter-wide reserve. A
+                    // single shelf permits three types; zero shares are omitted.
+                    for (int i = 0; i < layout.Courts.Count; i++)
+                    {
+                        int share = supply.Count / layout.Courts.Count + (i < supply.Count % layout.Courts.Count ? 1 : 0);
+                        if (share > 0)
+                        {
+                            var magazine = layout.MagazineFor(layout.Courts[i]).Interior.Points().ToArray();
+                            var placed = SpawnStacks(tx, Require(supply.DefName), share,
+                                LayoutStockCells.ForArtillerySupply(supply.DefName, magazine, storageCells), map);
+                            combatStocks.AddRange(placed);
+                            if (supply.DefName == "ReinforcedBarrel")
+                                P2Log.Message("P4E_BARREL_STORAGE", "map=" + map.uniqueID + " count=" + share +
+                                    " magazine=" + placed.Where(t => magazine.Contains(new GridPoint(t.Position.x, t.Position.z))).Sum(t => t.stackCount) +
+                                    " warehouse=" + placed.Where(t => !magazine.Contains(new GridPoint(t.Position.x, t.Position.z))).Sum(t => t.stackCount) +
+                                    " sharedReserveUnchanged=True");
+                        }
+                    }
+                }
+                if (mortars.Count > 0 && P4EFacilityDebugActions.FailNextMagazineStocks)
+                {
+                    P4EFacilityDebugActions.FailNextMagazineStocks = false;
+                    throw new InvalidOperationException("forced P4E failure after finite magazine stocks");
                 }
                 foreach (IGrouping<string, P4BTurretPlan> group in turretPlans.GroupBy(t => t.FuelDefName))
                     combatStocks.AddRange(SpawnStacks(tx, Require(group.Key), group.Sum(t => t.ReserveFuelUnits),
@@ -444,6 +486,26 @@ namespace RealisticBases.Generation
                     " batchingWasDisabled=" + pathUpdatesBatched + " changedWalkability=" + previousWalkability.Count(pair =>
                         map.pathing.Normal.pathGrid.Walkable(pair.Key) != pair.Value));
                 map.powerNetManager.UpdatePowerNetsAndConnections_First();
+                for (int i = 0; i < mortars.Count; i++)
+                {
+                    Thing mortar = mortars[i]; LayoutFixture court = layout.Courts[i];
+                    LayoutRoom magazine = layout.MagazineFor(court);
+                    IntVec3 stockCell = ToCell(magazine.Interior.Points().Single());
+                    Room actualRoom = stockCell.GetRoom(map);
+                    Thing[] magazineStocks = combatStocks.Where(t => t.Spawned && t.Position == stockCell).ToArray();
+                    if (mortar.InteractionCell != ToCell(court.Access.Single()) ||
+                        mortar.OccupiedRect().Cells.Concat(new[] { mortar.InteractionCell }).Any(c => c.Roofed(map)) ||
+                        !(stockCell.GetEdifice(map) is Building_Storage) || !stockCell.Roofed(map) ||
+                        actualRoom == null || actualRoom.CellCount != 1 || actualRoom.UsesOutdoorTemperature ||
+                        !map.reachability.CanReach(mortar.InteractionCell, stockCell, PathEndMode.OnCell,
+                            TraverseParms.For(TraverseMode.PassDoors)))
+                        throw new InvalidOperationException("Realized mortar magazine/rotation/loading access differs from plan");
+                    P2Log.Message("PROCEDURAL_MORTAR_MAGAZINE_AUDIT", "map=" + map.uniqueID +
+                        " gun=" + mortar.thingIDNumber + " rotation=" + mortar.Rotation + " operator=" + mortar.InteractionCell +
+                        " stock=" + stockCell + " interiorCells=" + actualRoom.CellCount + " roofed=True loadingReachable=True" +
+                        " post=" + P4EArtillery.PostId(i) + " publicRoute=" + ProceduralLayoutValidator.MagazineLoadingRoute(input, layout, court).Count +
+                        " stocks=" + string.Join(",", magazineStocks.Select(t => t.def.defName + ":" + t.stackCount + ":" + t.thingIDNumber)));
+                }
                 foreach (P4BTurretPlan plan in turretPlans)
                 {
                     Thing turret = turrets[plan];
@@ -480,6 +542,20 @@ namespace RealisticBases.Generation
                     tx.Own(GenSpawn.Spawn(pawn, ToCell(homes[i]), map));
                     defenders.Add(pawn);
                 }
+                double nutritionPerDay = defenders.Sum(p => (p.needs?.food?.FoodFallPerTickAssumingCategory(HungerCategory.Fed) ?? 0) * 60000);
+                if (quest == null)
+                    startupFoodUnits = P5Readiness.FoodUnits(defenders.Count,
+                        Math.Max(P5Readiness.DefaultDailyNutrition, nutritionPerDay / defenders.Count),
+                        startupFood.GetStatValueAbstract(StatDefOf.Nutrition), startupFoodUnits);
+                SpawnStacks(tx, startupFood, startupFoodUnits, foodCells, map);
+                if (quest != null) P4DQuestDebugActions.Log("QUEST_FOOD_LEDGER", "site=" + settlement.ID +
+                    " def=" + startupFood.defName + " units=" + startupFoodUnits +
+                    " nutrition=" + startupFoodUnits * startupFood.GetStatValueAbstract(StatDefOf.Nutrition));
+                else RealisticBases.Core.P0Log.Message("P5_INITIAL_SUPPLIES", "map=" + map.uniqueID + " residents=" + defenders.Count +
+                    " routineDays=3 nutritionPerDay=" + nutritionPerDay.ToString("F2") + " food=" + startupFood.defName +
+                    ":" + startupFoodUnits + " nutrition=" + (startupFoodUnits * startupFood.GetStatValueAbstract(StatDefOf.Nutrition)).ToString("F2") +
+                    " primitiveFuelWood=" + layout.Materials.FuelWood + " generatorFuelTotal=" + (fuel + internalFuel) +
+                    " futureProductionCredited=0");
                 if (fieldWall != null)
                 {
                     HashSet<IntVec3> defendedCells = new HashSet<IntVec3>(encounter.DefendedCells.Select(ToCell));
@@ -487,7 +563,7 @@ namespace RealisticBases.Generation
                     int viaGatePaths = 0;
                     foreach (GridPoint post in fieldWall.UsablePosts.Concat(approachDefense?.AllPosts ?? new GridPoint[0]).Distinct())
                     {
-                        GridPoint gate = approachDefense?.Posts.FirstOrDefault(p => p.Cell.Equals(post))?.AccessGate ??
+                        GridPoint gate = encounter.Posts.FirstOrDefault(p => p.Cell.Equals(post) && p.AccessGate.HasValue)?.AccessGate ??
                             fieldWall.PostAccess.FirstOrDefault(p => p.Post.Equals(post))?.Route.FirstOrDefault() ??
                             fieldWall.OuterGate;
                         int eligibleDefenders = 0;
@@ -498,7 +574,7 @@ namespace RealisticBases.Generation
                             {
                                 IntVec3 firstOutside = path.Found
                                     ? path.NodesReversed.FirstOrDefault(c => !defendedCells.Contains(c)) : IntVec3.Invalid;
-                                bool legal = path.Found && path.NodesReversed.Count <= 160 &&
+                                bool legal = path.Found && path.NodesReversed.Count <= P3DefenderRoute.MaximumCells &&
                                     path.NodesReversed.All(defendedCells.Contains);
                                 int length = path.NodesReversed.Count;
                                 if (!legal && defendedCells.Contains(ToCell(gate)))
@@ -513,11 +589,30 @@ namespace RealisticBases.Generation
                                         TraverseParms.For(pawn), null, PathEndMode.OnCell))
                                     {
                                         length = toGate.NodesReversed.Count + fromGate.NodesReversed.Count - 1;
-                                        legal = toGate.Found && fromGate.Found && length <= 160 &&
+                                        legal = toGate.Found && fromGate.Found && length <= P3DefenderRoute.MaximumCells &&
                                             toGate.NodesReversed.All(defendedCells.Contains) &&
                                             fromGate.NodesReversed.All(defendedCells.Contains);
                                         if (legal) viaGatePaths++;
                                     }
+                                }
+                                if (!legal)
+                                {
+                                    IReadOnlyList<GridPoint> NativeRoute(GridPoint from, GridPoint to)
+                                    {
+                                        using (PawnPath leg = map.pathFinder.FindPathNow(ToCell(from), ToCell(to),
+                                            TraverseParms.For(pawn), null, PathEndMode.OnCell))
+                                            return leg.Found ? leg.NodesReversed.AsEnumerable().Reverse().Select(c => new GridPoint(c.x, c.z)).ToArray() : null;
+                                    }
+                                    int completeLength = 0;
+                                    var waypoint = P3DefenderRoute.NextWaypoint(new GridPoint(pawn.Position.x, pawn.Position.z),
+                                        post, encounter.SupportCenter, gate,
+                                        layout.Gates.Select(g => g.Cell).Concat(approachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0])
+                                            .Concat(new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }), NativeRoute,
+                                        encounter.DefendedCells,
+                                        P4BPerimeterDepth.Envelope(input.Terrain, layout).Concat(layout.JointSite.Compound.Points())
+                                            .Concat(layout.JointSite.Field.Points()).Distinct().ToArray(),
+                                        new GridPoint[0], walls.Concat(natural).ToArray(), n => completeLength = n);
+                                    if (waypoint.HasValue) { legal = true; length = completeLength; viaGatePaths++; }
                                 }
                                 if (legal)
                                 {
@@ -653,7 +748,14 @@ namespace RealisticBases.Generation
                         " reachable=" + reachableGates + "/" + layout.Gates.Count +
                         " clearService=" + clearServiceCells + "/" + layerServiceCells.Count +
                         " reachableService=" + reachableServiceTermini + "/" + serviceTermini.Count);
-                P2Log.Message("PROCEDURAL_DEFENSE_AUDIT", "map=" + map.uniqueID + " outerWalls=" + realizedOuterWalls +
+                int breachDepth = P4BPerimeterDepth.Minimum(input.Terrain, layout.Enclosure,
+                    walls.Concat(doors).Where(c => ToCell(c).GetEdifice(map) is Building_Door ||
+                        ToCell(c).GetEdifice(map)?.def.passability == Traversability.Impassable),
+                    layout.Excavation, layout.WallLayers);
+                if (breachDepth < layout.WallLayers)
+                    throw new InvalidOperationException("Realized perimeter breach depth " + breachDepth + " < " + layout.WallLayers);
+                P2Log.Message("PROCEDURAL_DEFENSE_AUDIT", "map=" + map.uniqueID + " minimumBreachDepth=" + breachDepth +
+                    " declaredLayers=" + layout.WallLayers + " outerWalls=" + realizedOuterWalls +
                     "/" + plannedOuterWalls + " returnCells=" + realizedReturnCells + "/" + plannedReturnCells +
                     " anchoredReturns=" + realizedAnchoredReturns + "/" + plannedAnchoredReturns +
                     " bandWalls=" + realizedBandWalls + "/" + plannedBandWalls +
@@ -676,11 +778,12 @@ namespace RealisticBases.Generation
                     .Concat(approachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0])
                     .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() :
                         new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }), encounter,
-                    defenders, tx.OwnedThings, mortar, combatStocks, PerimeterSegments(layout, encounter.SupportCenter),
-                    layout.JointSite.Compound.Points().Concat(layout.JointSite.Field.Points()),
+                    defenders, tx.OwnedThings, mortars.FirstOrDefault(), combatStocks, PerimeterSegments(layout, encounter.SupportCenter),
+                    P4BPerimeterDepth.Envelope(input.Terrain, layout).Concat(layout.JointSite.Compound.Points())
+                        .Concat(layout.JointSite.Field.Points()),
                     fieldWall == null ? Enumerable.Empty<GridPoint>() : layout.JointSite.Field.Points()
                         .Except(fieldWall.Walls).Except(new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }),
-                    layout.Enclosure, fieldFallbackPosts);
+                    layout.Enclosure, fieldFallbackPosts, mortars);
                 LordMaker.MakeNewLord(settlement.Faction, new LordJob_P3Garrison(settlement.ID), map, defenders);
                 P0SettlementState state = Current.Game.GetComponent<P0WorldState>().GetOrCreate(settlement.ID, settlement.Faction);
                 state.generationCount++;
@@ -720,7 +823,8 @@ namespace RealisticBases.Generation
                 failure = ex.GetType().Name + ":" + ex.Message;
                 P2Log.Error("PROCEDURAL_SPAWN_ABORT", "map=" + map.uniqueID + " error=" + failure +
                     " owned=" + tx.OwnedCount + " plantsRestored=" + tx.RestoredPlantCount +
-                    "/" + tx.ClearedPlantCount + " recovered=" + restored);
+                    "/" + tx.ClearedPlantCount + " itemLedgerRestored=" + tx.ItemLedgerRestored +
+                    " provisionalRoofCollapsesDiscarded=" + tx.DiscardedProvisionalRoofCollapses + " recovered=" + restored);
                 return false;
             }
         }
@@ -836,7 +940,9 @@ namespace RealisticBases.Generation
                     tx.Own(result[result.Count - 1]);
                 }
             }
-            if (count != 0) throw new InvalidOperationException("Insufficient stock cells for " + def.defName + ":" + count);
+            if (count != 0) throw new InvalidOperationException("Insufficient stock cells for " + def.defName + ":" + count +
+                " contents=" + string.Join("|", cells.Select(p => p + ":" + string.Join(",", ToCell(p).GetThingList(map)
+                    .Where(t => t.def.category == ThingCategory.Item).Select(t => t.ThingID + "x" + t.stackCount)))));
             return result;
         }
 

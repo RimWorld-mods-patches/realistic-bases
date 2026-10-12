@@ -9,6 +9,12 @@ internal static class Program
 
     private static int Main()
     {
+        Run("P5 explicit stock epochs reject empty reads and loaded restock", P5StockTests.Epochs);
+        Run("P5 immutable stock conserves allocations and physical stack identities", P5StockTests.Conservation);
+        Run("P5 actual offers reserve full legal storage and value without truncation", P5StockTests.Capacity);
+        Run("P5 food uses nutrition and preserves larger finite reserves", P5ReadinessTests.Food);
+        Run("P5 combat aggregates all installed guns without copying shared stock", P5ReadinessTests.Combat);
+        Run("P5 outage uses actual load and battery self-discharge without zero-clamp passes", P5ReadinessTests.Outage);
         Run("stable seed and input digest", StableSeedAndInputDigest);
         Run("snapshot copies source cells", SnapshotCopiesSourceCells);
         Run("connected regions are deterministic", ConnectedRegionsAreDeterministic);
@@ -56,6 +62,7 @@ internal static class Program
         Run("P3 intact perimeter prioritizes an attacked corner front", P3IntactPerimeterPrioritizesFront);
         Run("P3 sniper guard posts require long-range defenders", P3SniperGuardRequiresRange);
         Run("P3 safe needs relief preserves minimum staffing", P3SafeNeedsReliefPreservesMinimumStaffing);
+        Run("P5 unused post options cannot deadlock a hungry funded roster", P5ReliefUsesRealRoster);
         Run("P3 invalid outer posts trigger inner fallback", P3InvalidOuterPostsTriggerInnerFallback);
         Run("P3 valid assignments resist oscillation", P3ValidAssignmentsResistOscillation);
         Run("P3 routine reserves a support worker", P3RoutineReservesSupportWorker);
@@ -65,7 +72,10 @@ internal static class Program
         Run("P3 funded mortar and mobile reserve staffing remains exclusive", P3FundedReserveAndMortar);
         Run("P3 fills distinct inner gate posts before idling extra defenders", P3InnerGatePostsBeforeIdleReserve);
         Run("P3 reserves a mortar post before earlier pawn ids are assigned", P3MortarPostReservation);
+        Run("P4E unique multiple crews survive gun and operator loss", P4EMultipleCrews);
         Run("P3 reinforcement audits the whole route under fire", P3ReinforcementRouteUnderFire);
+        Run("P3 failed service defers same-tick retries without blocking other work", P3ServiceRetryBackoff);
+        Run("P3 service detours follow declared corridors and cannot return a stationary waypoint", P3ServiceDetour);
         Run("P3 field penetration holds compound entrances before inner defeat", P3FieldToCompoundFallback);
         Run("P3 industrial encounter plan is deterministic and valid", P3IndustrialEncounterPlanIsDeterministicAndValid);
         Run("P3 posts avoid opaque walls and cover approaches", P3PostsAvoidOpaqueWallsAndCoverApproaches);
@@ -77,6 +87,66 @@ internal static class Program
         Run("P3 geometry rejects disconnected gate endpoints and missing court", P3GeometryRejectsInvalidInputs);
         Console.WriteLine("P1/P2/P3/P4 pure tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures);
         return failures == 0 ? 0 : 1;
+    }
+
+    private static void P3ServiceDetour()
+    {
+        GridPoint start = new GridPoint(0, 0), finish = new GridPoint(6, 0);
+        var corridor = new List<GridPoint>();
+        for (int z = 0; z <= 5; z++) corridor.Add(new GridPoint(0, z));
+        for (int x = 1; x <= 6; x++) corridor.Add(new GridPoint(x, 5));
+        for (int z = 4; z >= 0; z--) corridor.Add(new GridPoint(6, z));
+        Func<GridPoint, GridPoint, IReadOnlyList<GridPoint>> native = (a, b) =>
+        {
+            var path = new List<GridPoint> { a };
+            while (!a.Equals(b))
+            {
+                a = new GridPoint(a.X + Math.Sign(b.X - a.X), a.Z + Math.Sign(b.Z - a.Z)); path.Add(a);
+            }
+            return path;
+        };
+        Equal("outside_defended_area", P3DefenderRoute.Audit(native(start, finish), corridor, corridor,
+            new GridPoint[0], new GridPoint[0]).Reason, "native shortcut leaves U-shaped corridor");
+        Equal(new GridPoint(0, 5), P3DefenderRoute.ServiceDetour(start, new[] { finish }, c => true,
+            native, corridor, corridor, new GridPoint[0], new GridPoint[0]).Value, "legal first bend is selected");
+        True(!P3DefenderRoute.ServiceDetour(start, new[] { start }, c => true, native,
+            corridor, corridor, new GridPoint[0], new GridPoint[0]).HasValue, "zero-distance loop refused");
+        True(!P3DefenderRoute.ServiceDetour(start, new[] { finish }, c => !c.Equals(new GridPoint(3, 5)),
+            native, corridor, corridor, new GridPoint[0], new GridPoint[0]).HasValue, "blocked corridor cannot be traversed");
+        True(!P3DefenderRoute.ServiceDetour(start, new[] { finish }, c => true, native,
+            corridor, new GridPoint[0], new GridPoint[0], new GridPoint[0]).HasValue, "aggregate exterior bound remains enforced");
+        True(P3DefenderRoute.ServiceDetour(start, new[] { finish }, c => true, native,
+            corridor, new GridPoint[0], new GridPoint[0], new GridPoint[0],
+            P3DefenderRoute.MaximumServiceExteriorCells).HasValue, "finite service detour may wrap a bastion corner");
+        var longService = Enumerable.Range(0, 33).Select(x => new GridPoint(x, 0)).ToArray();
+        True(!P3DefenderRoute.ServiceDetour(start, new[] { longService.Last() }, c => true, native,
+            longService, new GridPoint[0], new GridPoint[0], new GridPoint[0],
+            P3DefenderRoute.MaximumServiceExteriorCells).HasValue, "service exterior has its own hard limit");
+        True(!P3DefenderRoute.ServiceDetour(start, new[] { finish }, c => true, native,
+            corridor, corridor, new[] { new GridPoint(3, 2) }, new GridPoint[0]).HasValue,
+            "aggregate exposure bound remains enforced");
+        GridPoint current = start;
+        int moves = 0;
+        while (!current.Equals(finish) && moves++ < corridor.Count)
+        {
+            var next = P3DefenderRoute.ServiceDetour(current, new[] { finish }, c => true, native,
+                corridor, corridor, new GridPoint[0], new GridPoint[0]);
+            True(next.HasValue && !next.Value.Equals(current), "every resumed leg progresses");
+            current = next.Value;
+        }
+        Equal(finish, current, "successive bounded waypoints reach service target");
+    }
+
+    private static void P3ServiceRetryBackoff()
+    {
+        var retry = new P3ServiceRetry();
+        True(retry.Allowed(1, 2, 100), "first attempt permitted");
+        retry.Failed(1, 2, 100);
+        for (int i = 0; i < 20; i++) True(!retry.Allowed(1, 2, 100), "same-tick restart blocked");
+        True(!retry.Allowed(1, 2, 399), "bounded backoff retained");
+        True(retry.Allowed(1, 2, 400), "retry after finite delay");
+        True(retry.Allowed(1, 3, 100), "other target available");
+        True(retry.Allowed(3, 2, 100), "other worker available");
     }
 
     private static void StableSeedAndInputDigest()
@@ -655,6 +725,19 @@ internal static class Program
         GarrisonPlan unsafePlan = GarrisonDoctrine.Assign(P3Situation(defenders: defenders, needsRouteSafe: false));
         True(unsafePlan.Assignments.Single(a => a.DefenderId == 4).Role != GarrisonRole.NeedsRelief, "unsafe route blocks relief");
     }
+    private static void P5ReliefUsesRealRoster()
+    {
+        var hungry = Enumerable.Range(1, 10).Select(id => new DefenderCandidate(id,
+            DefenderWeaponClass.LongRanged, 45, false, true, true, false, false)).ToList();
+        var manyPosts = Enumerable.Range(0, 40).Select(id => new DefensivePost("p" + id, "east",
+            new GridPoint(id, 0), 0, 44, true, true, true, false, false, true)).ToList();
+        var plan = GarrisonDoctrine.Assign(P3Situation(defenders: hungry, posts: manyPosts, needsRouteSafe: true));
+        Equal(8, plan.Assignments.Count(a => a.Role == GarrisonRole.NeedsRelief), "eight relieved, two real defenders retained");
+        var unsafePlan = GarrisonDoctrine.Assign(P3Situation(defenders: hungry, posts: manyPosts, needsRouteSafe: false));
+        Equal(0, unsafePlan.Assignments.Count(a => a.Role == GarrisonRole.NeedsRelief), "unsafe relief remains blocked");
+        var routine = GarrisonDoctrine.Assign(P3Situation(defenders: hungry, posts: manyPosts, hostileThreat: false));
+        Equal(9, routine.Assignments.Count(a => a.Role == GarrisonRole.NeedsRelief), "routine retains one awake rotating watch");
+    }
 
     private static void P3InvalidOuterPostsTriggerInnerFallback()
     {
@@ -807,6 +890,72 @@ internal static class Program
             "earlier pawn id cannot claim the same physical mortar post");
     }
 
+    private static void P4EMultipleCrews()
+    {
+        TerrainSnapshot clearanceTerrain = FertileOpen(10, 10);
+        var clearance = P3DefenderRoute.TransitEnvelope(clearanceTerrain,
+            new[] { new GridPoint(4, 4), new GridPoint(4, 5), new GridPoint(5, 5) }, new[] { new GridPoint(5, 4) });
+        True(clearance.Contains(new GridPoint(3, 5)) && !clearance.Contains(new GridPoint(5, 4)), "bounded native corner clearance excludes opaque walls");
+        True(!clearance.Contains(new GridPoint(2, 5)), "not an unbounded exterior permission");
+        GeometryEncounterInput basis = GeometryInput(true);
+        ArtilleryPosition[] artillery = Enumerable.Range(0, 3).Select(i => new ArtilleryPosition(i == 0 ? "mortar" : "mortar-" + i,
+            new GridPoint(8 + i * 2, 10), new GridPoint(8 + i * 2, 9), new GridPoint(7 + i * 2, 8))).ToArray();
+        GeometryEncounterInput Geometry(IEnumerable<ArtilleryPosition> positions) => new GeometryEncounterInput(basis.LayoutDigest,
+            P3EncounterProfiles.ForArtillery(3), basis.Enclosure, basis.PerimeterWalls, basis.Gates,
+            basis.PublicCirculation, basis.MagazineCandidates, artillery[0].Origin, artillery[0].Operating, positions);
+        EncounterPlan geometry = GeometryEncounterPlanner.Plan(Geometry(artillery));
+        Equal(3, geometry.Artillery.Count, "stable gun/post/magazine coordinates");
+        Equal(36, geometry.Supplies.Single(s => s.DefName == "Shell_HighExplosive").Count,
+            "one shared ledger covers each of three guns at two shots per hour over six hours");
+        Equal(2, geometry.Supplies.Single(s => s.DefName == "ReinforcedBarrel").Count, "shared barrel reserve");
+        Equal(geometry.Digest, GeometryEncounterPlanner.Plan(Geometry(artillery)).Digest, "multi-artillery replay");
+        bool duplicateRejected = false;
+        try { GeometryEncounterPlanner.Plan(Geometry(new[] { artillery[0], artillery[0], artillery[2] })); }
+        catch (InvalidOperationException) { duplicateRejected = true; }
+        True(duplicateRejected, "duplicate gun/post/working identity rejected before mutation");
+        DefenderCandidate[] roster = Enumerable.Range(1, 10).Select(id => new DefenderCandidate(id,
+            id <= 2 ? DefenderWeaponClass.LongRanged : DefenderWeaponClass.ShortRanged,
+            id <= 2 ? 45 : 25, true, true, false, false, false)).ToArray();
+        DefensivePost[] guns = Enumerable.Range(0, 3).Select(i => new DefensivePost(i == 0 ? "mortar" : "mortar-" + i,
+            "center", new GridPoint(20 + i * 4, 20), 0, 100, false, true, true, true, false, true)).ToArray();
+        DefensivePost[] direct = Enumerable.Range(0, 6).Select(i => new DefensivePost("line-" + i, "north",
+            new GridPoint(10 + i, 10), 8, 25, true, true, true, false, false, true)).ToArray();
+        GarrisonPlan Assign(IEnumerable<DefenderCandidate> residents, IEnumerable<DefensivePost> posts) =>
+            GarrisonDoctrine.Assign(new GarrisonSituation(1000, residents, posts, true, "north", false, true, true,
+                new GridPoint(20, 18), new GridPoint(21, 18)));
+        GarrisonPlan initial = Assign(roster, guns.Concat(direct));
+        Equal(3, initial.Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "three funded crews");
+        True(initial.Assignments.Where(a => a.Role == GarrisonRole.MortarOperator).All(a => a.DefenderId > 2), "snipers remain direct support");
+        True(initial.Assignments.Where(a => a.PostId.Length > 0).GroupBy(a => a.PostId).All(g => g.Count() == 1), "one pawn per post");
+        Equal(10, initial.Assignments.Count, "no added residents");
+        int lostCrew = initial.Assignments.First(a => a.Role == GarrisonRole.MortarOperator).DefenderId;
+        Equal(3, Assign(roster.Where(d => d.Id != lostCrew), guns.Concat(direct)).Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "reassign from survivors");
+        var survivors = roster.Where(d => d.Id != lostCrew).Select(d =>
+        {
+            var previous = initial.Assignments.Single(a => a.DefenderId == d.Id);
+            return new DefenderCandidate(d.Id, d.WeaponClass, d.WeaponRange, true, true, false, false, false,
+                previous.PostId, previous.Role, previous.AssignedTick);
+        }).ToArray();
+        var replaced = Assign(survivors, guns.Concat(direct));
+        foreach (var healthy in initial.Assignments.Where(a => a.Role == GarrisonRole.MortarOperator && a.DefenderId != lostCrew))
+            Equal(healthy.PostId, replaced.Assignments.Single(a => a.DefenderId == healthy.DefenderId).PostId,
+                "a vacant gun does not steal another healthy gun's operator");
+        Equal(2, Assign(roster, guns.Skip(1).Concat(direct)).Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "destroyed gun releases one role");
+        Equal(0, Assign(roster, direct).Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "exhaustion releases all crew");
+        Equal(2, Assign(roster.Take(4), guns.Concat(direct)).Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "casualty staffing leaves two direct defenders");
+        var logistics = GarrisonDoctrine.Assign(new GarrisonSituation(1000, roster, guns.Concat(direct), true, "north", false, true, true,
+            new GridPoint(20, 18), new GridPoint(21, 18), criticalSupportRequired: true));
+        Equal(1, logistics.Assignments.Count(a => a.Role == GarrisonRole.Support), "one existing funded reserve services low ammunition under threat");
+        Equal(10, logistics.Assignments.Count, "logistics does not add residents");
+        True(logistics.Assignments.Where(a => a.PostId.Length > 0).GroupBy(a => a.PostId).All(g => g.Count() == 1), "logistics cannot double-book guard or mortar posts");
+        var smokeRoster = roster.Select(d => new DefenderCandidate(d.Id, d.WeaponClass, d.WeaponRange, true, true,
+            false, false, false, hasSmokepop: d.Id == 10)).ToArray();
+        var smokeLogistics = GarrisonDoctrine.Assign(new GarrisonSituation(1000, smokeRoster, guns.Concat(direct),
+            true, "north", false, true, true, new GridPoint(20, 18), new GridPoint(21, 18), criticalSupportRequired: true));
+        Equal(GarrisonRole.Support, smokeLogistics.Assignments.Single(a => a.DefenderId == 10).Role,
+            "the existing smoke-equipped reserve supplies critical logistics");
+    }
+
     private static void P3InnerGatePostsBeforeIdleReserve()
     {
         DefenderCandidate[] defenders = Enumerable.Range(1, 8)
@@ -844,6 +993,35 @@ internal static class Program
             "covered endpoints do not excuse a long exposed middle route");
         True(!P3DefenderRoute.Audit(route, route.Take(14).ToArray(), interior,
             new GridPoint[0], new GridPoint[0]).Allowed, "path cannot leave defended area");
+        GridPoint[] layered = Enumerable.Range(0, 111).Select(x => new GridPoint(x, 0)).ToArray();
+        True(P3DefenderRoute.Audit(layered, layered, layered, new GridPoint[0], new GridPoint[0]).Allowed,
+            "live assignments accept the same bounded inter-wall detour as generation");
+        GridPoint[] excessive = Enumerable.Range(0, P3DefenderRoute.MaximumCells + 1).Select(x => new GridPoint(x, 0)).ToArray();
+        Equal("route_length", P3DefenderRoute.Audit(excessive, excessive, excessive,
+            new GridPoint[0], new GridPoint[0]).Reason, "long internal routes still have a hard bound");
+        GridPoint start = new GridPoint(0, 0), entry = new GridPoint(1, 0), center = new GridPoint(10, 0),
+            exit = new GridPoint(10, 10), post = new GridPoint(12, 10);
+        var safePairs = new[] { Tuple.Create(start, entry), Tuple.Create(entry, center),
+            Tuple.Create(center, exit), Tuple.Create(exit, post) };
+        GridPoint[] transferArea = new GridRect(0, 0, 13, 11).Points().ToArray();
+        Func<GridPoint, GridPoint, IReadOnlyList<GridPoint>> paths = (from, to) =>
+        {
+            if (!safePairs.Contains(Tuple.Create(from, to))) return new[] { from, new GridPoint(-1, -1), to };
+            var leg = new List<GridPoint> { from };
+            GridPoint c = from;
+            while (!c.Equals(to))
+            {
+                c = new GridPoint(c.X + Math.Sign(to.X - c.X), c.Z + Math.Sign(to.Z - c.Z));
+                leg.Add(c);
+            }
+            return leg;
+        };
+        Equal(entry, P3DefenderRoute.NextWaypoint(start, post, center, exit, new[] { entry, exit }, paths,
+            transferArea, transferArea, new GridPoint[0], new GridPoint[0]).Value,
+            "cross-front transfer re-enters through its local gate before crossing the compound");
+        True(!P3DefenderRoute.NextWaypoint(start, post, center, exit, new[] { entry, exit }, paths,
+            transferArea, transferArea, new[] { new GridPoint(5, 3) }, new GridPoint[0]).HasValue,
+            "waypoints do not relax exposure limits on the aggregate native path");
     }
 
     private static void P3FieldToCompoundFallback()

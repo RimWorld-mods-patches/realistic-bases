@@ -54,8 +54,8 @@
         <li Class="ThinkNode_ForbidOutsideFlagRadius">
           <maxDistToSquadFlag>7</maxDistToSquadFlag>
           <subNodes>
-            <li Class="ThinkNode_Subtree">
-              <treeDef>SatisfyBasicNeeds</treeDef>
+            <li Class="RealisticBases.AI.ThinkNode_P5AwakePostNeeds">
+              <subNodes><li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li></subNodes>
             </li>
           </subNodes>
         </li>
@@ -70,7 +70,9 @@
     <thinkNode Class="ThinkNode_Priority">
       <subNodes>
         <li Class="RealisticBases.AI.JobGiver_P3ManMortar" />
-        <li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li>
+        <li Class="RealisticBases.AI.ThinkNode_P5AwakePostNeeds">
+          <subNodes><li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li></subNodes>
+        </li>
         <li Class="RealisticBases.AI.JobGiver_P3HoldAssignedPost" />
       </subNodes>
     </thinkNode>
@@ -84,7 +86,9 @@
         <li Class="RealisticBases.AI.JobGiver_P3Support" />
         <li Class="ThinkNode_ForbidOutsideFlagRadius">
           <maxDistToSquadFlag>14</maxDistToSquadFlag>
-          <subNodes><li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li></subNodes>
+          <subNodes><li Class="RealisticBases.AI.ThinkNode_P5AwakePostNeeds">
+            <subNodes><li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li></subNodes>
+          </li></subNodes>
         </li>
         <li Class="RealisticBases.AI.JobGiver_P3HoldAssignedPost" />
       </subNodes>
@@ -96,8 +100,7 @@
     <alwaysShowWeapon>true</alwaysShowWeapon>
     <thinkNode Class="ThinkNode_Priority">
       <subNodes>
-        <li Class="ThinkNode_ForbidOutsideFlagRadius">
-          <maxDistToSquadFlag>14</maxDistToSquadFlag>
+        <li Class="RealisticBases.AI.ThinkNode_P5BoundedNeeds">
           <subNodes><li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li></subNodes>
         </li>
         <li Class="RealisticBases.AI.JobGiver_P3HoldAssignedPost" />
@@ -117,7 +120,9 @@
         </li>
         <li Class="ThinkNode_ForbidOutsideFlagRadius">
           <maxDistToSquadFlag>4</maxDistToSquadFlag>
-          <subNodes><li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li></subNodes>
+          <subNodes><li Class="RealisticBases.AI.ThinkNode_P5AwakePostNeeds">
+            <subNodes><li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li></subNodes>
+          </li></subNodes>
         </li>
         <li Class="RealisticBases.AI.JobGiver_P3HoldAssignedPost" />
       </subNodes>

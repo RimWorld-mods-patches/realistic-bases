@@ -117,7 +117,7 @@ namespace RealisticBases.Planning
 
             // Terrain legality and the excavation ledger.
             if (built.Any(c => grid.At(c) != LayoutCellClass.Open && grid.At(c) != LayoutCellClass.Covered)) errors.Add("built_wall_illegal_terrain");
-            if (outer.Count != layout.OuterWalls.Count() || outer.Any(c => grid.At(c) != LayoutCellClass.Open ||
+            if (outer.Count != layout.OuterWalls.Count() || outer.Any(c => (grid.At(c) != LayoutCellClass.Open && grid.At(c) != LayoutCellClass.Covered) ||
                 terrain[c].Has(TerrainTraits.MapEdge) || built.Contains(c))) errors.Add("outer_wall_illegal_or_duplicate");
             if (natural.Any(c => grid.At(c) != LayoutCellClass.Rock || excavation.Contains(c))) errors.Add("natural_wall_not_intact_rock");
             if (excavation.Any(c => grid.At(c) != LayoutCellClass.Rock)) errors.Add("excavation_not_natural_rock");
@@ -135,13 +135,15 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> boundary = new HashSet<GridPoint>(built.Concat(natural).Concat(gateCells));
             if (enclosure.Any(c => Neighbors(c).Any(n => !enclosure.Contains(n) && !boundary.Contains(n)))) errors.Add("enclosure_not_closed");
             if (boundary.Any(enclosure.Contains)) errors.Add("wall_inside_enclosure");
+            if (P4BPerimeterDepth.Minimum(terrain, layout) < layout.WallLayers)
+                errors.Add("perimeter_breach_depth_below_declared_layers");
 
             // Rooms and corridors.
             HashSet<GridPoint> roomCells = new HashSet<GridPoint>();
             foreach (LayoutRoom room in layout.Rooms)
                 foreach (GridPoint c in room.Bounds.Points())
                     if (!roomCells.Add(c)) errors.Add("room_overlap_" + room.Id);
-            HashSet<GridPoint> courtCells = new HashSet<GridPoint>(layout.Court == null ? Enumerable.Empty<GridPoint>() : layout.Court.Cells);
+            HashSet<GridPoint> courtCells = new HashSet<GridPoint>(layout.Courts.SelectMany(c => c.Cells));
             HashSet<GridPoint> yardCells = new HashSet<GridPoint>();
             foreach (LayoutPowerYard yard in layout.PowerYards)
                 foreach (GridPoint c in yard.Cells)
@@ -208,14 +210,42 @@ namespace RealisticBases.Planning
                 foreach (string turretError in P4BTurretPlanner.Validate(input, layout, layout.Turret))
                     errors.Add("turret_" + turretError);
 
-            foreach (LayoutRoom room in layout.Rooms) ValidateRoom(room, requirements, grid, excavation, retained, extra, reach, errors);
+            foreach (LayoutRoom room in layout.Rooms)
+            {
+                ValidateRoom(room, requirements, grid, excavation, retained, extra, reach, errors);
+                ValidateSeatsAndMedicalShelf(input, room, errors);
+            }
             ValidateCoolersAndPockets(input, layout, grid, enclosure, roomCells, reach, errors);
 
-            if (layout.Court != null)
+            if (layout.Courts.Count > P4EArtillery.Capacity(requirements, input.Equipment.Kit)) errors.Add("mortar_capacity");
+            if (layout.Courts.Select(c => c.RoomId).Distinct().Count() != layout.Courts.Count ||
+                layout.Courts.SelectMany(c => c.Access).Distinct().Count() != layout.Courts.Count) errors.Add("mortar_duplicate_identity");
+            if (layout.Rooms.Count(r => r.Kind == LayoutRoomKind.MortarMagazine) != layout.Courts.Count) errors.Add("mortar_magazine_count");
+            foreach (LayoutFixture court in layout.Courts)
             {
-                if (layout.Court.Cells.Any(c => grid.At(c) != LayoutCellClass.Open || !terrain[c].Has(TerrainTraits.SupportsHeavy)))
+                if (court.Cells.Any(c => grid.At(c) != LayoutCellClass.Open || !terrain[c].Has(TerrainTraits.SupportsHeavy)))
                     errors.Add("court_not_open_sky_heavy");
-                if (!layout.Court.Access.All(reach.Contains)) errors.Add("court_access_disconnected");
+                if (!court.Access.All(reach.Contains)) errors.Add("court_access_disconnected");
+                LayoutRoom[] stores = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.MortarMagazine && r.Id == court.RoomId).ToArray();
+                if (stores.Length != 1) errors.Add("mortar_magazine_count");
+                else
+                {
+                    LayoutRoom store = stores[0];
+                    if (store.Bounds.Width != 3 || store.Bounds.Height != 3 || store.Fixtures.Count != 1 ||
+                        store.Fixtures[0].Kind != LayoutFixtureKind.Shelf || store.Fixtures[0].DefName != "ShelfSmall" ||
+                        !store.Fixtures[0].Cells.SequenceEqual(store.Interior.Points())) errors.Add("mortar_magazine_geometry");
+                    if (!store.Bounds.Points().All(layout.ConstructedRoof.Contains) ||
+                        court.Cells.Concat(court.Access).Any(layout.ConstructedRoof.Contains)) errors.Add("mortar_magazine_roof");
+                    if (store.Interior.Width == 1 && store.Interior.Height == 1 && court.Access.Count == 1)
+                    {
+                        GridPoint stock = store.Interior.Points().First(), op = court.Access.First();
+                        if (Math.Abs(store.DoorOutside.X - op.X) + Math.Abs(store.DoorOutside.Z - op.Z) > 1 ||
+                            (stock.X - op.X) * court.Facing.X + (stock.Z - op.Z) * court.Facing.Z < 0 ||
+                            (op.X - store.Door.X) * -store.Facing.X + (op.Z - store.Door.Z) * -store.Facing.Z <= 0)
+                            errors.Add("mortar_magazine_not_beside_operating_position");
+                    }
+                    if (MagazineLoadingRoute(input, layout, court).Count == 0) errors.Add("mortar_magazine_loading_route");
+                }
             }
 
             // Gates, P4 gatehouse crossings and exterior approach routes.
@@ -339,7 +369,7 @@ namespace RealisticBases.Planning
                 int needed = room.Kind == LayoutRoomKind.Power && layout.Power != null ? layout.Power.Generators : room.Capacity;
                 if (realized == null || realized.Capacity < needed) errors.Add("capacity_" + room.Id);
             }
-            if (layout.Rooms.Count != demand.Rooms.Count) errors.Add("room_count");
+            if (layout.Rooms.Count(r => r.Kind != LayoutRoomKind.MortarMagazine) != demand.Rooms.Count) errors.Add("room_count");
             int beds = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Barracks || r.Kind == LayoutRoomKind.Bedroom).Sum(r => r.Capacity);
             if (beds < requirements.Residents) errors.Add("housing_beds");
             if (kit.Powered)
@@ -376,12 +406,16 @@ namespace RealisticBases.Planning
                 else if (!catalog.IsLegal(def, kit.Stage)) errors.Add("loadout_illegal_" + item.DefName);
                 if (item.Stuff != null && !catalog.IsLegal(item.Stuff, kit.Stage)) errors.Add("loadout_illegal_stuff_" + item.DefName + "_" + item.Stuff);
                 if (item.Count <= 0) errors.Add("loadout_count_" + item.DefName);
+                if (item.Quality.HasValue && !def.SupportsQuality) errors.Add("loadout_quality_unsupported_" + item.DefName);
             }
             if (loadout.Residents.Count != input.Requirements.Residents) errors.Add("loadout_resident_count");
             if (!loadout.Residents.Any(r => r.Role == LoadoutRole.RangedLine)) errors.Add("loadout_no_ranged_line");
             if (kit.Stage.Level < SettlementTechStageLevel.IndustrialMid && loadout.Residents.Any(r => r.Role == LoadoutRole.Heavy)) errors.Add("loadout_heavy_below_mid");
             if (layout != null && layout.Court != null && input.Requirements.Residents > 1 && !loadout.Residents.Any(r => r.Role == LoadoutRole.Support))
                 errors.Add("loadout_no_mortar_crew");
+            if (layout != null && layout.Courts.Count > 0 && loadout.Residents.Count(r => r.Weapon != null &&
+                catalog.TryGet(r.Weapon.DefName, out CatalogDef gun) && gun.MaximumRange > 0) < layout.Courts.Count + 2)
+                errors.Add("loadout_artillery_direct_staffing");
             if (loadout.Residents.Count(r => r.Elite) > 1) errors.Add("loadout_elite_count");
             bool cold = climate.HeatingRequired && !climate.CoolingRequired;
             foreach (ResidentLoadout resident in loadout.Residents)
@@ -396,8 +430,11 @@ namespace RealisticBases.Planning
                     errors.Add("hot_climate_cold_gear_" + resident.Index);
                 if (cold && !worn.Any(d => d.ApparelLayers.Contains("Shell"))) errors.Add("cold_without_shell_" + resident.Index);
             }
-            if (loadout.Success && loadout.EquipmentValue > input.Requirements.EquipmentValueLimit) errors.Add("equipment_budget");
-            if (loadout.EquipmentValueLimit != input.Requirements.EquipmentValueLimit) errors.Add("equipment_limit_mismatch");
+            int utilityTopUp = loadout.EquipmentValueLimit - input.Requirements.EquipmentValueLimit;
+            int smokeValue = loadout.Residents.Where(r => r.Utility?.DefName == "Apparel_SmokepopBelt").Sum(r => r.Utility.Value);
+            if (loadout.Success && loadout.EquipmentValue > loadout.EquipmentValueLimit) errors.Add("equipment_budget");
+            if (utilityTopUp < 0 || utilityTopUp > input.Requirements.LogisticsUtilityValueLimit || utilityTopUp > smokeValue)
+                errors.Add("equipment_limit_mismatch");
             return new ReadOnlyCollection<string>(errors.Distinct().ToList());
         }
 
@@ -450,7 +487,8 @@ namespace RealisticBases.Planning
         {
             string id = room.Id;
             GridRect interior = room.Interior;
-            if (interior.Width < LayoutDemandModel.MinInterior || interior.Height < LayoutDemandModel.MinInterior ||
+            int minimum = room.Kind == LayoutRoomKind.MortarMagazine ? 1 : LayoutDemandModel.MinInterior;
+            if (interior.Width < minimum || interior.Height < minimum ||
                 Math.Max(interior.Width, interior.Height) > LayoutDemandModel.MaxInterior) errors.Add("room_size_" + id);
             bool corner = (room.Door.X == room.Bounds.MinX || room.Door.X == room.Bounds.MaxX) && (room.Door.Z == room.Bounds.MinZ || room.Door.Z == room.Bounds.MaxZ);
             if (!room.IsEdge(room.Door) || corner) errors.Add("door_not_on_wall_" + id);
@@ -497,7 +535,7 @@ namespace RealisticBases.Planning
                 if ((fixture.Kind == LayoutFixtureKind.Stove || fixture.Kind == LayoutFixtureKind.Workbench) && !BackToWall(room, fixture))
                     errors.Add("workbench_not_against_wall_" + label);
             }
-            if (!room.Fixtures.Any(f => f.Role == SettlementRole.Light)) errors.Add("lighting_" + id);
+            if (room.Kind != LayoutRoomKind.MortarMagazine && !room.Fixtures.Any(f => f.Role == SettlementRole.Light)) errors.Add("lighting_" + id);
             if (room.Kind == LayoutRoomKind.Freezer && !room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.WallCooler)) errors.Add("freezer_cooling_" + id);
             if (LayoutDemandModel.IsLiving(room.Kind))
             {
@@ -508,6 +546,31 @@ namespace RealisticBases.Planning
             }
             if (room.Kind != LayoutRoomKind.Power && room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Battery || f.Kind == LayoutFixtureKind.Generator))
                 errors.Add("power_equipment_outside_power_room_" + id);
+        }
+
+        private static void ValidateSeatsAndMedicalShelf(ProceduralLayoutInput input, LayoutRoom room, List<string> errors)
+        {
+            LayoutFixture[] seats = room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.Chair).ToArray();
+            if (seats.SelectMany(f => f.Cells).Distinct().Count() != seats.Length) errors.Add("duplicate_seat_" + room.Id);
+            foreach (LayoutFixture seat in seats)
+                if (!input.Catalog.TryGet(seat.DefName, out CatalogDef def) || !def.IsSittable ||
+                    def.SizeX != 1 || def.SizeZ != 1 || def.Passability != CatalogPassability.Standable)
+                    errors.Add("invalid_seat_" + room.Id);
+            foreach (LayoutFixture bench in room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.Workbench || f.Kind == LayoutFixtureKind.Stove))
+            {
+                if (!input.Catalog.TryGet(bench.DefName, out CatalogDef def) || !def.SupportsSeatedWork ||
+                    !def.HasInteractionCell || input.Equipment.Kit.DefFor(SettlementRole.Seat) == null) continue;
+                if (bench.Access.Count != 1 || seats.Count(s => s.Cells.Contains(bench.Access[0]) && s.Rotation == bench.Rotation) != 1)
+                    errors.Add("work_seat_missing_or_misoriented_" + room.Id);
+            }
+            foreach (LayoutFixture table in room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.Table))
+                foreach (GridPoint access in table.Access)
+                    if (seats.Count(s => s.Cells.Contains(access) && table.Cells.Contains(
+                        new GridPoint(access.X - s.Facing.X, access.Z - s.Facing.Z))) != 1)
+                        errors.Add("dining_seat_missing_or_misoriented_" + room.Id);
+            if (room.Kind == LayoutRoomKind.Medical && input.Equipment.Kit.DefFor(SettlementRole.MedicalStorage) != null &&
+                !room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Shelf && f.Role == SettlementRole.MedicalStorage))
+                errors.Add("medical_shelf_missing_" + room.Id);
         }
 
         // Vanilla temperature semantics on the final plan: each cooler cools its own room
@@ -590,11 +653,37 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> enclosure = new HashSet<GridPoint>(layout.Enclosure);
             HashSet<GridPoint> excavation = new HashSet<GridPoint>(layout.Excavation);
             HashSet<GridPoint> blocked = new HashSet<GridPoint>(layout.Rooms.SelectMany(r => r.Bounds.Points()).Concat(layout.ExtraObstacles)
-                .Concat(layout.Court == null ? Enumerable.Empty<GridPoint>() : layout.Court.Cells)
+                .Concat(layout.Courts.SelectMany(c => c.Cells))
                 .Concat(layout.ExhaustPockets.Select(p => p.Cell)).Concat(layout.ExhaustPocketWalls));
             if (layout.Gates.Count == 0) return new GridPoint[0];
             return Flood(layout.Gates[0].Inside, c => enclosure.Contains(c) && !blocked.Contains(c) &&
                 (excavation.Contains(c) || grid.At(c) == LayoutCellClass.Open || grid.At(c) == LayoutCellClass.Covered));
+        }
+
+        public static IReadOnlyList<GridPoint> MagazineLoadingRoute(ProceduralLayoutInput input, ProceduralLayout layout, LayoutFixture court = null)
+        {
+            court = court ?? layout.Court;
+            LayoutRoom store = layout.Rooms.FirstOrDefault(r => r.Kind == LayoutRoomKind.MortarMagazine && r.Id == court?.RoomId);
+            if (store == null || court == null || court.Access.Count != 1) return new GridPoint[0];
+            var allowed = new HashSet<GridPoint>(PublicCirculation(input, layout));
+            GridPoint start = court.Access.Single(), end = store.DoorOutside;
+            if (!allowed.Contains(start) || !allowed.Contains(end)) return new GridPoint[0];
+            var previous = new Dictionary<GridPoint, GridPoint> { [start] = start };
+            var queue = new Queue<GridPoint>(); queue.Enqueue(start);
+            while (queue.Count > 0)
+            {
+                GridPoint c = queue.Dequeue();
+                if (c.Equals(end))
+                {
+                    var route = new List<GridPoint> { c };
+                    while (!c.Equals(start)) { c = previous[c]; route.Add(c); }
+                    route.Reverse();
+                    return route.Count <= 2 ? route.AsReadOnly() : (IReadOnlyList<GridPoint>)new GridPoint[0];
+                }
+                foreach (GridPoint n in Neighbors(c))
+                    if (allowed.Contains(n) && !previous.ContainsKey(n)) { previous[n] = c; queue.Enqueue(n); }
+            }
+            return new GridPoint[0];
         }
 
         private static HashSet<GridPoint> Flood(GridPoint start, Func<GridPoint, bool> allowed)
@@ -712,8 +801,8 @@ namespace RealisticBases.Planning
                         room.Id, false, 0));
                 }
             }
-            if (layout.Court != null)
-                foreach (GridPoint cell in layout.Court.Cells)
+            foreach (LayoutFixture court in layout.Courts)
+                foreach (GridPoint cell in court.Cells)
                     placements.Add(new PhysicalPlacement(PhysicalPlacementKind.Cover, "MortarCourtReservation", string.Empty, cell, "North", "court", false, 0));
             foreach (LayoutPowerYard yard in layout.PowerYards)
                 foreach (GridPoint cell in yard.Cells)
@@ -748,6 +837,7 @@ namespace RealisticBases.Planning
                 case LayoutRoomKind.Pantry: return FacilityKind.Pantry;
                 case LayoutRoomKind.Dining: return FacilityKind.DiningRecreation;
                 case LayoutRoomKind.Workshop: return FacilityKind.Workshop;
+                case LayoutRoomKind.Laboratory: return FacilityKind.Laboratory;
                 case LayoutRoomKind.Storage: return FacilityKind.BulkStorage;
                 default: return FacilityKind.Power;
             }

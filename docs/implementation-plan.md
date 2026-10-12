@@ -193,7 +193,7 @@ Commit P4D.0 source/native baselines, P4D.1 pure contracts, P4D.2 bandit integra
 
 ### P4E — Small adjustments
 
-**Status:** planned and authorized as the next implementation milestone after completed P4D. Detailed checkpoints, resource rules and acceptance: [P4E facility and defense plan](p4e-facilities-plan.md). The six user requests below remain the scope authority.
+**Status:** complete (2026-10-12); P4E.0–P4E.5 verified, with final recovery, warehouse fetching and Core/GL evidence in the findings. Laboratories are decorative, with no NPC research progression/jobs. Detailed checkpoints, resource rules and acceptance: [P4E facility and defense plan](p4e-facilities-plan.md). The six user requests below remain the scope authority.
 
 1. Check which rooms are still missing the temperature control. For example, a workshop.
 2. Add a missing laboratory room for each eligible level with reasonable equipment (should be based on the research tree levels).
@@ -224,6 +224,9 @@ The defense-budget increase is explicitly authorized here; choose a bounded docu
 **Exit:** all six requests have validated production behavior: observed work-room thermal control and eligible labs, functional oriented seating and medicine shelves, accessible finite mortar stores with distinct crews up to the roster cap, and an increased useful ordinary turret defense including live autocannon operation. Relevant full suites/build, old/new active reload, late rollback/retry, representative terrain/compatibility and P4D regressions pass; findings and limitations are recorded.
 
 ### P5 — Encounter supplies, trade stock, and persistent consequences
+
+**Status:** authorized and in progress (2026-10-12), from completed P4E `be39af9`.
+See [P5 checkpoint plan](p5-encounter-plan.md) and [P5 findings](p5-findings.md).
 
 **Depends on:** P3, P4, P4A and P4B. Revised by the user on 2026-09-20; [supply and MVP scope](supply-and-mvp-scope.md) defines the detailed contract.
 

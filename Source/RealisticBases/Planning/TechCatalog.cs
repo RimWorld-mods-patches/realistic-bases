@@ -36,7 +36,9 @@ namespace RealisticBases.Planning
             string designationCategory = null, bool isTrap = false, IEnumerable<string> producedAt = null, bool raw = false, int stackLimit = 1, double workToMake = 0,
             string turretGunDefName = null, double minimumRange = 0, double maximumRange = 0,
             double fuelCapacity = 0, double fuelMultiplier = 0, double initialFuelPercent = 0,
-            double fuelPerShot = 0, bool fuelFactorByDifficulty = false, double explosionRadius = 0, double combatPower = 0)
+            double fuelPerShot = 0, bool fuelFactorByDifficulty = false, double explosionRadius = 0, double combatPower = 0,
+            IEnumerable<string> linkableFacilities = null, double facilityMaxDistance = 0, bool isSittable = false,
+            bool supportsSeatedWork = false, bool? supportsQuality = null)
         {
             if (string.IsNullOrEmpty(defName)) throw new ArgumentNullException(nameof(defName));
             if (sizeX < 1 || sizeZ < 1) throw new ArgumentOutOfRangeException(nameof(sizeX));
@@ -91,6 +93,12 @@ namespace RealisticBases.Planning
             FuelFactorByDifficulty = fuelFactorByDifficulty;
             ExplosionRadius = explosionRadius;
             CombatPower = combatPower;
+            LinkableFacilities = List(linkableFacilities);
+            FacilityMaxDistance = facilityMaxDistance;
+            IsSittable = isSittable;
+            SupportsQuality = supportsQuality ?? (category == CatalogCategory.Weapon || category == CatalogCategory.Apparel);
+            SupportsSeatedWork = supportsSeatedWork || ThingClass == "Building_WorkTable" ||
+                ThingClass == "Building_WorkTable_HeatPush" || ThingClass == "Building_ResearchBench";
         }
 
         public string DefName { get; }
@@ -143,6 +151,11 @@ namespace RealisticBases.Planning
         public bool FuelFactorByDifficulty { get; }
         public double ExplosionRadius { get; }
         public double CombatPower { get; }
+        public IReadOnlyList<string> LinkableFacilities { get; }
+        public double FacilityMaxDistance { get; }
+        public bool IsSittable { get; }
+        public bool SupportsSeatedWork { get; }
+        public bool SupportsQuality { get; }
         public bool AutonomousTurret => TurretGunDefName.Length > 0 && MaximumRange > 0 && BasePowerConsumption > 0;
         public bool GeneratesPower => BasePowerConsumption < 0;
         public bool Blocking => Passability == CatalogPassability.Impassable;
@@ -186,6 +199,11 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, StackLimit);
             hash = AddScaled(hash, WorkToMake);
             hash = StableHash.Add(hash, TurretGunDefName);
+            hash = AddList(hash, LinkableFacilities);
+            hash = AddScaled(hash, FacilityMaxDistance);
+            hash = StableHash.Add(hash, IsSittable ? 1 : 0);
+            hash = StableHash.Add(hash, SupportsSeatedWork ? 1 : 0);
+            hash = StableHash.Add(hash, SupportsQuality ? 1 : 0);
             foreach (double value in new[] { MinimumRange, MaximumRange, FuelCapacity, FuelMultiplier,
                 InitialFuelPercent, FuelPerShot, ExplosionRadius, CombatPower }) hash = AddScaled(hash, value);
             return StableHash.Add(hash, FuelFactorByDifficulty ? 1 : 0);

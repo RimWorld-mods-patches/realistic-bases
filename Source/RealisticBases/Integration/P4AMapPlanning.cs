@@ -22,9 +22,12 @@ namespace RealisticBases.Integration
     public static class P4AMapPlanner
     {
         private static TechCatalog cachedCatalog;
+        private static float cachedMaintenanceFactor = float.NaN;
         // Developer-action override for one disposable generation only. The
         // faction's persisted stage remains unchanged for ordinary maps.
         public static SettlementTechStageLevel? DebugStageNext;
+        public static int? DebugWealthNext;
+        public static int? DebugMortarBiasNext;
 
         public static P4AMapPlanningRun Run(Map map, Settlement settlement, int requestedWallLayers)
         {
@@ -48,14 +51,30 @@ namespace RealisticBases.Integration
             LayoutLocalResources resources = CaptureResources(map);
             LayoutClimate climate = CaptureClimate(map);
             int wealthPercent = worldState.GetOrCreateOrdinaryWealthPercent(settlement, seed);
+            if (DebugWealthNext.HasValue)
+            {
+                if (!RealisticBases.Diagnostics.P4DQuestDebugActions.Disposable)
+                    throw new InvalidOperationException("P4E wealth override requires disposable profile");
+                wealthPercent = DebugWealthNext.Value;
+                DebugWealthNext = null;
+                worldState.GetOrCreate(settlement.ID, settlement.Faction).ordinaryWealthPercent = wealthPercent;
+                stageMode += "/debug-funded-wealth";
+            }
             OrdinarySettlementBudget populationBudget = wealthPercent == 0 ? null :
                 OrdinarySettlementPopulation.Create(profile, stage, climate, wealthPercent);
             LayoutRequirements requirements = LayoutRequirements.FromProfile(profile, climate, stage: stage,
-                populationBudget: populationBudget);
+                populationBudget: populationBudget, mortarBiasPercent: DebugMortarBiasNext);
+            DebugMortarBiasNext = null;
             int targetLayers = requestedWallLayers >= 1 && requestedWallLayers <= 3 ? requestedWallLayers :
                 P4BLayerPolicy.Select(seed, stage.Level, requirements.EquipmentValueLimit,
                     requirements.ImportValueLimit, requirements.Residents);
-            TechCatalog catalog = cachedCatalog ?? (cachedCatalog = P4ARuntimeCatalog.Capture());
+            float maintenanceFactor = Find.Storyteller?.difficulty?.maintenanceCostFactor ?? 1f;
+            if (cachedCatalog == null || cachedMaintenanceFactor != maintenanceFactor)
+            {
+                cachedCatalog = P4ARuntimeCatalog.Capture();
+                cachedMaintenanceFactor = maintenanceFactor;
+            }
+            TechCatalog catalog = cachedCatalog;
             ProceduralLayoutInput input = null;
             ProceduralLayoutResult result = null;
             int wallLayers = targetLayers;
@@ -65,8 +84,8 @@ namespace RealisticBases.Integration
                 input = new ProceduralLayoutInput(requirements, terrain, seed, catalog,
                     new LayoutFortificationReservation(wallLayers), resources: resources);
                 result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
-                if (result.Success && (wallLayers == 1 || result.Layout.OuterSections.Any(s => s.Layer == wallLayers - 1))) break;
-                if (wallLayers > 1) layerFallback = result.Success ? "no_eligible_outer_section" : result.RejectionCode ?? "plan_rejected";
+                if (result.Success && P4BPerimeterDepth.Minimum(terrain, result.Layout) == wallLayers) break;
+                if (wallLayers > 1) layerFallback = result.Success ? "insufficient_perimeter_breach_depth" : result.RejectionCode ?? "plan_rejected";
             }
             string terrainStats = result.Success ? string.Empty : " terrainCells=" + terrain.Width * terrain.Height +
                 " standable=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Standable)) +
@@ -82,6 +101,9 @@ namespace RealisticBases.Integration
                 " residents=" + requirements.Residents + " populationMode=" + (populationBudget == null ? "legacy-profile" : OrdinarySettlementPopulation.Version) +
                 " wealthPercent=" + wealthPercent + " equipmentBudget=" + requirements.EquipmentValueLimit +
                 " importBudget=" + requirements.ImportValueLimit +
+                " baseImportBudget=" + (populationBudget?.BaseImportValue ?? requirements.ImportValueLimit) +
+                " defenseAllowancePercent=" + (populationBudget?.DefenseAllowancePercent ?? 100) +
+                " defenseReserveWatts=" + requirements.DefenseReserveWatts +
                 " effectiveLayers=" + input.Fortification.WallLayers + " layerFallback=" + layerFallback +
                 " layerMode=" + (requestedWallLayers == 0 ? "tech-budget-weighted" : "debug-override") +
                 " catalogDefs=" + catalog.Defs.Count + " catalogResearch=" + catalog.Research.Count +

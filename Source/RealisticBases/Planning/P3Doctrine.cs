@@ -96,7 +96,7 @@ namespace RealisticBases.Planning
         public DefenderCandidate(int id, DefenderWeaponClass weaponClass, int weaponRange,
             bool canOperateMortar, bool canSupport, bool needsFood, bool needsRest, bool needsTending,
             string previousPostId = null, GarrisonRole? previousRole = null, int lastAssignmentTick = int.MinValue,
-            GridPoint? currentCell = null)
+            GridPoint? currentCell = null, bool hasSmokepop = false)
         {
             if (id <= 0 || weaponRange < 0) throw new ArgumentOutOfRangeException();
             Id = id;
@@ -111,6 +111,7 @@ namespace RealisticBases.Planning
             PreviousRole = previousRole;
             LastAssignmentTick = lastAssignmentTick;
             CurrentCell = currentCell;
+            HasSmokepop = hasSmokepop;
         }
 
         public int Id { get; }
@@ -118,6 +119,7 @@ namespace RealisticBases.Planning
         public int WeaponRange { get; }
         public bool CanOperateMortar { get; }
         public bool CanSupport { get; }
+        public bool HasSmokepop { get; }
         public bool NeedsFood { get; }
         public bool NeedsRest { get; }
         public bool NeedsTending { get; }
@@ -184,7 +186,7 @@ namespace RealisticBases.Planning
             IEnumerable<GridPoint> hostileCells = null, IEnumerable<GridPoint> opaqueCells = null,
             IEnumerable<string> safeTransferPosts = null, int threatSeverity = 0, GridPoint? reserveStage = null,
             bool fieldPenetrated = false, bool compoundPenetrated = false,
-            IEnumerable<string> fieldFallbackPosts = null)
+            IEnumerable<string> fieldFallbackPosts = null, bool criticalSupportRequired = false)
         {
             if (routineSupportWorkers < 0) throw new ArgumentOutOfRangeException(nameof(routineSupportWorkers));
             Tick = tick;
@@ -208,6 +210,7 @@ namespace RealisticBases.Planning
             FieldPenetrated = fieldPenetrated;
             CompoundPenetrated = compoundPenetrated;
             FieldFallbackPosts = new HashSet<string>(fieldFallbackPosts ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
+            CriticalSupportRequired = criticalSupportRequired;
         }
 
         public int Tick { get; }
@@ -229,6 +232,7 @@ namespace RealisticBases.Planning
         public bool FieldPenetrated { get; }
         public bool CompoundPenetrated { get; }
         public IReadOnlyCollection<string> FieldFallbackPosts { get; }
+        public bool CriticalSupportRequired { get; }
     }
 
     public static class GarrisonDoctrine
@@ -247,35 +251,56 @@ namespace RealisticBases.Planning
             if (state != GarrisonState.Routine && validPosts.Count == 0) state = GarrisonState.InnerFallback;
 
             HashSet<string> occupied = new HashSet<string>(StringComparer.Ordinal);
-            HashSet<int> routineSupport = new HashSet<int>(state == GarrisonState.Routine
+            HashSet<int> relieved = ReliefCandidates(situation, state);
+            HashSet<int> routineSupport = new HashSet<int>(state == GarrisonState.Routine ||
+                situation.CriticalSupportRequired && state != GarrisonState.InnerFallback &&
+                    situation.Defenders.Count(d => !d.NeedsRelief) >= 4
                 ? situation.Defenders.Where(d => d.CanSupport && !d.NeedsRelief)
-                    .OrderBy(d => d.CanOperateMortar)
+                    .OrderBy(d => d.PreviousRole == GarrisonRole.MortarOperator && d.CanOperateMortar)
+                    .ThenByDescending(d => d.HasSmokepop)
+                    .ThenBy(d => d.CanOperateMortar)
+                    .ThenBy(d => d.PreviousRole == GarrisonRole.Support || d.PreviousRole == GarrisonRole.GateReserve ? 0 :
+                        d.PreviousRole == GarrisonRole.MortarOperator ? 2 : 1)
                     .ThenBy(d => d.WeaponClass == DefenderWeaponClass.LongRanged)
                     .ThenBy(d => d.WeaponRange)
                     .ThenBy(d => d.Id)
                     .Take(situation.RoutineSupportWorkers).Select(d => d.Id)
                 : Enumerable.Empty<int>());
-            DefensivePost mortarPost = state == GarrisonState.InnerFallback ? null :
-                validPosts.FirstOrDefault(p => p.Mortar);
-            DefenderCandidate mortarOperator = mortarPost == null ? null : situation.Defenders
-                .Where(d => !routineSupport.Contains(d.Id) && !d.NeedsRelief && Compatible(d, mortarPost))
-                .OrderBy(d => d.PreviousRole == GarrisonRole.MortarOperator ? 0 : 1)
-                .ThenBy(d => d.WeaponClass == DefenderWeaponClass.LongRanged)
-                .ThenBy(d => d.WeaponRange).ThenBy(d => d.Id).FirstOrDefault();
-            if (mortarOperator != null) occupied.Add(mortarPost.Id);
+            var crews = new Dictionary<int, DefensivePost>();
+            foreach (DefensivePost mortarPost in validPosts.Where(p => p.Mortar).OrderBy(p => p.Id, StringComparer.Ordinal))
+            {
+                // Leave two useful direct defenders before reserving more
+                // artillery. Losses release surplus guns rather than add pawns.
+                if (state == GarrisonState.InnerFallback || situation.Defenders.Count(d => !d.NeedsRelief &&
+                    !routineSupport.Contains(d.Id) && !crews.ContainsKey(d.Id)) <= (crews.Count == 0 ? 1 : 2)) break;
+                DefenderCandidate crew = situation.Defenders.Where(d => !routineSupport.Contains(d.Id) &&
+                    !crews.ContainsKey(d.Id) && !d.NeedsRelief && Compatible(d, mortarPost))
+                    .OrderBy(d => d.PreviousPostId == mortarPost.Id ? 0 : 1)
+                    .ThenBy(d => d.PreviousRole == GarrisonRole.MortarOperator ? 1 : 0)
+                    .ThenBy(d => d.HasSmokepop)
+                    .ThenBy(d => d.WeaponClass == DefenderWeaponClass.LongRanged)
+                    .ThenBy(d => d.WeaponRange).ThenBy(d => d.Id).FirstOrDefault();
+                if (crew == null) continue;
+                crews.Add(crew.Id, mortarPost);
+                occupied.Add(mortarPost.Id);
+            }
+            // Unfunded/unavailable artillery posts must not be picked by the
+            // ordinary best-post path after the exclusive crew reservation.
+            validPosts = validPosts.Where(p => !p.Mortar || occupied.Contains(p.Id)).ToList();
             DefenderCandidate mobileReserve = state == GarrisonState.Routine || state == GarrisonState.InnerFallback ||
+                routineSupport.Count > 0 ||
                 situation.Defenders.Count(d => !d.NeedsRelief) < 5 ? null : situation.Defenders
-                .Where(d => d.Id != mortarOperator?.Id && !routineSupport.Contains(d.Id) && !d.NeedsRelief &&
+                .Where(d => !crews.ContainsKey(d.Id) && !routineSupport.Contains(d.Id) && !d.NeedsRelief &&
                     d.WeaponClass != DefenderWeaponClass.Melee)
                 .OrderBy(d => d.WeaponClass == DefenderWeaponClass.LongRanged)
                 .ThenBy(d => d.WeaponRange).ThenBy(d => d.Id).FirstOrDefault();
             if (mobileReserve != null && situation.Defenders.Count(d => !d.NeedsRelief &&
-                d.WeaponClass != DefenderWeaponClass.Melee && d.Id != mortarOperator?.Id) < 3)
+                d.WeaponClass != DefenderWeaponClass.Melee && !crews.ContainsKey(d.Id)) < 3)
                 mobileReserve = null;
             List<GarrisonAssignment> assignments = new List<GarrisonAssignment>();
             foreach (DefenderCandidate defender in situation.Defenders)
             {
-                if (MustRelieve(defender, situation, state))
+                if (relieved.Contains(defender.Id))
                 {
                     assignments.Add(new GarrisonAssignment(defender.Id, GarrisonRole.NeedsRelief, string.Empty,
                         string.Empty, situation.SupportCenter, situation.Tick, "safe_needs_relief"));
@@ -285,14 +310,14 @@ namespace RealisticBases.Planning
                 if (routineSupport.Contains(defender.Id))
                 {
                     assignments.Add(new GarrisonAssignment(defender.Id, GarrisonRole.Support, string.Empty,
-                        string.Empty, situation.SupportCenter, situation.Tick, "routine_support"));
+                        string.Empty, situation.SupportCenter, situation.Tick,
+                        state == GarrisonState.Routine ? "routine_support" : "funded_reserve_critical_logistics"));
                     continue;
                 }
 
-                if (defender.Id == mortarOperator?.Id)
+                if (crews.TryGetValue(defender.Id, out DefensivePost crewPost))
                 {
-                    occupied.Add(mortarPost.Id);
-                    assignments.Add(PostAssignment(defender, mortarPost, state, situation.Tick,
+                    assignments.Add(PostAssignment(defender, crewPost, state, situation.Tick,
                         "funded_mortar_operator"));
                     continue;
                 }
@@ -306,7 +331,7 @@ namespace RealisticBases.Planning
                         !situation.FieldFallbackPosts.Contains(previous.Id)) && validPosts.Any(p =>
                             !occupied.Contains(p.Id) && situation.FieldFallbackPosts.Contains(p.Id) &&
                             Compatible(defender, p));
-                if (previous != null && cooldown && !urgentFieldFallback && !MustRelieve(defender, situation, state))
+                if (previous != null && cooldown && !urgentFieldFallback && !relieved.Contains(defender.Id))
                 {
                     occupied.Add(previous.Id);
                     assignments.Add(PostAssignment(defender, previous, state, situation.Tick, "stable_assignment"));
@@ -370,11 +395,22 @@ namespace RealisticBases.Planning
             return GarrisonState.HoldSectors;
         }
 
-        private static bool MustRelieve(DefenderCandidate defender, GarrisonSituation situation, GarrisonState state)
+        private static HashSet<int> ReliefCandidates(GarrisonSituation situation, GarrisonState state)
         {
-            if (!defender.NeedsRelief || !situation.NeedsRouteSafe) return false;
-            int available = situation.Defenders.Count(d => !d.NeedsRelief);
-            return state == GarrisonState.Routine || available >= Math.Max(1, situation.Posts.Count(p => p.IsValid && !p.Mortar) / 2);
+            if (!situation.NeedsRouteSafe) return new HashSet<int>();
+            // Unstaffed geometric options do not increase the real garrison.
+            // Even if everybody is hungry, release a bounded rotating subset
+            // rather than deadlocking until all healthy candidates disappear.
+            int minimumOnDuty = Math.Min(2, Math.Max(1, situation.Defenders.Count / 2));
+            // Keep one awake watch in routine operation: native defeat checks
+            // do not count sleeping pawns as active defenders. Rotate that watch
+            // as rested residents return, instead of making everybody sleep.
+            int capacity = state == GarrisonState.Routine ? Math.Max(0, situation.Defenders.Count - 1) :
+                Math.Max(0, situation.Defenders.Count - minimumOnDuty);
+            return new HashSet<int>(situation.Defenders.Where(d => d.NeedsRelief)
+                .OrderByDescending(d => d.NeedsFood).ThenByDescending(d => d.NeedsTending)
+                .ThenByDescending(d => d.PreviousRole == GarrisonRole.NeedsRelief)
+                .ThenBy(d => d.Id).Take(capacity).Select(d => d.Id));
         }
 
         private static DefensivePost SelectPost(DefenderCandidate defender, IEnumerable<DefensivePost> posts,

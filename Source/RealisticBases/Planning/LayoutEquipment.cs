@@ -5,6 +5,57 @@ using System.Linq;
 
 namespace RealisticBases.Planning
 {
+    public static class P4EArtillery
+    {
+        public static int Capacity(LayoutRequirements requirements, LayoutKit kit) =>
+            requirements.CompactQuestCamp || !kit.MortarCapable ? 0 :
+            requirements.Residents >= 10 ? 3 : requirements.Residents == 9 ? 2 : 1;
+        public static string PostId(int index) => index == 0 ? "mortar" : "mortar-" + index;
+
+        public static int ConstructionValue(TechCatalog catalog, string defName)
+        {
+            if (!catalog.TryGet(defName, out CatalogDef def)) return int.MaxValue;
+            double value = 0;
+            foreach (var cost in def.CostList)
+            {
+                if (!catalog.TryGet(cost.Key, out CatalogDef item)) return int.MaxValue;
+                value += item.MarketValue * cost.Value;
+            }
+            if (def.CostStuffCount > 0)
+            {
+                if (!catalog.TryGet("Steel", out CatalogDef steel)) return int.MaxValue;
+                value += steel.MarketValue * def.CostStuffCount;
+            }
+            return (int)Math.Ceiling(value);
+        }
+
+        // A shared encounter reserve, not a reserve per mortar. Embedded
+        // barrels and construction are charged exactly once per gun.
+        public static int ImportValue(TechCatalog catalog, int guns)
+        {
+            if (guns == 0) return 0;
+            if (!catalog.TryGet("Turret_Mortar", out CatalogDef gun)) return int.MaxValue;
+            double value = 0;
+            foreach (var cost in gun.CostList)
+            {
+                if (!catalog.TryGet(cost.Key, out CatalogDef material)) return int.MaxValue;
+                value += guns * cost.Value * material.MarketValue;
+            }
+            if (gun.CostStuffCount > 0)
+            {
+                if (!catalog.TryGet("Steel", out CatalogDef steel)) return int.MaxValue;
+                value += guns * gun.CostStuffCount * steel.MarketValue;
+            }
+            foreach (var stock in new[] { new KeyValuePair<string, int>("Shell_HighExplosive", 12 * guns),
+                new KeyValuePair<string, int>("Shell_Incendiary", 2), new KeyValuePair<string, int>("ReinforcedBarrel", 2 + guns) })
+            {
+                if (!catalog.TryGet(stock.Key, out CatalogDef item)) return int.MaxValue;
+                value += stock.Value * item.MarketValue;
+            }
+            return (int)Math.Ceiling(value);
+        }
+    }
+
     // Local material availability around the site (pure input). TerrainSnapshot
     // stays owned by P1/P4; the runtime adapter fills this separately.
     public sealed class LayoutLocalResources
@@ -72,7 +123,8 @@ namespace RealisticBases.Planning
             SettlementRole.Sleep, SettlementRole.MedicalBed, SettlementRole.MedicalMonitor, SettlementRole.Seat, SettlementRole.Table,
             SettlementRole.Light, SettlementRole.Heat, SettlementRole.Cool, SettlementRole.Cooking, SettlementRole.CraftSmithing,
             SettlementRole.CraftTailoring, SettlementRole.CraftMachining, SettlementRole.CraftFabrication, SettlementRole.CraftStonecutting,
-            SettlementRole.Storage, SettlementRole.Recreation
+            SettlementRole.Storage, SettlementRole.Recreation, SettlementRole.Research, SettlementRole.ResearchAnalyzer,
+            SettlementRole.MedicalStorage, SettlementRole.MortarStorage
         });
 
         // Workshop bench roles in placement order.
@@ -433,13 +485,19 @@ namespace RealisticBases.Planning
             IEnumerable<KeyValuePair<string, SettlementRole?>> fixtures = list.SelectMany(r => r.Fixtures)
                 .Select(f => new KeyValuePair<string, SettlementRole?>(f.DefName, f.Role))
                 .Concat((power == null ? Enumerable.Empty<LayoutPowerYard>() : power.Yards).Select(y => new KeyValuePair<string, SettlementRole?>(y.DefName, null)))
+                .Concat(Enumerable.Repeat(new KeyValuePair<string, SettlementRole?>(LayoutKit.MortarDefName, SettlementRole.Defense),
+                    list.Count(r => r.Kind == LayoutRoomKind.MortarMagazine)))
                 .Concat((defenseFixtures ?? Enumerable.Empty<string>()).Select(name =>
                     new KeyValuePair<string, SettlementRole?>(name, SettlementRole.Defense)));
-            return Ledger(Kit, Resources, ConstructionStuff, StonecuttingAdapted, wallCells, doors, fixtures, power == null ? 0 : power.FuelStock);
+            int defensePower = power == null || power.DefenseGenerators == 0 ? 0 :
+                P4EArtillery.ConstructionValue(Kit.Catalog, power.GeneratorDef);
+            if (defensePower != int.MaxValue) defensePower *= power?.DefenseGenerators ?? 0;
+            return Ledger(Kit, Resources, ConstructionStuff, StonecuttingAdapted, wallCells, doors, fixtures,
+                power == null ? 0 : power.FuelStock, defensePower);
         }
 
         private static LayoutMaterialLedger Ledger(LayoutKit kit, LayoutLocalResources resources, string stuff, bool adapted, int wallCells,
-            int doors, IEnumerable<KeyValuePair<string, SettlementRole?>> fixtures, int generatorFuel)
+            int doors, IEnumerable<KeyValuePair<string, SettlementRole?>> fixtures, int generatorFuel, int defensePowerImports = 0)
         {
             TechCatalog catalog = kit.Catalog;
             Dictionary<string, int> stuffs = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -462,7 +520,8 @@ namespace RealisticBases.Planning
             CatalogDef door = kit.DefFor(SettlementRole.Door);
             charge(wall, wallCells);
             charge(door, doors);
-            foreach (KeyValuePair<string, SettlementRole?> fixture in fixtures)
+            List<KeyValuePair<string, SettlementRole?>> fixtureList = fixtures.ToList();
+            foreach (KeyValuePair<string, SettlementRole?> fixture in fixtureList)
             {
                 CatalogDef def;
                 if (!catalog.TryGet(fixture.Key, out def)) continue;
@@ -481,7 +540,10 @@ namespace RealisticBases.Planning
             int generatorImported = woodGenerator ? (int)Math.Min(generatorFuel, imported) : otherFuelImported;
             CatalogDef woodDef;
             double woodValue = catalog.TryGet(Wood, out woodDef) ? woodDef.MarketValue : 0;
-            int importValue = (int)Math.Ceiling(imported * woodValue + otherFuelImported * (generatorFuelDef == null ? 0 : generatorFuelDef.MarketValue));
+            int artillery = P4EArtillery.ImportValue(catalog, fixtureList.Count(f => f.Key == LayoutKit.MortarDefName));
+            int importValue = artillery == int.MaxValue || defensePowerImports == int.MaxValue ? int.MaxValue :
+                artillery + defensePowerImports + (int)Math.Ceiling(imported * woodValue +
+                    otherFuelImported * (generatorFuelDef == null ? 0 : generatorFuelDef.MarketValue));
             return new LayoutMaterialLedger(wallCells, doors, stuffs, constructionWood, fuelWood,
                 (int)(constructionWood + allFuelWood - imported), (int)imported, importValue, unaccounted, costs,
                 generatorFuelDef == null ? null : generatorFuelDef.DefName, generatorFuel, generatorImported);

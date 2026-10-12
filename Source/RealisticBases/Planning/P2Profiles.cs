@@ -40,7 +40,8 @@ namespace RealisticBases.Planning
         Medical,
         Power,
         Gatehouse,
-        Defense
+        Defense,
+        Laboratory
     }
 
     public sealed class FacilityDemand

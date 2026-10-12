@@ -126,7 +126,7 @@ namespace RealisticBases.Planning
             protectedCells.ExceptWith(fieldRoute);
             protectedCells.UnionWith(layout.FieldWall?.Fields ?? new GridPoint[0]);
             protectedCells.UnionWith(layout.PowerYards.SelectMany(y => y.Cells));
-            protectedCells.UnionWith(layout.Court?.Cells ?? new GridPoint[0]);
+            protectedCells.UnionWith(layout.Courts.SelectMany(c => c.Cells));
             HashSet<GridPoint> excavation = new HashSet<GridPoint>(layout.Excavation);
             HashSet<GridPoint> floorable = new HashSet<GridPoint>(site.Floorable.Except(protectedCells)
                 .Where(c => input.Terrain.InBounds(c) && input.Terrain[c].Has(TerrainTraits.SupportsHeavy) &&
@@ -150,9 +150,11 @@ namespace RealisticBases.Planning
                     case LayoutRoomKind.Medical: return 1;
                     case LayoutRoomKind.Freezer: return 2;
                     case LayoutRoomKind.Pantry: return 3;
-                    case LayoutRoomKind.Workshop: return 4;
+                    case LayoutRoomKind.Workshop:
+                    case LayoutRoomKind.Laboratory: return 4;
                     case LayoutRoomKind.Power: return 5;
-                    case LayoutRoomKind.Storage: return 6;
+                    case LayoutRoomKind.Storage:
+                    case LayoutRoomKind.MortarMagazine: return 6;
                     case LayoutRoomKind.Jail: return 7;
                     case LayoutRoomKind.Dining: return 8;
                     case LayoutRoomKind.Bedroom: return 9;
@@ -160,6 +162,10 @@ namespace RealisticBases.Planning
                 }
             }
 
+            // Public circulation, including the attached field crossing, gets
+            // the remaining finish allowance before optional room decoration.
+            // Defense/facilities still have first claim on the shared budget.
+            FinishPaths();
             foreach (LayoutRoom room in layout.Rooms.OrderBy(r => Priority(r.Kind)).ThenBy(r => r.Id, StringComparer.Ordinal))
             {
                 List<GridPoint> cells = room.Interior.Points().OrderBy(c => c).ToList();
@@ -168,7 +174,7 @@ namespace RealisticBases.Planning
                 bool domestic = room.Kind == LayoutRoomKind.Barracks || room.Kind == LayoutRoomKind.Bedroom ||
                     room.Kind == LayoutRoomKind.Dining;
                 bool clean = room.Kind == LayoutRoomKind.Kitchen || room.Kind == LayoutRoomKind.Medical ||
-                    room.Kind == LayoutRoomKind.Freezer || room.Kind == LayoutRoomKind.Pantry;
+                    room.Kind == LayoutRoomKind.Freezer || room.Kind == LayoutRoomKind.Pantry || room.Kind == LayoutRoomKind.Laboratory;
                 List<string> choices = new List<string>();
                 if (room.Kind == LayoutRoomKind.Medical && wealthy) choices.Add("SterileTile");
                 if (domestic && wealthy && stone != null) choices.Add(stone);
@@ -205,6 +211,8 @@ namespace RealisticBases.Planning
                 if (!placed) reasons.Add("room:" + room.Id + ":no_legal_affordable_finish");
             }
 
+            void FinishPaths()
+            {
             P4CFloorDef pathDef = null;
             foreach (string name in industrial ? new[] { "Concrete" } :
                 new[] { flagstone, "WoodPlankFloor" })
@@ -229,7 +237,7 @@ namespace RealisticBases.Planning
                     new KeyValuePair<string, IReadOnlyList<GridPoint>>("threshold:" + r.Id,
                         new[] { r.DoorOutside, r.Door })));
                 if (fieldRoute.Count != 0)
-                    routes.Add(new KeyValuePair<string, IReadOnlyList<GridPoint>>("field:arrival", fieldRoute));
+                    routes.Insert(0, new KeyValuePair<string, IReadOnlyList<GridPoint>>("field:arrival", fieldRoute));
                 foreach (KeyValuePair<string, IReadOnlyList<GridPoint>> route in routes)
                 {
                     List<GridPoint> cells = route.Value.Where(enclosure.Contains).Distinct().OrderBy(c => c).ToList();
@@ -248,6 +256,7 @@ namespace RealisticBases.Planning
                     localWood += wood;
                     localWoodLeft -= wood;
                 }
+            }
             }
 
             // Smooth interior-facing retained stone only. Whole-cell changes on

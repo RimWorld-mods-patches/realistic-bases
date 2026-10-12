@@ -6,8 +6,11 @@
     <Nullable>disable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../RealisticBases/Planning/P5Readiness.cs" Link="Planning/P5Readiness.cs" />
     <Compile Include="../RealisticBases/Planning/P4DQuestContract.cs" Link="Planning/P4DQuestContract.cs" />
     <Content Include="flat-rejected-traits.rle" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="p4e-ten-rejected-traits.rle" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="p4e-flat-cooler-traits.rle" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="../RealisticBases/Planning/P1Model.cs" Link="Planning/P1Model.cs" />
     <Compile Include="../RealisticBases/Planning/P1Planner.cs" Link="Planning/P1Planner.cs" />
     <Compile Include="../RealisticBases/Planning/P2Profiles.cs" Link="Planning/P2Profiles.cs" />
@@ -21,6 +24,7 @@
     <Compile Include="../RealisticBases/Planning/ProceduralLayoutValidator.cs" Link="Planning/ProceduralLayoutValidator.cs" />
     <Compile Include="../RealisticBases/Planning/SettlementTechStage.cs" Link="Planning/SettlementTechStage.cs" />
     <Compile Include="../RealisticBases/Planning/P4BLayerPolicy.cs" Link="Planning/P4BLayerPolicy.cs" />
+    <Compile Include="../RealisticBases/Planning/P4BPerimeterDepth.cs" Link="Planning/P4BPerimeterDepth.cs" />
     <Compile Include="../RealisticBases/Planning/P4BFireLane.cs" Link="Planning/P4BFireLane.cs" />
     <Compile Include="../RealisticBases/Planning/P4BTurretPlanner.cs" Link="Planning/P4BTurretPlanner.cs" />
     <Compile Include="../RealisticBases/Planning/P4BStaffing.cs" Link="Planning/P4BStaffing.cs" />

@@ -37,7 +37,7 @@ namespace RealisticBases.Planning
             if (publicCells.Count == 0) return new P4BAccessFrontage[0];
             HashSet<GridPoint> assets = new HashSet<GridPoint>(layout.Rooms.SelectMany(r => r.Bounds.Points())
                 .Concat(layout.PowerYards.SelectMany(y => y.Cells.Concat(y.ZoneCells)))
-                .Concat(layout.Court?.Cells ?? new GridPoint[0]).Concat(layout.ExtraObstacles)
+                .Concat(layout.Courts.SelectMany(c => c.Cells)).Concat(layout.ExtraObstacles)
                 .Concat(layout.ExhaustPockets.Select(p => p.Cell)).Concat(layout.ExhaustPocketWalls)
                 .Concat(input.Resources.GeyserFootprints()));
             HashSet<GridPoint> field = new HashSet<GridPoint>(layout.JointSite.Field.Points()

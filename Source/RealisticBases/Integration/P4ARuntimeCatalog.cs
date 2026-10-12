@@ -14,7 +14,7 @@ namespace RealisticBases.Integration
     public static class P4ARuntimeCatalog
     {
         private static readonly HashSet<string> Stock = new HashSet<string>(StringComparer.Ordinal)
-        { "ComponentIndustrial", "ComponentSpacer", "MedicineHerbal", "MedicineIndustrial", "MedicineUltratech", "Chemfuel" };
+        { "ComponentIndustrial", "ComponentSpacer", "MedicineHerbal", "MedicineIndustrial", "MedicineUltratech", "Chemfuel", "ReinforcedBarrel" };
         private static readonly HashSet<string> Raw = new HashSet<string>(StringComparer.Ordinal)
         { "ComponentIndustrial", "ComponentSpacer", "MedicineHerbal" };
         private static readonly HashSet<string> RawStuff = new HashSet<string>(StringComparer.Ordinal)
@@ -67,6 +67,8 @@ namespace RealisticBases.Integration
                 object power = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Power");
                 object fuel = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Refuelable");
                 object explosive = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Explosive");
+                object affected = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_AffectedByFacilities");
+                object facility = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Facility");
                 double value = Stat(thing, "MarketValue");
                 double work = Math.Max(Stat(thing, "WorkToMake"), Stat(thing, "WorkToBuild"));
                 object building = Member(thing, "building");
@@ -89,10 +91,15 @@ namespace RealisticBases.Integration
                     Name(Member(thing, "designationCategory")), Bool(Member(building, "isTrap")),
                     madeAt, raw, Math.Max(1, Int(Member(thing, "stackLimit"), 1)), work,
                     Name(turretGun), Number(Member(combatVerb, "minRange")), Number(Member(combatVerb, "range")),
-                    Number(Member(fuel, "fuelCapacity")), Number(Member(fuel, "fuelMultiplier")),
+                    Number(Member(fuel, "fuelCapacity")), Number(Member(fuel, "FuelMultiplierCurrentDifficulty")),
                     Number(Member(fuel, "initialFuelPercent")), Number(Member(turretVerb, "consumeFuelPerShot")),
                     Bool(Member(fuel, "factorByDifficulty")), Number(Member(explosive, "explosiveRadius")),
-                    Number(Member(building, "combatPower"))));
+                    Number(Member(building, "combatPower")), Names(Member(affected, "linkableFacilities")),
+                    Number(Member(facility, "maxDistance")), Bool(Member(building, "isSittable")),
+                    thing.thingClass != null && (typeof(Building_WorkTable).IsAssignableFrom(thing.thingClass) ||
+                        typeof(Building_ResearchBench).IsAssignableFrom(thing.thingClass)),
+                    Elements(comps).Any(c => Member(c, "compClass") is Type compClass &&
+                        typeof(CompQuality).IsAssignableFrom(compClass))));
             }
             List<CatalogResearch> projects = DefDatabase<ResearchProjectDef>.AllDefsListForReading
                 .Select(project => new CatalogResearch(project.defName, Tier(Member(project, "techLevel")),

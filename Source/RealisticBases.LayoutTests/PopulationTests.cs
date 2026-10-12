@@ -29,7 +29,9 @@ internal static partial class Program
             Equal(700, total, "exact expected mean seven across all wealth rolls");
             OrdinarySettlementBudget average = OrdinarySettlementPopulation.Create(profile, stage, climate, 100);
             Equal(7, average.Residents, "normal wealth supports seven");
-            Equal(profile.Budget.ImportValueLimit, average.ImportValue, "normal wealth retains existing import budget");
+            Equal(profile.Budget.ImportValueLimit, average.BaseImportValue, "normal wealth retains base import budget");
+            Equal((int)Math.Round(average.BaseImportValue * average.DefenseAllowancePercent / 100.0, MidpointRounding.AwayFromZero),
+                average.ImportValue, "named ordinary defense allowance is separate from population");
             Equal(4, OrdinarySettlementPopulation.Create(profile, stage, climate, 60).Residents, "poor supports four");
             Equal(12, OrdinarySettlementPopulation.Create(profile, stage, climate, 180).Residents, "rich capped at twelve");
         }

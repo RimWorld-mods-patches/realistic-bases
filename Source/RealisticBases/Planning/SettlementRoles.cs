@@ -27,7 +27,11 @@ namespace RealisticBases.Planning
         Recreation,
         Door,
         Defense,
-        UtilityBelt
+        UtilityBelt,
+        Research,
+        ResearchAnalyzer,
+        MedicalStorage,
+        MortarStorage
     }
 
     // One preference. A virtual option (a zone) needs no def and is always legal.
@@ -127,7 +131,11 @@ namespace RealisticBases.Planning
                 new RoleDefinition(SettlementRole.CraftStonecutting, false, new[] { d("TableStonecutter") }),
                 new RoleDefinition(SettlementRole.CraftMachining, false, new[] { d("TableMachining") }),
                 new RoleDefinition(SettlementRole.CraftFabrication, false, new[] { d("FabricationBench") }),
+                new RoleDefinition(SettlementRole.Research, false, new[] { d("HiTechResearchBench"), d("SimpleResearchBench") }),
+                new RoleDefinition(SettlementRole.ResearchAnalyzer, false, new[] { d("MultiAnalyzer") }),
                 new RoleDefinition(SettlementRole.Storage, true, new[] { d("Shelf"), RoleOption.Zone("Stockpile") }),
+                new RoleDefinition(SettlementRole.MedicalStorage, false, new[] { d("ShelfSmall"), d("Shelf") }),
+                new RoleDefinition(SettlementRole.MortarStorage, false, new[] { d("ShelfSmall") }),
                 new RoleDefinition(SettlementRole.Recreation, false, new[]
                 {
                     d("ChessTable"), d("BilliardsTable"), d("PokerTable"), capped("HorseshoesPin", medieval), capped("HoopstoneRing", medieval),
