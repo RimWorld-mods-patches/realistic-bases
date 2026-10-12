@@ -1504,7 +1504,7 @@ namespace RealisticBases.Planning
                         // exhaust pockets; a corridor beside a new pocket would
                         // leave that pocket open to public circulation.
                         HashSet<GridPoint> newPockets = new HashSet<GridPoint>(candidate.Furnish.Fixtures
-                            .Where(f => f.Kind == LayoutFixtureKind.WallCooler)
+                            .Where(f => LayoutFixtureKinds.ThroughWall(f.Kind))
                             .Select(f => ToWorld(candidate.Door, candidate.Facing, candidate.DoorX,
                                 new GridPoint(f.Cells[0].X - f.Facing.X, f.Cells[0].Z - f.Facing.Z)))
                             .Where(h => occ[grid.Index(h)] == Free));

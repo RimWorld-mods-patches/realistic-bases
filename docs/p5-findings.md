@@ -663,3 +663,38 @@ instrumentation, including the corrected `nativeOnly` fallback diagnostic.
 Per the user's explicit instruction, preserve the named failing test as red,
 document/commit the current work, and **pause** rather than implement another fix.
 The disposable game is stopped. P5 and V2.6 are not complete.
+
+## 2026-10-13 captured trade-site rejection: structural fix (pure evidence only)
+
+Fix commit `ccbc373` (on b75403b). Main `9b09530` (P5A) was then merged into
+this branch. The named regression `P5 captured native trade tile fits its whole offer with dense storage`
+now passes with unchanged inputs: 250×250 captured traits, seed `8DD10F58FC412C58`,
+IndustrialEarly, wealth75, five residents, 111 ordinary/hazardous + 13 perishable sale stacks.
+The result: layout `1F49048E56BD99C0`, two storage rooms, 3 sites/26 attempts, budget not exhausted.
+
+Printing every attempt diagnostic showed three independent causes, not one:
+
+1. **Field approach on rock (72 of 93 attempts).** Joint-site preflight offered
+   field interfaces whose compound-side tip/lane is natural rock. Every OpenGround
+   attempt then failed `field_approach_unavailable`. Preflight now applies the
+   same static tip/lane terrain rule the planner reserves (`P4BJointSitePlanner.AttachmentClear`
+   with shared `AttachmentDepth`/`AttachmentHalfTip`). Failures now record a per-interface reason.
+2. **Exterior flood capped below the map.** `ExteriorDistances` stopped at the
+   40k `MaxRouteNodes` search budget on a 62.5k-cell map (`gate:route_budget_exhausted`).
+   Inland gates, including the one aligned with the field, were never reached. The
+   bailey planner then rejected every valid room layout with `gate_faces_away_or_offset`.
+   It is a single linear flood, now bounded by the map area; search routes keep the budget.
+3. **Unsealed exhaust pocket (`pocket_137,31_not_sealed`).** A jail cooler beside
+   its door had its pocket next to the door-outside cell, and the connected-extension
+   repair claimed that cell as street before the room committed the pocket.
+   `ExhaustCost` now rejects pockets beside a door-outside cell, and the extension skips
+   corridors touching a new pocket. Applying this alone to b75403b removes that
+   validator rejection, but the tile still fails on causes 1–2.
+
+No stock, roster, shelf capacity, timeouts or validation were relaxed.
+**Not yet done:** the live native trade→attack replay on the preserved
+pre-attack save. The capture lacks some live inputs (for example geyser
+coordinates), so the pure pass is not live evidence.
+
+After the main merge: clean Release build, PlannerTests pass, LayoutTests 134/134,
+V2 matrix legacy 80/80 and clusters 80/80.
