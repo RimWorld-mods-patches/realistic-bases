@@ -38,8 +38,10 @@ namespace RealisticBases.Planning
             double fuelCapacity = 0, double fuelMultiplier = 0, double initialFuelPercent = 0,
             double fuelPerShot = 0, bool fuelFactorByDifficulty = false, double explosionRadius = 0, double combatPower = 0,
             IEnumerable<string> linkableFacilities = null, double facilityMaxDistance = 0, bool isSittable = false,
-            bool supportsSeatedWork = false, bool? supportsQuality = null)
+            bool supportsSeatedWork = false, bool? supportsQuality = null, int maxItemsInCell = 1)
         {
+            if (maxItemsInCell < 1) throw new ArgumentOutOfRangeException(nameof(maxItemsInCell));
+            MaxItemsInCell = maxItemsInCell;
             if (string.IsNullOrEmpty(defName)) throw new ArgumentNullException(nameof(defName));
             if (sizeX < 1 || sizeZ < 1) throw new ArgumentOutOfRangeException(nameof(sizeX));
             if (stackLimit < 1) throw new ArgumentOutOfRangeException(nameof(stackLimit));
@@ -96,6 +98,7 @@ namespace RealisticBases.Planning
             LinkableFacilities = List(linkableFacilities);
             FacilityMaxDistance = facilityMaxDistance;
             IsSittable = isSittable;
+
             SupportsQuality = supportsQuality ?? (category == CatalogCategory.Weapon || category == CatalogCategory.Apparel);
             SupportsSeatedWork = supportsSeatedWork || ThingClass == "Building_WorkTable" ||
                 ThingClass == "Building_WorkTable_HeatPush" || ThingClass == "Building_ResearchBench";
@@ -154,6 +157,8 @@ namespace RealisticBases.Planning
         public IReadOnlyList<string> LinkableFacilities { get; }
         public double FacilityMaxDistance { get; }
         public bool IsSittable { get; }
+        // Storage buildings: stacks one cell holds (vanilla shelves hold 3).
+        public int MaxItemsInCell { get; }
         public bool SupportsSeatedWork { get; }
         public bool SupportsQuality { get; }
         public bool AutonomousTurret => TurretGunDefName.Length > 0 && MaximumRange > 0 && BasePowerConsumption > 0;
@@ -165,6 +170,7 @@ namespace RealisticBases.Planning
         internal ulong AddTo(ulong hash)
         {
             hash = StableHash.Add(hash, DefName);
+            if (MaxItemsInCell > 1) hash = StableHash.Add(hash, "maxItemsInCell:" + MaxItemsInCell);
             hash = StableHash.Add(hash, (int)Category);
             hash = StableHash.Add(hash, (int)TechLevel);
             hash = AddList(hash, ResearchPrerequisites);

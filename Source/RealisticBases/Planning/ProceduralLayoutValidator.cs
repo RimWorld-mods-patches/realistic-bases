@@ -209,6 +209,20 @@ namespace RealisticBases.Planning
                 foreach (string turretError in P4BTurretPlanner.Validate(input, layout, layout.Turret))
                     errors.Add("turret_" + turretError);
 
+            // Inner-yard crops: enclosed, open-sky, fertile and off every
+            // building, street, yard, pocket, roof and required field cell.
+            if (layout.BonusFields.Count > 0)
+            {
+                HashSet<GridPoint> occupiedByLayout = new HashSet<GridPoint>(roomCells.Concat(courtCells).Concat(yardCells)
+                    .Concat(layout.Corridors.SelectMany(k => k.Cells)).Concat(layout.ConstructedRoof)
+                    .Concat(layout.ExhaustPockets.Select(p => p.Cell)).Concat(layout.ExhaustPocketWalls)
+                    .Concat(layout.AllFixtures.SelectMany(f => f.Cells.Concat(f.Access)))
+                    .Concat(layout.FieldWall?.Fields ?? new GridPoint[0]));
+                if (layout.BonusFields.Any(c => !enclosure.Contains(c) || !terrain[c].Has(TerrainTraits.Fertile) ||
+                    grid.At(c) != LayoutCellClass.Open || terrain[c].Has(TerrainTraits.Roofed) || occupiedByLayout.Contains(c)))
+                    errors.Add("bonus_field_illegal_cell");
+            }
+
             foreach (LayoutRoom room in layout.Rooms)
             {
                 ValidateRoom(room, requirements, grid, excavation, retained, extra, reach, errors);
@@ -892,7 +906,7 @@ namespace RealisticBases.Planning
             "        B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater\n" +
             "        f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf\n" +
             "        Y power yard (solar/wind/geothermal)  w wind clear zone  x cooler exhaust pocket (sealed, unroofed)\n" +
-            "        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle\n" +
+            "        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle  \" inner-yard crops\n" +
             "        outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable\n" +
             "roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  'O' roof cleared over an exhaust pocket  ' ' open sky";
 
@@ -909,6 +923,7 @@ namespace RealisticBases.Planning
                 foreach (GridPoint c in gate.BandDoors) map[c] = 'g';
             }
             foreach (GridPoint c in layout.Enclosure) map[c] = ',';
+            foreach (GridPoint c in layout.BonusFields) map[c] = '"';
             foreach (GridPoint c in layout.Corridors.SelectMany(x => x.Cells)) map[c] = '=';
             foreach (GridPoint c in layout.Enclosure.Where(c => terrain[c].Has(TerrainTraits.NaturalRock) && !layout.Excavation.Contains(c))) map[c] = '^';
             foreach (GridPoint c in layout.BuiltWalls.Concat(layout.ExhaustPocketWalls)) map[c] = '#';

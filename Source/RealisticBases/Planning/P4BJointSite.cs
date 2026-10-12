@@ -103,6 +103,10 @@ namespace RealisticBases.Planning
 
     public static class P4BJointSitePlanner
     {
+        // Score per ring cell attackers cannot reach. A site backed by water on
+        // one side of a ~60-cell envelope gains roughly 180.
+        public const int ProtectionWeight = 3;
+
         // Search a small fixed family of square field footprints. Gates and
         // hauling lanes are counted as exclusions, never as crop capacity.
         public static P4BJointSiteResult Find(TerrainSnapshot terrain, int requiredCrops,
@@ -115,6 +119,7 @@ namespace RealisticBases.Planning
             if (residents <= 0) throw new ArgumentOutOfRangeException(nameof(residents));
             if (maxCandidates <= 0 || maxEvaluations <= 0) throw new ArgumentOutOfRangeException(nameof(maxCandidates));
             LayoutTerrainGrid grid = LayoutTerrainGrid.Build(terrain, margin);
+            bool[] edgeReach = LayoutExposure.EdgeReach(terrain);
             int fieldSide = (int)Math.Ceiling(Math.Sqrt(requiredCrops)) + 5;
             // Room packing needs circulation, gate returns and utility pockets in
             // addition to the minimum room-area count. A 30-cell square passed
@@ -223,7 +228,11 @@ namespace RealisticBases.Planning
                     P4BFieldInterface preferred = interfaces.OrderBy(i => Manhattan(i.InnerGate,
                         new GridPoint((field.MinX + field.MaxX) / 2, (field.MinZ + field.MaxZ) / 2))).First();
                     int farmlandLost = compound.Points().Count(c => terrain[c].Has(TerrainTraits.Fertile));
-                    int score = requiredCrops * 4 - farmlandLost - (wall.Count * 2) + available / 8;
+                    // Natural barriers (deep water, cliffs) just outside the whole
+                    // site remove approach directions; prefer them, all else equal.
+                    int protectedRing = LayoutExposure.ProtectedRing(terrain, edgeReach,
+                        LayoutExposure.Union(field, compound), margin + 2, out int ring);
+                    int score = requiredCrops * 4 - farmlandLost - (wall.Count * 2) + available / 8 + ProtectionWeight * protectedRing;
                     GridPoint center = new GridPoint((compound.MinX + compound.MaxX) / 2,
                         (compound.MinZ + compound.MaxZ) / 2);
                     GridPoint anchor = compound.Points().Where(grid.CanPlace)

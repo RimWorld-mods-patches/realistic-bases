@@ -77,6 +77,12 @@ internal static partial class Program
         yield return new V2MatrixCase { Name = "industrial-3layers-joint", JointSite = true, Input = (seed, engine) =>
             new ProceduralLayoutInput(V2Funded(P2ProfileCatalog.IndustrialTemperate, SettlementTechStageLevel.IndustrialLate, Temperate, 180),
                 Plains(180), (ulong)seed, CoreCatalog, new LayoutFortificationReservation(3), engine: engine) };
+        yield return new V2MatrixCase { Name = "beach-joint", JointSite = true, Input = (seed, engine) =>
+            new ProceduralLayoutInput(V2Funded(P2ProfileCatalog.IndustrialTemperate, SettlementTechStageLevel.IndustrialLate, Temperate, 100),
+                Beach(180), (ulong)seed, CoreCatalog, new LayoutFortificationReservation(1), engine: engine) };
+        yield return new V2MatrixCase { Name = "lakeshore-joint", JointSite = true, Input = (seed, engine) =>
+            new ProceduralLayoutInput(V2Funded(P2ProfileCatalog.TribalTemperate, SettlementTechStageLevel.Neolithic, Temperate, 100),
+                Lakeshore(180), (ulong)seed, CoreCatalog, new LayoutFortificationReservation(1), engine: engine) };
         yield return new V2MatrixCase { Name = "clutter", Input = (seed, engine) =>
             new ProceduralLayoutInput(LayoutRequirements.FromPopulation(6, Industrial, Temperate), V2Clutter(seed % 4), (ulong)seed,
                 CoreCatalog, engine: engine) };

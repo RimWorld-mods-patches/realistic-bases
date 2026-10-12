@@ -173,23 +173,36 @@ internal static partial class Program
             l.BuiltWalls, l.NaturalWalls, l.Gates, l.Excavation, l.RetainedThickRoof, l.ConstructedRoof, l.WallLayers, l.FieldCellsRequired,
             l.Relationships, l.ExtraObstacles, l.Notes, l.TechStage, l.RolesDigest, l.EquipmentDigest, l.WallStuff, l.Materials, l.Power, pockets);
 
+    // Bounded deterministic search for an accepted plan with a pocket of one kind.
+    private static (ProceduralLayoutInput, ProceduralLayout, LayoutExhaustPocket) PocketFixture(Func<LayoutExhaustPocket, bool> kind)
+    {
+        foreach (TerrainSnapshot terrain in new[] { Mountain(130, 110), Plains(120) })
+            for (ulong seed = 1; seed <= 24; seed++)
+            {
+                LayoutRequirements requirements = terrain.Width == 130
+                    ? new LayoutRequirements(6, Industrial, HousingStandard.Barracks, Temperate, 0, 600, 186)
+                    : LayoutRequirements.FromPopulation(6, Industrial, Hot, HousingStandard.PersonalRooms);
+                ProceduralLayoutInput input = Input(terrain, requirements, seed);
+                ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
+                LayoutExhaustPocket pocket = result.Success ? result.Layout.ExhaustPockets.FirstOrDefault(kind) : null;
+                if (pocket != null) return (input, result.Layout, pocket);
+            }
+        throw new InvalidOperationException("no pocket fixture of the requested kind");
+    }
+
     private static void ValidatorRejectsBadPockets()
     {
-        TerrainSnapshot terrain = Mountain(130, 110);
-        ProceduralLayoutInput input = Input(terrain, new LayoutRequirements(6, Industrial, HousingStandard.Barracks, Temperate, 0, 600, 186), 4);
-        ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
-        Accepted(result);
-        ProceduralLayout layout = result.Layout;
+        var (input, layout, walled) = PocketFixture(p => p.Walls.Count > 0);
         Equal(0, ProceduralLayoutValidator.Validate(input, layout).Count, "accepted layout validates");
-        LayoutExhaustPocket walled = layout.ExhaustPockets.FirstOrDefault(p => p.Walls.Count > 0);
-        LayoutExhaustPocket deep = layout.ExhaustPockets.FirstOrDefault(p => p.RoofCleared);
-        True(walled != null && deep != null, "fixture has a walled pocket and a cleared-roof pocket");
-
         // Drop one pocket wall: the pocket opens to public space.
         LayoutExhaustPocket open = new LayoutExhaustPocket(walled.Cell, walled.Walls.Skip(1), walled.RoofCleared, walled.Excavated, walled.RoomIds);
         List<string> unsealed = ProceduralLayoutValidator.Validate(input, WithPockets(layout, layout.ExhaustPockets.Select(p => p == walled ? open : p))).ToList();
         True(unsealed.Any(e => e.StartsWith("pocket_" + walled.Cell) && e.EndsWith("_not_sealed")), "unsealed pocket rejected: " + string.Join(",", unsealed.Take(5)));
 
+        var (deepInput, deepLayout, deep) = PocketFixture(p => p.RoofCleared);
+        Equal(0, ProceduralLayoutValidator.Validate(deepInput, deepLayout).Count, "accepted deep-pocket layout validates");
+        input = deepInput;
+        layout = deepLayout;
         // Keep the rock roof over a deep pocket: vanilla would treat it as indoors.
         LayoutExhaustPocket roofed = new LayoutExhaustPocket(deep.Cell, deep.Walls, false, deep.Excavated, deep.RoomIds);
         List<string> covered = ProceduralLayoutValidator.Validate(input, WithPockets(layout, layout.ExhaustPockets.Select(p => p == deep ? roofed : p))).ToList();

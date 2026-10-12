@@ -154,6 +154,9 @@ namespace RealisticBases.Planning
 
     public sealed class LayoutRequirements
     {
+        // Preferred stacks per warehouse/freezer room. Racked shelves hold
+        // three stacks per cell, so ~120 stacks is one well-shelved ~8x8 room.
+        public const int StockpileRoomStacksTarget = 120;
         // Provisional import limits for FromPopulation, equal to the P2 temperate profiles.
         public const int DefaultImportValueLimitElectric = 5500;
         public const int DefaultImportValueLimitNonElectric = 1400;
@@ -296,7 +299,7 @@ namespace RealisticBases.Planning
             return new LayoutRequirements(residents, profile.Capabilities, housing, climate,
                 mortarBiasPercent ?? (electric ? 50 : 0), 60 + residents * (electric ? 70 : 35), fieldCells, floors, resolved,
                 populationBudget?.ImportValue ?? profile.Budget.ImportValueLimit, equipment,
-                stockpileRoomCapacityTarget: populationBudget == null ? 0 : 48,
+                stockpileRoomCapacityTarget: populationBudget == null ? 0 : StockpileRoomStacksTarget,
                 defenseReserveWatts: populationBudget?.DefenseAllowancePercent > 100 ? OrdinarySettlementPopulation.P4EDefenseReserveWatts : 0,
                 logisticsUtilityValueLimit: populationBudget?.DefenseAllowancePercent > 100 ? 300 : 0,
                 saleStorageStacks: saleStorageStacks, salePerishableStacks: salePerishableStacks,
@@ -669,7 +672,7 @@ namespace RealisticBases.Planning
         // split it into bounded, connected rooms that the existing packer can fit.
         private static List<LayoutRoomDemand> Split(LayoutRoomKind kind, int capacity, LayoutRequirements requirements, LayoutKit kit, ulong roomSeed)
         {
-            // Forty-eight is a packing preference, not a new capacity limit.
+            // The stacks target is a packing preference, not a capacity limit.
             // At the bounded split count, larger legal rooms remain available.
             int minimumCount = IsStockpile(kind) && requirements.StockpileRoomCapacityTarget > 0
                 ? Math.Min(MaxSplit, Ceil(capacity, requirements.StockpileRoomCapacityTarget)) : 1;
@@ -898,13 +901,17 @@ namespace RealisticBases.Planning
                     if (cooler == null || !cooler.WallMounted || !room.PlaceWallCoolers(cooler, Ceil(area, 30), context.ExhaustCost, true)) failure = "freezer_cooler_exhaust";
                 }
                 if (failure == null && (light == null || !room.Place(light, (area + 35) / 36))) failure = "lights";
-                int shelfCells = 0;
+                int shelfStacks = 0;
                 Template shelf = From(kit.DefFor(SettlementRole.Storage), LayoutFixtureKind.Shelf, SettlementRole.Storage);
-                if (failure == null && shelf != null) shelfCells = room.PlaceUpTo(shelf, Ceil(area, CellsPerShelf)) * shelf.Length * shelf.Depth;
+                // A player fills a warehouse with racks: shelves along the walls,
+                // then back-to-back rows with one-cell aisles. Capacity counts the
+                // stacks each shelf cell really holds, so demand needs fewer rooms.
+                if (failure == null && shelf != null)
+                    shelfStacks = room.PlaceStorageRacks(shelf) * shelf.Length * shelf.Depth * shelf.StacksPerCell;
                 if (failure == null)
                 {
                     List<GridPoint> stock = room.ReachableFree().Where(c => !room.IsKeepFree(c)).ToList();
-                    capacity = stock.Count + shelfCells;
+                    capacity = stock.Count + shelfStacks;
                     if (stock.Count > 0)
                         room.Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Stockpile, "Stockpile", stock, null, new GridPoint(0, 1), false, 0, false,
                             SettlementRole.Storage));
@@ -1013,6 +1020,7 @@ namespace RealisticBases.Planning
             public int Forward;
             public bool WallMounted;
             public bool SupportsSeat;
+            public int StacksPerCell = 1;
         }
 
         // Footprint along the wall (SizeX) and into the room (SizeZ), vanilla north rotation.
@@ -1034,7 +1042,8 @@ namespace RealisticBases.Planning
                 Interaction = def.HasInteractionCell,
                 Forward = def.HasInteractionCell ? Math.Max(1, -def.InteractionOffset.Z - (def.SizeZ - 1) / 2) : 0,
                 WallMounted = def.ThingClass == LayoutKit.CoolerThingClass,
-                SupportsSeat = def.SupportsSeatedWork
+                SupportsSeat = def.SupportsSeatedWork,
+                StacksPerCell = Math.Max(1, def.MaxItemsInCell)
             };
         }
 
@@ -1145,6 +1154,48 @@ namespace RealisticBases.Planning
                     if (!done) return false;
                 }
                 return true;
+            }
+
+            // Storage racks: the far and side walls (the door wall keeps the
+            // front aisle clear), then back-to-back island rows parallel to the
+            // far wall, separated by one-cell aisles, with side aisles kept free.
+            // Every placement passes the room's connectivity/access check.
+            public int PlaceStorageRacks(Template template)
+            {
+                int placed = 0;
+                Func<List<GridPoint>, GridPoint, bool> commit = (cells, facing) =>
+                {
+                    if (!cells.All(c => Interior(c) && state[Index(c.X, c.Z)] == Free) || !TryCommit(cells, new List<GridPoint>())) return false;
+                    Fixtures.Add(new LayoutLocalFixture(template.Kind, template.Def, cells, null, facing, template.Blocking,
+                        template.Watts, template.Fuel, template.Role));
+                    placed++;
+                    return true;
+                };
+                foreach (int wall in new[] { 0, 1, 2 })
+                {
+                    int span = wall == 0 ? w : h;
+                    for (int i = 0; i + template.Length <= span; )
+                    {
+                        int t = wall == 0 ? 1 + i : h - i;
+                        KeyValuePair<List<GridPoint>, GridPoint> slot = Slot(t, template.Length, template.Depth, wall);
+                        i += commit(slot.Key, slot.Value) ? template.Length : 1;
+                    }
+                }
+                int d = template.Depth;
+                for (int top = h - 1 - d; top - d + 1 >= 2; top -= 2 * d + 1)
+                    foreach (bool upper in new[] { true, false })
+                    {
+                        int rowTop = upper ? top : top - d;
+                        if (rowTop - d + 1 < 2) continue;
+                        for (int x = 3; x + template.Length - 1 <= w - 2; )
+                        {
+                            List<GridPoint> cells = new List<GridPoint>();
+                            for (int a = 0; a < template.Length; a++)
+                                for (int k = 0; k < d; k++) cells.Add(new GridPoint(x + a, rowTop - k));
+                            x += commit(cells, new GridPoint(0, upper ? 1 : -1)) ? template.Length : 1;
+                        }
+                    }
+                return placed;
             }
 
             // Places up to count; returns how many fit.

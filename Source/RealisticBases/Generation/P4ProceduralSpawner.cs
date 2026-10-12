@@ -139,6 +139,15 @@ namespace RealisticBases.Generation
             IReadOnlyList<GridPoint> fields = fieldWall == null ? SelectFields(input, layout) : fieldWall.Fields;
             if (fields.Count < layout.FieldCellsRequired)
             { failure = "insufficient_reachable_fertile_field:" + fields.Count + "/" + layout.FieldCellsRequired; return false; }
+            // Inner-yard crops are additive; a conduit cell stays a conduit.
+            HashSet<GridPoint> conduitSet = new HashSet<GridPoint>(conduitCells);
+            List<GridPoint> bonusFields = layout.BonusFields.Where(c => !conduitSet.Contains(c)).ToList();
+            if (bonusFields.Count > 0)
+            {
+                fields = fields.Concat(bonusFields).Distinct().ToList();
+                P2Log.Message("PROCEDURAL_BONUS_FIELD_PLAN", "map=" + map.uniqueID + " cells=" + bonusFields.Count +
+                    " conduitCellsSkipped=" + (layout.BonusFields.Count - bonusFields.Count));
+            }
             if (fieldWall != null)
                 P2Log.Message("PROCEDURAL_FIELD_WALL_PLAN", "map=" + map.uniqueID +
                     " digest=" + fieldWall.Digest + " fieldCells=" + fieldWall.Fields.Count +

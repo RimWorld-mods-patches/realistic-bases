@@ -68,6 +68,9 @@ internal static partial class Program
         Run("workbenches stand against a wall with an interior work cell", WorkbenchesAgainstWall);
         RunCoolerExhaustTests();
         RunLayoutEngineV2Tests();
+        Run("natural barriers: shallow water walks, deep water and rock block", ExposureRules);
+        Run("joint sites prefer natural barriers on beach and lakeshore maps", BarrierSiting);
+        Run("inner yards become crop patches without touching circulation", InnerYardCrops);
         RunLayoutEngineV2Matrix();
         Run("identical inputs replay identical layouts", Determinism);
         Run("seeds vary internal layout beyond translation and rotation", SeedVariation);
@@ -517,7 +520,8 @@ internal static partial class Program
 
     private static void Rejections()
     {
-        ProceduralLayoutResult huge = Plan(Plains(40), LayoutRequirements.FromPopulation(20, Industrial, Temperate), 1);
+        // Racked storage lets 20 residents fit 40x40; 30x30 is genuinely too small.
+        ProceduralLayoutResult huge = Plan(Plains(30), LayoutRequirements.FromPopulation(20, Industrial, Temperate), 1);
         Equal("insufficient_usable_area", huge.RejectionCode, "population exceeds usable land");
         ProceduralLayoutResult crowded = Plan(Plains(120), LayoutRequirements.FromPopulation(120, Tribal, Temperate), 1);
         if (crowded.Success)
@@ -2052,7 +2056,8 @@ internal static partial class Program
         Contains(dry.Layout.Power.Diagnostics, "power_source_unplaceable:GeothermalGenerator:no_geyser");
         ProceduralLayoutResult river = Mid(1, null, new LayoutLocalResources(int.MaxValue, null, new[] { new GridPoint(3, 60), new GridPoint(3, 61) }));
         Contains(river.Layout.Power.Diagnostics, "power_source_unplaceable:WatermillGenerator:river_outside_enclosure");
-        ProceduralLayoutResult oversized = Plan(Plains(120), LayoutRequirements.FromPopulation(120, Industrial, Temperate), 1);
+        // Racked storage needs fewer lamps; 200 residents still exceed the largest legal power room.
+        ProceduralLayoutResult oversized = Plan(Plains(120), LayoutRequirements.FromPopulation(200, Industrial, Temperate), 1);
         Equal("room_demand_exceeds_legal_dimensions", oversized.RejectionCode, "a load beyond eight generators rejects before search");
         True(oversized.Diagnostics.Any(d => d.Detail.StartsWith("room_demand_exceeds_legal_dimensions:Power")), "power room named");
     }

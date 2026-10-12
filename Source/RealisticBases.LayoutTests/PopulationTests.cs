@@ -120,7 +120,7 @@ internal static partial class Program
             foreach (LayoutRoomKind kind in new[] { LayoutRoomKind.Storage, LayoutRoomKind.Freezer })
             {
                 LayoutRoomDemand[] rooms = input.Equipment.Demand.Rooms.Where(r => r.Kind == kind).ToArray();
-                True(rooms.All(r => r.Capacity <= 48), "ordinary stockpile rectangles stay packable");
+                True(rooms.All(r => r.Capacity <= LayoutRequirements.StockpileRoomStacksTarget), "ordinary stockpile rectangles stay packable");
                 True(rooms.Sum(r => r.Capacity) >= 6 * budget.Residents, "splitting does not discard storage demand");
             }
         }
@@ -237,7 +237,13 @@ internal static partial class Program
                     True(!cells.Intersect(room.Fixtures.SelectMany(f => f.Access)).Any(), "stock never occupies fixture access");
                 }
                 True(cells.All(c => rooms.Any(r => r.Interior.Contains(c))), "stock never overflows into unrelated rooms");
-                if (wealth == 180) True(rooms.Length > 1, "rich regression includes split storage rooms");
+                // Racked rooms: shelf stacks carry most capacity, so demand
+                // needs no more rooms than the stacks target implies.
+                int shelfStacks = shelves.Length * 3;
+                True(shelfStacks * 2 >= rooms.Sum(r => r.Capacity), kind + " capacity is mostly racked shelves");
+                int demanded = input.Equipment.Demand.Rooms.Where(r => r.Kind == kind).Sum(r => r.Capacity);
+                True(rooms.Length <= (demanded + LayoutRequirements.StockpileRoomStacksTarget - 1) / LayoutRequirements.StockpileRoomStacksTarget,
+                    kind + " rooms follow the stacks target: rooms=" + rooms.Length + " demand=" + demanded);
             }
             SettlementLoadout loadout = LayoutLoadoutModel.Build(input, result.Layout);
             Func<string, int> limit = name => CoreCatalog.Defs.Single(d => d.DefName == name).StackLimit;
