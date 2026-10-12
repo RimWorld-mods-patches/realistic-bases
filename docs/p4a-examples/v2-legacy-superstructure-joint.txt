@@ -1,0 +1,150 @@
+# v2-legacy-superstructure-joint (synthetic terrain; planner evidence only, not a live map)
+legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access
+        B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
+        f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
+        Y power yard (solar/wind/geothermal)  w wind clear zone  x cooler exhaust pocket (sealed, unroofed)
+        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
+        outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
+roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  'O' roof cleared over an exhaust pocket  ' ' open sky
+
+digest=6AE445E447AA2575 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=899
+  barracks-1  bounds=27,52,10x5   door=36,54   7/7 beds
+  dining      bounds=28,46,9x6    door=36,47   8/7 seats
+  freezer     bounds=27,31,10x8   door=36,34   43/42 stockpile-cells
+  jail        bounds=46,47,5x5    door=49,51   1/1 beds
+  kitchen     bounds=39,31,5x5    door=39,33   1/1 stoves
+  laboratory  bounds=38,60,8x6    door=39,60   1/1 benches
+  medical     bounds=31,59,6x5    door=36,61   2/2 beds
+  mortar-magazine bounds=43,49,3x3    door=44,51   1/1 shelf_cells
+  power       bounds=30,23,6x6    door=33,28   2/2 generators
+  storage     bounds=39,36,7x12   door=39,42   47/46 stockpile-cells
+  workshop    bounds=27,39,10x7   door=36,42   5/5 benches
+  note: fieldApproachReserved=37,73 terminal=37,66
+  note: ordinary_defense_reserve=960W extraGenerators=1
+  note: mortar_magazine=44,50 operator=43,52 loadingManhattan=1
+  note: excavated=0/550 retainedThickRoof=0
+  note: gates=2 desired=2
+  note: outerSections=0/0 outerWallCells=0
+  note: materials walls=392 doors=13 stuff=WoodLog:3840 constructionWood=3840 fuelWood=0 generatorFuel=WoodLog:132/imported 0 localWood=3972 importedWood=0 importValue=3444
+  note: fieldWall=C9632A8D6B1006E3 materials walls=493 doors=15 stuff=WoodLog:4445 constructionWood=4445 fuelWood=0 generatorFuel=WoodLog:132/imported 0 localWood=4577 importedWood=0 importValue=3444
+  note: approachDefense=92CED7BDFA87B2C8
+  note: turret=E2059E45087116D6 import=3153
+  power: critical=480W nonCritical=2090W WoodFiredGeneratorx2 batteries=1 renewables=SolarGenerator,SolarGenerator,SolarGenerator (2550W) fuel=WoodLog:132
+  power: power_source_unplaceable:GeothermalGenerator:no_geyser
+  power: power_source_unplaceable:WatermillGenerator:no_river
+                *
+                *
+                *
+                s
+             ###G###
+             #,,,,,########
+             #,===,,,,,,,,#
+        ######,,=########,#####
+        #,,,,,,,=#WWWWW.#,,,,,#
+        #,######=#WWWWW.#YYYY,#
+        #,#V..L#=#L.c.MM#YYYY,#
+        #,#HH..D=#....MM#YYYY,#
+        #,#HH.k#=#D######YYYY,#
+        #,######=========i,,,,#
+    #####,,,,,,,=,,,,,,,,,,#######
+    #,,,,,,,,,,,=,,,,,,,,,,,,,,,,#
+   ##,##########==,,,,,,,,,,YYYY,#
+    #,#BB......#==,,,,,,,,,,YYYY,#
+    #,#BB.BBBB.D==,,,,MM,,,,YYYY,#
+    #,#BB.BBBBL#==,,,,MM,,,,YYYY,#
+     ,##########======i=====i,,,,#
+    #,,#########=iYYYY#D####D#,###
+    ##,#.c..c..#==YYYY#k##...#,
+     #,#.TTcTTc#==YYYY####..P#,#
+     #,#cTTcTT.#==YYYY,,,#.LP#,#
+    ##,#RLc..c.D==############,#
+    #,,#########==#_kk_L#,,,,,,##
+    #,##########==#____L#,######
+    #,#WWWWWWWW#==#____k#,#
+    #,#WWWWW.cL#==#____k#,#
+    #,#W.c.....D==D.___k#,#
+    #,#Wcc..c..#==#____k#,#
+    #,#WWWWWWWL#==#____k#,#
+    #,##########==#____k#,#
+    #,##########==#____k#,#
+    #,#k_______#==#____k#,#
+    #,#k______iC==#######,#
+    #,#k_______#==#####,,,#
+    #,#k______.D==#.LS#,###
+    #,#L_______#==D.cS#,#
+    #,#L_kkkk_iC==#..S#,#
+    #,##########==#####,#
+    #,,,,,,,,,,,==,,,,,,#
+    ####,,,,======,,#####
+       #,###D##,,,,,#
+       #,#AA..#,,,,,#
+       #,#...L#,,,,,#
+       #,#EEEE#,##G##
+       #,#EEEE#,# s
+       #,######,# *
+       #,,,,,,,,# *
+       ### ###### *
+              #   *
+                  *
+                  *
+                  *
+
+roof view:
+
+
+
+
+
+
+
+                 rrrrrrrr
+                 rrrrrrrr
+          rrrrrr rrrrrrrr
+          rrrrrr rrrrrrrr
+          rrrrrr rrrrrrrr
+          rrrrrr rrrrrrrr
+          rrrrrr
+
+
+      rrrrrrrrrr
+      rrrrrrrrrr
+      rrrrrrrrrr
+      rrrrrrrrrr
+      rrrrrrrrrr
+       rrrrrrrrr      rrrrrrrr
+       rrrrrrrrr      rrrrrrrr
+       rrrrrrrrr      rrrrrrrr
+       rrrrrrrrr         rrrrr
+       rrrrrrrrr  rrrrrrrrrrrr
+       rrrrrrrrr  rrrrrrr
+      rrrrrrrrrr  rrrrrrr
+      rrrrrrrrrr  rrrrrrr
+      rrrrrrrrrr  rrrrrrr
+      rrrrrrrrrr  rrrrrrr
+      rrrrrrrrrr  rrrrrrr
+      rrrrrrrrrr  rrrrrrr
+      rrrrrrrrrr  rrrrrrr
+      rrrrrrrrrr  rrrrrrr
+      rrrrrrrrrr  rrrrrrr
+      rrrrrrrrrr  rrrrrrr
+      rrrrrrrrrr  rrrrr
+      rrrrrrrrrr  rrrrr
+      rrrrrrrrrr  rrrrr
+      rrrrrrrrrr  rrrrr
+      rrrrrrrrrr  rrrrr
+
+
+         rrrrrr
+         rrrrrr
+         rrrrrr
+         rrrrrr
+         rrrrrr
+         rrrrrr
+
+
+
+
+
+
+
+metrics: rooms=11 enclosure=899 roomCells=511 sharedWallCells=0 compactness=1.76 pockets=0 gates=2 sites=1 attempts=1 evaluations=12194 repairs=1 routeNodes=34083 budgetExhausted=False

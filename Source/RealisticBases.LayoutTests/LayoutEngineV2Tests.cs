@@ -10,7 +10,7 @@ internal static partial class Program
     {
         Run("V2 neighbouring rooms may share plain walls only", V2SharedWallContract);
         Run("V2 shared walls are built and charged once", V2SharedWallLedger);
-        Run("V2 engine choice is part of the input digest, legacy unchanged", V2EngineDigest);
+        Run("V2 clusters is the default engine; explicit legacy digest unchanged", V2EngineDigest);
         Run("V2 clusters engine plans superstructure, town and mountain styles", V2ClusterStyles);
         Run("V2 candidate pool is bounded, deterministic and keeps the best score", V2CandidatePool);
     }
@@ -157,11 +157,13 @@ internal static partial class Program
     {
         TerrainSnapshot terrain = Plains(60);
         LayoutRequirements requirements = LayoutRequirements.FromPopulation(4, Industrial, Temperate);
-        ProceduralLayoutInput implicitLegacy = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog);
+        ProceduralLayoutInput implicitDefault = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog);
         ProceduralLayoutInput legacy = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog, engine: LayoutEngine.Legacy);
         ProceduralLayoutInput clusters = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog, engine: LayoutEngine.Clusters);
-        Equal(implicitLegacy.Digest, legacy.Digest, "legacy digest unchanged");
+        // Pinned at V2.1: an explicit legacy input keeps the historical P4E digest.
+        Equal("980A6DEF377C0C15", legacy.Digest, "legacy digest unchanged");
         True(clusters.Digest != legacy.Digest, "clusters engine is a distinct input");
-        Equal(LayoutEngine.Legacy, implicitLegacy.Engine, "legacy is the default engine");
+        Equal(LayoutEngine.Clusters, implicitDefault.Engine, "layout engine v2 is the default");
+        Equal(clusters.Digest, implicitDefault.Digest, "default input is the clusters input");
     }
 }

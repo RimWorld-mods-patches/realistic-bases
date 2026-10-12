@@ -1,0 +1,104 @@
+# v2-clusters-mountain-tribal (synthetic terrain; planner evidence only, not a live map)
+legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access
+        B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
+        f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
+        Y power yard (solar/wind/geothermal)  w wind clear zone  x cooler exhaust pocket (sealed, unroofed)
+        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
+        outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
+roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  'O' roof cleared over an exhaust pocket  ' ' open sky
+
+digest=75C1F96AB0CAAF95 doctrine=RockProtected gates=1 wallLayers=1 court=False excavated=266 retainedRoof=266 enclosure=473
+  barracks-1  bounds=58,33,5x11   door=60,33   6/6 beds rock-protected
+  dining      bounds=51,30,8x8    door=58,31   8/6 seats rock-protected
+  jail        bounds=49,24,5x6    door=51,24   1/1 beds
+  kitchen     bounds=53,26,6x5    door=58,27   1/1 stoves rock-protected
+  laboratory  bounds=64,17,6x6    door=67,22   1/1 benches rock-protected
+  medical     bounds=53,18,6x5    door=56,22   1/1 beds rock-protected
+  pantry      bounds=61,24,8x9    door=61,27   39/36 stockpile-cells rock-protected
+  storage     bounds=68,24,8x9    door=71,24   39/36 stockpile-cells rock-protected
+  workshop    bounds=69,17,5x6    door=71,22   1/1 benches rock-protected
+  note: engine=Clusters style=Mountain typicalDepth=3 branchSpacing=10 front=59,14
+  note: excavated=266/270 retainedThickRoof=266
+  note: gates=1 desired=2
+  note: outerSections=0/0 outerWallCells=0
+  note: materials walls=32 doors=10 stuff=WoodLog:870 constructionWood=870 fuelWood=306 generatorFuel=:0/imported 0 localWood=1176 importedWood=0 importValue=0
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+       ^^^^^^^^BBB^^^^^^^^^^^^^^^^^^
+       ^^^^^^^^BBB^^^^^^^^^^^^^^^^^^
+      ^^^^^^^^^...^^^^^^^^^^^^^^^^^^
+      ^^^^^^^^^BB.^^^^^^^^^^^^^^^^^^
+     ^^^^^^^^^^BB.^^^^^^^^^^^^^^^^^^
+     ^^^^^^^^^^BB.^^^^^^^^^^^^^^^^^^
+     ^^^t..c..^fi.^^^^^^^^^^^^^^^^^^
+     ^^^fi.TTc^t..^^^^^^^^^^^^^^^^^^
+     ^^^.ccTT.^...^^^^^^^^^^^^^^^^^^
+     ^^^.TTcc.^^D^^^^^^^^^^^^^^^^^^^
+     ^^^cTT...^==^^^^^^^^^^^^^^^^^^^
+   ##^^^R.c...D==^_____t^tt____^^^^^
+   #,^^^^^^^^^^==^_____t^______^^^^^
+   #,^^^^^t...^==^______^______^^^^^
+   #,^Pft^fi..^==^______^______^^^^^
+   #,#Pi.^Sc..D==D._____^______^^^^^
+   #,#...^^^^^^==^______^______^^^^^
+   #,#...#^^^^^==^______^__.___^^^^^
+   #,##D##^^^^^==^^^^^^^^^^D^^^^^^^^
+   #,,,=====================^^^^^^^^
+   ###,,^^^^D^^==^^^^^^D^^^D^^^^^^^^
+     #G#^^....^==^^^^....^...^^^^^^^
+      s#,^..iH^==^^^^..ct^...^^^^^^^
+      *#,^.tfH^==^^^^iWWW^.ic^^^^^^^
+      *#,#^^^^^==^^^^fWWW^tfW^^^^^^^
+      *#,,^^^^^==^^^^^^^^^^^^^^^^^^^
+      *####^^^^==^^^^^^^^^^^^^^^^^^^
+      *    ^^^^==^^^^^^^^^^^^^^^^^^^
+      *    ^^^^==^^^^^^^^^^^^^^^^^^^
+      *    ^^^^^^^^^^^^^^^^^^^^^^^^^
+      *    ^^^^^^^^^^^^^^^^^^^^^^^^^
+      *    ^^^^^^^^^^^^^^^^^^^^^^^^^
+      *    ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+roof view:
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+       ^^^^^^^^RRR^^^^^^^^^^^^^^^^^^
+       ^^^^^^^^RRR^^^^^^^^^^^^^^^^^^
+      ^^^^^^^^^RRR^^^^^^^^^^^^^^^^^^
+      ^^^^^^^^^RRR^^^^^^^^^^^^^^^^^^
+     ^^^^^^^^^^RRR^^^^^^^^^^^^^^^^^^
+     ^^^^^^^^^^RRR^^^^^^^^^^^^^^^^^^
+     ^^^RRRRRR^RRR^^^^^^^^^^^^^^^^^^
+     ^^^RRRRRR^RRR^^^^^^^^^^^^^^^^^^
+     ^^^RRRRRR^RRR^^^^^^^^^^^^^^^^^^
+     ^^^RRRRRR^^R^^^^^^^^^^^^^^^^^^^
+     ^^^RRRRRR^RR^^^^^^^^^^^^^^^^^^^
+     ^^^RRRRRRRRR^RRRRRR^RRRRRR^^^^^
+     ^^^^^^^^^^RR^RRRRRR^RRRRRR^^^^^
+     ^^^^^RRRR^RR^RRRRRR^RRRRRR^^^^^
+     ^RRR^RRRR^RR^RRRRRR^RRRRRR^^^^^
+     rRRR^RRRRRRRRRRRRRR^RRRRRR^^^^^
+     rrrr^^^^^^RR^RRRRRR^RRRRRR^^^^^
+     rrrrr^^^^^RR^RRRRRR^RRRRRR^^^^^
+     rrrrr^^^^^RR^^^^^^^^^^R^^^^^^^^
+           RRRRRRRRRRRRRRRRR^^^^^^^^
+        ^^^^R^^RR^^^^^^R^^^R^^^^^^^^
+        ^^RRRR^RR^^^^RRRR^RRR^^^^^^^
+         ^RRRR^RR^^^^RRRR^RRR^^^^^^^
+         ^RRRR^RR^^^^RRRR^RRR^^^^^^^
+         r^^^^^RR^^^^RRRR^RRR^^^^^^^
+          ^^^^^RR^^^^^^^^^^^^^^^^^^^
+           ^^^^RR^^^^^^^^^^^^^^^^^^^
+           ^^^^RR^^^^^^^^^^^^^^^^^^^
+           ^^^^RR^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+metrics: rooms=9 enclosure=473 roomCells=389 sharedWallCells=30 compactness=1.22 pockets=0 gates=1 sites=1 attempts=3 evaluations=15570 repairs=0 routeNodes=18299 budgetExhausted=False

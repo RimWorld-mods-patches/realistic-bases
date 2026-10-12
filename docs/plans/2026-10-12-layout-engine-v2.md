@@ -1,8 +1,9 @@
 # Plan: layout engine v2 (hallway tree, clusters, shared walls)
 
-2026-10-12 · Status: **planned, implementation authorized** on branch
-`claude/layout-engine-v2` (from `main` `a8a0b48`, which includes P4E and the
-P5 encounter-stock work). Design agreed in the 2026-10-12 brainstorm.
+2026-10-12 · Status: **V2.0–V2.5 implemented** on branch `claude/layout-engine-v2`
+(from `main` `a8a0b48`, which includes P4E and the P5 encounter-stock work);
+clusters is the default engine. **V2.6 live checks pending.** Design agreed in
+the 2026-10-12 brainstorm.
 
 ## Goal
 
@@ -132,6 +133,40 @@ build (0 warnings, 0 errors), PlannerTests and the relevant LayoutTests
 | V2.4 | Comparison matrix, legacy vs clusters, same seeds and terrains (plains, clutter, obstacles, captured/P4E flat tiles, mountain, tribal, hot/cold) | Acceptance rate, fallback rate, compactness, shared-wall ratio, route metrics, time; regenerated `docs/p4a-examples` |
 | V2.5 | Switch the default when all three styles beat legacy on acceptance with no validator regressions; bump the planner version | Full LayoutTests/PlannerTests; P4D quest camps (town style) pass |
 | V2.6 | Live checks: superstructure, town and mountain spawn; coolers; P3 defense; save/reload; forced rollback | `run-rimworld-dev` evidence in findings |
+
+## Results (pure planner evidence, 2026-10-12)
+
+Synthetic terrain only; no live map was generated. Matrix: `--only "V2 matrix"`,
+4 seeds × 18 cases, both engines on identical inputs. The cases cover funded
+industrial and tribal rosters at wealth 60/100/180 with joint fields, hot and cold
+climates, three wall layers, clutter, live density, obstacles, the captured flat
+tile, the two P4E captured tiles, and tribal and industrial mountains.
+
+| Measure | Legacy | Clusters |
+|---|---|---|
+| Valid accepted plans | 71/72 (`p4e-flat-cooler` seed 4: search budget exhausted) | **72/72** |
+| Shared wall cells per base | 0 | 10–56 |
+| Circulation overhead (non-room, non-yard enclosure cells per room cell) | 0.32–0.79 | 0.27–0.78 |
+| Time per plan | baseline | about equal after pre-defense pooling (pooling after defense had tripled it) |
+
+With clusters as the default, the whole existing LayoutTests suite passes
+unchanged (126/126), including the P4D quest camps, P4B defense, P4E
+facilities, ordinary population and determinism. PlannerTests and the Release
+build are clean. `docs/p4a-examples/` were regenerated with the clusters engine.
+`v2-legacy-*` and `v2-clusters-*` show the same inputs side by side.
+
+Decisions made during implementation:
+
+- **The planner version string is not bumped.** The engine is part of the input digest, settlement seeds are persisted, and explicit legacy inputs keep their historical digests (pinned by test). The runtime `PROCEDURAL_PLAN` log reports `engine=`.
+- **The pool ranks validated room layouts before the P4B finishing passes,** then finishes the best first and falls back in score order. Defense work stays near one pass per accepted plan.
+- **Overhead barely moved** because it is dominated by the enclosure setback ring and hull fill, not by room packing. Making a building's outer wall the perimeter would change the P4B perimeter contracts and is left for a later step.
+
+Open follow-ups:
+
+- **V2.6 live checks.**
+- **Bent gate entry (design section 2):** not yet implemented; the gate is still chosen by the shared back half.
+- **Town cohesion:** a town kitchen can land across the street from its pantry. Tune the cluster score with matrix evidence.
+- **Test speed:** the long P4E defense-allowance sweep dominates suite time. Run the suite as `--shard i/n` processes on one build.
 
 ## Out of scope for v2
 

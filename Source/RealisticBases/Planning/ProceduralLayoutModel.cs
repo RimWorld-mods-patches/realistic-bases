@@ -77,8 +77,9 @@ namespace RealisticBases.Planning
     }
 
     // Room/circulation generator behind the shared ProceduralLayout contract.
-    // Legacy is the P4A street-and-branch packer; Clusters is layout engine v2
-    // (docs/plans/2026-10-12-layout-engine-v2.md). Append only: values persist.
+    // Clusters (layout engine v2, docs/plans/2026-10-12-layout-engine-v2.md) is
+    // the default; Legacy is the P4A street-and-branch packer, kept for explicit
+    // comparison. Append only: values persist.
     public enum LayoutEngine
     {
         Legacy,
@@ -402,7 +403,7 @@ namespace RealisticBases.Planning
 
         public ProceduralLayoutInput(LayoutRequirements requirements, TerrainSnapshot terrain, ulong seed, TechCatalog catalog,
             LayoutFortificationReservation fortification = null, LayoutSearchBudget budget = null, LayoutLocalResources resources = null,
-            P4DQuestContract questContract = null, LayoutEngine engine = LayoutEngine.Legacy)
+            P4DQuestContract questContract = null, LayoutEngine engine = LayoutEngine.Clusters)
         {
             Engine = engine;
             Requirements = requirements ?? throw new ArgumentNullException(nameof(requirements));
