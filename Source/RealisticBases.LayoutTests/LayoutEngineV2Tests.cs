@@ -11,6 +11,106 @@ internal static partial class Program
         Run("V2 neighbouring rooms may share plain walls only", V2SharedWallContract);
         Run("V2 shared walls are built and charged once", V2SharedWallLedger);
         Run("V2 engine choice is part of the input digest, legacy unchanged", V2EngineDigest);
+        Run("V2 clusters engine plans superstructure, town and mountain styles", V2ClusterStyles);
+        Run("V2 candidate pool is bounded, deterministic and keeps the best score", V2CandidatePool);
+    }
+
+    private static void V2CandidatePool()
+    {
+        V2Case c = V2StyleCases().Single(x => x.Name == "superstructure-plain");
+        ProceduralLayoutResult first = V2Plan(c, LayoutEngine.Clusters);
+        ProceduralLayoutResult again = V2Plan(c, LayoutEngine.Clusters);
+        Accepted(first);
+        Equal(first.Layout.Digest, again.Layout.Digest, "same input replays the same chosen candidate");
+        List<double> scores = first.Diagnostics.Where(d => d.Stage == "candidate" && d.Code == "valid")
+            .Select(d => double.Parse(d.Detail.Split(' ').First(t => t.StartsWith("score=")).Substring(6),
+                System.Globalization.CultureInfo.InvariantCulture)).ToList();
+        True(scores.Count >= 1 && scores.Count <= ProceduralLayoutPlanner.CandidatePoolSize, "bounded pool " + scores.Count);
+        LayoutDiagnostic accepted = first.Diagnostics.Single(d => d.Stage == "result" && d.Code == "accepted");
+        True(accepted.Detail.Contains("candidates=" + scores.Count), "acceptance reports the pool: " + accepted.Detail);
+        double chosen = double.Parse(accepted.Detail.Split(' ').First(t => t.StartsWith("preDefense=")).Substring(11),
+            System.Globalization.CultureInfo.InvariantCulture);
+        Equal(scores.Min().ToString("F1"), chosen.ToString("F1"), "lowest-scoring candidate finished first");
+        Console.WriteLine("  candidate scores " + string.Join(",", scores.Select(x => x.ToString("F1"))) + " chosen=" + chosen.ToString("F1"));
+        // The legacy engine keeps its first-valid behaviour and reports no pool.
+        ProceduralLayoutResult legacy = V2Plan(c, LayoutEngine.Legacy);
+        True(!legacy.Diagnostics.Any(d => d.Stage == "candidate"), "legacy has no candidate pool");
+    }
+
+    private sealed class V2Case
+    {
+        public string Name;
+        public TerrainSnapshot Terrain;
+        public LayoutRequirements Requirements;
+        public bool JointSite;
+        public LayoutStyleKind Style;
+        public ulong Seed = 1;
+    }
+
+    private static LayoutRequirements V2Funded(PhysicalSettlementProfile profile, SettlementTechStageLevel level, LayoutClimate climate, int wealth)
+    {
+        SettlementTechStage stage = TechStageModel.Create(level);
+        return LayoutRequirements.FromProfile(profile, climate, stage: stage,
+            populationBudget: OrdinarySettlementPopulation.Create(profile, stage, climate, wealth));
+    }
+
+    private static IEnumerable<V2Case> V2StyleCases() => new[]
+    {
+        new V2Case { Name = "superstructure-joint", Terrain = Plains(180), JointSite = true, Style = LayoutStyleKind.Superstructure,
+            Requirements = V2Funded(P2ProfileCatalog.IndustrialTemperate, SettlementTechStageLevel.IndustrialLate, Temperate, 100) },
+        new V2Case { Name = "superstructure-plain", Terrain = Plains(120), Style = LayoutStyleKind.Superstructure,
+            Requirements = LayoutRequirements.FromPopulation(6, Industrial, Temperate) },
+        new V2Case { Name = "town-joint", Terrain = Plains(180), JointSite = true, Style = LayoutStyleKind.Town,
+            Requirements = V2Funded(P2ProfileCatalog.TribalTemperate, SettlementTechStageLevel.Neolithic, Temperate, 100) },
+        new V2Case { Name = "mountain-tribal", Terrain = Mountain(130, 110), Style = LayoutStyleKind.Mountain, Seed = 4,
+            Requirements = LayoutRequirements.FromPopulation(6, Tribal, Cold) },
+    };
+
+    private static ProceduralLayoutResult V2Plan(V2Case c, LayoutEngine engine, LayoutFortificationReservation fortification = null) =>
+        ProceduralLayoutPlanner.Plan(new ProceduralLayoutInput(c.Requirements, c.Terrain, c.Seed, CoreCatalog,
+            fortification ?? new LayoutFortificationReservation(1), engine: engine), requireJointSite: c.JointSite);
+
+    private static void ExportLayout(string name, ProceduralLayoutResult result, TerrainSnapshot terrain)
+    {
+        if (exportDir == null || !result.Success) return;
+        System.IO.Directory.CreateDirectory(exportDir);
+        string text = "# " + name + " (synthetic terrain; planner evidence only, not a live map)\n" + LayoutAsciiExport.Legend + "\n\n" +
+            LayoutAsciiExport.Render(terrain, result.Layout) + "\nroof view:\n" + LayoutAsciiExport.RenderRoof(terrain, result.Layout) +
+            "\nmetrics: " + V2Metrics(result) + "\n";
+        text = string.Join("\n", text.Split('\n').Select(line => line.TrimEnd(' ')));
+        System.IO.File.WriteAllText(System.IO.Path.Combine(exportDir, name + ".txt"), text);
+    }
+
+    internal static int SharedWallCells(ProceduralLayout layout) =>
+        layout.Rooms.SelectMany(r => r.Bounds.Points()).GroupBy(c => c).Count(g => g.Count() > 1);
+
+    private static string V2Metrics(ProceduralLayoutResult result)
+    {
+        if (!result.Success) return "rejected=" + result.RejectionCode;
+        ProceduralLayout l = result.Layout;
+        int roomCells = l.Rooms.SelectMany(r => r.Bounds.Points()).Distinct().Count();
+        return "rooms=" + l.Rooms.Count + " enclosure=" + l.Enclosure.Count + " roomCells=" + roomCells +
+            " sharedWallCells=" + SharedWallCells(l) + " compactness=" + (l.Enclosure.Count / (double)roomCells).ToString("F2") +
+            " pockets=" + l.ExhaustPockets.Count + " gates=" + l.Gates.Count + " " + result.Stats;
+    }
+
+    private static void V2ClusterStyles()
+    {
+        foreach (V2Case c in V2StyleCases())
+        {
+            ProceduralLayoutResult legacy = V2Plan(c, LayoutEngine.Legacy);
+            ProceduralLayoutResult v2 = V2Plan(c, LayoutEngine.Clusters);
+            Console.WriteLine("  " + c.Name + " legacy: " + V2Metrics(legacy));
+            Console.WriteLine("  " + c.Name + " clusters: " + V2Metrics(v2));
+            ExportLayout("v2-legacy-" + c.Name, legacy, c.Terrain);
+            ExportLayout("v2-clusters-" + c.Name, v2, c.Terrain);
+            Accepted(v2);
+            ProceduralLayoutInput input = new ProceduralLayoutInput(c.Requirements, c.Terrain, c.Seed, CoreCatalog,
+                new LayoutFortificationReservation(1), engine: LayoutEngine.Clusters);
+            Equal(0, ProceduralLayoutValidator.Validate(input, v2.Layout).Count, c.Name + " validator");
+            True(v2.Layout.Notes.Any(n => n.Contains("style=" + c.Style)), c.Name + " style " + c.Style);
+            True(SharedWallCells(v2.Layout) > 0, c.Name + " rooms share walls");
+        }
     }
 
     private static LayoutRoom V2Room(string id, GridRect bounds, GridPoint door, GridPoint facing, params LayoutFixture[] fixtures) =>

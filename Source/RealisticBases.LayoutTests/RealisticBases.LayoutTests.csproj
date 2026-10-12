@@ -21,6 +21,9 @@
     <Compile Include="../RealisticBases/Planning/P4Connectivity.cs" Link="Planning/P4Connectivity.cs" />
     <Compile Include="../RealisticBases/Planning/ProceduralLayoutModel.cs" Link="Planning/ProceduralLayoutModel.cs" />
     <Compile Include="../RealisticBases/Planning/ProceduralLayoutPlanner.cs" Link="Planning/ProceduralLayoutPlanner.cs" />
+    <Compile Include="../RealisticBases/Planning/LayoutStyle.cs" Link="Planning/LayoutStyle.cs" />
+    <Compile Include="../RealisticBases/Planning/LayoutClusterPacking.cs" Link="Planning/LayoutClusterPacking.cs" />
+    <Compile Include="../RealisticBases/Planning/LayoutCandidateScore.cs" Link="Planning/LayoutCandidateScore.cs" />
     <Compile Include="../RealisticBases/Planning/ProceduralLayoutValidator.cs" Link="Planning/ProceduralLayoutValidator.cs" />
     <Compile Include="../RealisticBases/Planning/SettlementTechStage.cs" Link="Planning/SettlementTechStage.cs" />
     <Compile Include="../RealisticBases/Planning/P4BLayerPolicy.cs" Link="Planning/P4BLayerPolicy.cs" />
