@@ -68,6 +68,16 @@ namespace RealisticBases.Integration
             => tracker?.settlement == null ? null : Current.Game?.GetComponent<P5WorldStock>()?.Find(tracker.settlement.ID);
         internal static ThingOwner<Thing> Holder(Settlement_TraderTracker tracker) => tracker.GetDirectlyHeldThings() as ThingOwner<Thing>;
         internal static int NativeTick(Settlement_TraderTracker tracker) => (int)GeneratedTick.GetValue(tracker);
+        internal static List<Thing> Offer(Settlement_TraderTracker tracker)
+        {
+            var native = Holder(tracker)?.InnerListForReading ?? new List<Thing>();
+            var physical = P5PhysicalSaleStock.For(tracker);
+            if (physical == null) return native;
+            var combined = native.Concat(physical.Goods).ToList();
+            if (combined.GroupBy(t => t.thingIDNumber).Any(g => g.Count() != 1))
+                throw new InvalidOperationException("Duplicate canonical physical/native stock identity");
+            return combined;
+        }
         internal static void RestoreHolderOwner(Settlement_TraderTracker tracker)
         {
             ThingOwner holder = Holder(tracker);
@@ -104,9 +114,7 @@ namespace RealisticBases.Integration
         {
             unsupported = new List<string>();
             List<P5ItemFacts> items = new List<P5ItemFacts>();
-            ThingOwner holder = Holder(tracker);
-            if (holder != null)
-                foreach (Thing thing in holder)
+            foreach (Thing thing in Offer(tracker))
                 {
                     string reason = Unsupported(thing);
                     if (reason != null) { unsupported.Add(thing.ThingID + ":" + reason); continue; }
@@ -127,7 +135,7 @@ namespace RealisticBases.Integration
             if (thing == null || thing.Destroyed) return "invalid_thing";
             if (thing is Pawn) return "native_pawn_ownership";
             if (thing.def.category != ThingCategory.Item) return "not_ordinary_item";
-            if (thing is IThingHolder) return "nested_container";
+            if (thing is IThingHolder || thing.def.ThisOrAnyCompIsThingHolder()) return "nested_container";
             if (thing.GetType().Assembly != typeof(Thing).Assembly ||
                 thing is ThingWithComps comps && comps.AllComps.Any(c => c.GetType().Assembly != typeof(Thing).Assembly))
                 return "unknown_item_behavior";
@@ -146,7 +154,7 @@ namespace RealisticBases.Integration
             {
                 // A depleted native holder is still this epoch. Missing canonical
                 // ownership fails closed instead of rerolling an observed offer.
-                __result = P5TradeStock.Holder(__instance)?.InnerListForReading ?? new List<Thing>();
+                __result = P5TradeStock.Offer(__instance);
                 return false;
             }
             if (__instance.settlement.HasMap && record.status == P5StockStatus.Expired)

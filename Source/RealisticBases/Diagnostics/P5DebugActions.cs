@@ -53,12 +53,13 @@ namespace RealisticBases.Diagnostics
             var counts = original.ToDictionary(t => t, t => t.stackCount);
             int epoch = P5TradeStock.Record(tracker).epoch;
             int nativeTick = P5TradeStock.NativeTick(tracker), now = GenTicks.TicksGame;
+            int mappedCount = settlement.Map.GetComponent<P5PhysicalSaleStock>().Goods.Count();
             try
             {
                 // Temporarily detach, never clone or destroy. No ticks/save occur
                 // while borrowed; finally restores the exact original Things.
                 foreach (Thing thing in original) holder.Remove(thing);
-                if (tracker.StockListForReading.Count != 0 || tracker.StockListForReading.Count != 0 ||
+                if (tracker.StockListForReading.Count != mappedCount || tracker.StockListForReading.Count != mappedCount ||
                     P5TradeStock.Holder(tracker) != holder || P5TradeStock.NativeTick(tracker) != nativeTick)
                     throw new InvalidOperationException("Empty getter regenerated canonical stock");
             }
@@ -80,7 +81,7 @@ namespace RealisticBases.Diagnostics
                 throw new InvalidOperationException("Loaded expiry changed native stock");
             P0Log.Message("P5_STOCK_SPIKE_COMPLETE", "map=" + settlement.Map.uniqueID + " settlement=" + settlement.ID +
                 " passed=True emptyReads=2 loadedExpirySuppressed=True exactThingsRestored=" + original.Count +
-                " epoch=" + epoch + " tickRestored=" + (now == GenTicks.TicksGame) + " physicalCopiesAdded=0");
+                " epoch=" + epoch + " tickRestored=" + (now == GenTicks.TicksGame) + " mappedRetained=" + mappedCount + " physicalCopiesAdded=0");
             Audit();
         }
         [DebugAction(Category, "Audit P5 native stock ownership", actionType = DebugActionType.Action,
@@ -91,11 +92,13 @@ namespace RealisticBases.Diagnostics
             var snapshot = P5TradeStock.Snapshot(settlement.trader, out var unsupported);
             var holder = P5TradeStock.Holder(settlement.trader);
             var record = P5TradeStock.Record(settlement.trader);
+            bool mapped = settlement.Map.GetComponent<P5PhysicalSaleStock>().Active;
             P0Log.Message("P5_STOCK_AUDIT", "map=" + settlement.Map.uniqueID + " settlement=" + settlement.ID +
                 " holder=" + (holder != null) + " epoch=" + (record?.epoch ?? 0) + " status=" + record?.status +
                 " generated=" + P5TradeStock.NativeTick(settlement.trader) + " nextRestock=" + settlement.NextRestockTick +
                 " stacks=" + snapshot.Items.Count + " units=" + snapshot.Items.Sum(i => (long)i.Count) +
-                " nativeOwnership=" + (holder == null || holder.All(t => t.ParentHolder == settlement.trader && !t.Spawned)) +
+                " nativeOwnership=" + (!mapped && (holder == null || holder.All(t => t.ParentHolder == settlement.trader && !t.Spawned))) +
+                " physicalMapping=" + mapped +
                 " unsupported=" + string.Join("|", unsupported) + " items=" + string.Join("|", snapshot.Items.Select(i =>
                     i.Id + ":" + i.Def + ":" + i.Count + ":" + i.Stuff + ":q" + i.Quality + ":hp" + i.HitPoints + "/" + i.MaxHitPoints)));
         }

@@ -262,3 +262,52 @@ The exact disposable game was stopped. Full layout/planner passes remain the
 preceding checkpoint; this adds only isolated debug instrumentation, not layout
 or garrison changes. Physical stock/capacity, unmanaged-existing-offer adoption,
 allocation transfers, loot/capture/expiry and unload reconciliation remain open.
+
+## P5.3a — Single-authority physical-stock foundation
+
+Normal generation does **not** yet materialize trade stock. An isolated explicit
+prototype transfers only inert native steel/medicine into existing legal shelves.
+The full offer's perishable/hazard storage and adaptive planner capacity remain
+open; prototypeSlice=True/fullOfferMaterialized=False are logged deliberately.
+
+The map component holds references, not cloned Things, a second ThingOwner or
+saved independent quantities. Getter views combine actual native and actual
+map-owned objects, rejecting duplicate IDs. Native stock is borrowed through
+P4's transaction; oversized native stacks split through the engine and rollback
+recombines them into their original objects/counts before returning ownership.
+Sale/reserve native merges are refused, split allocation follows real fragments,
+NPC Lords forbid consuming sale goods without a later explicit transfer, and
+native purchases prune objects that leave settlement ownership. Unsupported
+holder/components remain native. Map-owned sale references serialize; a scoped
+compression guard preserves managed sale IDs because vanilla's compression
+reference scan does not inspect custom map-component references. An actual
+compressible-sale fixture is still pending; ordinary shelf reload passes below.
+
+Native map1/site91 at2612: forced failure after borrowing and splitting original
+steel/medicine recovers=True, exactNativeThings=True, quantitiesAttributes=True,
+itemLedgerRestored=True and restores the prior roof queue (discarded0). No source
+Thing is destroyed/replaced. The subsequent commit moves original Steel75313:639
+and MedicineIndustrial75321:35 to11 legal shelf stacks, retaining original IDs
+for one fragment each, and removes both original native-holder copies. Physical
+units674 plus untouched native goods still total8930 ordinary units, identical
+def/stuff/quality/condition aggregateCD6EF4C790E86AEC. Native holder82 contains
+the remaining62 ordinary and20 unsupported Things; the combined view has no
+duplicate physical/native identity. Nine new fragment IDs represent splits, not
+additional units or arbitrary offer truncation.
+
+Active and cold reload retain all11 mapped IDs/counts/positions and the aggregate.
+Native TryAbsorbStack with respectStackLimit=False cannot merge saleSteel75313:39
+into operatingSteel68292:75; both counts remain unchanged. Temporarily emptying
+the private native holder leaves the11 mapped stacks visible and does not reroll;
+all82 original native Things return exactly. A synchronous30day+1 expiry boundary
+remains suppressed while loaded, epoch1 intact. Before the boundary, the ordinary
+native tick now still runs its pawn cleanup; only due loaded expiry is skipped.
+Full pure suite and Release build0 warnings/errors pass. No new layout geometry
+or ordinary-generation stock feature is enabled by this checkpoint.
+
+Evidence: p5-physical-stock-transfer-first-20261012.log;
+p5-physical-stock-merge-expiry-20261012.log;
+p5-physical-stock-planner-tests-20261012.txt;
+RealisticBases-P5-inert-physical-stock-20261012.rws. Exact game stopped. P5.3
+remains open for full-offer admission/storage, emergency transfer, buy/sell/loot/
+destruction/capture/re-entry and the complete restock/compatibility matrix.

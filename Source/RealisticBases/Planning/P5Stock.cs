@@ -38,9 +38,9 @@ namespace RealisticBases.Planning
             if (request == P5StockRequest.Inspect) return Result(P5StockAction.None, this, "read_only");
             if (request == P5StockRequest.ScheduledExpiry)
             {
-                if (InEncounter) return Result(P5StockAction.SuppressExpiry, this, "loaded_encounter");
                 if (Status != P5StockStatus.Canonical || GeneratedTick < 0 ||
                     (long)now - GeneratedTick <= RestockTicks) return Result(P5StockAction.None, this, "not_due");
+                if (InEncounter) return Result(P5StockAction.SuppressExpiry, this, "loaded_encounter");
                 return Result(P5StockAction.ExpireOffMap,
                     new P5StockEpoch(P5StockStatus.Expired, Epoch, GeneratedTick), "scheduled_off_map_expiry");
             }

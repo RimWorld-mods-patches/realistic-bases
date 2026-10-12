@@ -21,6 +21,7 @@ internal static class P5StockTests
         int boundary = 2 + P5StockEpoch.RestockTicks;
         Check(empty.State.Decide(P5StockRequest.ScheduledExpiry, true, true, true, 2, boundary).Action == P5StockAction.None);
         var loaded = empty.State.Decide(P5StockRequest.EnterEncounter, true, true, true, 2, 10).State;
+        Check(loaded.Decide(P5StockRequest.ScheduledExpiry, true, true, true, 2, 11).Action == P5StockAction.None);
         Check(loaded.Decide(P5StockRequest.ScheduledExpiry, true, true, true, 2, boundary + 1).Action == P5StockAction.SuppressExpiry);
         var expired = empty.State.Decide(P5StockRequest.ScheduledExpiry, true, true, true, 2, boundary + 1);
         Check(expired.Action == P5StockAction.ExpireOffMap && expired.State.Epoch == 1);
