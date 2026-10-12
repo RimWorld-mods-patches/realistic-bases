@@ -109,9 +109,39 @@ namespace RealisticBases.Planning
 
         // Search a small fixed family of square field footprints. Gates and
         // hauling lanes are counted as exclusions, never as crop capacity.
+        // The compound side of a field interface: the planner reserves a public
+        // street tip `AttachmentDepth` cells inside the field's inner gate and
+        // a three-cell lane to it, which becomes the aligned compound gate.
+        public static int AttachmentDepth(LayoutFortificationReservation fortification) =>
+            2 * fortification.WallLayers + fortification.Setback + 4;
+
+        // Layered gate bands need a straight frontage with returning arms.
+        public static int AttachmentHalfTip(LayoutFortificationReservation fortification) =>
+            fortification.WallLayers > 1 ? 4 : 1;
+
+        // Static terrain part of that reservation; occupancy is checked when rooms are packed.
+        internal static bool AttachmentClear(LayoutTerrainGrid grid, GridPoint innerGate, GridPoint outerGate, int depth, int halfTip)
+        {
+            GridPoint outward = new GridPoint(Math.Sign(outerGate.X - innerGate.X), Math.Sign(outerGate.Z - innerGate.Z));
+            GridPoint tangent = new GridPoint(outward.Z, outward.X);
+            GridPoint terminal = new GridPoint(innerGate.X - outward.X * depth, innerGate.Z - outward.Z * depth);
+            for (int j = -halfTip; j <= halfTip; j++)
+            {
+                GridPoint c = new GridPoint(terminal.X + tangent.X * j, terminal.Z + tangent.Z * j);
+                if (!grid.InBounds(c) || !grid.CanPlace(c) || grid.At(c) != LayoutCellClass.Open) return false;
+            }
+            for (int k = 1; k < depth; k++)
+                for (int j = -1; j <= 1; j++)
+                {
+                    GridPoint c = new GridPoint(terminal.X + outward.X * k + tangent.X * j, terminal.Z + outward.Z * k + tangent.Z * j);
+                    if (!grid.Terrain.InBounds(c) || LayoutTerrainGrid.Classify(grid.Terrain[c]) != LayoutCellClass.Open) return false;
+                }
+            return true;
+        }
+
         public static P4BJointSiteResult Find(TerrainSnapshot terrain, int requiredCrops,
             int minimumCompoundCells, int margin, ulong seed, int maxCandidates = 16, int maxEvaluations = 4096,
-            int residents = 4, bool refineFieldOrigins = false)
+            int residents = 4, bool refineFieldOrigins = false, int attachmentDepth = 0, int attachmentHalfTip = 1)
         {
             if (terrain == null) throw new ArgumentNullException(nameof(terrain));
             if (requiredCrops <= 0) throw new ArgumentOutOfRangeException(nameof(requiredCrops));
@@ -188,10 +218,15 @@ namespace RealisticBases.Planning
                         LargestConnected(compound.Points().Where(grid.CanPlace)).Count < minimumCompoundCells)
                     { Reject("compound_capacity"); continue; }
                     List<P4BFieldInterface> interfaces = new List<P4BFieldInterface>();
+                    bool attachmentBlocked = false;
                     for (int gateOffset = 2; gateOffset <= fieldSide - 3; gateOffset++)
                     {
                         GridPoint innerGate = GateAt(field, side, true, gateOffset);
                         GridPoint outerGate = GateAt(field, side, false, gateOffset);
+                        // A field the compound cannot reach through open ground
+                        // would fail every room attempt at its approach reservation.
+                        if (attachmentDepth > 0 && !AttachmentClear(grid, innerGate, outerGate, attachmentDepth, attachmentHalfTip))
+                        { attachmentBlocked = true; continue; }
                         List<GridPoint> posts = PostCells(field, outerGate, side);
                         GridPoint outward = side == 0 ? new GridPoint(0, 1) : side == 1 ? new GridPoint(-1, 0) :
                             side == 2 ? new GridPoint(0, -1) : new GridPoint(1, 0);
@@ -224,7 +259,7 @@ namespace RealisticBases.Planning
                         List<GridPoint> chosen = reachable;
                         interfaces.Add(new P4BFieldInterface(innerGate, outerGate, chosen, lane, posts, cover, postAccess));
                     }
-                    if (interfaces.Count == 0) { Reject("crop_capacity_or_interface"); continue; }
+                    if (interfaces.Count == 0) { Reject(attachmentBlocked ? "field_attachment_or_capacity" : "crop_capacity_or_interface"); continue; }
                     P4BFieldInterface preferred = interfaces.OrderBy(i => Manhattan(i.InnerGate,
                         new GridPoint((field.MinX + field.MaxX) / 2, (field.MinZ + field.MaxZ) / 2))).First();
                     int farmlandLost = compound.Points().Count(c => terrain[c].Has(TerrainTraits.Fertile));
@@ -244,7 +279,8 @@ namespace RealisticBases.Planning
             if (accepted.Count == 0 && !refineFieldOrigins)
             {
                 P4BJointSiteResult refined = Find(terrain, requiredCrops, minimumCompoundCells, margin, seed,
-                    maxCandidates, maxEvaluations, residents, refineFieldOrigins: true);
+                    maxCandidates, maxEvaluations, residents, refineFieldOrigins: true,
+                    attachmentDepth: attachmentDepth, attachmentHalfTip: attachmentHalfTip);
                 return new P4BJointSiteResult(refined.Candidates,
                     rejected.OrderBy(kv => kv.Key).Select(kv => "coarse_" + kv.Key + ":" + kv.Value)
                         .Concat(refined.Rejections.Select(r => "refined_" + r)),

@@ -742,7 +742,9 @@ namespace RealisticBases.Planning
             {
                 jointSites = P4BJointSitePlanner.Find(input.Terrain, requirements.FieldCells, requiredArea,
                     input.Fortification.PlacementMargin, LayoutSeed.Sub(input.Seed, "joint-site"),
-                    input.Budget.MaxSites, input.Budget.MaxSites * 1024, requirements.Residents);
+                    input.Budget.MaxSites, input.Budget.MaxSites * 1024, requirements.Residents,
+                    attachmentDepth: requirements.ReservePopulationCirculation ? P4BJointSitePlanner.AttachmentDepth(input.Fortification) : 0,
+                    attachmentHalfTip: P4BJointSitePlanner.AttachmentHalfTip(input.Fortification));
                 diagnostics.Add(new LayoutDiagnostic("joint_site", "preflight", "pairs=" + jointSites.Candidates.Count +
                     " evaluated=" + jointSites.Evaluated + " fieldOriginsScanned=" + jointSites.FieldOriginsScanned +
                     " rejected=" + string.Join(",", jointSites.Rejections)));
@@ -1498,6 +1500,16 @@ namespace RealisticBases.Planning
                             path = ConnectEnvelope(frontage, candidate.Bounds, out joined);
                             if (path == null) continue;
                         }
+                        // The corridor is claimed before the room commits its
+                        // exhaust pockets; a corridor beside a new pocket would
+                        // leave that pocket open to public circulation.
+                        HashSet<GridPoint> newPockets = new HashSet<GridPoint>(candidate.Furnish.Fixtures
+                            .Where(f => f.Kind == LayoutFixtureKind.WallCooler)
+                            .Select(f => ToWorld(candidate.Door, candidate.Facing, candidate.DoorX,
+                                new GridPoint(f.Cells[0].X - f.Facing.X, f.Cells[0].Z - f.Facing.Z)))
+                            .Where(h => occ[grid.Index(h)] == Free));
+                        if (path.Any(c => newPockets.Contains(c) ||
+                            ProceduralLayoutValidator.Neighbors(c).Any(newPockets.Contains))) continue;
                         int extraDigs = path.Count(c => grid.At(c) == LayoutCellClass.Rock);
                         if (dug.Count + candidate.Dig.Count + extraDigs > Budget && extraDigs > 0) continue;
                         Segment extension = new Segment { Id = "room-extension:" + room.Id, Retain = true, Root = joined, Axis = facing };
@@ -1767,11 +1779,12 @@ namespace RealisticBases.Planning
         private bool ReserveFieldApproach()
         {
             int setback = input.Fortification.Setback;
-            int terminalDistance = 2 * input.Fortification.WallLayers + setback + 4;
+            int terminalDistance = P4BJointSitePlanner.AttachmentDepth(input.Fortification);
             // Layered gate bands need a real straight frontage with returning
             // arms, not just a narrow corridor whose walls form two piers.
-            int halfTip = input.Fortification.WallLayers > 1 ? 4 : 1;
+            int halfTip = P4BJointSitePlanner.AttachmentHalfTip(input.Fortification);
             int halfReserve = Math.Max(setback + 3, halfTip + setback + 1);
+            List<string> why = new List<string>();
             foreach (P4BFieldInterface option in jointSite.Interfaces.OrderBy(i => Manhattan(i.InnerGate, anchor)))
             {
                 GridPoint outward = new GridPoint(Math.Sign(option.OuterGate.X - option.InnerGate.X),
@@ -1781,8 +1794,14 @@ namespace RealisticBases.Planning
                     option.InnerGate.Z - outward.Z * terminalDistance);
                 List<GridPoint> tip = Enumerable.Range(-halfTip, 2 * halfTip + 1).Select(j => new GridPoint(
                     terminal.X + tangent.X * j, terminal.Z + tangent.Z * j)).ToList();
-                if (tip.Any(c => !grid.CanPlace(c) || grid.At(c) != LayoutCellClass.Open ||
-                    occ[grid.Index(c)] != Free)) continue;
+                GridPoint? blockedTip = tip.Where(c => !grid.CanPlace(c) || grid.At(c) != LayoutCellClass.Open ||
+                    occ[grid.Index(c)] != Free).Cast<GridPoint?>().FirstOrDefault();
+                if (blockedTip.HasValue)
+                {
+                    why.Add(option.InnerGate + ":tip@" + blockedTip.Value + ":" + (grid.InBounds(blockedTip.Value)
+                        ? grid.At(blockedTip.Value) + "/" + occ[grid.Index(blockedTip.Value)] : "out"));
+                    continue;
+                }
                 List<GridPoint> reserve = new List<GridPoint>();
                 bool clear = true;
                 for (int k = 1; k < terminalDistance && clear; k++)
@@ -1792,9 +1811,10 @@ namespace RealisticBases.Planning
                             terminal.Z + outward.Z * k + tangent.Z * j);
                         if (Math.Abs(j) <= 1 && (!input.Terrain.InBounds(c) ||
                             LayoutTerrainGrid.Classify(input.Terrain[c]) != LayoutCellClass.Open))
-                        { clear = false; break; }
+                        { clear = false; why.Add(option.InnerGate + ":lane@" + c + ":" + (input.Terrain.InBounds(c) ?
+                            LayoutTerrainGrid.Classify(input.Terrain[c]).ToString() : "out")); break; }
                         if (!grid.InBounds(c)) continue;
-                        if (occ[grid.Index(c)] != Free) { clear = false; break; }
+                        if (occ[grid.Index(c)] != Free) { clear = false; why.Add(option.InnerGate + ":reserve@" + c + ":occ" + occ[grid.Index(c)]); break; }
                         if (k > setback) reserve.Add(c);
                     }
                 if (!clear) continue;
@@ -1821,7 +1841,7 @@ namespace RealisticBases.Planning
                     }
                 }
                 stats.RouteNodes += visited;
-                if (!joined.HasValue) continue;
+                if (!joined.HasValue) { why.Add(option.InnerGate + ":no_street_route:" + visited); continue; }
                 List<GridPoint> path = new List<GridPoint>();
                 for (GridPoint c = joined.Value; !c.Equals(terminal); c = previous[c]) path.Add(c);
                 path.AddRange(tip);
@@ -1838,7 +1858,7 @@ namespace RealisticBases.Planning
                 notes.Add("fieldApproachReserved=" + option.InnerGate + " terminal=" + terminal);
                 return true;
             }
-            Fail("field_approach_unavailable");
+            Fail("field_approach_unavailable", string.Join(" ", why.Take(6)));
             return false;
         }
 
@@ -2192,6 +2212,9 @@ namespace RealisticBases.Planning
                     if (!edge || n.Equals(door)) return -1;
                     continue;
                 }
+                // The cell outside this room's door stays walkable, so it can
+                // never become the pocket's wall: such a pocket is never sealed.
+                if (Manhattan(n, door) == 1) return -1;
                 byte on = occ[grid.Index(n)];
                 if (on == RoomCell) { if (!roomWalls.Contains(n)) return -1; continue; }
                 if (on == PocketWall || on == PocketSeal) continue;
@@ -2831,10 +2854,13 @@ namespace RealisticBases.Planning
                 GridPoint c = new GridPoint(i % grid.Width, i / grid.Width);
                 if (grid.Terrain[c].Has(TerrainTraits.MapEdge) && grid.Passable(c) && exteriorFree(c)) { distance[i] = 0; queue.Enqueue(c); }
             }
+            // One linear flood, each cell at most once: a distance transform
+            // bounded by the map, not a search. The 40k search budget left
+            // inland gates on 250x250 tiles unreached and unselectable.
             int visited = 0;
             while (queue.Count > 0)
             {
-                if (++visited > input.Budget.MaxRouteNodes) { ProceduralLayoutPlanner.Note(diagnostics, "gate", "route_budget_exhausted", Site); break; }
+                if (++visited > occ.Length) { ProceduralLayoutPlanner.Note(diagnostics, "gate", "route_budget_exhausted", Site); break; }
                 GridPoint c = queue.Dequeue();
                 foreach (GridPoint step in ProceduralLayoutPlanner.Cardinal)
                 {

@@ -94,6 +94,15 @@ internal static partial class Program
             new LayoutFortificationReservation(1), resources: new LayoutLocalResources(63713, new[] { "BlocksGranite", "BlocksMarble" }));
         var result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
         Accepted(result);
+        // The rejection had three structural causes: field interfaces with rock
+        // where the compound gate must be, an exterior flood capped below the
+        // 250x250 map area, and an exhaust pocket beside a door's outside cell.
+        LayoutTerrainGrid siteGrid = LayoutTerrainGrid.Build(terrain, input.Fortification.PlacementMargin);
+        True(result.Layout.JointSite.Interfaces.All(i => P4BJointSitePlanner.AttachmentClear(siteGrid, i.InnerGate, i.OuterGate,
+            P4BJointSitePlanner.AttachmentDepth(input.Fortification), P4BJointSitePlanner.AttachmentHalfTip(input.Fortification))),
+            "every offered field interface has open ground for its compound gate");
+        True(result.Layout.ExhaustPockets.All(p => !ProceduralLayoutValidator.Neighbors(p.Cell).Any(n =>
+            result.Layout.Rooms.Any(r => r.DoorOutside.Equals(n)))), "no exhaust pocket borders a door's outside cell");
         True(P5StockSlots(input, result.Layout, LayoutRoomKind.Storage) >=
             result.Demand.Rooms.Where(r => r.Kind == LayoutRoomKind.Storage).Sum(r => r.Capacity), "whole ordinary/hazardous offer fits racks");
         True(P5StockSlots(input, result.Layout, LayoutRoomKind.Freezer, LayoutRoomKind.Pantry) >=
