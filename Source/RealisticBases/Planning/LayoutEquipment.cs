@@ -475,12 +475,15 @@ namespace RealisticBases.Planning
         {
             List<LayoutRoom> list = rooms.ToList();
             int wallCells = builtWalls.Count();
+            // A wall shared by neighbouring rooms is built (and charged) once.
+            HashSet<GridPoint> roomWalls = new HashSet<GridPoint>();
             foreach (LayoutRoom room in list)
             {
                 HashSet<GridPoint> excluded = new HashSet<GridPoint>(room.NaturalWalls) { room.Door };
                 foreach (LayoutFixture f in room.Fixtures.Where(f => f.Kind == LayoutFixtureKind.WallCooler)) excluded.UnionWith(f.Cells);
-                wallCells += room.Bounds.Points().Count(p => room.IsEdge(p) && !excluded.Contains(p));
+                roomWalls.UnionWith(room.Bounds.Points().Where(p => room.IsEdge(p) && !excluded.Contains(p)));
             }
+            wallCells += roomWalls.Count;
             int doors = list.Count + gates;
             IEnumerable<KeyValuePair<string, SettlementRole?>> fixtures = list.SelectMany(r => r.Fixtures)
                 .Select(f => new KeyValuePair<string, SettlementRole?>(f.DefName, f.Role))

@@ -12,6 +12,8 @@ internal static partial class Program
     private static int failures;
     private static string exportDir;
     private static string only;
+    // --shard i/n runs every n-th selected test, so n processes share one build.
+    private static int shard, shards = 1, runIndex;
     private static readonly SettlementCapability Industrial = P2ProfileCatalog.IndustrialTemperate.Capabilities;
     private static readonly SettlementCapability Tribal = P2ProfileCatalog.TribalTemperate.Capabilities;
     private static readonly LayoutClimate Temperate = new LayoutClimate(12, 28);
@@ -24,6 +26,13 @@ internal static partial class Program
         if (export >= 0 && export + 1 < args.Length) exportDir = args[export + 1];
         int selected = Array.IndexOf(args, "--only");
         if (selected >= 0 && selected + 1 < args.Length) only = args[selected + 1];
+        int sharded = Array.IndexOf(args, "--shard");
+        if (sharded >= 0 && sharded + 1 < args.Length)
+        {
+            string[] parts = args[sharded + 1].Split('/');
+            shard = int.Parse(parts[0]);
+            shards = int.Parse(parts[1]);
+        }
         Stopwatch watch = Stopwatch.StartNew();
         Run("P4E laboratory stage matrix and compact quest exclusions", P4ELaboratoryStageMatrix);
         Run("P4E occupied room climate and power demand", P4EOccupiedRoomClimate);
@@ -57,6 +66,8 @@ internal static partial class Program
         Run("freezer and occupied-room cooler targets differ", CoolerTemperatureTargets);
         Run("workbenches stand against a wall with an interior work cell", WorkbenchesAgainstWall);
         RunCoolerExhaustTests();
+        RunLayoutEngineV2Tests();
+        RunLayoutEngineV2Matrix();
         Run("identical inputs replay identical layouts", Determinism);
         Run("seeds vary internal layout beyond translation and rotation", SeedVariation);
         Run("population change alters capacity and geometry coherently", PopulationChangesGeometry);
@@ -2959,6 +2970,7 @@ internal static partial class Program
     private static void Run(string name, Action test)
     {
         if (only != null && name.IndexOf(only, StringComparison.OrdinalIgnoreCase) < 0) return;
+        if (runIndex++ % shards != shard) return;
         Stopwatch watch = Stopwatch.StartNew();
         try { test(); Console.WriteLine("PASS " + name + " (" + watch.ElapsedMilliseconds + " ms)"); }
         catch (Exception ex) { failures++; Console.WriteLine("FAIL " + name + ": " + ex.Message + "\n" + ex.StackTrace?.Split('\n').FirstOrDefault()); }

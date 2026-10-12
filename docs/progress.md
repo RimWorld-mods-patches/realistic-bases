@@ -12,6 +12,8 @@ The 2026-09-29 ordinary-population update implements stable budget-funded roster
 
 Verification: complete LayoutTests (132,637 ms) and PlannerTests suites pass with zero failures; Docker Release mod build has zero warnings/errors. The original 12/12 high-industrial clutter matrix and four/six-turret fixtures remain passing. New four/seven/twelve-resident attached-field fixtures, the original-bound clutter/fallback matrix, clear two/three-layer rich fixtures and four/seven/eight/twelve-resident pooled-storage regressions pass. A real obstacle on a protected shared crossing still rejects. Disposable Core runtime accepted a six-resident/two-layer base with 210 unroofed crops and eight stocked shelves, then preserved wealth/layout/pawn IDs/shelves/steel across active save/reload. The initial `Steel:10` stock-placement failure rolled back cleanly and was fixed. **An additional flat tile still rejects during rock-protected power-room packing/open-ground anchor selection** (seed `4C75E5314725D2A4`, zero mutations); capture a synthetic terrain fixture and fix this in the next placement pass. This checkpoint is not a P4 closeout or a claim of universal flat-map acceptance; no merge is performed by this verification request.
 
+**2026-10-12 layout engine v2:** the clusters engine (hallway comb, room clusters with shared walls, superstructure/town/mountain styles, a pre-defense candidate pool) is the default planner on branch `claude/layout-engine-v2`. Pure evidence: 72/72 valid on the comparison matrix (legacy 71/72) and the full LayoutTests suite passes under the new default. Live checks are pending. See the [v2 plan and results](plans/2026-10-12-layout-engine-v2.md).
+
 ## Milestones
 
 | Milestone | Status | Completion evidence / next action |

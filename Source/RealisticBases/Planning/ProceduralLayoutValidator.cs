@@ -140,9 +140,8 @@ namespace RealisticBases.Planning
 
             // Rooms and corridors.
             HashSet<GridPoint> roomCells = new HashSet<GridPoint>();
-            foreach (LayoutRoom room in layout.Rooms)
-                foreach (GridPoint c in room.Bounds.Points())
-                    if (!roomCells.Add(c)) errors.Add("room_overlap_" + room.Id);
+            foreach (string overlap in SharedWallViolations(layout.Rooms)) errors.Add(overlap);
+            foreach (LayoutRoom room in layout.Rooms) roomCells.UnionWith(room.Bounds.Points());
             HashSet<GridPoint> courtCells = new HashSet<GridPoint>(layout.Courts.SelectMany(c => c.Cells));
             HashSet<GridPoint> yardCells = new HashSet<GridPoint>();
             foreach (LayoutPowerYard yard in layout.PowerYards)
@@ -378,6 +377,30 @@ namespace RealisticBases.Planning
                 errors.Add("unpowered_electric_content");
             return new ReadOnlyCollection<string>(errors.Distinct().ToList());
         }
+
+        // Neighbouring rooms may share a common wall: a cell may belong to several
+        // rooms only when it is a plain wall of each. Interiors, doors and wall
+        // coolers are never shared (a cooler's sides would face two rooms).
+        public static IReadOnlyList<string> SharedWallViolations(IEnumerable<LayoutRoom> rooms)
+        {
+            Dictionary<GridPoint, List<LayoutRoom>> owners = new Dictionary<GridPoint, List<LayoutRoom>>();
+            foreach (LayoutRoom room in rooms)
+                foreach (GridPoint c in room.Bounds.Points())
+                {
+                    List<LayoutRoom> list;
+                    if (!owners.TryGetValue(c, out list)) owners[c] = list = new List<LayoutRoom>();
+                    list.Add(room);
+                }
+            List<string> errors = new List<string>();
+            foreach (KeyValuePair<GridPoint, List<LayoutRoom>> cell in owners.Where(o => o.Value.Count > 1))
+                foreach (LayoutRoom room in cell.Value)
+                    if (!IsSharableWall(room, cell.Key)) errors.Add("room_overlap_" + room.Id);
+            return errors.Distinct().ToList();
+        }
+
+        internal static bool IsSharableWall(LayoutRoom room, GridPoint cell) =>
+            room.IsEdge(cell) && !cell.Equals(room.Door) &&
+            !room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.WallCooler && f.Cells.Contains(cell));
 
         // Loadout rules (plan step 6): catalog legality and no prohibited content for every item and
         // stuff, role and climate rules, apparel layering, and the equipment budget.
