@@ -250,6 +250,14 @@ Retain loaded-map serialization and unloaded damage/depletion/casualty reconcili
 5. We still have no floors in some rooms.
 6. The wealthiest spacer settlements can have uranium/plasteel walls.
 
+### P5B — Better management
+
+1. All the defenders shouldn't sleep at the same time, they should have some rotation.
+2. The defenders should have different states of the threat: 
+  - when the caravan arrives but it doesn't attack, they don't need to put max defenders to the posts. They can use mortars and have reasonable number of defenders on the posts (the posts relevant for the potential direction of the attack). The others can do some everyday activities/sleep/eat.
+  - when the attackers start the assault, everyone should be alarmed, even the ones sleeping
+3. Currently defenders go to some strange point when they change activity (internal post?). It looks strange.
+
 ### P6 — Balance, specialized tactics, and release
 
 **Depends on:** P5, P4B defenses and supported P4 terrain coverage.
