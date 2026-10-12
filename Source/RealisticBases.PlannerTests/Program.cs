@@ -11,6 +11,7 @@ internal static class Program
     {
         Run("P5 explicit stock epochs reject empty reads and loaded restock", P5StockTests.Epochs);
         Run("P5 immutable stock conserves allocations and physical stack identities", P5StockTests.Conservation);
+        Run("P5 actual offers reserve full legal storage and value without truncation", P5StockTests.Capacity);
         Run("P5 food uses nutrition and preserves larger finite reserves", P5ReadinessTests.Food);
         Run("P5 combat aggregates all installed guns without copying shared stock", P5ReadinessTests.Combat);
         Run("P5 outage uses actual load and battery self-discharge without zero-clamp passes", P5ReadinessTests.Outage);
@@ -61,6 +62,7 @@ internal static class Program
         Run("P3 intact perimeter prioritizes an attacked corner front", P3IntactPerimeterPrioritizesFront);
         Run("P3 sniper guard posts require long-range defenders", P3SniperGuardRequiresRange);
         Run("P3 safe needs relief preserves minimum staffing", P3SafeNeedsReliefPreservesMinimumStaffing);
+        Run("P5 unused post options cannot deadlock a hungry funded roster", P5ReliefUsesRealRoster);
         Run("P3 invalid outer posts trigger inner fallback", P3InvalidOuterPostsTriggerInnerFallback);
         Run("P3 valid assignments resist oscillation", P3ValidAssignmentsResistOscillation);
         Run("P3 routine reserves a support worker", P3RoutineReservesSupportWorker);
@@ -722,6 +724,19 @@ internal static class Program
         Equal(GarrisonRole.NeedsRelief, safe.Assignments.Single(a => a.DefenderId == 4).Role, "safe relief granted");
         GarrisonPlan unsafePlan = GarrisonDoctrine.Assign(P3Situation(defenders: defenders, needsRouteSafe: false));
         True(unsafePlan.Assignments.Single(a => a.DefenderId == 4).Role != GarrisonRole.NeedsRelief, "unsafe route blocks relief");
+    }
+    private static void P5ReliefUsesRealRoster()
+    {
+        var hungry = Enumerable.Range(1, 10).Select(id => new DefenderCandidate(id,
+            DefenderWeaponClass.LongRanged, 45, false, true, true, false, false)).ToList();
+        var manyPosts = Enumerable.Range(0, 40).Select(id => new DefensivePost("p" + id, "east",
+            new GridPoint(id, 0), 0, 44, true, true, true, false, false, true)).ToList();
+        var plan = GarrisonDoctrine.Assign(P3Situation(defenders: hungry, posts: manyPosts, needsRouteSafe: true));
+        Equal(8, plan.Assignments.Count(a => a.Role == GarrisonRole.NeedsRelief), "eight relieved, two real defenders retained");
+        var unsafePlan = GarrisonDoctrine.Assign(P3Situation(defenders: hungry, posts: manyPosts, needsRouteSafe: false));
+        Equal(0, unsafePlan.Assignments.Count(a => a.Role == GarrisonRole.NeedsRelief), "unsafe relief remains blocked");
+        var routine = GarrisonDoctrine.Assign(P3Situation(defenders: hungry, posts: manyPosts, hostileThreat: false));
+        Equal(9, routine.Assignments.Count(a => a.Role == GarrisonRole.NeedsRelief), "routine retains one awake rotating watch");
     }
 
     private static void P3InvalidOuterPostsTriggerInnerFallback()

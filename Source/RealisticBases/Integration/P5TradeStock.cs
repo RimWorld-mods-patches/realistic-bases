@@ -114,7 +114,10 @@ namespace RealisticBases.Integration
                     int grade = thing.TryGetQuality(out quality) ? (int)quality : -1;
                     items.Add(new P5ItemFacts(thing.thingIDNumber, thing.def.defName, thing.stackCount,
                         thing.Stuff?.defName, grade, thing.def.useHitPoints ? thing.HitPoints : -1,
-                        thing.def.useHitPoints ? thing.MaxHitPoints : -1));
+                        thing.def.useHitPoints ? thing.MaxHitPoints : -1, stackLimit: Math.Max(1, thing.def.stackLimit),
+                        marketValue: thing.MarketValue, storage: thing.TryGetComp<CompExplosive>() != null ?
+                            P5StorageKind.Hazardous : thing.TryGetComp<CompRottable>() != null ?
+                            P5StorageKind.Perishable : P5StorageKind.Ordinary));
                 }
             return new P5StockSnapshot(items);
         }

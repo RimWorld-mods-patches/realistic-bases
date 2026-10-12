@@ -77,6 +77,22 @@ internal static class P5StockTests
             Check(sequence.Count("Steel", P5Allocation.Sale) + removed == 75);
         }
     }
+    public static void Capacity()
+    {
+        var snapshot = new P5StockSnapshot(new[] {
+            new P5ItemFacts(1, "Steel", 639, stackLimit: 75, marketValue: 1.9),
+            new P5ItemFacts(2, "Gun", 1, quality: 3, hitPoints: 70, maxHitPoints: 100, stackLimit: 1, marketValue: 250),
+            new P5ItemFacts(3, "Meat", 1532, stackLimit: 75, marketValue: 2, storage: P5StorageKind.Perishable),
+            new P5ItemFacts(4, "Shell", 31, stackLimit: 25, marketValue: 80, storage: P5StorageKind.Hazardous) });
+        Check(snapshot.StorageCells(P5StorageKind.Ordinary) == 10);
+        Check(snapshot.StorageCells(P5StorageKind.Perishable) == 21);
+        Check(snapshot.StorageCells(P5StorageKind.Hazardous) == 2);
+        Check(Math.Abs(snapshot.Value(P5Allocation.Sale) - (639 * 1.9 + 250 + 1532 * 2 + 31 * 80)) < 0.001);
+        var divided = snapshot.Split(1, 5, 75, P5Allocation.Operating);
+        Check(divided.Items.Single(i => i.Id == 5).StackLimit == 75);
+        Check(divided.StorageCells(P5StorageKind.Ordinary) == 10);
+        Check(Math.Abs(divided.Value(P5Allocation.Sale) + divided.Value(P5Allocation.Operating) - snapshot.Value(P5Allocation.Sale)) < 0.001);
+    }
     private static void Check(bool condition) { if (!condition) throw new Exception("P5 stock contract failed"); }
     private static void Reject(Action action)
     {

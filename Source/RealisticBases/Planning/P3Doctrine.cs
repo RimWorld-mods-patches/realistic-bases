@@ -251,6 +251,7 @@ namespace RealisticBases.Planning
             if (state != GarrisonState.Routine && validPosts.Count == 0) state = GarrisonState.InnerFallback;
 
             HashSet<string> occupied = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<int> relieved = ReliefCandidates(situation, state);
             HashSet<int> routineSupport = new HashSet<int>(state == GarrisonState.Routine ||
                 situation.CriticalSupportRequired && state != GarrisonState.InnerFallback &&
                     situation.Defenders.Count(d => !d.NeedsRelief) >= 4
@@ -299,7 +300,7 @@ namespace RealisticBases.Planning
             List<GarrisonAssignment> assignments = new List<GarrisonAssignment>();
             foreach (DefenderCandidate defender in situation.Defenders)
             {
-                if (MustRelieve(defender, situation, state))
+                if (relieved.Contains(defender.Id))
                 {
                     assignments.Add(new GarrisonAssignment(defender.Id, GarrisonRole.NeedsRelief, string.Empty,
                         string.Empty, situation.SupportCenter, situation.Tick, "safe_needs_relief"));
@@ -330,7 +331,7 @@ namespace RealisticBases.Planning
                         !situation.FieldFallbackPosts.Contains(previous.Id)) && validPosts.Any(p =>
                             !occupied.Contains(p.Id) && situation.FieldFallbackPosts.Contains(p.Id) &&
                             Compatible(defender, p));
-                if (previous != null && cooldown && !urgentFieldFallback && !MustRelieve(defender, situation, state))
+                if (previous != null && cooldown && !urgentFieldFallback && !relieved.Contains(defender.Id))
                 {
                     occupied.Add(previous.Id);
                     assignments.Add(PostAssignment(defender, previous, state, situation.Tick, "stable_assignment"));
@@ -394,11 +395,22 @@ namespace RealisticBases.Planning
             return GarrisonState.HoldSectors;
         }
 
-        private static bool MustRelieve(DefenderCandidate defender, GarrisonSituation situation, GarrisonState state)
+        private static HashSet<int> ReliefCandidates(GarrisonSituation situation, GarrisonState state)
         {
-            if (!defender.NeedsRelief || !situation.NeedsRouteSafe) return false;
-            int available = situation.Defenders.Count(d => !d.NeedsRelief);
-            return state == GarrisonState.Routine || available >= Math.Max(1, situation.Posts.Count(p => p.IsValid && !p.Mortar) / 2);
+            if (!situation.NeedsRouteSafe) return new HashSet<int>();
+            // Unstaffed geometric options do not increase the real garrison.
+            // Even if everybody is hungry, release a bounded rotating subset
+            // rather than deadlocking until all healthy candidates disappear.
+            int minimumOnDuty = Math.Min(2, Math.Max(1, situation.Defenders.Count / 2));
+            // Keep one awake watch in routine operation: native defeat checks
+            // do not count sleeping pawns as active defenders. Rotate that watch
+            // as rested residents return, instead of making everybody sleep.
+            int capacity = state == GarrisonState.Routine ? Math.Max(0, situation.Defenders.Count - 1) :
+                Math.Max(0, situation.Defenders.Count - minimumOnDuty);
+            return new HashSet<int>(situation.Defenders.Where(d => d.NeedsRelief)
+                .OrderByDescending(d => d.NeedsFood).ThenByDescending(d => d.NeedsTending)
+                .ThenByDescending(d => d.PreviousRole == GarrisonRole.NeedsRelief)
+                .ThenBy(d => d.Id).Take(capacity).Select(d => d.Id));
         }
 
         private static DefensivePost SelectPost(DefenderCandidate defender, IEnumerable<DefensivePost> posts,

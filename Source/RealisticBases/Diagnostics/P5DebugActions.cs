@@ -16,11 +16,21 @@ namespace RealisticBases.Diagnostics
         [DebugAction(Category, "Audit P5 finite encounter readiness", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
         public static void Readiness() => P5ReadinessAudit.Audit(CurrentSettlement().Map);
+        [DebugAction(Category, "Start P5 three-day routine probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void Routine() => CurrentSettlement().Map.GetComponent<P5RoutineProbe>().Start();
         internal static Settlement CurrentSettlement()
         {
             if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("Disposable profile only");
             var settlement = Find.CurrentMap?.Parent as Settlement;
-            if (!P5TradeStock.Supported(settlement)) throw new InvalidOperationException("Current map is not a supported ordinary trader settlement");
+            if (!P5TradeStock.Supported(settlement))
+            {
+                var candidates = Find.Maps.Where(m => P5TradeStock.Supported(m.Parent as Settlement) &&
+                    m.GetComponent<RealisticBases.AI.P3GarrisonController>().P5Residents.Any()).ToList();
+                if (candidates.Count != 1) throw new InvalidOperationException("No unique supported ordinary encounter map");
+                settlement = (Settlement)candidates[0].Parent;
+                P0Log.Message("P5_TEST_TARGET_RESOLVED", "view=" + Find.CurrentMap?.uniqueID + " target=" + settlement.Map.uniqueID);
+            }
             return settlement;
         }
         [DebugAction(Category, "P5 acquire current ordinary offer once", actionType = DebugActionType.Action,

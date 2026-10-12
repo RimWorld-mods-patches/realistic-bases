@@ -39,6 +39,11 @@ namespace RealisticBases.Integration
                     stableNutrition += nutrition;
             }
             double requiredNutrition = dailyNutrition * P5Readiness.RoutineDays * P5Readiness.FoodSafetyFactor;
+            foreach (Pawn resident in residents)
+                P0Log.Message("P5_RESIDENT_NEEDS", "map=" + map.uniqueID + " pawn=" + resident.ThingID +
+                    " role=" + controller.P5AssignedRole(resident) + " job=" + resident.CurJobDef?.defName +
+                    " target=" + resident.CurJob?.targetA + " food=" + F(resident.needs?.food?.CurLevelPercentage ?? 1) +
+                    " rest=" + F(resident.needs?.rest?.CurLevelPercentage ?? 1) + " cell=" + resident.Position);
             var duties = new List<P5GunDuty>();
             var mortars = owned.OfType<Building_TurretGun>().Where(g => g.Spawned && g.TryGetComp<CompMannable>() != null).ToList();
             foreach (var gun in owned.OfType<Building_TurretGun>().Where(g => g.Spawned))

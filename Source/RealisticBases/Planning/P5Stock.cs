@@ -77,17 +77,21 @@ namespace RealisticBases.Planning
     }
 
     public enum P5Allocation { Operating, Sale }
+    public enum P5StorageKind { Ordinary, Perishable, Hazardous }
 
     public sealed class P5ItemFacts
     {
         public P5ItemFacts(int id, string def, int count, string stuff = null, int quality = -1,
-            int hitPoints = -1, int maxHitPoints = -1, P5Allocation allocation = P5Allocation.Sale)
+            int hitPoints = -1, int maxHitPoints = -1, P5Allocation allocation = P5Allocation.Sale,
+            int stackLimit = 1, double marketValue = 0, P5StorageKind storage = P5StorageKind.Ordinary)
         {
             if (id < 0 || string.IsNullOrWhiteSpace(def) || count <= 0 || quality < -1 || quality > 6 ||
-                hitPoints < -1 || maxHitPoints < -1 || hitPoints > maxHitPoints)
+                hitPoints < -1 || maxHitPoints < -1 || hitPoints > maxHitPoints || stackLimit <= 0 ||
+                marketValue < 0 || double.IsNaN(marketValue) || double.IsInfinity(marketValue))
                 throw new ArgumentException("Invalid physical item facts");
             Id = id; Def = def; Count = count; Stuff = stuff ?? ""; Quality = quality;
             HitPoints = hitPoints; MaxHitPoints = maxHitPoints; Allocation = allocation;
+            StackLimit = stackLimit; MarketValue = marketValue; Storage = storage;
         }
         public int Id { get; }
         public string Def { get; }
@@ -97,11 +101,16 @@ namespace RealisticBases.Planning
         public int HitPoints { get; }
         public int MaxHitPoints { get; }
         public P5Allocation Allocation { get; }
+        public int StackLimit { get; }
+        public double MarketValue { get; }
+        public P5StorageKind Storage { get; }
+        public int PhysicalStacks => checked((int)(((long)Count + StackLimit - 1) / StackLimit));
         public bool SameAttributes(P5ItemFacts other) => other != null && Def == other.Def &&
             Stuff == other.Stuff && Quality == other.Quality && HitPoints == other.HitPoints &&
             MaxHitPoints == other.MaxHitPoints;
         public P5ItemFacts With(int id, int count, P5Allocation allocation)
-            => new P5ItemFacts(id, Def, count, Stuff, Quality, HitPoints, MaxHitPoints, allocation);
+            => new P5ItemFacts(id, Def, count, Stuff, Quality, HitPoints, MaxHitPoints, allocation,
+                StackLimit, MarketValue, Storage);
     }
 
     // Exclusive stack allocation avoids publishing reserve units via vanilla's
@@ -119,6 +128,12 @@ namespace RealisticBases.Planning
         public IReadOnlyList<P5ItemFacts> Items { get; }
         public long Count(string def, P5Allocation allocation) => Items.Where(i => i.Def == def &&
             i.Allocation == allocation).Sum(i => (long)i.Count);
+        // Conservative one physical stack/cell; native shelves can improve
+        // multiplicity later, never truncate an already published offer.
+        public int StorageCells(P5StorageKind storage) => checked(Items.Where(i => i.Storage == storage)
+            .Sum(i => i.PhysicalStacks));
+        public double Value(P5Allocation allocation) => Items.Where(i => i.Allocation == allocation)
+            .Sum(i => i.Count * i.MarketValue);
         public P5StockSnapshot Split(int sourceId, int newId, int count, P5Allocation allocation)
         {
             P5ItemFacts source = Items.Single(i => i.Id == sourceId);

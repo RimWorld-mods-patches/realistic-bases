@@ -139,3 +139,90 @@ p5-readiness-baseline-20261012.log (failed audit);
 p5-readiness-audit-corrected-20261012.log (actual quantified baseline).
 Usage-limit approval review briefly blocked one test invocation; it was retried
 normally after the user's continuation. No bypass or unexecuted test is counted.
+
+## P5.2b — Needs relief and bed use (validation in progress)
+
+An attempted long routine test exposed real starvation/post sleeping after one
+day despite stocked food. The initial setup was invalid for routine-only proof:
+vanilla rejects Guest status between hostile factions, so the stand-in remained
+an attacker and the controller stayed HoldSectors. That failed attempt consumed
+real finite ammunition and is retained, not counted as routine acceptance.
+At92594 Karen68415 was starving on a Wait_Combat post; other defenders used
+LayDown on ground at their post coordinates. Failure snapshot:
+RealisticBases-P5-routine-needs-failure-20261012.rws; first log:
+p5-routine-three-days-first-20261012.log.
+
+Pure reproduction:40 valid post options with ten hungry funded residents.
+Old relief compared healthy bodies against half of all geometric posts, denying
+everybody relief. New policy uses actual funded bodies, releases a rotating
+bounded subset, retains two on duty under threat and one awake routine watch.
+Unsafe relief remains blocked. An awake watch also preserves native defeat
+semantics, which do not count sleeping pawns as active threats.
+
+Relief now uses native SatisfyBasicNeeds with a whole-settlement160-cell route
+check, not a14-cell radius that excludes the food store/barracks. Post/mortar/
+support/fallback needs cannot select LayDown instead of relief. Earlier food/rest
+thresholds release residents before exhaustion; role changes interrupt a post
+wait or ground sleep, not a progressing eating/refueling job. Ongoing native bed
+rest remains relief until substantially recovered. No player settings, needs,
+roster, stocks or research are granted/changed by these production rules.
+
+The opt-in disposable routine probe requires all original residents to eat and
+sleep in actual Building_Bed targets, real fuel increases and180000 advanced
+ticks with no sampled starvation/downing/loss. Paused wall time is not credited.
+An active probe reload is explicitly interrupted, never credited as a complete
+measurement. A saved pre-probe point allows repetition. Test actions resolve a
+unique supported encounter after a reload switches the current view to the home
+map; ambiguous targets fail closed and the resolved map is logged.
+
+The corrected captive-stand-in trial reached167851ticks (2.8days): all10 ate and
+slept in real beds,7 actual refuel jobs/increases, no starvation/downing/loss and
+no sampled cooler outage; minimum food0.088/rest0.214. It failed its full horizon
+because the disposable captive visitor died, not because a resident failed.
+That fixture failure remains preserved in p5-routine-beds-three-days-20261012.log
+and RealisticBases-P5-beds-visitor-fixture-failure-20261012.rws. No three-day pass
+is claimed from it. Food133.20→84.60 and fuel456.80→63.94 demonstrate actual
+depletion, not refill. Some native direct-fire ammunition was consumed; a new
+six-hour combat budget must not be assumed still intact after routine operation.
+
+Final routine instrumentation instead parks the same visitor in the disposable
+home map and explicitly holds only this running probe's ordinary settlement map
+against automatic unloading. This is logged as disposableMapHold=True. Native
+defeat remains untouched; outside this opt-in probe the removal method runs
+unchanged. No new pawn, stock, needs, research or generator output is added.
+The visitor is restored if alive at completion. This tests NPC routine operation, **not**
+native removal/revisit, which remains an independent P5.4 gate.
+
+Complete planner/garrison suite passes including the new deadlock/watch and
+full-offer storage/value fixtures; Release build0 warnings/errors. Native first
+night at53868 shows nine distinct real Bed targets and one awake Wait_Combat
+watch, rather than ground sleeping at posts. Full layout suite also passes:
+failures0/819875ms, p5-relief-full-layout-20261012.txt.
+
+The final explicit map-hold trial **passes** at182613, elapsed180001ticks from
+2612: all10 original residents ate and slept in actual beds,7 native refuel
+jobs/physical fuel increases, missing/starving/downed samples0, sampled cooler
+power losses0, unchanged native settlement parent. Minimum food0.090/rest0.198.
+No NPC orders, new stocks or credited future production. Food133.20→79.20,
+generator fuel456.80→41.69 and loose wood0 show real depletion. At the end,
+remaining six-hour modeled inputs are still HE12/12, barrel charges40/12 and
+Steel840/720. This is **not yet** a measured six-hour combat-duty pass.
+
+Active save/reload182613→182614 retains the same ten resident IDs, all20 named
+operating item-stack IDs/counts/quality/condition/positions, food79.20, HE12,
+warehouse spare barrel identity and epoch1's64/8930 native sale inventory. The
+raw item endpoint also lists787 natural stone chunks: vanilla compression
+recreates their IDs on load while preserving def/count/position. The initial
+all825-ID comparison therefore failed and is not claimed as an exact-ID pass;
+the operating-item comparison is separate. This also warns the future physical
+trade adapter to preserve serialization identity for any supported compressible
+sale item, rather than assuming all native map Things retain their IDs.
+
+Evidence: p5-routine-map-hold-three-days-20261012.log;
+p5-routine-three-days-before/after-reload-items-20261012.json and home/encounter
+pawn snapshots; RealisticBases-P5-three-days-beds-20261012.rws. The parked
+disposable visitor is absent from the final spawned roster; its survival is not
+a gate for this isolated NPC operation test or evidence for player protection.
+Restore the untouched baseline before the next independent trade probe. The
+exact disposable game is stopped. P5 remains open for other profiles, measured
+combat/outage/tending/failures, canonical physical trade and unload persistence.

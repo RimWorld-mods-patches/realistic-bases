@@ -176,6 +176,8 @@ namespace RealisticBases.AI
         public IntVec3 SupportCenter => supportCenter;
         internal IEnumerable<Thing> P5OwnedThings => ownedThings.Where(t => t != null && !t.Destroyed);
         internal IEnumerable<Pawn> P5Residents => defenders.Where(p => p != null && !p.Dead && p.Spawned && p.Faction == faction);
+        internal string P5AssignedRole(Pawn pawn) => AssignedRole(pawn).ToString();
+        internal bool P5NeedsRelief(Pawn pawn) => AssignedRole(pawn) == GarrisonRole.NeedsRelief;
         public int DebugOperatingStock(string defName) => CountStock(defName);
         public int DebugDisconnectConduits()
         {
@@ -844,8 +846,9 @@ namespace RealisticBases.AI
             string previousPost = index >= 0 && index < assignedPostIds.Count ? assignedPostIds[index] : null;
             GarrisonRole? previousRole = index >= 0 && index < assignedRoles.Count ? (GarrisonRole?)assignedRoles[index] : null;
             int previousTick = index >= 0 && index < assignedTicks.Count ? assignedTicks[index] : int.MinValue;
-            bool food = pawn.needs?.food != null && pawn.needs.food.CurLevelPercentage < 0.25f;
-            bool rest = pawn.needs?.rest != null && pawn.needs.rest.CurLevelPercentage < 0.2f;
+            bool food = pawn.needs?.food != null && pawn.needs.food.CurLevelPercentage < 0.35f;
+            bool rest = pawn.needs?.rest != null && (pawn.needs.rest.CurLevelPercentage < 0.35f ||
+                pawn.needs.rest.Resting && pawn.needs.rest.CurLevelPercentage < 0.95f);
             bool tend = pawn.health?.HasHediffsNeedingTend() ?? false;
             return new DefenderCandidate(pawn.thingIDNumber, weaponClass, (int)Math.Round(range),
                 mortars.Any(GunAvailable) && weaponClass != DefenderWeaponClass.Melee, true, food, rest, tend,
@@ -905,6 +908,12 @@ namespace RealisticBases.AI
                 DutyDef duty = DutyFor(assignment.Role);
                 pawn.mindState.duty = new PawnDuty(duty, ToCell(assignment.Destination),
                     assignment.Role == GarrisonRole.RangedPost ? 7f : 4f);
+                if (assignment.Role == GarrisonRole.NeedsRelief && old?.Item2 != (int)GarrisonRole.NeedsRelief &&
+                    (pawn.CurJobDef == JobDefOf.Wait_Combat || pawn.CurJobDef == JobDefOf.Wait ||
+                        pawn.CurJobDef == JobDefOf.LayDown && !(pawn.CurJob.targetA.Thing is Building_Bed)))
+                    pawn.jobs.EndCurrentJob(JobCondition.InterruptForced, startNewJob: false);
+                if (assignment.Role != GarrisonRole.NeedsRelief && pawn.CurJobDef == JobDefOf.LayDown)
+                    pawn.jobs.EndCurrentJob(JobCondition.InterruptForced, startNewJob: false);
                 if (pawn.CurJobDef == JobDefOf.ManTurret &&
                     (assignment.Role != GarrisonRole.MortarOperator || pawn.CurJob.targetA.Thing != GunForPost(assignment.PostId)))
                 {
