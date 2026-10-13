@@ -6,7 +6,8 @@ using Verse.AI;
 namespace RealisticBases.AI
 {
     // Sentries can eat available food, but cannot bypass the relief/bed path by
-    // sleeping at the gun or post. Sleeping requires an explicit relief role.
+    // sleeping at the gun or post. Sleeping requires an explicit relief role
+    // outside an assault.
     public sealed class ThinkNode_P5AwakePostNeeds : ThinkNode_Priority
     {
         public override ThinkResult TryIssueJobPackage(Pawn pawn, JobIssueParams jobParams)
@@ -14,7 +15,7 @@ namespace RealisticBases.AI
             ThinkResult result = base.TryIssueJobPackage(pawn, jobParams);
             if (result.Job?.def != JobDefOf.LayDown) return result;
             var controller = pawn.Map?.GetComponent<P3GarrisonController>();
-            if (controller == null || !controller.Controls(pawn) || controller.P5NeedsRelief(pawn)) return result;
+            if (controller == null || !controller.Controls(pawn) || controller.P5MaySleep(pawn)) return result;
             JobMaker.ReturnToPool(result.Job);
             return ThinkResult.NoJob;
         }

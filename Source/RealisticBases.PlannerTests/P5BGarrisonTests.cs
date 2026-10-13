@@ -56,6 +56,18 @@ internal static class P5BGarrisonTests
             "every posted defender leaves the old side inside the reassignment cooldown");
         Equal(west.Assignments.Count(a => a.PostId.Length > 0), north.Assignments.Count(a => a.PostId.Length > 0),
             "the whole pack moves");
+        List<DefenderCandidate> settled = Pack(9).Select(d =>
+        {
+            GarrisonAssignment a = north.Assignments.Single(x => x.DefenderId == d.Id);
+            return new DefenderCandidate(d.Id, d.WeaponClass, d.WeaponRange, false, false, false, false, false,
+                a.PostId, a.Role, 1400, new GridPoint(0, 0));
+        }).ToList();
+        GarrisonPlan again = GarrisonDoctrine.Assign(new GarrisonSituation(2000, settled,
+            Situation(2000, settled, "north", assault: true, mortar: false).Posts, true, "north", false, true, true,
+            new GridPoint(14, 14), new GridPoint(15, 16), hostileCells: new[] { new GridPoint(19, 40) }));
+        Check(north.Assignments.Where(a => a.PostId.Length > 0).All(a =>
+            again.Assignments.Single(x => x.DefenderId == a.DefenderId).PostId == a.PostId),
+            "defenders on the attacked side keep their posts after the cooldown");
     }
 
     public static void SleepRotationIsCapped()
@@ -65,15 +77,32 @@ internal static class P5BGarrisonTests
         GarrisonPlan night = GarrisonDoctrine.Assign(Situation(1000, tired, "west", hostile: false));
         List<int> sleepers = night.Assignments.Where(a => a.Role == GarrisonRole.NeedsRelief).Select(a => a.DefenderId).ToList();
         Equal(4, sleepers.Count, "half of the eight off-duty defenders sleep");
+        // Seven defenders in Watch: one support worker and three watchers leave
+        // three off duty, but a third of the pack (three) may sleep.
+        List<DefenderCandidate> crewed = tired.Take(7).Select(d => new DefenderCandidate(d.Id, d.WeaponClass,
+            d.WeaponRange, false, d.Id == 1, false, d.Id != 1, false, restLevel: d.RestLevel)).ToList();
+        Equal(3, GarrisonDoctrine.Assign(Situation(1000, crewed, "west", assault: false, mortar: false))
+            .Assignments.Count(a => a.Role == GarrisonRole.NeedsRelief),
+            "a third of the pack may sleep even when the watch leaves fewer off duty");
         Check(sleepers.SequenceEqual(new[] { 1, 2, 3, 4 }), "the most tired off-duty defenders sleep first");
         Equal(9, night.Assignments.Single(a => a.Role == GarrisonRole.RangedPost).DefenderId,
             "the most rested defender takes the watch");
 
         List<DefenderCandidate> continuing = tired.Select(d => new DefenderCandidate(d.Id, d.WeaponClass, d.WeaponRange,
             false, false, false, true, false, null, d.Id == 8 ? GarrisonRole.NeedsRelief : (GarrisonRole?)null,
-            restLevel: d.RestLevel)).ToList();
+            restLevel: d.Id == 8 ? 0.35f : d.RestLevel)).ToList();
         Check(GarrisonDoctrine.Assign(Situation(1000, continuing, "west", hostile: false)).Assignments
-            .Single(a => a.DefenderId == 8).Role == GarrisonRole.NeedsRelief, "a sleeper keeps the bed until rested");
+            .Single(a => a.DefenderId == 8).Role == GarrisonRole.NeedsRelief, "a sleeper keeps the bed within the band");
+        List<DefenderCandidate> yielding = continuing.Select(d => new DefenderCandidate(d.Id, d.WeaponClass, d.WeaponRange,
+            false, false, false, true, false, null, d.PreviousRole, restLevel: d.Id == 8 ? 0.8f : d.RestLevel)).ToList();
+        Check(GarrisonDoctrine.Assign(Situation(1000, yielding, "west", hostile: false)).Assignments
+            .Single(a => a.DefenderId == 8).Role == GarrisonRole.OffDuty, "a nearly rested sleeper yields to the exhausted");
+
+        List<DefenderCandidate> allTired = Enumerable.Range(1, 4).Select(id => new DefenderCandidate(id,
+            DefenderWeaponClass.LongRanged, 30, false, false, false, true, false, id == 1 ? "west-0" : null,
+            id == 1 ? GarrisonRole.RangedPost : (GarrisonRole?)null, restLevel: id == 1 ? 0.06f : 0.2f + id / 100f)).ToList();
+        Equal(4, GarrisonDoctrine.Assign(Situation(1000, allTired, "west", hostile: false)).Assignments
+            .Single(a => a.Role == GarrisonRole.RangedPost).DefenderId, "with everyone tired the most rested watches");
 
         List<DefenderCandidate> rotation = Enumerable.Range(1, 4).Select(id => new DefenderCandidate(id,
             DefenderWeaponClass.LongRanged, 30, false, false, false, id == 1, false, id == 1 ? "west-0" : null,
@@ -87,6 +116,42 @@ internal static class P5BGarrisonTests
             false, false, false, false, false, d.PreviousPostId, d.PreviousRole, restLevel: d.Id == 1 ? 0.6f : 0.9f)).ToList();
         Equal(1, GarrisonDoctrine.Assign(Situation(1000, rested, "west", hostile: false)).Assignments
             .Single(a => a.Role == GarrisonRole.RangedPost).DefenderId, "a watcher who needs no relief keeps the watch");
+    }
+
+    // Seven defenders in Watch for three days with vanilla-like rest rates:
+    // awake drains rest in about 26 game hours, a bed restores it in about
+    // 10.5. The rotation must keep everyone clear of exhaustion.
+    public static void RestRotationSustainsWatch()
+    {
+        const float drain = 1f / 63000f, gain = 1f / 26250f;
+        const int step = 120;
+        Dictionary<int, float> rest = Enumerable.Range(1, 7).ToDictionary(id => id, id => 0.2f + id * 0.05f);
+        Dictionary<int, GarrisonAssignment> last = new Dictionary<int, GarrisonAssignment>();
+        float lowest = 1f;
+        int wakings = 0;
+        for (int tick = 0; tick < 180000; tick += step)
+        {
+            List<DefenderCandidate> roster = rest.Select(r =>
+            {
+                last.TryGetValue(r.Key, out GarrisonAssignment previous);
+                bool resting = previous?.Role == GarrisonRole.NeedsRelief;
+                return new DefenderCandidate(r.Key, DefenderWeaponClass.LongRanged, 30, true, r.Key == 1, false,
+                    r.Value < 0.35f || resting && r.Value < 0.95f, false, previous?.PostId, previous?.Role,
+                    previous?.AssignedTick ?? int.MinValue, restLevel: r.Value);
+            }).ToList();
+            GarrisonPlan plan = GarrisonDoctrine.Assign(Situation(tick, roster, "west", assault: false));
+            foreach (GarrisonAssignment a in plan.Assignments)
+            {
+                bool asleep = a.Role == GarrisonRole.NeedsRelief;
+                if (last.TryGetValue(a.DefenderId, out GarrisonAssignment previous) &&
+                    previous.Role == GarrisonRole.NeedsRelief && !asleep && rest[a.DefenderId] < 0.95f) wakings++;
+                rest[a.DefenderId] = Math.Max(0f, Math.Min(1f, rest[a.DefenderId] + (asleep ? gain : -drain) * step));
+                last[a.DefenderId] = a;
+            }
+            if (tick > 30000) lowest = Math.Min(lowest, rest.Values.Min());
+        }
+        Check(lowest > 0.1f, "the rotation keeps every defender above 10% rest, lowest=" + lowest);
+        Check(wakings < 60, "sleepers are not woken back and forth, wakings=" + wakings);
     }
 
     public static void NoRestReliefUnderAssault()

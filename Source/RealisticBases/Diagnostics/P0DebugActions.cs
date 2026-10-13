@@ -509,6 +509,21 @@ namespace RealisticBases.Diagnostics
         private static void AuditP4BFieldAssault() =>
             Find.CurrentMap?.GetComponent<P3GarrisonController>()?.AuditFieldAssault("manual");
 
+        [DebugAction(Category, "P5B park test visitor far from the walls", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void P5BParkVisitorFar() =>
+            Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugParkVisitorFar();
+
+        [DebugAction(Category, "P5B move test visitor near another side", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void P5BApproachOtherSide() =>
+            Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugApproachOtherSide();
+
+        [DebugAction(Category, "P5B audit garrison states", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void P5BAuditGarrison() =>
+            Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugAuditGarrisonStates("manual");
+
         [DebugAction(Category, "P3 breach one generated gate", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
         private static void P3BreachGate() => Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugBreachGate();

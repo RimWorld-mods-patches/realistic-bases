@@ -306,6 +306,8 @@ namespace RealisticBases.Planning
         // One in-game hour without a new signal ends an assault.
         public const int AssaultLatchTicks = 2500;
 
+        private const float SleeperHoldBand = 0.3f;
+
         public static int WatchSize(GarrisonState state, int pack) =>
             Math.Min(pack, state == GarrisonState.Routine ? 1 : Math.Max(2, (pack + 2) / 3));
 
@@ -342,9 +344,34 @@ namespace RealisticBases.Planning
             if (mobileReserve != null && situation.Defenders.Count(d => !d.NeedsRelief &&
                 d.WeaponClass != DefenderWeaponClass.Melee && !crews.ContainsKey(d.Id)) < 3)
                 mobileReserve = null;
+            bool UrgentFieldFallback(DefenderCandidate defender, DefensivePost previous) =>
+                situation.FieldPenetrated && state == GarrisonState.LocalResponse &&
+                defender.WeaponRange <= 30 && (previous == null ||
+                    !situation.FieldFallbackPosts.Contains(previous.Id)) && validPosts.Any(p =>
+                        !occupied.Contains(p.Id) && situation.FieldFallbackPosts.Contains(p.Id) &&
+                        Compatible(defender, p));
+            // A defender already on a post covering the attacked side keeps
+            // it, so the pack does not reshuffle within the side.
+            var held = new Dictionary<int, DefensivePost>();
+            if (situation.ThreatenedSector.Length > 0)
+                foreach (DefenderCandidate defender in situation.Defenders.Where(d => !relieved.Contains(d.Id) &&
+                    !routineSupport.Contains(d.Id) && !crews.ContainsKey(d.Id) && d.Id != mobileReserve?.Id))
+                {
+                    DefensivePost previous = validPosts.FirstOrDefault(p => p.Id == defender.PreviousPostId &&
+                        !p.Mortar && !occupied.Contains(p.Id) && Compatible(defender, p) &&
+                        p.CoversSector(situation.ThreatenedSector));
+                    if (previous == null || UrgentFieldFallback(defender, previous)) continue;
+                    held.Add(defender.Id, previous);
+                    occupied.Add(previous.Id);
+                }
             List<GarrisonAssignment> assignments = new List<GarrisonAssignment>();
             foreach (DefenderCandidate defender in situation.Defenders)
             {
+                if (held.TryGetValue(defender.Id, out DefensivePost kept))
+                {
+                    assignments.Add(PostAssignment(defender, kept, state, situation.Tick, "held_attacked_side"));
+                    continue;
+                }
                 if (relieved.Contains(defender.Id))
                 {
                     assignments.Add(new GarrisonAssignment(defender.Id, GarrisonRole.NeedsRelief, string.Empty,
@@ -376,11 +403,7 @@ namespace RealisticBases.Planning
                     validPosts.Any(p => !occupied.Contains(p.Id) && p.CoversSector(situation.ThreatenedSector) &&
                         Compatible(defender, p));
                 bool cooldown = situation.Tick - defender.LastAssignmentTick < ReassignmentCooldownTicks && !offSide;
-                bool urgentFieldFallback = situation.FieldPenetrated && state == GarrisonState.LocalResponse &&
-                    defender.WeaponRange <= 30 && (previous == null ||
-                        !situation.FieldFallbackPosts.Contains(previous.Id)) && validPosts.Any(p =>
-                            !occupied.Contains(p.Id) && situation.FieldFallbackPosts.Contains(p.Id) &&
-                            Compatible(defender, p));
+                bool urgentFieldFallback = UrgentFieldFallback(defender, previous);
                 if (previous != null && cooldown && !urgentFieldFallback && !relieved.Contains(defender.Id))
                 {
                     occupied.Add(previous.Id);
@@ -452,16 +475,16 @@ namespace RealisticBases.Planning
                 assignments.Add(PostAssignment(situation.Defenders.Single(d => d.Id == crew.Key), crew.Value, state,
                     situation.Tick, "funded_mortar_operator"));
 
-            // Rested watchers first; a watcher keeps the duty until it needs
-            // relief, so a tired watcher is swapped out before a sleeper wakes.
+            // The most rested watch. A watcher who needs no rest keeps the
+            // duty; a sleeper leaves its bed only when SleeperHoldBand more
+            // rested than the others, so a tired watcher goes to bed in its place.
             int watchSize = WatchSize(state, situation.Defenders.Count);
             HashSet<int> watch = new HashSet<int>();
             foreach (DefenderCandidate defender in situation.Defenders
                 .Where(d => !support.Contains(d.Id) && !crews.ContainsKey(d.Id))
-                .OrderBy(d => d.NeedsRelief)
+                .OrderBy(d => d.NeedsFood || d.NeedsTending)
                 .ThenBy(d => d.WeaponClass == DefenderWeaponClass.Melee)
-                .ThenByDescending(d => d.PreviousRole == GarrisonRole.RangedPost || d.PreviousRole == GarrisonRole.GateReserve)
-                .ThenByDescending(d => d.RestLevel)
+                .ThenByDescending(d => AwakeScore(d))
                 .ThenBy(d => d.Id))
             {
                 if (watch.Count == watchSize) break;
@@ -482,13 +505,16 @@ namespace RealisticBases.Planning
             if (situation.NeedsRouteSafe)
             {
                 foreach (DefenderCandidate d in offDuty.Where(d => d.NeedsFood || d.NeedsTending)) relieved.Add(d.Id);
-                // At most half the off-duty defenders sleep at once, and at
-                // least one may, so a small garrison still rotates its sleep.
-                // Sleepers keep their bed until rested; the most tired go next.
-                int sleepers = Math.Max(1, offDuty.Count / 2);
+                // Half the off-duty defenders may sleep at once, but never
+                // fewer than a third of the pack: a defender sleeps about a
+                // third of the day, so a smaller share exhausts the garrison.
+                // A sleeper keeps its bed unless a waiting defender is
+                // SleeperHoldBand more tired; the most tired go next.
+                int sleepers = Math.Min(offDuty.Count, Math.Max(Math.Max(1, offDuty.Count / 2),
+                    (situation.Defenders.Count + 2) / 3));
                 foreach (DefenderCandidate d in offDuty.Where(d => d.NeedsRest && !relieved.Contains(d.Id))
-                    .OrderByDescending(d => d.PreviousRole == GarrisonRole.NeedsRelief)
-                    .ThenBy(d => d.RestLevel).ThenBy(d => d.Id)
+                    .OrderBy(d => d.RestLevel - (d.PreviousRole == GarrisonRole.NeedsRelief ? SleeperHoldBand : 0f))
+                    .ThenBy(d => d.Id)
                     .Take(Math.Max(0, sleepers - offDuty.Count(d => relieved.Contains(d.Id) && d.NeedsRest))))
                     relieved.Add(d.Id);
             }
@@ -500,6 +526,15 @@ namespace RealisticBases.Planning
                         situation.SupportCenter, situation.Tick, "off_duty"));
             return new GarrisonPlan(state, assignments, situation.ThreatenedSector, situation.Tick, state.ToString());
         }
+
+        private static bool Sleeping(DefenderCandidate d) => d.PreviousRole == GarrisonRole.NeedsRelief && d.NeedsRest;
+
+        private static bool Watching(DefenderCandidate d) =>
+            d.PreviousRole == GarrisonRole.RangedPost || d.PreviousRole == GarrisonRole.GateReserve ||
+            d.PreviousRole == GarrisonRole.MortarOperator;
+
+        private static float AwakeScore(DefenderCandidate d) => d.RestLevel +
+            (Sleeping(d) ? -SleeperHoldBand : 0f) + (Watching(d) && !d.NeedsRest ? 1f : 0f);
 
         private static IEnumerable<int> SupportWorkers(GarrisonSituation situation) =>
             situation.Defenders.Where(d => d.CanSupport && !d.NeedsRelief)
@@ -523,11 +558,14 @@ namespace RealisticBases.Planning
             {
                 // Leave two useful direct defenders before reserving more
                 // artillery. Losses release surplus guns rather than add pawns.
-                if (situation.Defenders.Count(d => !d.NeedsRelief &&
+                // A tired defender may crew a gun; under assault nobody sleeps,
+                // and in watch the rested crew first.
+                if (situation.Defenders.Count(d => !d.NeedsFood && !d.NeedsTending &&
                     !support.Contains(d.Id) && !crews.ContainsKey(d.Id)) <= (crews.Count == 0 ? 1 : 2)) break;
                 DefenderCandidate crew = situation.Defenders.Where(d => !support.Contains(d.Id) &&
-                    !crews.ContainsKey(d.Id) && !d.NeedsRelief && Compatible(d, mortarPost))
-                    .OrderBy(d => d.PreviousPostId == mortarPost.Id ? 0 : 1)
+                    !crews.ContainsKey(d.Id) && !d.NeedsFood && !d.NeedsTending && Compatible(d, mortarPost))
+                    .OrderByDescending(d => AwakeScore(d) >= 0.35f)
+                    .ThenBy(d => d.PreviousPostId == mortarPost.Id ? 0 : 1)
                     .ThenBy(d => d.PreviousRole == GarrisonRole.MortarOperator ? 1 : 0)
                     .ThenBy(d => d.HasSmokepop)
                     .ThenBy(d => d.WeaponClass == DefenderWeaponClass.LongRanged)

@@ -1238,3 +1238,47 @@ horizons only.
 - Off-map time is not simulated for archived residents.
 - Expired offers do not restock on an attack re-entry, per the existing epoch
   policy.
+
+## P5B garrison states: live (2026-10-13)
+
+Branch `claude/p5b-garrison-states`. Core + RIMAPI, disposable profile, flat
+industrial base (layout `B26CA3AD7070250A`, 7 residents, one mortar). The
+test visitor was placed with `P5B park test visitor far from the walls` and
+moved with the RIMAPI `pawn/edit/position` route. Read with
+`P5B audit garrison states`. Logs: `.runtime/logs/p5b-garrison-live-*.log`.
+
+| Check | Evidence |
+|---|---|
+| Arrival without action | `Routine → Watch` with the visitor 127 cells out. Three watchers (⌈7/3⌉) on the side facing the visitor, the mortar crewed, two defenders off duty wandering by their beds, one support worker, nobody idle at the support centre. |
+| Night | Simultaneous sleepers 2–3 of 7, never above the cap. Off-duty defenders ate and wandered. |
+| Alarm | Visitor moved within 35 cells: `Watch → HoldSectors trigger=approach`, `ALARM woke=2 stillAsleep=0`, every posted defender on the attacked side. |
+| Side change | West to south: the pack moved 360 ticks after the south side first ranked (300-tick dwell plus refresh timing), five of five posted defenders. |
+| Latch | Visitor moved away: `HoldSectors → Watch` about 2,500 ticks after the last signal. |
+| Save/reload | Mid-assault save reloaded with state, sector, pending dwell and last assault intact. Saves made before the duty-tree change log vanilla `Could not find think node` warnings for running jobs; no errors. |
+| Mortar | It fired at the distant visitor in `Watch`: HE 30 → 10 over about 30 game hours, all misses at 141 cells. A miss raised no signal, so the garrison stayed in `Watch` while spending its stock. Now `garrison_fired` (`Verb.LastShotTick`) starts the assault on the first shell: `Watch → HoldSectors trigger=garrison_fired`, `ALARM woke=3`. |
+
+**Defects found live and fixed:**
+- Relieved (hungry) sleepers kept sleeping through the alarm. Relief under
+  assault now excludes sleep.
+- The first `Watch` sector waited for the dwell from the default routine
+  sector. It is now taken at once.
+- Rest collapse. The runtime never passed rest levels to the doctrine. The
+  watch kept the previous watchers, and ⌊off-duty/2⌋ sleepers was too few, so
+  watchers fell to 2–6%. Fixes: real rest levels, one awake score with a
+  sleeper hold band, and at least ⌈pack/3⌉ sleepers. The night replay
+  recovered from an exhausted start (lowest about 11%, then rising). A
+  three-day pure simulation now guards this.
+- Posts were reshuffled within the attacked side. A defender on a covering
+  post now keeps it.
+
+**Open:** a well-rested melee defender is kept off ranged watch posts while
+tired ranged defenders watch.
+
+### Wall lights and Neolithic shelves (P5B items 5–6)
+
+| Base | Fixtures |
+|---|---|
+| Industrial flat, layout `EEDCB50707D03FA0`, 8 residents | `WallLamp` 17, no floor lamps; `Shelf` 33 and `ShelfSmall` 2 (marble). Every wall lamp faces a wall-attachment support. |
+| Neolithic flat, layout `979478B3FEF82EAA`, 7 residents | `TorchWallLamp` 14; `ShelfSmall` 53 (wood). Every torch faces a support. |
+
+No exceptions in either spawn.

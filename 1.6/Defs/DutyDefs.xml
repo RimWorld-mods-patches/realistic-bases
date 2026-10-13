@@ -102,7 +102,9 @@
       <subNodes>
         <li Class="RealisticBases.AI.ThinkNode_P5BoundedNeeds">
           <subNodes>
-            <li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li>
+            <li Class="RealisticBases.AI.ThinkNode_P5AwakePostNeeds">
+              <subNodes><li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li></subNodes>
+            </li>
             <li Class="RealisticBases.AI.JobGiver_P5PatientBedRest" />
           </subNodes>
         </li>

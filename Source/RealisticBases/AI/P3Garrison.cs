@@ -200,6 +200,9 @@ namespace RealisticBases.AI
         internal string P5AssignedRole(Pawn pawn) => AssignedRole(pawn).ToString();
         internal bool P5NeedsRelief(Pawn pawn) => AssignedRole(pawn) == GarrisonRole.NeedsRelief;
         internal bool P5OffDuty(Pawn pawn) => AssignedRole(pawn) == GarrisonRole.OffDuty;
+        // Relieved defenders sleep only while no assault is on; a patient's
+        // bed rest is separate (JobGiver_P5PatientBedRest).
+        internal bool P5MaySleep(Pawn pawn) => P5NeedsRelief(pawn) && Standby(currentState);
 
         internal IntVec3 OffDutyRoot(Pawn pawn)
         {
@@ -582,7 +585,10 @@ namespace RealisticBases.AI
             }
             else
             {
-                P3SectorDwell dwell = new P3SectorDwell(currentSector, sectorCandidate, sectorCandidateSince);
+                // The routine sector is a default, not an attacked side: the
+                // first hostile side is taken at once.
+                P3SectorDwell dwell = new P3SectorDwell(currentState == GarrisonState.Routine ? string.Empty : currentSector,
+                    sectorCandidate, sectorCandidateSince);
                 sector = dwell.Observe(observed, now);
                 sectorCandidate = dwell.Candidate;
                 sectorCandidateSince = dwell.CandidateSince;
@@ -866,6 +872,125 @@ namespace RealisticBases.AI
                 " playerPawnsControlled=" + defenders.Count(p => p?.Faction == Faction.OfPlayer));
         }
 
+        // Disposable P5B probe: the test visitor waits, drafted, on the map
+        // cell farthest from the perimeter, beyond the alarm range.
+        public void DebugParkVisitorFar()
+        {
+            Pawn visitor = map.mapPawns.FreeColonistsSpawned.OrderBy(p => p.thingIDNumber).FirstOrDefault();
+            List<IntVec3> edge = perimeterCells.Count > 0 ? perimeterCells : defendedCells;
+            if (visitor == null || edge.Count == 0)
+            {
+                P3Log.Message("P5B_STAGE_REJECT", "map=" + map.uniqueID + " visitor=" + (visitor != null));
+                return;
+            }
+            List<IntVec3> cells = map.AllCells.Where(c => c.Standable(map) && c.GetEdifice(map) == null && !c.Fogged(map) &&
+                    map.reachability.CanReachMapEdge(c, TraverseParms.For(visitor)))
+                .OrderByDescending(c => edge.Min(e => e.DistanceToSquared(c))).Take(1).ToList();
+            MoveVisitor(visitor, cells.Count == 0 ? IntVec3.Invalid : cells[0], "far");
+        }
+
+        // Disposable P5B probe: the test visitor stands drafted 25 cells
+        // outside the perimeter of a side other than the defended one, inside
+        // the alarm range.
+        public void DebugApproachOtherSide()
+        {
+            Pawn visitor = map.mapPawns.FreeColonistsSpawned.OrderBy(p => p.thingIDNumber).FirstOrDefault();
+            // The side whose wall lies farthest from the visitor, so the move
+            // is a clear switch of the attacked side.
+            string side = new[] { "west", "north", "east", "south" }.Where(s => s != currentSector &&
+                    perimeterSectors.Contains(s))
+                .OrderByDescending(s => perimeterCells.Where((c, i) => perimeterSectors[i] == s)
+                    .Min(c => c.DistanceToSquared(visitor?.Position ?? supportCenter)))
+                .FirstOrDefault();
+            if (visitor == null || side == null)
+            {
+                P3Log.Message("P5B_STAGE_REJECT", "map=" + map.uniqueID + " visitor=" + (visitor != null) + " side=none");
+                return;
+            }
+            List<IntVec3> wall = perimeterCells.Where((c, i) => perimeterSectors[i] == side).ToList();
+            IntVec3 middle = new IntVec3((int)wall.Average(c => c.x), 0, (int)wall.Average(c => c.z));
+            IntVec3 outward = side == "west" ? IntVec3.West : side == "east" ? IntVec3.East :
+                side == "north" ? IntVec3.North : IntVec3.South;
+            IntVec3 target = (middle + outward * 20).ClampInsideMap(map);
+            List<IntVec3> cells = map.AllCells.Where(c => c.Standable(map) && c.GetEdifice(map) == null &&
+                    !InsideBounds(c) && c.DistanceToSquared(middle) > 100)
+                .OrderBy(c => c.DistanceToSquared(target)).Take(1).ToList();
+            MoveVisitor(visitor, cells.Count == 0 ? IntVec3.Invalid : cells[0], side);
+        }
+
+        private void MoveVisitor(Pawn visitor, IntVec3 cell, string label)
+        {
+            if (!cell.IsValid || !cell.Standable(map))
+            {
+                P3Log.Message("P5B_STAGE_REJECT", "map=" + map.uniqueID + " target=" + label + " no_cell");
+                return;
+            }
+            visitor.jobs.StopAll();
+            visitor.DeSpawn();
+            GenSpawn.Spawn(visitor, cell, map);
+            visitor.drafter.Drafted = true;
+            List<IntVec3> edge = perimeterCells.Count > 0 ? perimeterCells : defendedCells;
+            P3Log.Message("P5B_STAGE", "map=" + map.uniqueID + " target=" + label + " visitor=" + visitor.thingIDNumber +
+                " cell=" + cell + " perimeterDistance=" + Math.Sqrt(edge.Min(e => e.DistanceToSquared(cell))).ToString("F0"));
+        }
+
+        // One line per defender: role, post and its sides, cell, job, rest,
+        // and whether an idle defender stands at the support centre.
+        public void DebugAuditGarrisonStates(string phase)
+        {
+            List<string> rows = new List<string>();
+            int sleeping = 0, atCentre = 0, offDuty = 0;
+            foreach (Pawn pawn in defenders.Where(p => p != null && p.Spawned && !p.Dead))
+            {
+                GarrisonRole role = AssignedRole(pawn);
+                int index = assignedPawnIds.IndexOf(pawn.thingIDNumber);
+                string post = index >= 0 && index < assignedPostIds.Count ? assignedPostIds[index] : string.Empty;
+                int postIndex = postIds.IndexOf(post);
+                string sides = postIndex >= 0 && postIndex < postSectors.Count ? postSectors[postIndex] : "-";
+                bool asleep = pawn.CurJobDef == JobDefOf.LayDown;
+                if (asleep) sleeping++;
+                if (role == GarrisonRole.OffDuty) offDuty++;
+                bool idleCentre = (role == GarrisonRole.OffDuty || role == GarrisonRole.Support || role == GarrisonRole.NeedsRelief) &&
+                    pawn.Position.InHorDistOf(supportCenter, 2f) && !asleep;
+                if (idleCentre) atCentre++;
+                rows.Add(pawn.thingIDNumber + ":" + role + ":" + (post.Length == 0 ? "-" : post) + ":" + sides + ":" +
+                    pawn.Position.x + "," + pawn.Position.z + ":" + (pawn.CurJobDef?.defName ?? "none") + ":rest=" +
+                    ((pawn.needs?.rest?.CurLevelPercentage ?? 1f) * 100f).ToString("F0") + ":food=" +
+                    ((pawn.needs?.food?.CurLevelPercentage ?? 1f) * 100f).ToString("F0"));
+            }
+            Pawn visitor = map.mapPawns.FreeColonistsSpawned.OrderBy(p => p.thingIDNumber).FirstOrDefault();
+            foreach (Building_TurretGun gun in mortars.OfType<Building_TurretGun>().Where(g => g.Spawned))
+            {
+                CompMannable crew = gun.TryGetComp<CompMannable>();
+                Pawn manning = crew?.ManningPawn;
+                P3Log.Message("P5B_MORTAR_AUDIT", "map=" + map.uniqueID + " gun=" + gun.thingIDNumber +
+                    " manned=" + (crew?.MannedNow ?? false) + " by=" + (manning?.thingIDNumber.ToString() ?? "none") +
+                    " verbAvailable=" + (gun.AttackVerb?.Available() ?? false) + " range=" + gun.AttackVerb?.verbProps.range +
+                    " roofed=" + map.roofGrid.Roofed(gun.Position) + " current=" + gun.CurrentTarget +
+                    " found=" + ((crew?.MannedNow ?? false) ? gun.TryFindNewTarget().ToString() : "unmanned") +
+                    " visitor=" + (visitor == null ? "none" : visitor.Position + ":dist=" +
+                        visitor.Position.DistanceTo(gun.Position).ToString("F0") + ":threatDisabled=" +
+                        (manning != null && visitor.ThreatDisabled(manning)) + ":combatant=" + visitor.IsCombatant() +
+                        ":thickRoof=" + (map.roofGrid.RoofAt(visitor.Position)?.isThickRoof ?? false) +
+                        ":hostile=" + (manning != null && manning.HostileTo(visitor))));
+            }
+            // Lights and shelves of the settlement; a wall light must face a
+            // wall-attachment support (vanilla Placeworker_AttachedToWall).
+            List<Thing> fixtures = map.listerThings.AllThings.Where(t => t.Faction == faction && t.def.building != null &&
+                (t.def.defName.Contains("Lamp") || t.def.defName.Contains("Shelf") || t.def.defName.Contains("Torch"))).ToList();
+            int detached = fixtures.Count(t => t.def.building.isAttachment &&
+                !((t.Position + GenAdj.CardinalDirections[t.Rotation.AsInt]).GetEdifice(map)?.def.building?.supportsWallAttachments ?? false));
+            P3Log.Message("P5B_FIXTURE_AUDIT", "map=" + map.uniqueID + " " + string.Join(" ", fixtures.GroupBy(t => t.def.defName)
+                .OrderBy(g => g.Key).Select(g => g.Key + "=" + g.Count() + (g.First().Stuff != null ? "(" +
+                    string.Join("/", g.Select(t => t.Stuff.defName).Distinct().ToArray()) + ")" : "")).ToArray()) +
+                " detachedWallLights=" + detached);
+            P3Log.Message("P5B_GARRISON_AUDIT", "map=" + map.uniqueID + " phase=" + phase + " state=" + currentState +
+                " sector=" + currentSector + " pending=" + (sectorCandidate.Length == 0 ? "-" : sectorCandidate + "@" + sectorCandidateSince) +
+                " lastAssault=" + (lastAssaultTick == int.MinValue ? "never" : lastAssaultTick + ":" + lastAssaultTrigger) +
+                " hour=" + GenLocalDate.HourOfDay(map) + " sleeping=" + sleeping + " offDuty=" + offDuty +
+                " idleAtCentre=" + atCentre + " defenders=" + string.Join(" ", rows.ToArray()));
+        }
+
         public void DebugBreachGate()
         {
             Building_Door door = gateCells.Select(c => c.IsValid ? c.GetEdifice(map) as Building_Door : null)
@@ -976,7 +1101,7 @@ namespace RealisticBases.AI
             return new DefenderCandidate(pawn.thingIDNumber, weaponClass, (int)Math.Round(range),
                 mortars.Any(GunAvailable) && weaponClass != DefenderWeaponClass.Melee, true, food, rest, tend,
                 previousPost, previousRole, previousTick, new GridPoint(pawn.Position.x, pawn.Position.z), SmokePack(pawn) != null,
-                !pawn.WorkTypeIsDisabled(WorkTypeDefOf.Doctor));
+                !pawn.WorkTypeIsDisabled(WorkTypeDefOf.Doctor), pawn.needs?.rest?.CurLevelPercentage ?? 1f);
         }
 
         private List<DefensivePost> RuntimePosts(Pawn reachPawn)
@@ -1036,7 +1161,8 @@ namespace RealisticBases.AI
                     (pawn.CurJobDef == JobDefOf.Wait_Combat || pawn.CurJobDef == JobDefOf.Wait ||
                         pawn.CurJobDef == JobDefOf.LayDown && !(pawn.CurJob.targetA.Thing is Building_Bed)))
                     pawn.jobs.EndCurrentJob(JobCondition.InterruptForced, startNewJob: false);
-                if (assignment.Role != GarrisonRole.NeedsRelief && pawn.CurJobDef == JobDefOf.LayDown)
+                if (pawn.CurJobDef == JobDefOf.LayDown && !(assignment.Role == GarrisonRole.NeedsRelief &&
+                    (Standby(plan.State) || pawn.health.HasHediffsNeedingTend())))
                     pawn.jobs.EndCurrentJob(JobCondition.InterruptForced, startNewJob: false);
                 if (pawn.CurJobDef == JobDefOf.ManTurret &&
                     (assignment.Role != GarrisonRole.MortarOperator || pawn.CurJob.targetA.Thing != GunForPost(assignment.PostId)))
@@ -1333,11 +1459,17 @@ namespace RealisticBases.AI
         // A hostile action counts for this many ticks after it happened.
         private const int AssaultSignalTicks = 600;
 
-        // The first hostile action this refresh, or null: a hostile fired or was
-        // hit, a resident was harmed, the perimeter took damage, or a hostile
-        // came within the alarm range of the perimeter.
+        // The first hostile action this refresh, or null: either side fired
+        // (the garrison's first mortar shell counts even when it misses), a
+        // hostile was hit, a resident was harmed, the perimeter took damage,
+        // or a hostile came within the alarm range of the perimeter.
         private string AssaultTrigger(List<Pawn> residents, List<Pawn> enemies, int now)
         {
+            if (mortars.Concat(ownedThings).OfType<Building_TurretGun>().Any(g => g.Spawned &&
+                    g.AttackVerb != null && g.AttackVerb.LastShotTick > 0 &&
+                    now - g.AttackVerb.LastShotTick < AssaultSignalTicks) ||
+                residents.Any(p => p.mindState != null && p.mindState.lastAttackTargetTick > 0 &&
+                    now - p.mindState.lastAttackTargetTick < AssaultSignalTicks)) return "garrison_fired";
             if (enemies.Any(e => e.mindState != null && e.mindState.lastAttackTargetTick > 0 &&
                 now - e.mindState.lastAttackTargetTick < AssaultSignalTicks)) return "hostile_fired";
             if (residents.Any(p => p.mindState != null && now - p.mindState.lastHarmTick < AssaultSignalTicks))

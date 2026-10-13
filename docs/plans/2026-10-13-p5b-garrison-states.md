@@ -1,6 +1,6 @@
 # Plan: P5B garrison threat states, sleep rotation and redeploy
 
-2026-10-13 · Status: **G1 and G2 implemented, G3 live checks pending** (decisions below). It covers P5B items 1–3 of the
+2026-10-13 · Status: **implemented and live-checked** (decisions below). It covers P5B items 1–3 of the
 [implementation plan](../implementation-plan.md#p5b--better-management).
 Items 4–6 (cover, wall lights, Neolithic shelves) are done or in review.
 Item 7 (turret-guarded rescue) is a separate quest checkpoint after this one.
@@ -127,14 +127,16 @@ The garrison code lives in `AI/P3Garrison.cs` (runtime) and
       state.
 
 ### G3: Live checks
-- [ ] Arrival without action: `Watch`, the watchers on the likely side, the
+- [x] Arrival without action: `Watch`, the watchers on the likely side, the
       others eating, sleeping and wandering, and no walk to the centre.
-- [ ] Night: the number of simultaneous sleepers stays at or below the cap.
-- [ ] The first shot: `ALARM`, sleepers awake, and the pack on the attacked
+- [x] Night: the number of simultaneous sleepers stays at or below the cap.
+- [x] The first shot: `ALARM`, sleepers awake, and the pack on the attacked
       side within one transfer.
-- [ ] The attack moves to another side: the pack follows after the dwell.
-- [ ] Save/reload in each state.
-- [ ] Update `p3`/`p5` findings, `progress.md` and the implementation plan.
+- [x] The attack moves to another side: the pack follows after the dwell.
+- [x] Save/reload in each state.
+- [x] Update `p3`/`p5` findings, `progress.md` and the implementation plan.
+
+Results are in the [P5 findings](../p5-findings.md#p5b-garrison-states-live-2026-10-13).
 
 ## Decisions (2026-10-13)
 
@@ -148,17 +150,30 @@ The garrison code lives in `AI/P3Garrison.cs` (runtime) and
 
 ## Implementation notes
 
-- The sleep cap is ⌊off-duty/2⌋ but at least one, so a garrison with a
-  single off-duty defender still rotates its sleep.
-- Under assault, food and tending relief stay (with the existing minimum on
-  duty); only rest relief stops.
-- The dwell keeps its pending side through refreshes in which no side ranks,
-  and the routine sector follows the observation without a dwell.
-- `AssaultSignal` triggers: `hostile_fired` (`lastAttackTargetTick`),
-  `resident_harmed`, `hostile_hit` (a mortar shell that lands counts),
-  `perimeter_hit`, and `approach` (35 cells). Breach and intrusion count
-  through the existing flags. Saves without the latch fields that were
-  mid-assault start a full latch on load.
+- **Sleep cap.** Half the off-duty defenders, but never fewer than
+  ⌈pack/3⌉ (and at least one). A defender sleeps about a third of the day;
+  in the live check, ⌊off-duty/2⌋ alone left the watchers at 2–6% rest.
+- **Who watches and who sleeps.** One score: rest level, −0.3 for a sleeper,
+  and +1 for a watcher who does not need rest. A sleeper leaves its bed
+  only when clearly more rested than the others, and gives it up to a
+  defender 0.3 more tired. Mortar crews may be tired; rested crews first.
+  The PlannerTests simulate three days of `Watch` with vanilla-like rates.
+- **Under assault,** food and tending relief stay (with the existing minimum
+  on duty); rest relief stops, and a relieved defender does not sleep.
+  Patients' bed rest is separate.
+- **Sides.** The first hostile side after `Routine` is taken at once; later
+  changes wait for the dwell. The dwell keeps its pending side through
+  refreshes in which no side ranks. A defender already on a post covering
+  the attacked side keeps it, so the pack does not reshuffle within the side.
+- **`AssaultSignal` triggers:**
+  - `garrison_fired`: an owned turret or mortar fired (`Verb.LastShotTick`),
+    or a resident attacked. The first shell counts even when it misses.
+  - `hostile_fired`: `lastAttackTargetTick` of a hostile.
+  - `resident_harmed`, `hostile_hit`, `perimeter_hit`.
+  - `approach`: within 35 cells.
+  - Breach and intrusion count through the existing flags.
+- **Saves.** A save without the latch fields that was taken mid-assault
+  starts a full latch on load.
 
 ## Future (not this step)
 

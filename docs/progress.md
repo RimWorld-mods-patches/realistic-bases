@@ -4,6 +4,19 @@ Updated: 2026-10-13
 
 ## Current state
 
+**2026-10-13 P5B management (items 1–3, 5, 6):**
+- **Branches:** `claude/p5b-lights-shelves` (wall lights, Neolithic shelves),
+  then `claude/p5b-garrison-states` (threat states, sleep rotation,
+  redeploy, off-duty wander).
+- **Evidence (pure):** PlannerTests, including a three-day rest simulation.
+- **Evidence (live):** watch on arrival, the night sleep cap, the alarm with
+  sleepers woken, the side change after the dwell, the latch, save/reload,
+  the first mortar shell starting the assault, and wall lights and wooden
+  shelves in industrial and Neolithic bases.
+- **Pending:** item 7 (turret-guarded rescue).
+- **Details:** [plan](plans/2026-10-13-p5b-garrison-states.md) and
+  [P5 findings](p5-findings.md#p5b-garrison-states-live-2026-10-13).
+
 **2026-10-13 defense posts and cover (before P5B):**
 - **Branch:** `claude/defense-posts-cover`.
 - **Change:**
