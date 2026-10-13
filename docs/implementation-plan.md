@@ -287,9 +287,9 @@ Compare against vanilla and the two reference mods on a declared test set using 
 
 **Exit: MVP release gate.** Release checklist passes; no unresolved severe/medium correctness defects; known limitations and post-MVP sustainability work are documented; mod removal/migration claims match tested behavior. Revised P5 requires encounter readiness and stock consistency, not long-term self-sufficiency.
 
-### P7 — Settlement specialization (final planned milestone; post-MVP)
+### P7 — Settlement specialization (post-MVP)
 
-**Depends on:** P6 release validation and P5 stock/persistence contracts. **Status:** planned, not started. This is the final step of the current plan; P6 remains the MVP release gate.
+**Depends on:** P6 release validation and P5 stock/persistence contracts. **Status:** planned, not started. P8 follows it as the last planned item; P6 remains the MVP release gate.
 
 Start with two specializations in addition to the existing general-purpose profile:
 
@@ -319,6 +319,24 @@ Choose specialization deterministically from faction capabilities and terrain/re
 Use the P5 adapter to align future authoritative trade-stock generation with specialization only where that feasibility check succeeds: agriculture can bias eligible crop/food goods, industry eligible materials/manufactured goods. Existing offers and completed transactions remain authoritative; do not infer new stock quantities from room labels, replace an already published offer, duplicate reserve goods or promise an unsupported trader integration. Specialization is a coherent starting profile and best-effort production emphasis, not a requirement for seasonal self-sufficiency, simulated trade routes or an off-map economy.
 
 **Exit:** each additional candidate has a recorded feasibility decision (implemented, deferred or rejected, with reasons); implemented candidates meet the same validation gates. Controlled same-terrain/tech/population comparisons show meaningful agricultural versus industrial differences in capacities, geometry and supporting resources beyond labels or decoration; repeated fixed inputs reproduce the same result. Representative live cases pass normal facility/route/defense/utility checks. Supported future trade offers and physical stocks agree, and save/reload/revisit preserve specialization, depletion and ownership. Infeasible-profile fallback is observed and reported. No traps/IEDs or new long-term sustainability gate.
+
+### P8 — Off-map recovery (last planned item)
+
+**Depends on:** the P5 encounter archive/restore (`P5EncounterArchive`, reserve ledger, stock epochs). **Status:** planned, not started.
+
+P5 freezes an unloaded ordinary settlement: a revisit restores the exact damage, destroyed buildings, generator fuel, battery charge, loaded shells and operating-reserve remainder, however much time has passed. Only the native trade offer expires (30 days), and resident health follows native world-pawn ticking. This is conservative but implausible over long absences.
+
+Tie recovery to the native 30-day restock cycle, the point where vanilla already treats a settlement as having moved on:
+
+- **Under 30 days since the last unload:** unchanged P5 behaviour. A short retreat-and-return finds the base exactly as it was left.
+- **30 days or more:** the settlement has recovered. Damage is repaired, archived-destroyed buildings are rebuilt, generator tanks and batteries are full, loaded shells are reset to the fresh state, and operating reserves are restocked to the planned amounts. This means clearing the asset archive and the reserve ledger at that boundary, not fabricating partial states.
+- **Roster:** losses stay meaningful. Dead and captured residents are not replaced, and the surviving roster is not topped up. Residents keep their own gear and inventory.
+- **Trade stock:** follows the existing epoch policy, with off-map native restock and no restock on an attack re-entry. Any change to that policy is a separate decision.
+- **No proportional decay or partial repair:** it adds rules for little gameplay benefit.
+
+Record the unload tick in the archive, make the recovery decision a pure function of elapsed ticks (testable at the boundary), and log `recovered` versus `frozen` on re-entry. Quest sites (P4D) are out of scope because native removal prevents revisits.
+
+**Exit:** pure boundary tests cover elapsed 0 ticks, 30 days minus one tick and 30 days. A live revisit before the boundary reproduces the P5 frozen state, and one after it shows repaired and rebuilt buildings, full tanks and charge, and restocked reserves, with the same surviving residents and no replacements. Save/reload preserves the unload tick.
 
 ## 4. Validation strategy
 
@@ -350,7 +368,7 @@ For qualitative comparison, score coherent routes, realistic landform preservati
 
 ## 5. Dependencies, estimates, and remaining decisions
 
-The remaining MVP path is **P4/P4A procedural terrain and facilities → P4B defensive layout → P5 bounded supplies, safe stock placement, trade consistency and persistence → P6 route/encounter tuning and release validation**. **P7 settlement specialization is the final planned step after MVP, beginning with agriculture/industry and evaluating the additional candidate profiles.** P0–P3 are recorded complete; the progress tracker is authoritative for status. Full sustainability remains a separate unsequenced post-MVP backlog, not a prerequisite for P7.
+The remaining MVP path is **P4/P4A procedural terrain and facilities → P4B defensive layout → P5 bounded supplies, safe stock placement, trade consistency and persistence → P6 route/encounter tuning and release validation**. **P7 settlement specialization follows the MVP, beginning with agriculture/industry and evaluating the additional candidate profiles; P8 off-map recovery is the last planned item.** P0–P3 are recorded complete; the progress tracker is authoritative for status. Full sustainability remains a separate unsequenced post-MVP backlog, not a prerequisite for P7.
 
 The original effort estimate is superseded by completed P0–P2 work and this scope revision. Re-estimate remaining work after the P5 trade ownership/restock spike: shorter sustainability validation removes work, while faithful trade-stock reconciliation adds a distinct integration risk. No replacement schedule is claimed without that evidence.
 
