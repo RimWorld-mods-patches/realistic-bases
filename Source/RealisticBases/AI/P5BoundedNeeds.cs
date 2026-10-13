@@ -21,12 +21,14 @@ namespace RealisticBases.AI
     }
     // Native needs selection with a whole-route settlement bound, not an
     // arbitrary radius around a post that cannot reach the food store/barracks.
+    // Applies to relieved and off-duty defenders.
     public sealed class ThinkNode_P5BoundedNeeds : ThinkNode_Priority
     {
         public override ThinkResult TryIssueJobPackage(Pawn pawn, JobIssueParams jobParams)
         {
             var controller = pawn.Map?.GetComponent<P3GarrisonController>();
-            if (controller == null || !controller.Controls(pawn) || !controller.P5NeedsRelief(pawn)) return ThinkResult.NoJob;
+            if (controller == null || !controller.Controls(pawn) ||
+                !controller.P5NeedsRelief(pawn) && !controller.P5OffDuty(pawn)) return ThinkResult.NoJob;
             float oldRadius = pawn.mindState.maxDistToSquadFlag;
             ThinkResult result;
             try

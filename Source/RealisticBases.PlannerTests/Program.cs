@@ -71,6 +71,12 @@ internal static class Program
         Run("P3 valid assignments resist oscillation", P3ValidAssignmentsResistOscillation);
         Run("P3 routine reserves a support worker", P3RoutineReservesSupportWorker);
         Run("P5 a wounded roster gets a support worker who can tend", P5WoundedRosterGetsTendCapableSupport);
+        Run("P5B a hostile arrival without action keeps a watch", P5BGarrisonTests.WatchWithoutAction);
+        Run("P5B the first hostile action alarms the whole pack", P5BGarrisonTests.FirstShotAlarmsThePack);
+        Run("P5B the pack follows the attacked side after the dwell", P5BGarrisonTests.RedeployFollowsTheAttack);
+        Run("P5B at most half the off-duty defenders sleep at once", P5BGarrisonTests.SleepRotationIsCapped);
+        Run("P5B nobody is relieved to sleep under assault", P5BGarrisonTests.NoRestReliefUnderAssault);
+        Run("P5B the assault latch falls back to watch after an hour", P5BGarrisonTests.AssaultLatch);
         Run("P3 wall damage outranks a decoy", P3WallDamageOutranksDecoy);
         Run("P3 breached wall and threat memory rank deterministically", P3WallBreachAndMemory);
         Run("P3 wall-threat assignment requires an actual firing lane", P3WallThreatUsesFiringLane);
@@ -760,7 +766,8 @@ internal static class Program
         List<DefenderCandidate> defenders = P3Defenders().ToList();
         defenders[0] = new DefenderCandidate(1, DefenderWeaponClass.LongRanged, 30, false, false,
             false, false, false, "south-long", GarrisonRole.RangedPost, 900);
-        GarrisonPlan stable = GarrisonDoctrine.Assign(P3Situation(tick: 1000, defenders: defenders));
+        // No post covers the west, so the attacked side cannot pull the defender off its post.
+        GarrisonPlan stable = GarrisonDoctrine.Assign(P3Situation(tick: 1000, defenders: defenders, threatenedSector: "west"));
         Equal("south-long", stable.Assignments.Single(a => a.DefenderId == 1).PostId, "cooldown retains valid post");
         List<DefensivePost> invalid = P3Posts().Select(p => p.Id == "south-long"
             ? new DefensivePost(p.Id, p.SectorId, p.Cell, p.MinimumRange, p.MaximumRange,

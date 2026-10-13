@@ -100,6 +100,22 @@ namespace RealisticBases.AI
         protected override Job TryGiveJob(Pawn pawn) => pawn.Map?.GetComponent<P3GarrisonController>()?.TryGiveSupportJob(pawn);
     }
 
+    // Idle wander for defenders without a post: near the pawn's own bed, or
+    // the support centre when it has none, and never outside the defended bounds.
+    public sealed class JobGiver_P5BOffDutyWander : JobGiver_Wander
+    {
+        public JobGiver_P5BOffDutyWander()
+        {
+            wanderRadius = 6f;
+            ticksBetweenWandersRange = new IntRange(300, 900);
+            wanderDestValidator = (pawn, cell, root) =>
+                pawn.Map?.GetComponent<P3GarrisonController>()?.OffDutyCellAllowed(cell) ?? false;
+        }
+
+        protected override IntVec3 GetWanderRoot(Pawn pawn) =>
+            pawn.Map?.GetComponent<P3GarrisonController>()?.OffDutyRoot(pawn) ?? pawn.Position;
+    }
+
     public sealed class JobGiver_P3HoldAssignedPost : ThinkNode_JobGiver
     {
         protected override Job TryGiveJob(Pawn pawn) => pawn.Map?.GetComponent<P3GarrisonController>()?.TryGiveHoldJob(pawn);
@@ -153,6 +169,11 @@ namespace RealisticBases.AI
         private List<int> assignedTicks = new List<int>();
         private GarrisonState currentState;
         private string currentSector = "north";
+        // Assault latch and the attacked side waiting out its dwell.
+        private int lastAssaultTick = int.MinValue;
+        private string lastAssaultTrigger = string.Empty;
+        private string sectorCandidate = string.Empty;
+        private int sectorCandidateSince;
         private int currentThreatSeverity;
         private int lastAuditTick = -1;
         private int reassignmentCount;
@@ -178,6 +199,16 @@ namespace RealisticBases.AI
         internal IEnumerable<Pawn> P5Residents => defenders.Where(p => p != null && !p.Dead && p.Spawned && p.Faction == faction);
         internal string P5AssignedRole(Pawn pawn) => AssignedRole(pawn).ToString();
         internal bool P5NeedsRelief(Pawn pawn) => AssignedRole(pawn) == GarrisonRole.NeedsRelief;
+        internal bool P5OffDuty(Pawn pawn) => AssignedRole(pawn) == GarrisonRole.OffDuty;
+
+        internal IntVec3 OffDutyRoot(Pawn pawn)
+        {
+            Building_Bed bed = pawn.ownership?.OwnedBed;
+            return bed != null && bed.Spawned && bed.Map == map && InsideBounds(bed.Position) ? bed.Position : supportCenter;
+        }
+
+        internal bool OffDutyCellAllowed(IntVec3 cell) => InsideBounds(cell) &&
+            (interiorCells.Count == 0 || interiorCells.Contains(cell));
         internal bool P5AcceptsOperatingStock(Settlement owner) => settlement == owner && faction == owner.Faction;
         internal void P5RegisterOperatingStock(Thing thing)
         {
@@ -429,6 +460,10 @@ namespace RealisticBases.AI
             Scribe_Collections.Look(ref assignedTicks, "p3AssignedTicks", LookMode.Value);
             Scribe_Values.Look(ref currentState, "p3CurrentState", GarrisonState.Routine);
             Scribe_Values.Look(ref currentSector, "p3CurrentSector", "north");
+            Scribe_Values.Look(ref lastAssaultTick, "p5bLastAssaultTick", int.MinValue);
+            Scribe_Values.Look(ref lastAssaultTrigger, "p5bLastAssaultTrigger", string.Empty);
+            Scribe_Values.Look(ref sectorCandidate, "p5bSectorCandidate", string.Empty);
+            Scribe_Values.Look(ref sectorCandidateSince, "p5bSectorCandidateSince", 0);
             Scribe_Values.Look(ref lastAuditTick, "p3LastAuditTick", -1);
             Scribe_Values.Look(ref reassignmentCount, "p3Reassignments", 0);
             Scribe_Values.Look(ref invalidPostRecoveries, "p3InvalidPostRecoveries", 0);
@@ -438,6 +473,10 @@ namespace RealisticBases.AI
             Scribe_Values.Look(ref garrisonEverDefeated, "p3GarrisonEverDefeated", false);
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
+                // Saves without the latch keep a running assault for a full latch.
+                if (lastAssaultTick == int.MinValue && !Standby(currentState)) lastAssaultTick = GenTicks.TicksGame;
+                lastAssaultTrigger = lastAssaultTrigger ?? string.Empty;
+                sectorCandidate = sectorCandidate ?? string.Empty;
                 if ((mortars == null || mortars.Count == 0) && mortar != null)
                 {
                     // Legacy saves retain their existing gun/post and stocks;
@@ -527,7 +566,27 @@ namespace RealisticBases.AI
                 P3Log.Message("COMPOUND_PENETRATION", "map=" + map.uniqueID + " hostiles=" +
                     enemies.Count(p => compoundRegionCells.Contains(p.Position)));
             }
-            string sector = ObserveThreatSector(threat);
+            int now = GenTicks.TicksGame;
+            string trigger = threat ? AssaultTrigger(active, enemies, now) : null;
+            if (trigger != null)
+            {
+                lastAssaultTick = now;
+                lastAssaultTrigger = trigger;
+            }
+            string observed = ObserveThreatSector(threat);
+            string sector;
+            if (!threat)
+            {
+                sector = observed;
+                sectorCandidate = string.Empty;
+            }
+            else
+            {
+                P3SectorDwell dwell = new P3SectorDwell(currentSector, sectorCandidate, sectorCandidateSince);
+                sector = dwell.Observe(observed, now);
+                sectorCandidate = dwell.Candidate;
+                sectorCandidateSince = dwell.CandidateSince;
+            }
             bool breached = perimeterCells.Count > 0
                 ? perimeterCells.Where((c, i) => perimeterHitPoints[i] > 0 || perimeterLastBreachTicks[i] >= 0)
                     .Any(c => c.GetEdifice(map) == null)
@@ -553,14 +612,26 @@ namespace RealisticBases.AI
                 defenders.Any(p => p != null && p.Spawned && !p.Dead && p.health.HasHediffsNeedingTend()) ||
                 ownedThings.Any(t => t != null && t.Spawned && t.TryGetComp<CompRefuelable>()?.ShouldAutoRefuelNow == true &&
                     (t is Building_TurretGun gun && gun.def != ThingDefOf.Turret_Mortar ||
-                        t.TryGetComp<CompPowerPlant>() != null))));
+                        t.TryGetComp<CompPowerPlant>() != null)),
+                trigger != null, lastAssaultTick));
             UpdateIncendiaryGate(lord, threat);
             bool changed = force || plan.State != currentState || plan.ActiveSector != currentSector || AssignmentsChanged(plan);
+            bool alarm = Standby(currentState) && !Standby(plan.State);
+            if (plan.State != currentState)
+                P3Log.Message("THREAT_STATE", "map=" + map.uniqueID + " from=" + currentState + " to=" + plan.State +
+                    " trigger=" + (Standby(plan.State) ? (threat ? "hostiles_present" : "no_hostiles") :
+                        trigger ?? (fieldIntrusionNow ? "field_intrusion" : compoundIntrusionNow ? "compound_intrusion" :
+                            breached ? "breach" : "latch:" + lastAssaultTrigger)) + " sector=" + plan.ActiveSector);
             currentState = plan.State;
             currentSector = plan.ActiveSector;
             if (changed)
             {
+                List<Pawn> sleeping = alarm ? active.Where(p => p.CurJobDef == JobDefOf.LayDown).ToList() : null;
                 ApplyAssignments(lord, plan);
+                if (alarm)
+                    P3Log.Message("ALARM", "map=" + map.uniqueID + " woke=" +
+                        sleeping.Count(p => p.CurJobDef != JobDefOf.LayDown) + " stillAsleep=" +
+                        sleeping.Count(p => p.CurJobDef == JobDefOf.LayDown));
                 P3Log.Message("DUTIES", "map=" + map.uniqueID + " lord=" + lord.loadID + " state=" + plan.State +
                     " sector=" + plan.ActiveSector + " threat=" + threat + " breached=" + breached +
                     " outerViable=" + outerViable + " assignments=" + string.Join(",", plan.Assignments.Select(a =>
@@ -1014,6 +1085,7 @@ namespace RealisticBases.AI
             if (role == GarrisonRole.Support) return RBDefOf.RB_P3_Support;
             if (role == GarrisonRole.NeedsRelief) return RBDefOf.RB_P3_Relief;
             if (role == GarrisonRole.InnerFallback) return RBDefOf.RB_P3_InnerFallback;
+            if (role == GarrisonRole.OffDuty) return RBDefOf.RB_P3_OffDuty;
             return RBDefOf.RB_P3_DefendPost;
         }
 
@@ -1252,6 +1324,32 @@ namespace RealisticBases.AI
                     interiorCells.Select(c => new GridPoint(c.x, c.z)).ToList(), enemies, opaque,
                     maximumExterior: maximumExterior);
             }
+        }
+
+        private static bool Standby(GarrisonState state) => state == GarrisonState.Routine || state == GarrisonState.Watch;
+
+        // Alarm range from the perimeter, in cells.
+        private const int AssaultApproachCells = 35;
+        // A hostile action counts for this many ticks after it happened.
+        private const int AssaultSignalTicks = 600;
+
+        // The first hostile action this refresh, or null: a hostile fired or was
+        // hit, a resident was harmed, the perimeter took damage, or a hostile
+        // came within the alarm range of the perimeter.
+        private string AssaultTrigger(List<Pawn> residents, List<Pawn> enemies, int now)
+        {
+            if (enemies.Any(e => e.mindState != null && e.mindState.lastAttackTargetTick > 0 &&
+                now - e.mindState.lastAttackTargetTick < AssaultSignalTicks)) return "hostile_fired";
+            if (residents.Any(p => p.mindState != null && now - p.mindState.lastHarmTick < AssaultSignalTicks))
+                return "resident_harmed";
+            if (enemies.Any(e => e.mindState != null && now - e.mindState.lastHarmTick < AssaultSignalTicks))
+                return "hostile_hit";
+            if (perimeterLastHitTicks.Any(t => t >= 0 && now - t < AssaultSignalTicks)) return "perimeter_hit";
+            List<IntVec3> edge = perimeterCells.Count > 0 ? perimeterCells : defendedCells;
+            const int range = AssaultApproachCells * AssaultApproachCells;
+            if (enemies.Any(e => edge.Any(c => (c.x - e.Position.x) * (c.x - e.Position.x) +
+                (c.z - e.Position.z) * (c.z - e.Position.z) <= range))) return "approach";
+            return null;
         }
 
         private string ObserveThreatSector(bool hostileThreat)

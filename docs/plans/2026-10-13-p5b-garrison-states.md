@@ -1,6 +1,6 @@
 # Plan: P5B garrison threat states, sleep rotation and redeploy
 
-2026-10-13 · Status: **agreed, not started** (decisions below). It covers P5B items 1–3 of the
+2026-10-13 · Status: **G1 and G2 implemented, G3 live checks pending** (decisions below). It covers P5B items 1–3 of the
 [implementation plan](../implementation-plan.md#p5b--better-management).
 Items 4–6 (cover, wall lights, Neolithic shelves) are done or in review.
 Item 7 (turret-guarded rescue) is a separate quest checkpoint after this one.
@@ -100,30 +100,30 @@ The garrison code lives in `AI/P3Garrison.cs` (runtime) and
 ## Steps
 
 ### G1: Pure doctrine
-- [ ] `Watch` state and `OffDuty` role. Add `AssaultSignal` and the latch to
+- [x] `Watch` state and `OffDuty` role. Add `AssaultSignal` and the latch to
       `GarrisonSituation`.
-- [ ] Watch sizing, mortar crews in `Watch`, and the rested-first watch
+- [x] Watch sizing, mortar crews in `Watch`, and the rested-first watch
       rotation.
-- [ ] `ReliefCandidates`: the half-cap in `Routine`/`Watch`, no rest relief
+- [x] `ReliefCandidates`: the half-cap in `Routine`/`Watch`, no rest relief
       under assault, tending kept.
-- [ ] `SelectPost`: attacked-side posts first, cooldown override, sector
+- [x] `SelectPost`: attacked-side posts first, cooldown override, sector
       dwell.
-- [ ] PlannerTests:
-  - [ ] a caravan with no action stays in `Watch` with ⌈pack/3⌉ watchers;
-  - [ ] the first shot gives `HoldSectors` with the whole pack on that side;
-  - [ ] the side changing from west to north moves every ranged defender
+- [x] PlannerTests:
+  - [x] a caravan with no action stays in `Watch` with ⌈pack/3⌉ watchers;
+  - [x] the first shot gives `HoldSectors` with the whole pack on that side;
+  - [x] the side changing from west to north moves every ranged defender
         after the dwell;
-  - [ ] at most half the off-duty defenders sleep at night;
-  - [ ] nobody is relieved to rest under assault;
-  - [ ] the latch falls back after 2,500 ticks.
+  - [x] at most half the off-duty defenders sleep at night;
+  - [x] nobody is relieved to rest under assault;
+  - [x] the latch falls back after 2,500 ticks.
 
 ### G2: Runtime
-- [ ] Compute `AssaultSignal` in `RefreshAndApply`. Log `THREAT_STATE`
+- [x] Compute `AssaultSignal` in `RefreshAndApply`. Log `THREAT_STATE`
       transitions with their trigger.
-- [ ] `RB_P3_OffDuty` duty def with no post fallback. Remove the
+- [x] `RB_P3_OffDuty` duty def with no post fallback. Remove the
       `SupportCenter` walk from Support and Relief.
-- [ ] Wake sleepers on the transition to assault (logged as `ALARM woke=n`).
-- [ ] Save/load the new latch fields. Old saves default to the current
+- [x] Wake sleepers on the transition to assault (logged as `ALARM woke=n`).
+- [x] Save/load the new latch fields. Old saves default to the current
       state.
 
 ### G3: Live checks
@@ -145,6 +145,20 @@ The garrison code lives in `AI/P3Garrison.cs` (runtime) and
    first shell or hit makes it an assault. Telling a visit from an attack
    needs no arrival-type hook today, because hostile maps are entered only
    by attack.
+
+## Implementation notes
+
+- The sleep cap is ⌊off-duty/2⌋ but at least one, so a garrison with a
+  single off-duty defender still rotates its sleep.
+- Under assault, food and tending relief stay (with the existing minimum on
+  duty); only rest relief stops.
+- The dwell keeps its pending side through refreshes in which no side ranks,
+  and the routine sector follows the observation without a dwell.
+- `AssaultSignal` triggers: `hostile_fired` (`lastAttackTargetTick`),
+  `resident_harmed`, `hostile_hit` (a mortar shell that lands counts),
+  `perimeter_hit`, and `approach` (35 cells). Breach and intrusion count
+  through the existing flags. Saves without the latch fields that were
+  mid-assault start a full latch on load.
 
 ## Future (not this step)
 

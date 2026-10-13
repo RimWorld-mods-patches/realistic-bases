@@ -77,6 +77,7 @@ namespace RealisticBases.Core
         public static DutyDef RB_P3_Support;
         public static DutyDef RB_P3_Relief;
         public static DutyDef RB_P3_InnerFallback;
+        public static DutyDef RB_P3_OffDuty;
 
         static RBDefOf()
         {
