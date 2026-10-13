@@ -33,6 +33,10 @@ seasonal sustainability, P6/P7 implementation or extra agents.
 
 ## Validated checkpoints
 
+Status 2026-10-13: P5.0–P5.5 verified for the scoped contracts; long three-day
+horizons under the final rules are deferred to post-release live testing. See
+[findings](p5-findings.md).
+
 | ID | Implementation | Required evidence before completion |
 |---|---|---|
 | P5.0 | Source/runtime baseline and bounded plan | Native stock/buy/sell/expiry and map-lifecycle source; baseline limitations; standalone plan commit |

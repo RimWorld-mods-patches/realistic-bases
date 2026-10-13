@@ -147,25 +147,28 @@ namespace RealisticBases.Integration
             if (!exact)
                 P0Log.Message("P5_ASSET_RESTORE_BY_DEF", "settlement=" + state.settlementId + " archivedLayout=" +
                     state.assetArchiveLayout + " layout=" + layoutDigest + " matched=" + plan.Count + "/" + state.assetArchive.Count +
-                    " damageAndDestroyedNotTransferable=True");
+                    " damageAndDestroyedNotTransferable=True defs=" + string.Join(",", state.assetArchive.Select(a => a.Snapshot())
+                        .GroupBy(a => a.DefName).Select(g => g.Key + ":" + g.Count() + "/" +
+                            buildings.Keys.Count(k => k.StartsWith(g.Key + "@", StringComparison.Ordinal)) + "/" +
+                            plan.Values.Count(v => v.DefName == g.Key) + ":fuel" + g.Where(a => a.Fuel > 0).Sum(a => a.Fuel).ToString("F0"))));
             return plan;
         }
 
         // Physical goods held by archived buildings that did not come back:
-        // loaded shells return as loose shells, generator tanks as fuel units.
-        internal static int LeftoverFuelUnits(IEnumerable<P5AssetSnapshot> unmatched, string fuelDef)
+        // loaded shells return as loose shells, unburnt fuel and turret
+        // magazines as whole units of their own fuel item (floored).
+        internal static IEnumerable<KeyValuePair<ThingDef, int>> LeftoverFuel(IEnumerable<P5AssetSnapshot> unmatched)
         {
-            ThingDef fuel = DefDatabase<ThingDef>.GetNamedSilentFail(fuelDef ?? string.Empty);
-            if (fuel == null) return 0;
-            double units = 0;
+            var units = new Dictionary<ThingDef, double>();
             foreach (P5AssetSnapshot s in unmatched.Where(s => s.Fuel > 0))
             {
-                ThingDef def = DefDatabase<ThingDef>.GetNamedSilentFail(s.DefName);
-                var props = def?.GetCompProperties<CompProperties_Refuelable>();
-                if (props == null || def.GetCompProperties<CompProperties_Power>() == null || !props.fuelFilter.Allows(fuel)) continue;
-                units += s.Fuel / Math.Max(0.0001f, props.FuelMultiplierCurrentDifficulty);
+                var props = DefDatabase<ThingDef>.GetNamedSilentFail(s.DefName)?.GetCompProperties<CompProperties_Refuelable>();
+                ThingDef fuel = props?.fuelFilter?.AnyAllowedDef;
+                if (fuel == null || fuel.category != ThingCategory.Item) continue;
+                units.TryGetValue(fuel, out double n);
+                units[fuel] = n + s.Fuel / Math.Max(0.0001f, props.FuelMultiplierCurrentDifficulty);
             }
-            return (int)Math.Floor(units + 1e-6);
+            return units.Select(p => new KeyValuePair<ThingDef, int>(p.Key, (int)Math.Floor(p.Value + 1e-6))).Where(p => p.Value > 0);
         }
 
         internal static IEnumerable<KeyValuePair<ThingDef, int>> LeftoverShells(IEnumerable<P5AssetSnapshot> unmatched) =>

@@ -4,21 +4,17 @@ Updated: 2026-10-13
 
 ## Current state
 
-**P5 validation resumed at the user's request (2026-10-13).** The captured
-trade-site rejection was fixed in `ccbc373`/`7760723`, with main/P5A merged in
-`6b8847f`. The captured regression, PlannerTests and Release build pass again.
-Live native trade→attack now succeeds without changing the published offer;
-all124 physical sale stack identities/attributes/positions survive active reload.
-Full-transfer rollback restores exact native ownership and quantities; forced
-overflow preserves the whole native offer with no map copies. Native tending
-is fixed/validated in `95ab4cd` (one actual medicine unit consumed).
-The early-industrial five-resident three-day routine passes with real eating,
-bed use and five refuels. P5.4 encounter archive/restore is implemented: re-entry restores the same
-survivors (needs/inventory), conserves meals, loaded shells, fuel and charge, and
-keeps casualties removed across two revisits, off-map save/load and a live kill.
-All124 sale stacks survive unchanged. Destroyed-building persistence remains open.
-These checks do not close the remaining P5 persistence and encounter-horizon gates.
-See [P5.4 archive/restore](p5-findings.md#2026-10-13-p54-encounter-archiverestore-implemented).
+**P5 complete for the scoped contracts (2026-10-13).** Native trade→attack,
+physical sale stock, emergency allocation, rollback/overflow, NPC tending and
+the P5.4 encounter archive/restore were verified live. Revisits keep survivors,
+needs, inventory, damage, destroyed buildings, fuel, charge and loaded shells,
+with casualties and captives not replaced. Off-map expiry and removal and native
+defeat pass. Six-hour outage passes with batteries sized for the whole rated
+load. Six-hour combat passes on IndustrialMid (flat and native terrain) and
+Neolithic, including field tending, tend-capable support and self-tend. The P4D
+rescue/bandit regression and Geological Landforms compatibility pass. Long
+three-day horizons under the new rules are deferred to post-release live
+testing. See [closeout](p5-findings.md#2026-10-13-p5-closeout-work-outage-combat-medical-care-destroyed-buildings-expiry).
 
 Design, source review, P0–P3, bounded P4D and P4E are complete. P5 is now authorized and active from P4E `be39af9`; see [checkpoint plan](p5-encounter-plan.md) and [findings](p5-findings.md). Earlier P4/P4A/P4B/C tracker rows and fixed-compound observations are historical and are not new closeout claims. P5A remains separate.
 
@@ -54,7 +50,7 @@ PlannerTests and clean Release builds pass. Broader P5 remains open; see
 | P4C — Visually realistic bases | Planned; implementation authorized | Coherent room/path finishes and selected interior rock smoothing, bounded materials, transactional terrain/rock recovery, visual and live validation. See [P4C visual plan](p4c-visual-plan.md); no implementation evidence yet |
 | P4D — Quest-location support | Complete for bounded Core contracts | Exact bandit/rescue strategies, authoritative native content, original prisoner/join, native reward/expiry/death/departure/reload and verified late recovery; Core terrain/tech and GL-native compatibility matrix, complete suites/build. GL competing pipelines remain native. See [P4D findings](p4d-findings.md) |
 | P4E — Facility and defense adjustments | Complete (2026-10-12) | Climate/decorative labs, seats/medicine, compact magazines/up to three funded crews, budgeted autocannon defense, finite warehouse fetching, refund-/delayed-collapse-free rollback, Core/GL compatibility and full regression verified. See [P4E findings](p4e-findings.md) |
-| P5 — Encounter supplies, trade stock, and persistent consequences | In progress (2026-10-13 validation checkpoint) | Trade→attack,124-stack active reload/two revisits, loaded expiry/empty reads, rollback/overflow, routine and bounded native tending pass. Exact emergency allocations/native use remain verified. P5.4 archive/restore passes same-tick revisits, off-map save/load and a casualty (survivors/needs/inventory, damage, fuel, charge, loaded shells); destroyed buildings regenerate and capture is pure-tested only. Off-map expiry/defeat, other profiles, combat-time tending/rescue, measured combat/outage and P5.5 remain open. See [P5 findings](p5-findings.md) |
+| P5 — Encounter supplies, trade stock, and persistent consequences | Complete for scoped contracts (2026-10-13) | Trade→attack, physical stock, emergency allocation, rollback/overflow, NPC tending, encounter archive/restore (survivors, damage, destroyed, fuel/charge/shells), off-map expiry/removal, native defeat/capture, six-hour outage and combat on two profiles, P4D regression and GL compatibility verified. Long three-day horizons deferred to post-release live testing; known limits in [P5 findings](p5-findings.md) |
 | P5A — Additional improvements | Planned, separate from P5 | Generator ventilation/fill, shell minimums, cabinets/floors and richest-spacer wall materials retained from main |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage; add route diagnostics, evidence-driven soft-preference tuning, reproducibility and encounter-quality review |
 | P7 — Settlement specialization | Not started (post-MVP) | Final planned step: agriculture/industry first; evaluate mining, ranching, forestry, trading, military, medical and research profiles; verify trade-product influence feasibility |

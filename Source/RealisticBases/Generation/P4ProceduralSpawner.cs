@@ -466,7 +466,8 @@ namespace RealisticBases.Generation
                 int fuel = layout.Power == null ? 0 : Planned(layout.Power.FuelDef, null, layout.Power.FuelStock);
                 // Tanks of archived generators this layout no longer has stay the
                 // residents' fuel: loose units, never a refill.
-                int leftoverFuel = layout.Power == null ? 0 : P5EncounterArchive.LeftoverFuelUnits(unmatchedAssets, layout.Power.FuelDef);
+                var leftoverFuels = P5EncounterArchive.LeftoverFuel(unmatchedAssets).ToList();
+                int leftoverFuel = layout.Power == null ? 0 : leftoverFuels.Where(p => p.Key.defName == layout.Power.FuelDef).Sum(p => p.Value);
                 fuel += leftoverFuel;
                 if (leftoverFuel > 0) reserves?.Record(P5ReserveLedger.Key(layout.Power.FuelDef), leftoverFuel);
                 int internalFuel = 0;
@@ -523,6 +524,11 @@ namespace RealisticBases.Generation
                         }
                     }
                 }
+                foreach (var other in leftoverFuels.Where(p => layout.Power == null || p.Key.defName != layout.Power.FuelDef))
+                {
+                    reserves?.Record(P5ReserveLedger.Key(other.Key.defName), other.Value);
+                    combatStocks.AddRange(SpawnStacks(tx, other.Key, other.Value, storageCells, map));
+                }
                 foreach (var shell in P5EncounterArchive.LeftoverShells(unmatchedAssets))
                 {
                     reserves?.Record(P5ReserveLedger.Key(shell.Key.defName), shell.Value);
@@ -530,7 +536,7 @@ namespace RealisticBases.Generation
                 }
                 if (unmatchedAssets.Count > 0)
                     RealisticBases.Core.P0Log.Message("P5_ASSET_LEFTOVERS", "map=" + map.uniqueID + " unmatched=" + unmatchedAssets.Count +
-                        " fuelUnits=" + leftoverFuel + " shells=" + string.Join(",", P5EncounterArchive.LeftoverShells(unmatchedAssets)
+                        " fuel=" + string.Join(",", leftoverFuels.Select(p => p.Key.defName + ":" + p.Value)) + " shells=" + string.Join(",", P5EncounterArchive.LeftoverShells(unmatchedAssets)
                             .Select(p => p.Key.defName + ":" + p.Value)) + " granted=0");
                 if (mortars.Count > 0 && P4EFacilityDebugActions.FailNextMagazineStocks)
                 {
@@ -613,7 +619,7 @@ namespace RealisticBases.Generation
                     battery.TryGetComp<CompPowerBattery>().SetStoredEnergyPct(1f);
                 // After the fresh-layout audits above: damage, fuel, charge and
                 // loaded shells return as they were left, never refilled.
-                P5EncounterArchive.ApplyAssets(map, (Settlement)settlement, archivedAssets);
+                if (archivedAssets != null) P5EncounterArchive.ApplyAssets(map, (Settlement)settlement, archivedAssets);
                 if (reserves != null)
                     reserves.RecordBuilt(tx.OwnedThings.OfType<Building>().Where(b => b.Faction == settlement.Faction)
                         .Select(P5EncounterArchive.Key));

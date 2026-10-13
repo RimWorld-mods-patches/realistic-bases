@@ -1039,3 +1039,202 @@ map. Log: `p5-offmap-reload-casualty-20261013.log`.
 
 The disposable process is stopped and autostart is restored to the immutable
 baseline (SHA256 `81bae97b…652541`).
+
+## 2026-10-13 P5 closeout work: outage, combat, medical care, destroyed buildings, expiry
+
+Continuation toward P5 completion (`909b2e2` and follow-ups). Each live run below
+cold-loads a named disposable save; a probe that is reloaded mid-run is never
+credited. The process is stopped before every build.
+
+### Outage: batteries now bridge the whole rated load
+
+The 2026-10-12 audit found that one battery (sized for the *critical* load only)
+cannot bridge six hours at the real connected load. NPC residents shed no load,
+so `LayoutPowerModel.Batteries` now covers critical + non-critical + defense
+reserve + the power room's own draw for six hours at zero generation, including
+native 5W self-discharge per battery. Both the demand model and the planner
+iterate generators and batteries until stable. The validator requires the bridge
+for the whole rated load. Batteries spawn fully charged, like the generators'
+full tanks. LayoutTests 134/134 (ten shards), V2 matrix legacy 80/80 and
+clusters 80/80.
+
+New disposable `Start P5 six-hour outage probe` (`P5DutyProbe`):
+- **Arming:** it waits until every switched-on consumer has been powered for 300
+  ticks.
+- **Zero generation:** it switches off every flickable generator and holds
+  unswitchable generation (solar/wind) at zero output through a test-only
+  `UpdateDesiredPowerOutput` postfix. Renewables are not despawned, because a
+  yard can carry the conduit tree.
+- **Sampling:** every switched-on consumer is sampled for 15000 ticks.
+
+Two earlier attempts were probe defects and are not counted: the first sampled
+the generation tick before any consumer powered on; the second despawned a solar
+yard that bridged the turret branch.
+
+Fresh ten-resident IndustrialMid base (layout `D550586008426400`, three batteries):
+**`P5_OUTAGE_PROBE_COMPLETE passed=True elapsed=15000 generatorsSwitchedOff=7
+renewablesZeroed=1 startChargeWd=1800 minChargeWd=726.08 unpoweredSamples=0`**
+at an actual 4458W/rated 6235W load. Log `p5-outage-combat-first-20261013.log`.
+
+### Six-hour combat duty and combat-time medical care
+
+New disposable `Start P5 six-hour combat probe`:
+- **Waves:** three native assault waves (250 points each, hostile humanlike
+  faction, `LordJob_AssaultColony`) arrive two hours apart.
+- **Supplies:** it measures the physical use of HE, incendiary, barrels, steel
+  and medicine, including resident inventories.
+- **Ammunition:** it counts samples where hostiles are present and every mortar
+  is unloaded with no shells left.
+- **Medical:** it measures urgent neglect, meaning a resident who is bleeding or
+  downed outside a bed, past one hour, while no enemy is within 25 cells, a
+  support worker exists, and nobody is tending or rescuing.
+- **Deaths:** each death is reported with its blood loss and whether the
+  resident was downed first.
+
+The runs exposed and drove three medical fixes:
+
+1. Defenders held on post during a threat are never relieved to a bed, and
+   vanilla tends humanlike patients only in bed. The support worker now tends a
+   standing, non-moving defender in place once no enemy is within 25 cells, using
+   vanilla `draftedTend`, which holds the patient during the tend.
+   Downed, then heaviest bleeding, are treated first.
+2. The doctrine chose a support worker with Caring disabled by backstory
+   (`BushSniper94`), so nobody tended three wounded residents in bed (tendJobs=0).
+   `DefenderCandidate.CanTend` now records `WorkTypeIsDisabled(Doctor)`, and
+   while anyone needs tending, tend-capable support workers are preferred
+   (pure regression `P5 a wounded roster gets a support worker who can tend`).
+3. With one doctor and four wounded, bleeding patients waited in bed. A relief
+   patient in bed whose oldest untended bleeding wound is 1250 ticks old, with no
+   doctor reserving them, now self-tends without medicine (vanilla
+   `JobGiver_SelfTend` semantics).
+
+Passing runs (each from `RealisticBases-P5-before-combat-20261013.rws` unless noted):
+
+- **Flat IndustrialMid:** `passed=True`. Used HE17, barrel charges 17, Steel75
+  and Medicine 1, with ammoOutSamples=0 and urgent neglect 0. The one death was
+  a kill in combat (blood loss 0.01, never downed). The readiness model's
+  six-hour demand is HE36 and barrel charges 36, with no shortfall.
+- **Native-terrain revisit of the same settlement:** `passed=True`. Used HE5,
+  Steel75 and Medicine 4. Both deaths were kills in combat; urgent neglect 0.
+
+In both runs the final stragglers kept the threat alive (`hostilesLeft=True`),
+and two or three residents still had minor non-bleeding wounds at the end. These
+are reported, not hidden. Logs `p5-combat-pass-and-flat-reentry-20261013.log` and
+`p5-native-damage-expiry-release-20261013.log`.
+
+### Destroyed buildings, layout stability and changed layouts
+
+- **Destroyed buildings.** `P5ReserveState` records every realized building key.
+  At unload the archive also stores the keys that are absent (destroyed,
+  deconstructed or stolen). On re-entry of the same layout the full layout is
+  realized and audited as before. After commit, the archived-destroyed buildings
+  are removed again, exactly like a loss in combat; newly unsupported thin roofs
+  are dropped silently because they already fell then. The controller already
+  handles buildings destroyed mid-fight.
+- **Layout stability.** A revisit now plans with at least the storage demand of
+  its last accepted layout (`P5RevisitDemand`), so goods bought or consumed
+  between visits do not reshape the base.
+- **Changed layouts.** If the layout still changes (demand grew, or the
+  debug-flat first visit below), consumable state transfers by definition
+  (`P5AssetSnapshot.Match`). Damage and destroyed state are not moved to other
+  buildings. Loaded shells and generator tank fuel of archived buildings that
+  did not come back return as loose stock, and are recorded in the reserve
+  ledger.
+
+Live evidence:
+
+- **Changed layout.** The debug "flat" generator builds a smaller map than the
+  native world size, so the first native revisit changes the terrain input and
+  the layout (`D5505860…` became `9731EB8C…`). `P5_ASSET_RESTORE_BY_DEF matched=12/17`
+  transferred 726.08Wd of charge. `P5_ASSET_LEFTOVERS fuelUnits=223
+  shells=Shell_HighExplosive:2 granted=0`. All ten residents were restored.
+  - **Limitation:** the new layout has one mortar instead of three, so the
+    capped HE plan drops the excess archived HE. This is a loss on that path,
+    not a grant.
+- **Same layout after real combat damage.** The native revisit re-entered the
+  same layout `9731EB8CACC6F51B`. `P5_ASSET_RESTORE applied=77/77 damaged=69
+  fuel=317.7393 energy=1388.46 loadedShells=Shell_HighExplosivex1 granted=0`.
+  `P5_DESTROYED_RESTORE removed=20/20 defs=Turret_MiniTurret:3,PowerConduit:17
+  rebuilt=0`. The 8 survivors were restored (`generated=0 replaced=0`), and the
+  ledger reflects the HE and medicine used.
+
+### Off-map expiry and off-map removal
+
+- **Expiry.** `P5 advance disposable clock past stock expiry` jumps
+  32145→1834645 without simulation (declared). The unloaded settlement's native
+  stock expired, and the attack re-entry did not restock (`P5_SALE_NATIVE_ONLY
+  reason=Stock acquisition rejected: no_encounter_restock`, `offerUnits=0`), as
+  the existing epoch policy specifies. The resident and asset archive survived
+  the jump: 8 residents restored, 77/77 assets, 20 destroyed removed.
+- **Removal.** `P5 destroy archived settlement off-map` was followed at the next
+  2500-tick check by `P5_ARCHIVE_RELEASED reason=settlement_removed
+  unpinnedResidents=8`. Released residents return to native world-pawn handling,
+  and archived goods of a removed settlement are discarded.
+
+### Other profile, capture, native defeat, P4D and compatibility
+
+- **Neolithic profile.** `Use neolithic P4 stage once` + `Generate playable flat
+  P4 settlement` produced 8 residents, 960 pemmican (48 nutrition = the 3-day
+  requirement with 1.25 safety), 600 fuel wood, no power. The readiness audit
+  covers food (68.7/48) and wood (910 loaded + 600 loose / 600 required).
+  - **Six-hour combat:** `passed=True`. HerbalMedicine 4 used, urgent neglect
+    0. Four of eight residents were killed outright (never downed) by
+    gun-armed raiders. This is a balance observation for P6, not a medical
+    failure.
+  - **Changed-layout revisit is not meaningful here:** the debug stage override
+    is one-shot, so the revisit planned the faction's real IndustrialMid stage.
+    The changed-layout diagnostic then showed `Campfire:8/0/0`, i.e. no target
+    buildings. In normal play the stage is persisted per faction.
+- **Capture.** A resident made prisoner of the player through the RIMAPI faction
+  edit (declared test mutation) left P3 control at once. The native unload
+  archived only the three free residents, and the archive restore brought back
+  exactly those three (`generated=0 replaced=0`). Killed and captured residents
+  are not replaced.
+- **Native defeat.** All residents were killed (test API) with the visitor
+  attached. Vanilla's defeat check converted the site
+  (`SETTLEMENT_OWNERSHIP_ENDED parent=DestroyedSettlement`), and at the next
+  check `P5_ARCHIVE_RELEASED reason=settlement_removed`. Sale and operating goods
+  remain on the destroyed site as native loot (7991 units). No exceptions.
+- **P4D regression.** The first run caught a real defect: the new asset-restore
+  call cast a quest `Site` to `Settlement` (`PROCEDURAL_SPAWN_ABORT
+  InvalidCastException`). The transaction rolled back and the native fallback ran
+  correctly (4/4 roster). Fixed by calling the restore only with an archive.
+  After the fix, both Core contracts commit procedurally:
+  - **Rescue:** `QUEST_COMMIT strategy=core-guarded-rescue-v1 defenders=4
+    nativeOutpostSuppressed=true`, with the original prisoner in its prison,
+    native host and join flag, and no lord.
+  - **Bandit:** `QUEST_COMMIT strategy=core-bandit-v1 defenders=6`.
+
+  Log `p5-p4d-regression-20261013.log`.
+- **Compatibility.** With Geological Landforms 1.7.13.1 and Map Preview enabled,
+  the game loads (44 landforms, 0 errors), and both generation and the native
+  revisit commit. The 6 residents are restored, and the changed-layout
+  diagnostic matched generators 3/3 and batteries 3/3. The profile was restored
+  to the five-mod baseline afterwards.
+- **Changed layout, generalized.** Unmatched refuelables now return their
+  unburnt fuel as whole loose units of their own fuel item. Replay:
+  `P5_ASSET_LEFTOVERS fuel=WoodLog:224,ReinforcedBarrel:2 granted=0`.
+
+**Final validation.** Release build 0 warnings/errors; PlannerTests pass (including
+the new P5.4/P5 medical regressions); LayoutTests 134/134 in ten shards; V2 matrix
+legacy 80/80 and clusters 80/80. The disposable process is stopped, autostart is
+the immutable baseline (SHA256 `81bae97b…`), and ModsConfig is the five-mod
+baseline.
+
+**Deferred to post-release live testing (user decision 2026-10-13):** long
+horizons only.
+- **Neolithic three-day routine:** the partial run reached 60000 ticks; all eight
+  residents ate and slept in beds, with no starvation or downing samples. Log
+  `p5-neolithic-partial-routine-20261013.log`.
+- **Re-proving the early-industrial three-day routine** under the new battery and
+  medical rules.
+
+**Known limits.**
+- On a changed layout (storage demand grew, or a debug-only map/stage
+  difference), damage and destroyed state are not transferred, and archived
+  operating stock above the new layout's plan (e.g. HE for fewer mortars) is
+  lost rather than kept.
+- Asset Thing IDs regenerate.
+- Off-map time is not simulated for archived residents.
+- Expired offers do not restock on an attack re-entry, per the existing epoch
+  policy.
