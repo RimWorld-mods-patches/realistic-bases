@@ -140,7 +140,7 @@ jobs:
     # first attempt's artifact.
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: test-results-${{ matrix.os }}-${{ matrix.sdk }}
         path: TestResults/
@@ -276,7 +276,7 @@ jobs:
     # below it, so pointing at the parent of RealisticBases/ makes it the
     # artifact's root.
     - name: Upload mod artifact
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ steps.stamp.outputs.artifact }}
         path: artifacts/mod/
@@ -284,7 +284,7 @@ jobs:
         if-no-files-found: error
 
     - name: Upload release zip
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ steps.stamp.outputs.artifact }}-zip
         path: artifacts/${{ steps.stamp.outputs.zip }}
