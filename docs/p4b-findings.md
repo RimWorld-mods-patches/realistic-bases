@@ -389,3 +389,101 @@ normal saves are not touched. Evidence remains in ignored repository-local logs
 `p4e-2-east-transfer-fixed-20261002.log`.
 
 Add a defense plan derived from the immutable procedural layout and resolved runtime catalog *before* `TrySpawn` mutates the map. Its selected walls/doors/fixtures/stock and route reservations must be part of one final occupancy model, material and power ledger, digest/report, and preflight. The existing transaction owns every defense spawn so a forced failure rolls it back. P3 consumes verified posts from that final model; it must not independently infer ranged utility from wall proximity. Repair is bounded and deterministic; a rejected candidate remains zero-mutation. Natural rock may contribute to protection, but it is not a fabricated built-wall layer.
+
+## Unified posts and threat-arc cover (2026-10-13)
+
+Plan: [defense posts and cover](plans/2026-10-13-defense-posts-cover.md).
+Branch `claude/defense-posts-cover`. Pure evidence only; live checks (C5) are
+pending.
+
+**Change.**
+- **One post type.** Field-wall posts (`P4BPostAccessPlan`) and gate-side
+  posts (`P4BPerimeterPost`) used the same fixed L template. Both are now one
+  `P4BPost`: a row of 1–4 slots, reached across two exposed gate-axis cells
+  from a compound gate, a sally port or the field gate.
+- **Cover nests.** `P4BCoverNest` covers every 8-way neighbour of each slot
+  that faces an attacker sample the slot can engage (8–25 cells). A blocked
+  cover cell drops the outermost slot. A wall return stays only on a
+  threat-free flank.
+- **Capacity.** Every exposed side takes posts until its slots hold the
+  whole ranged pack (`PackSize`, from the loadout) and its useful arc is
+  met, with at most 4 posts per side. Corner slots count for every side
+  they face.
+- **Shortfalls.** A side that cannot fit the pack is logged as
+  `defense_front:side_capacity_short`; the base is not rejected.
+- **Cost.** Cover built from local construction stuff no longer charges
+  the import budget; wall returns and sally-port doors still do.
+- **Field wall.** It keeps only the field, its walls, gates, arrival route
+  and post clearance.
+
+**Fixes made during the change.**
+- New sally ports may not sit next to another door. Several ports per side
+  had produced `field_gate_not_in_wall`.
+- The turret search uses one frame per post rather than per slot. Defender
+  positions grew 2–4×, so the matrix wall time had risen to 408 s; it is
+  now 237 s, against 264 s on `main`.
+
+**Pure evidence.**
+- **Flat joint bases**, ranged pack vs. slots per exposed side:
+
+  | Residents | Pack | Slots per exposed side |
+  |---|---|---|
+  | 4 | 3 | 3–15 |
+  | 7 | 6 | 6–10 |
+  | 12 | 10 | 12–14 |
+
+- **Rock-backed west:** that side gets no posts.
+- **Beach:** the southern sea strip holds 2/6. It is reported and accepted.
+- **Gates:** LayoutTests 142/142, PlannerTests pass, V2 matrix 120/120,
+  high-industrial flat clutter 12/12, Release build clean.
+- **Examples:** `docs/p4a-examples/posts-flat-*.txt` show the nests (`@`
+  slot, `b` cover).
+
+**Not yet shown.**
+- Live spawning, save/reload and raid behaviour.
+- Realized vanilla block chance per slot
+  (`PROCEDURAL_DIRECTIONAL_COVER_AUDIT`).
+- Whether defenders take the new slots.
+- Settlements already on a map keep their stored posts.
+
+### Live checks (2026-10-13, Core + RIMAPI, disposable profile)
+
+**First flat run** (layout `C7AFBCD508C6F804`). The spawn completed, but
+`PROCEDURAL_DIRECTIONAL_COVER_AUDIT` showed real gaps:
+- **Long-range shooters.** Nest threats were limited to the defenders'
+  own 8–25 range, so samples 25–45 cells away that could still see a slot
+  hit it uncovered (for example 18/18 for one slot).
+- **Fire along a row.** A row lying parallel to a front shields its far
+  slots only with other defenders. `81,48` was uncovered from 20/20
+  southern samples.
+
+**Fixes**
+- Threat directions use every sample that can see the slot, up to the
+  45-cell probe horizon.
+- A slot counts as a position for a side only if at least 90% of that
+  side's visible shooters cross cover or wall (`P4BCoverNest.Shielded`).
+- Optional cover goes on the free gate axis beyond the route; a sally port
+  has no traffic there.
+- The cap is raised to 8 posts per side, so flat 4/7/12-resident bases
+  still hold the whole pack.
+
+After the fixes, all pure gates pass: LayoutTests 142/142, PlannerTests,
+V2 matrix 120/120 (289 s, against 264 s on `main`), flat clutter 12/12.
+
+**Rerun results**
+
+| Check | Evidence |
+|---|---|
+| Flat industrial | Layout `6251C0578500717C`: 9 posts and 29 positions on all four sides, every position reachable by at least two defenders. Nearly every position has zero uncovered samples, with mean block 55–64%. The worst are three northern slots at 4–7 of about 43 visible samples. |
+| Save/reload | Plan `A48E6349CA54A9E2` was unchanged. Ten assignments and three mortars were restored. No exceptions. |
+| One-side probe | `P4B stage field assault probe` from the west. The garrison switched to `HoldSectors sector=west`, occupied 9 posts with 0 outside bounds, and the mortars engaged (HE 87/90); the target was wounded. Every field post reported `cover=True`. The doctrine staffed slots `88–91,97` that hold the west rather than the nearest west/field posts; moving the pack to the attacked side's posts is P5B work. |
+| Tribal | Neolithic, 7 residents, layout `AF2422BA18114DC9`: 4 posts and 4–8 positions per side. Five positions had one uncovered sample each. |
+| P4D bandit | `core-bandit-v1` committed with 5 defenders and posts on all four sides. One earlier attempt fell back natively on `native_loot_stock_capacity`; posts do not use storage rooms. |
+| P4D rescue | The reset save always rolls the unsupported `[PrisonerWillingToJoin, Turrets, …]` variant, which correctly went native. The supported Outpost variant was not exercised. |
+
+| Foothill (Core) | Layout `AB7BEAD8E5DA950D`, 6 residents: 5 posts, 8 slots each facing south, north and west, all routes reachable. **No post faces the rock-backed east** (6 reachable samples). Slot audit: 0 uncovered samples except one or two on three slots. |
+| Mountainous (Core) | Layout `4483E1A8A0AD2F92`, 6 residents: 7 posts, with south 6, east 6 and west 16 slots. **No post faces the rock-backed north.** Every audited slot had `noCover=0`. No exceptions. |
+| GL smoke | GL 1.7.13.1 + Map Preview, 44 landforms. Flat `EF08966CAB5D79A3` (2 layers, 4 residents) accepted with posts facing south, east and north. A mountainous tile (26843, `Landforms: None`) **rejected cleanly** with `mutationCount=0`, `no_valid_layout_sites=10` and `field_approach_unavailable`/`no_street_route`. That code also exists on `main`. With main's DLL in the same GL setup, a flat and two mountainous tiles were accepted, one of them `GL_CoastCorner`. Tiles are drawn at random on every run, so this A/B is not like-for-like. Whether that rejection is a regression is **still open**: replaying the captured terrain offline would settle it. No exceptions. |
+
+**Not run:** the supported rescue variant. The reset save cannot roll it, and
+turret-guarded rescue is now P5B item 7.

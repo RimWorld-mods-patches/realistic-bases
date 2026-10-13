@@ -158,8 +158,7 @@ namespace RealisticBases.Planning
                     errors.Add("turret_obstructs_defender_frontage");
             }
             finalOpaque.UnionWith(guns.SelectMany(t => t.Footprint));
-            IEnumerable<GridPoint> posts = (layout.FieldWall.UsablePosts ?? new GridPoint[0])
-                .Concat(layout.ApproachDefense?.AllPosts ?? new GridPoint[0]).Distinct();
+            IEnumerable<GridPoint> posts = layout.ApproachDefense?.AllPosts ?? new GridPoint[0];
             foreach (P4BTurretPlan group in turret.Groups)
             {
                 // A projecting group must share actual reachable approach targets with another
@@ -263,8 +262,7 @@ namespace RealisticBases.Planning
                 .Concat(layout.PowerYards.SelectMany(y => y.Cells))
                 .Concat(layout.AllFixtures.SelectMany(f => f.Cells))
                 .Concat(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex])))
-                .Concat(fieldWall.Walls).Concat(fieldWall.Fields).Concat(fieldWall.ExteriorPosts)
-                .Concat(fieldWall.CoverCells));
+                .Concat(fieldWall.Walls).Concat(fieldWall.Fields).Concat(fieldWall.ExteriorPosts));
             occupied.UnionWith(layout.ApproachDefense?.CoverCells ?? new GridPoint[0]);
             occupied.UnionWith(layout.ApproachDefense?.AllPosts ?? new GridPoint[0]);
             occupied.UnionWith(layout.ExtraObstacles);
@@ -328,7 +326,7 @@ namespace RealisticBases.Planning
                     def.FuelMultiplier, (int)Math.Ceiling(def.FuelCapacity / def.FuelMultiplier)) ||
                 turret.ImportValue != ImportValue(input.Catalog, def, fuel,
                     turret.LoadedFuelUnits + turret.ReserveFuelUnits) +
-                    CoverImportValue(input, fieldWall.CoverDefName, turret.CoverCells.Count) +
+                    CoverImportValue(input, P4BCoverNest.CoverDefName(input), turret.CoverCells.Count) +
                     (turret.Support?.ImportValue ?? 0) + turret.AdditionalGroups.Sum(g => g.ImportValue))
                 errors.Add("finite_stock_or_import");
             if (turret.MinimumRange != def.MinimumRange || turret.MaximumRange != def.MaximumRange ||
@@ -416,7 +414,6 @@ namespace RealisticBases.Planning
             int baseValue = BaseMaterialValue(input, layout);
             blocked.UnionWith(previous.SelectMany(t => t.Footprint.Concat(t.CoverCells)));
             blocked.UnionWith(fieldWall.Walls);
-            blocked.UnionWith(fieldWall.CoverCells);
             blocked.UnionWith(fieldWall.ExteriorPosts);
             blocked.UnionWith(fieldWall.Fields);
             blocked.UnionWith(layout.ApproachDefense?.CoverCells ?? new GridPoint[0]);
@@ -436,12 +433,13 @@ namespace RealisticBases.Planning
             if (layout.ApproachDefense == null)
                 frames.Add(new Frame { Anchor = outer, Gate = outer, Outward = outward, Side = fieldSide });
             if (layout.ApproachDefense != null)
-                frames.AddRange(layout.ApproachDefense.Sides.Where(s => s.Exposed).SelectMany(s => s.Positions.Select(post =>
-                {
-                    P4BPerimeterPost built = layout.ApproachDefense.Posts.FirstOrDefault(p => p.Cell.Equals(post));
-                    return new Frame { Anchor = post, Gate = built?.AccessGate ?? fieldWall.OuterGate,
-                        Outward = s.Outward, Side = s.Id };
-                })));
+                // One frame per post facing a side: its slots stand side by side,
+                // so further slots would only repeat the same turret search.
+                frames.AddRange(layout.ApproachDefense.Sides.Where(s => s.Exposed).SelectMany(s =>
+                    layout.ApproachDefense.Posts.Select(p => new { Post = p, Slot = p.Slots.Cast<GridPoint?>()
+                        .FirstOrDefault(c => s.Positions.Contains(c.Value)) })
+                    .Where(x => x.Slot.HasValue).Select(x => new Frame { Anchor = x.Slot.Value,
+                        Gate = x.Post.AccessGate, Outward = s.Outward, Side = s.Id })));
             List<GridPoint> targets = ApproachTargets(input, layout).ToList();
             Dictionary<GridPoint, int> coverage = targets.ToDictionary(c => c, c => previous.Count(t =>
                 CanShoot(t, c, opaque)));
@@ -547,7 +545,7 @@ namespace RealisticBases.Planning
                                     blocked, opaque, facing, across, side);
                                 if (cover == null || previous.Any(t => t.ServiceRoute.Intersect(cover).Any()))
                                 { Reject("turret_cover"); continue; }
-                                int coverValue = CoverImportValue(input, fieldWall.CoverDefName, cover.Count);
+                                int coverValue = CoverImportValue(input, P4BCoverNest.CoverDefName(input), cover.Count);
                                 if (coverValue == int.MaxValue || baseValue + spentValue + value + coverValue >
                                     input.Requirements.ImportValueLimit) { Reject("cover_budget"); continue; }
                                 P4BTurretPlan support = null;
@@ -652,7 +650,7 @@ namespace RealisticBases.Planning
                             supportBlocked, opaque, outward, tangent, -heavySide);
                         if (cover == null || cover.Intersect(heavyRoute).Any() ||
                             previous.Any(t => t.ServiceRoute.Intersect(cover).Any())) continue;
-                        int coverValue = CoverImportValue(input, fieldWall.CoverDefName, cover.Count);
+                        int coverValue = CoverImportValue(input, P4BCoverNest.CoverDefName(input), cover.Count);
                         if (coverValue == int.MaxValue || baseValue + spentValue + heavyValue + value +
                             coverValue > input.Requirements.ImportValueLimit) continue;
                         return new P4BTurretPlan(mini, origin, footprint, service, route,
@@ -689,8 +687,7 @@ namespace RealisticBases.Planning
                 0, (int)Math.Floor(smallMaximum), smallBlockers));
             // Require useful pawn support at this actual front, not the two
             // field posts on the other side of an opaque settlement.
-            IEnumerable<GridPoint> posts = (layout.FieldWall?.UsablePosts ?? new GridPoint[0])
-                .Concat(layout.ApproachDefense?.AllPosts ?? new GridPoint[0]).Distinct();
+            IEnumerable<GridPoint> posts = layout.ApproachDefense?.AllPosts ?? new GridPoint[0];
             int pawnSupport = posts.Count(post => blind.Count(target =>
                 P4BFireLane.CanEngage(post, target, 0, 25, blockers)) >= 2);
             return smallShots >= 4 && pawnSupport >= (layout.ApproachDefense == null ? 2 : 1);
@@ -777,7 +774,7 @@ namespace RealisticBases.Planning
 
         private static IEnumerable<GridPoint> Arrival(ProceduralLayout layout) => layout.Gates.SelectMany(g => g.ExteriorRoute);
         private static IEnumerable<GridPoint> DefendedAssets(ProceduralLayout layout) =>
-            layout.FieldWall.ExteriorPosts.Concat(layout.FieldWall.CoverCells)
+            layout.FieldWall.ExteriorPosts
                 .Concat(P4BApproachDefensePlanner.AccessGates(layout))
                 .Concat(layout.ApproachDefense?.AllPosts ?? new GridPoint[0])
                 .Concat(layout.ApproachDefense?.CoverCells ?? new GridPoint[0]);
@@ -848,7 +845,7 @@ namespace RealisticBases.Planning
         }
 
         private static int BaseMaterialValue(ProceduralLayoutInput input, ProceduralLayout layout) =>
-            P4BApproachDefensePlanner.Materials(input, layout, layout.ApproachDefense?.CoverCells.Count() ?? 0).ImportValue;
+            P4BApproachDefensePlanner.Materials(input, layout).ImportValue;
 
         private static bool CanShoot(P4BTurretPlan turret, GridPoint target, HashSet<GridPoint> opaque)
         {

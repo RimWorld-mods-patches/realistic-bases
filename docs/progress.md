@@ -4,6 +4,22 @@ Updated: 2026-10-13
 
 ## Current state
 
+**2026-10-13 defense posts and cover (before P5B):**
+- **Branch:** `claude/defense-posts-cover`.
+- **Change:**
+  - Gate and field-wall posts are one type, wrapped in cover on every side
+    that faces a threat.
+  - Every exposed side can hold the whole ranged pack.
+  - The legacy layout engine was removed first (`51ade54`).
+- **Evidence (pure):** LayoutTests 142/142, PlannerTests, V2 matrix
+  120/120, flat clutter 12/12.
+- **Evidence (live):** flat (measured cover on nearly every slot),
+  save/reload, a one-side probe, tribal and the P4D bandit quest.
+- **Pending:** a Geological Landforms smoke test, the supported rescue
+  variant and a live mountain site.
+- **Details:** [plan](plans/2026-10-13-defense-posts-cover.md) and
+  [findings](p4b-findings.md#unified-posts-and-threat-arc-cover-2026-10-13).
+
 **P5 complete for the scoped contracts (2026-10-13).** Native trade→attack,
 physical sale stock, emergency allocation, rollback/overflow, NPC tending and
 the P5.4 encounter archive/restore were verified live. Revisits keep survivors,

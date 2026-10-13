@@ -3,11 +3,12 @@ legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' pub
         B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
         f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
         Y power yard (solar/wind/geothermal)  w wind clear zone  x cooler exhaust pocket (sealed, unroofed)
-        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
+        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle  " inner-yard crops
+        F field crops  @ defender slot  b cover (barricade/sandbags)  U turret
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
 roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  'O' roof cleared over an exhaust pocket  ' ' open sky
 
-digest=75C1F96AB0CAAF95 doctrine=RockProtected gates=1 wallLayers=1 court=False excavated=266 retainedRoof=266 enclosure=473
+digest=3B607F59898D5F56 doctrine=RockProtected gates=1 wallLayers=1 court=False excavated=266 retainedRoof=266 enclosure=473
   barracks-1  bounds=58,33,5x11   door=60,33   6/6 beds rock-protected
   dining      bounds=51,30,8x8    door=58,31   8/6 seats rock-protected
   jail        bounds=49,24,5x6    door=51,24   1/1 beds

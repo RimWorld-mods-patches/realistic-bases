@@ -69,6 +69,7 @@ internal static partial class Program
         Run("workbenches stand against a wall with an interior work cell", WorkbenchesAgainstWall);
         RunCoolerExhaustTests();
         RunLayoutEngineV2Tests();
+        RunCoverNestTests();
         Run("natural barriers: shallow water walks, deep water and rock block", ExposureRules);
         Run("joint sites prefer natural barriers on beach and lakeshore maps", BarrierSiting);
         Run("inner yards become crop patches without touching circulation", InnerYardCrops);
@@ -1112,9 +1113,11 @@ internal static partial class Program
         True(network.Groups.All(g => g.MinimumRange == 0 || g.Support != null), "every heavy retains close support");
         True(LayoutLoadoutModel.Build(input, result.Layout).Residents.Any(r =>
             r.Weapon?.DefName == "Gun_SniperRifle"), "turret guards have a real equipped sniper rifle");
-        True(!result.Layout.ApproachDefense.Sides.Single(s => s.Id == "south").Post.Equals(
-            result.Layout.ApproachDefense.Sides.Single(s => s.Id == "west").Post),
-            "large southern exposure gets its own post instead of borrowing a weak western flank");
+        P4BAttackSide southFront = result.Layout.ApproachDefense.Sides.Single(s => s.Id == "south");
+        int southShots = P4BApproachDefensePlanner.CoveredSamples(southFront,
+            P4BApproachDefensePlanner.Opaque(result.Layout, input.Terrain));
+        True(southShots >= P4BApproachDefensePlanner.UsefulArc(southFront.Samples.Count),
+            "large southern exposure is answered by its own positions: " + southShots + "/" + southFront.Samples.Count);
         P4BStaffingAudit staffing = P4BStaffing.Audit(input, result.Layout, network);
         Equal(network.All.Count(), staffing.GuardedGuns,
             "every selected gun is guarded by a concurrently staffed sniper post");
@@ -1373,66 +1376,15 @@ internal static partial class Program
             "accepted arrival path crosses both reserved field gates");
         True(wall.Fields.Count > input.Requirements.FieldCells,
             "realized field plants beyond minimum crop demand while preserving its lane");
-        True(wall.CoverCells.Count >= wall.ExteriorPosts.Count,
-            "each exterior post retains at least its reserved forward cover; actual=" + wall.CoverCells.Count);
         True(wall.ExteriorPosts.All(wall.Access.Contains),
-            "outside post positions belong to the defended access reservation");
-        True(wall.CoverCells.All(c => !wall.Access.Contains(c) && !wall.Fields.Contains(c)),
-            "cover stays outside the walkable access and crop cells");
-        Equal(2, wall.UsablePosts.Count(), "both flat-map posts have validated screened access");
-        GridPoint outward = result.Layout.Gates[wall.GateIndex].Outward;
-        GridPoint tangent = new GridPoint(outward.Z, outward.X);
-        foreach (int flank in new[] { -1, 1 })
-        {
-            GridPoint post = new GridPoint(wall.OuterGate.X + outward.X * 2 + tangent.X * flank * 3,
-                wall.OuterGate.Z + outward.Z * 2 + tangent.Z * flank * 3);
-            True(wall.ExteriorPosts.Contains(post), "paired field flanks retain a pawn position");
-            for (int lateral = 1; lateral <= 3; lateral++)
-            {
-                GridPoint approach = new GridPoint(wall.OuterGate.X + outward.X * 2 + tangent.X * flank * lateral,
-                    wall.OuterGate.Z + outward.Z * 2 + tangent.Z * flank * lateral);
-                True(wall.Access.Contains(approach), "gate-to-post approach remains walkable");
-                True(wall.CoverCells.Contains(new GridPoint(approach.X + outward.X,
-                    approach.Z + outward.Z)), "approach has adjacent outward cover at " + approach);
-            }
-            True(wall.CoverCells.Contains(new GridPoint(post.X + outward.X, post.Z + outward.Z)) &&
-                wall.CoverCells.Contains(new GridPoint(post.X + tangent.X * flank, post.Z + tangent.Z * flank)),
-                "post has forward and exposed-flank cover at " + post + " cover=" + wall.CoverCells.Count);
-        }
-        foreach (P4BPostAccessPlan access in wall.PostAccess)
-        {
-            True(wall.Walls.Contains(access.WallReturn), "rear return is a physical connected wall");
-            Equal(2, access.ExposedCells.Count, "open gate-axis crossing is not mislabeled as covered");
-            True(access.Route.First().Equals(wall.OuterGate) && access.Route.Last().Equals(access.Post),
-                "explicit route joins gate and post");
-        }
-        P4BPostAccessPlan firstAccess = wall.PostAccess.First();
-        P4BFieldWallPlan missingScreen = new P4BFieldWallPlan(wall.GateIndex, wall.Fields, wall.Walls,
-            wall.OuterGate, wall.ExteriorPosts, wall.InnerGate, wall.Access, wall.ArrivalRoute,
-            wall.CoverCells.Except(new[] { firstAccess.Screens.First() }), wall.CoverDefName, wall.PostAccess);
-        True(P4BFieldWallPlanner.ValidatePostAccess(terrain, missingScreen, outward,
-            Enumerable.Empty<GridPoint>()).Contains("post_screen_disconnected_or_missing"),
-            "removing an advertised screen invalidates its post");
-        True(P4BFieldWallPlanner.ValidatePostAccess(terrain, wall, outward,
-            new[] { firstAccess.Route[3] }).Contains("post_access_blocked"),
-            "final occupancy cannot obstruct an advertised route");
-        P4BFieldWallPlan omitted = P4BFieldWallPlanner.PlanJoint(input, result.Layout,
-            new[] { firstAccess.WallReturn }, out string omissionDiagnostic);
-        True(omitted != null, "optional return obstruction retains the accepted field enclosure: " + omissionDiagnostic);
-        Equal(1, omitted.UsablePosts.Count(), "obstructed flank is omitted, not advertised as protected");
-        True(omitted.PostAccess.Single(p => !p.Usable).OmissionReason.Length > 0,
-            "omission reason is retained in the plan");
-        TerrainSnapshot wetReturn = Build(160, 160, (x, z) =>
-            firstAccess.WallReturn.Equals(new GridPoint(x, z)) ? DeepWater : Ground);
-        ProceduralLayoutInput wetInput = Input(wetReturn,
-            LayoutRequirements.FromPopulation(4, Industrial, Temperate), 184,
-            new LayoutFortificationReservation(wallLayers: 1));
-        P4BFieldWallPlan wetPlan = P4BFieldWallPlanner.PlanJoint(wetInput, result.Layout,
-            Enumerable.Empty<GridPoint>(), out string wetDiagnostic);
-        True(wetPlan != null, "water under an optional return does not reject the base: " + wetDiagnostic);
-        Equal(1, wetPlan.UsablePosts.Count(), "terrain-constrained screen incompleteness is explicit");
-        Equal(0, P4BFieldWallPlanner.ValidatePostAccess(wetReturn, wetPlan, outward,
-            Enumerable.Empty<GridPoint>()).Count, "remaining advertised route is valid on constrained terrain");
+            "outside post clearance belongs to the defended access reservation");
+        P4BApproachDefensePlan fieldDefense = result.Layout.ApproachDefense;
+        True(fieldDefense.Sides.Where(side => side.Exposed).All(side => side.Positions.Count > 0),
+            "every exposed side of the joined base has covered positions");
+        True(fieldDefense.CoverCells.All(c => !wall.Fields.Contains(c) && !wall.Walls.Contains(c)),
+            "cover stays off crops and field walls");
+        True(fieldDefense.Posts.All(post => post.Route.Skip(1).All(c => !wall.Fields.Contains(c))),
+            "post access never crosses crops");
         foreach (ulong seed in new ulong[] { 185, 186, 187 })
         {
             ProceduralLayoutInput varied = Input(terrain,
@@ -1447,28 +1399,6 @@ internal static partial class Program
 
     private static void P4BApproachDefenseCases()
     {
-        var weakChoices = new[]
-        {
-            new { Name = "perpendicular-gate", Shots = 5, Fronts = 2, NeedsPort = false,
-                SameFacing = false, Cell = new GridPoint(1, 1) },
-            new { Name = "southern-sally", Shots = 38, Fronts = 1, NeedsPort = true,
-                SameFacing = true, Cell = new GridPoint(2, 2) }
-        };
-        var rankedWeak = P4BApproachDefensePlanner.RankPositions(weakChoices, 92,
-            c => c.Shots, c => c.Fronts, c => c.NeedsPort, c => c.SameFacing, c => c.Cell);
-        Equal("southern-sally", rankedWeak[0].Name,
-            "a post seeing 5/92 southern samples cannot outrank a useful same-facing sally port");
-        var usefulGateChoices = new[]
-        {
-            new { Name = "existing-gate", Shots = 49, Fronts = 2, NeedsPort = false,
-                SameFacing = false, Cell = new GridPoint(1, 1) },
-            new { Name = "extra-port", Shots = 50, Fronts = 1, NeedsPort = true,
-                SameFacing = true, Cell = new GridPoint(2, 2) }
-        };
-        var rankedUseful = P4BApproachDefensePlanner.RankPositions(usefulGateChoices, 58,
-            c => c.Shots, c => c.Fronts, c => c.NeedsPort, c => c.SameFacing, c => c.Cell);
-        Equal("existing-gate", rankedUseful[0].Name,
-            "a well-covered existing gate need not be replaced by a marginally better port");
         TerrainSnapshot terrain = Plains(160);
         ProceduralLayoutInput input = Input(terrain,
             LayoutRequirements.FromPopulation(4, Industrial, Temperate,
@@ -1481,22 +1411,34 @@ internal static partial class Program
         Equal(4, defense.Sides.Count(s => s.Exposed), "flat ground is attackable from all four faces");
         True(defense.Sides.All(s => s.Post.HasValue), "each exposed flat side has a real post: " +
             string.Join(";", defense.Sides.Select(s => s.Id + ":" + s.OmissionReason)));
-        True(defense.Posts.All(p => p.CoverCells.Count == 5 && p.Route.Count == 6 &&
-            result.Layout.BuiltWalls.Contains(p.WallReturn)),
-            "new side posts have connected returns, front/flank screens and six-cell gate access");
+        True(defense.Posts.All(p => p.Slots.Count >= 1 && p.Slots.Count <= P4BCoverNest.MaxSlots &&
+            p.Route.Count == 3 + p.Slots.Count && p.Route.Skip(3).SequenceEqual(p.Slots) && p.CoverCells.Count > 0 &&
+            (!p.WallReturn.HasValue || result.Layout.BuiltWalls.Contains(p.WallReturn.Value))),
+            "posts are slot rows reached across the gate axis, with cover and optional connected returns");
         HashSet<GridPoint> slotOpaque = P4BApproachDefensePlanner.Opaque(result.Layout, terrain);
         True(defense.Posts.Any(p => P4BApproachDefensePlanner.FiringSlots(p, defense.Sides, slotOpaque).Count > 1),
-            "the same long barricade offers multiple distinct firing cells");
-        True(defense.Posts.All(p => P4BApproachDefensePlanner.FiringSlots(p, defense.Sides, slotOpaque)
-            .All(c => p.Route.Contains(c) && p.CoverCells.Contains(new GridPoint(
-                c.X + p.Outward.X, c.Z + p.Outward.Z)))),
-            "every added firing cell is on the protected, reserved access lane");
-        P4BPerimeterPost recoverable = defense.Posts.First();
-        IReadOnlyList<GridPoint> recovered = P4BApproachDefensePlanner.RecoverLegacySlots(
-            recoverable.AccessGate, recoverable.Cell, recoverable.CoverCells);
-        Equal(2, recovered.Count, "an old saved terminal post recovers two screened route cells");
-        Equal(0, P4BApproachDefensePlanner.RecoverLegacySlots(recoverable.AccessGate,
-            new GridPoint(recoverable.Cell.X + 1, recoverable.Cell.Z), recoverable.CoverCells).Count,
+            "the same nest offers multiple distinct firing cells");
+        List<GridPoint> samples = defense.Sides.Where(s => s.Exposed).SelectMany(s => s.Samples).Distinct().ToList();
+        foreach (P4BPost nest in defense.Posts)
+        {
+            GridPoint tangent = new GridPoint(-nest.Outward.Z, nest.Outward.X);
+            int flank = Math.Sign((nest.Cell.X - nest.AccessGate.X) * tangent.X + (nest.Cell.Z - nest.AccessGate.Z) * tangent.Z);
+            HashSet<GridPoint> required = P4BCoverNest.RequiredCover(nest.AccessGate, nest.Outward, flank, nest.Slots,
+                c => samples.Where(t => P4BFireLane.CanEngage(c, t, 0, P4BCoverNest.ThreatRange, slotOpaque)), slotOpaque.Contains);
+            True(required.All(nest.CoverCells.Contains), "every threat-facing neighbour of " + nest.Cell + " is covered; missing=" +
+                string.Join(",", required.Where(c => !nest.CoverCells.Contains(c))));
+        }
+        True(defense.Pack > 0 && defense.Sides.Where(s => s.Exposed).All(s => s.Positions.Count >= defense.Pack),
+            "every exposed flat side holds the whole ranged pack of " + defense.Pack + ": " +
+            string.Join(",", defense.Sides.Select(s => s.Id + "=" + s.Positions.Count)));
+        // Old saves: a terminal post 2 out and 3 along from its gate, behind a
+        // four-cell screen, recovers its two earlier screened cells.
+        GridPoint legacyGate = new GridPoint(10, 10);
+        GridPoint[] legacyCover = { new GridPoint(9, 13), new GridPoint(8, 13), new GridPoint(7, 13),
+            new GridPoint(6, 13), new GridPoint(6, 12) };
+        Equal(2, P4BApproachDefensePlanner.RecoverLegacySlots(legacyGate, new GridPoint(7, 12), legacyCover).Count,
+            "an old saved terminal post recovers two screened route cells");
+        Equal(0, P4BApproachDefensePlanner.RecoverLegacySlots(legacyGate, new GridPoint(8, 12), legacyCover).Count,
             "unrecognized legacy geometry invents no firing positions");
         HashSet<GridPoint> publicCells = new HashSet<GridPoint>(ProceduralLayoutValidator.PublicCirculation(input, result.Layout));
         True(defense.SallyPorts.Where(p => !p.Field).All(p => publicCells.Contains(p.Inside) && !result.Layout.BuiltWalls.Contains(p.Cell) &&
@@ -1516,11 +1458,13 @@ internal static partial class Program
         True(coveredSides >= 2, "ranked flat-map turret covers approaches on more than one side; actual=" + coveredSides);
         True(!defense.Posts.Any(p => p.Route.Intersect(turret.All.SelectMany(t => t.Footprint)).Any()),
             "turrets do not consume a defender's access path");
-        P4BPerimeterPost post = defense.Posts.First();
+        P4BPost post = defense.Posts.First();
         True(P4BApproachDefensePlanner.Validate(input, result.Layout.WithAddedObstacles(new[] { post.Cell }))
             .Contains("perimeter_post_access"), "a final blocked side position cannot pass validation");
-        True(P4BApproachDefensePlanner.Validate(input, result.Layout.WithAddedObstacles(new[] { post.WallReturn }))
-            .Contains("perimeter_post_return"), "a blocked connected return cannot pass validation");
+        P4BPost returned = defense.Posts.FirstOrDefault(p => p.WallReturn.HasValue);
+        if (returned != null)
+            True(P4BApproachDefensePlanner.Validate(input, result.Layout.WithAddedObstacles(new[] { returned.WallReturn.Value }))
+                .Contains("perimeter_post_return"), "a blocked connected return cannot pass validation");
         if (defense.SallyPorts.Count > 0)
             True(P4BApproachDefensePlanner.Validate(input,
                 result.Layout.WithAddedObstacles(new[] { defense.SallyPorts[0].Inside }))
@@ -1542,10 +1486,10 @@ internal static partial class Program
         P4BApproachDefensePlan corner = P4BApproachDefensePlanner.Plan(input, northPrivate);
         P4BAttackSide north = corner.Sides.Single(s => s.Id == "north");
         True(north.Post.HasValue, "a north front without a north-facing public entrance still gets a gate-side corner position");
-        P4BPerimeterPost northPost = corner.Posts.Single(p => p.Cell.Equals(north.Post.Value));
-        True(!northPost.Outward.Equals(north.Outward) && northPost.Route.Count == 6 &&
-            northPost.CoverCells.Contains(new GridPoint(northPost.Cell.X, northPost.Cell.Z + 1)),
-            "perpendicular gate access retains short transit and adjacent incoming north cover");
+        P4BPost northPost = corner.Posts.First(p => p.Slots.Contains(north.Post.Value));
+        GridPoint northward = new GridPoint(north.Post.Value.X, north.Post.Value.Z + 1);
+        True(northPost.CoverCells.Contains(northward) || northPost.Slots.Contains(northward),
+            "the north position has adjacent cover (or its row continues) toward the north");
         TerrainSnapshot rock = Build(160, 160, (x, z) => x < 50 ? RockRoofed : Ground);
         ProceduralLayoutInput rockInput = Input(rock, input.Requirements, 1, new LayoutFortificationReservation(1));
         P4BApproachDefensePlan rockDefense = P4BApproachDefensePlanner.Plan(rockInput, rectangle);
@@ -1610,8 +1554,7 @@ internal static partial class Program
         GridPoint[] fieldWalls = Enumerable.Range(71, 20).SelectMany(x => new[] { new GridPoint(x, 50), new GridPoint(x, 70) })
             .Concat(Enumerable.Range(51, 19).Select(z => new GridPoint(90, z))).Where(c => !c.Equals(outerGate)).ToArray();
         P4BFieldWallPlan fieldPlan = new P4BFieldWallPlan(0, crops, fieldWalls, outerGate, new GridPoint[0],
-            new GridPoint(70, 60), sideField.Points(), Enumerable.Range(71, 23).Select(x => new GridPoint(x, 60)),
-            coverDefName: "Barricade");
+            new GridPoint(70, 60), sideField.Points(), Enumerable.Range(71, 23).Select(x => new GridPoint(x, 60)));
         ProceduralLayout fieldLayout = DefenseRectangle(input, fieldSite).WithFieldWall(input, fieldPlan)
             .WithAddedObstacles(new[] { new GridPoint(91, 60) });
         P4BApproachDefensePlan fieldDefense = P4BApproachDefensePlanner.Plan(input, fieldLayout);
