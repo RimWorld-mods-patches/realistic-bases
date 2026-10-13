@@ -125,7 +125,7 @@ namespace RealisticBases.Integration
                 " baseImportBudget=" + (populationBudget?.BaseImportValue ?? requirements.ImportValueLimit) +
                 " defenseAllowancePercent=" + (populationBudget?.DefenseAllowancePercent ?? 100) +
                 " defenseReserveWatts=" + requirements.DefenseReserveWatts +
-                " engine=" + input.Engine + " saleStacks=" + requirements.SaleStorageStacks + "+" + requirements.SalePerishableStacks +
+                " engine=" + input.Engine.Id + " saleStacks=" + requirements.SaleStorageStacks + "+" + requirements.SalePerishableStacks +
                 " retainedStacks=" + retainedOrdinary + "+" + retainedPerishable +
                 " effectiveLayers=" + input.Fortification.WallLayers + " layerFallback=" + layerFallback +
                 " layerMode=" + (requestedWallLayers == 0 ? "tech-budget-weighted" : "debug-override") +

@@ -86,14 +86,13 @@ namespace RealisticBases.Planning
         RockProtected
     }
 
-    // Room/circulation generator behind the shared ProceduralLayout contract.
-    // Clusters (layout engine v2, docs/plans/2026-10-12-layout-engine-v2.md) is
-    // the default; Legacy is the P4A street-and-branch packer, kept for explicit
-    // comparison. Append only: values persist.
-    public enum LayoutEngine
+    // Room/circulation generator behind the shared ProceduralLayout contract,
+    // injected through ProceduralLayoutInput. ClustersLayoutEngine is the
+    // default. Id enters the input digest, so it must stay stable.
+    public interface ILayoutEngine
     {
-        Legacy,
-        Clusters
+        string Id { get; }
+        ProceduralLayoutResult Plan(ProceduralLayoutInput input, bool requireJointSite);
     }
 
     // Outdoor temperature range of the tile. The snapshot carries no climate,
@@ -445,9 +444,9 @@ namespace RealisticBases.Planning
 
         public ProceduralLayoutInput(LayoutRequirements requirements, TerrainSnapshot terrain, ulong seed, TechCatalog catalog,
             LayoutFortificationReservation fortification = null, LayoutSearchBudget budget = null, LayoutLocalResources resources = null,
-            P4DQuestContract questContract = null, LayoutEngine engine = LayoutEngine.Clusters)
+            P4DQuestContract questContract = null, ILayoutEngine engine = null)
         {
-            Engine = engine;
+            Engine = engine ?? ClustersLayoutEngine.Instance;
             Requirements = requirements ?? throw new ArgumentNullException(nameof(requirements));
             QuestContract = questContract;
             if (requirements.CompactQuestCamp != (questContract != null))
@@ -461,7 +460,7 @@ namespace RealisticBases.Planning
             Digest = ComputeDigest();
         }
 
-        public LayoutEngine Engine { get; }
+        public ILayoutEngine Engine { get; }
         public LayoutRequirements Requirements { get; }
         public P4DQuestContract QuestContract { get; }
         public TerrainSnapshot Terrain { get; }
@@ -478,8 +477,7 @@ namespace RealisticBases.Planning
         {
             ulong hash = StableHash.Start;
             hash = StableHash.Add(hash, ProceduralLayoutVersions.Planner);
-            // Legacy inputs keep their historical digest; other engines are distinct inputs.
-            if (Engine != LayoutEngine.Legacy) hash = StableHash.Add(hash, "engine:" + Engine);
+            hash = StableHash.Add(hash, "engine:" + Engine.Id);
             hash = StableHash.Add(hash, Requirements.Digest);
             if (QuestContract != null) hash = StableHash.Add(hash, QuestContract.Digest);
             hash = StableHash.Add(hash, Terrain.Digest);

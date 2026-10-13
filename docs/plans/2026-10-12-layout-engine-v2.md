@@ -5,6 +5,11 @@
 clusters is the default engine. **V2.6 live checks pending.** Design agreed in
 the 2026-10-12 brainstorm.
 
+**2026-10-13:** the legacy engine and its comparison tests were removed, along
+with the `v2-legacy-*` examples. Clusters is the only engine. Engines are still
+injected through `ProceduralLayoutInput` (`ILayoutEngine`), and the default
+input digest is unchanged. Legacy mentions below are historical.
+
 ## Goal
 
 Settlements should read as player-built and stay functional, and planning

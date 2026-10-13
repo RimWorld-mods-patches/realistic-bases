@@ -702,13 +702,31 @@ namespace RealisticBases.Planning
         }
     }
 
+    // Layout engine v2 (docs/plans/2026-10-12-layout-engine-v2.md): a hallway
+    // comb with room clusters packed along it, sharing walls.
+    public sealed class ClustersLayoutEngine : ILayoutEngine
+    {
+        public static readonly ClustersLayoutEngine Instance = new ClustersLayoutEngine();
+        private ClustersLayoutEngine() { }
+        public string Id => "Clusters";
+        public ProceduralLayoutResult Plan(ProceduralLayoutInput input, bool requireJointSite) =>
+            ProceduralLayoutPlanner.PlanClusters(input, requireJointSite);
+    }
+
     public static class ProceduralLayoutPlanner
     {
-        // Layout engine v2: complete valid plans compared per site.
+        // Complete valid plans compared per site.
         public const int CandidatePoolSize = 3;
         internal static readonly GridPoint[] Cardinal = { new GridPoint(0, -1), new GridPoint(-1, 0), new GridPoint(1, 0), new GridPoint(0, 1) };
 
+        // Plans with the input's engine.
         public static ProceduralLayoutResult Plan(ProceduralLayoutInput input, bool requireJointSite = false)
+        {
+            if (input == null) throw new ArgumentNullException(nameof(input));
+            return input.Engine.Plan(input, requireJointSite);
+        }
+
+        internal static ProceduralLayoutResult PlanClusters(ProceduralLayoutInput input, bool requireJointSite)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
             string terrainDigest = input.Terrain.Digest;
@@ -887,22 +905,12 @@ namespace RealisticBases.Planning
                                 Note(diagnostics, "validate", "rejected", anchor + " " + string.Join("+", violations.Take(6)));
                                 continue;
                             }
-                            if (input.Engine == LayoutEngine.Clusters)
-                            {
-                                LayoutCandidateScore score = LayoutCandidateScore.Evaluate(input, layout, 0, Downgrades(layout));
-                                Note(diagnostics, "candidate", "valid", anchor + " " + score + " digest=" + layout.Digest);
-                                pool.Add(new PoolEntry { Score = score, Run = run, Layout = layout, Site = site, Anchor = anchor });
-                                if (pool.Count < CandidatePoolSize) continue;
-                                ProceduralLayoutResult best = finishBest();
-                                if (best != null) return best;
-                                continue;
-                            }
-                            int legacyGaps;
-                            ProceduralLayout finished = Finish(input, run, layout, site, anchor, diagnostics, out legacyGaps);
-                            if (finished == null) continue;
-                            if (input.Terrain.Digest != terrainDigest || input.Digest != inputDigest) throw new InvalidOperationException("P4A planner mutated its input.");
-                            diagnostics.Add(new LayoutDiagnostic("result", "accepted", stats + " digest=" + finished.Digest));
-                            return new ProceduralLayoutResult(finished, demand, diagnostics, stats);
+                            LayoutCandidateScore score = LayoutCandidateScore.Evaluate(input, layout, 0, Downgrades(layout));
+                            Note(diagnostics, "candidate", "valid", anchor + " " + score + " digest=" + layout.Digest);
+                            pool.Add(new PoolEntry { Score = score, Run = run, Layout = layout, Site = site, Anchor = anchor });
+                            if (pool.Count < CandidatePoolSize) continue;
+                            ProceduralLayoutResult best = finishBest();
+                            if (best != null) return best;
                         }
                     }
                     // A site with a valid candidate ends the search; farther sites are not better.
@@ -1264,7 +1272,7 @@ namespace RealisticBases.Planning
 
         public ProceduralLayout Run()
         {
-            if (!(clusters ? PlaceClusteredRooms() : PlaceLegacyRooms())) return null;
+            if (!PlaceClusteredRooms()) return null;
             if (input.Equipment.Kit.Powered)
             {
                 PlaceYards();
@@ -1304,18 +1312,6 @@ namespace RealisticBases.Planning
                 if (result != null) return result;
             }
             return null;
-        }
-
-        // P4A front half: a seeded spine, random branches and frontage packing.
-        private bool PlaceLegacyRooms()
-        {
-            if (!BuildSpine()) return false;
-            if (jointSite != null && input.Requirements.ReservePopulationCirculation && !ReserveFieldApproach()) return false;
-            int branches = LayoutSeed.Roll(seed, "branches", 3) + demand.Rooms.Count / 6;
-            for (int i = 0; i < branches; i++) AddBranch("seed-branch-" + i);
-            foreach (LayoutRoomDemand room in Order())
-                if (!PlaceWithRepairs(room)) return false;
-            return true;
         }
 
         internal ProceduralLayout FitDefenseAccess(ProceduralLayout layout)
@@ -1413,7 +1409,7 @@ namespace RealisticBases.Planning
             {
                 repairs++;
                 stats.Repairs++;
-                if (!(clusters ? AddCombBranch("repair-" + repairs, ClusterTarget(room)) : AddBranch("repair-" + repairs)))
+                if (!AddCombBranch("repair-" + repairs, ClusterTarget(room)))
                 {
                     Fail("repair_failed", "no branch for " + room.Id);
                     break;
@@ -1969,26 +1965,6 @@ namespace RealisticBases.Planning
             return false;
         }
 
-        private IEnumerable<LayoutRoomDemand> Order()
-        {
-            List<LayoutRoomDemand> remaining = demand.Rooms.Where(r => r.Kind != LayoutRoomKind.Power).ToList();
-            List<LayoutRoomDemand> result = new List<LayoutRoomDemand>();
-            HashSet<string> done = new HashSet<string>();
-            while (remaining.Count > 0)
-            {
-                LayoutRoomDemand next = remaining
-                    .OrderByDescending(r => done.Count == 0 ? 0 : demand.Relationships
-                        .Where(rel => (rel.A == r.Id && done.Contains(rel.B)) || (rel.B == r.Id && done.Contains(rel.A))).Sum(rel => rel.Weight))
-                    .ThenByDescending(r => r.MinimumBoundsArea)
-                    .ThenBy(r => LayoutSeed.Key(LayoutSeed.Sub(seed, r.Id), done.Count)).First();
-                result.Add(next);
-                done.Add(next.Id);
-                remaining.Remove(next);
-            }
-            // The power room is placed separately, after the yards (PlacePower).
-            return result;
-        }
-
         private GridPoint ToWorld(GridPoint door, GridPoint facing, int doorX, GridPoint local)
         {
             GridPoint p = new GridPoint(facing.Z, -facing.X);
@@ -2013,7 +1989,7 @@ namespace RealisticBases.Planning
             public LayoutFurnishResult Furnish;
             public List<GridPoint> Dig;
             public bool Protected;
-            // Clusters engine: wall cells reused from already placed rooms.
+            // Wall cells reused from already placed rooms.
             public List<string> SharedWith;
         }
 
@@ -2021,9 +1997,7 @@ namespace RealisticBases.Planning
         {
             Candidate best = null;
             int evaluated = 0;
-            List<GridPoint> frontage = clusters ? ClusterFrontage(room) : segments.SelectMany(s => s.Cells).Distinct()
-                .OrderBy(c => LayoutSeed.Key(LayoutSeed.Sub(seed, room.Id), c.X, c.Z, repairs)).ToList();
-            foreach (GridPoint street in frontage)
+            foreach (GridPoint street in ClusterFrontage(room))
             {
                 foreach (GridPoint facing in ProceduralLayoutPlanner.Cardinal)
                 {
@@ -2057,7 +2031,7 @@ namespace RealisticBases.Planning
             GridPoint b = ToWorld(door, facing, doorX, new GridPoint(w + 1, h + 1));
             GridRect bounds = new GridRect(Math.Min(a.X, b.X), Math.Min(a.Z, b.Z), Math.Abs(a.X - b.X) + 1, Math.Abs(a.Z - b.Z) + 1);
             List<GridPoint> dig = new List<GridPoint>();
-            List<string> sharedWith = clusters ? new List<string>() : null;
+            List<string> sharedWith = new List<string>();
             int protectedCells = 0;
             for (int z = bounds.MinZ; z <= bounds.MaxZ; z++)
                 for (int x = bounds.MinX; x <= bounds.MaxX; x++)
@@ -2136,16 +2110,11 @@ namespace RealisticBases.Planning
                 int distance = Manhattan(outside, partner.DoorOutside);
                 score += rel.Kind == LayoutRelationKind.Near ? rel.Weight * distance : -rel.Weight * Math.Min(distance, 20);
             }
-            GridPoint center = new GridPoint(bounds.MinX + bounds.Width / 2, bounds.MinZ + bounds.Height / 2);
-            if (clusters)
-            {
-                double? clustered = ClusterScore(room, bounds, door, sharedWith, furnish);
-                if (!clustered.HasValue) return null;
-                score += clustered.Value;
-            }
-            else score += 0.5 * Manhattan(center, anchor);
+            double? clustered = ClusterScore(room, bounds, door, sharedWith, furnish);
+            if (!clustered.HasValue) return null;
+            score += clustered.Value;
             if (doctrine == LayoutDoctrine.RockProtected) score += dig.Count - 4.0 * protectedCells;
-            score += (int)(LayoutSeed.Key(seed, door.X * 7 + facing.X, door.Z * 7 + facing.Z, w * 16 + h) % (clusters ? 3UL : 7UL));
+            score += (int)(LayoutSeed.Key(seed, door.X * 7 + facing.X, door.Z * 7 + facing.Z, w * 16 + h) % 3UL);
             return new Candidate { Score = score, Bounds = bounds, Door = door, Facing = facing, DoorX = doorX, Width = w,
                 Furnish = furnish, Dig = dig, Protected = thick, SharedWith = sharedWith };
         }
@@ -2178,7 +2147,7 @@ namespace RealisticBases.Planning
             foreach (LayoutFixture cooler in fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind))) ClaimExhaust(cooler, room.Id);
             rooms.Add(placedRoom);
             placed[room.Id] = placedRoom;
-            if (clusters) RecordClusterRoom(placedRoom, c.SharedWith);
+            RecordClusterRoom(placedRoom, c.SharedWith);
         }
 
         // Local wall cells (never corners or the door cell's neighbours are filtered by
