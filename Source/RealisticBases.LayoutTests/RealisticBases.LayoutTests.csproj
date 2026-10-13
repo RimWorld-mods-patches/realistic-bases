@@ -40,6 +40,7 @@
     <Compile Include="../RealisticBases/Planning/P4GeometryEncounter.cs" Link="Planning/P4GeometryEncounter.cs" />
     <Compile Include="../RealisticBases/Planning/P4BFinalPathAuditScope.cs" Link="Planning/P4BFinalPathAuditScope.cs" />
     <Compile Include="../RealisticBases/Planning/P4BApproachDefense.cs" Link="Planning/P4BApproachDefense.cs" />
+    <Compile Include="../RealisticBases/Planning/P4BCoverNest.cs" Link="Planning/P4BCoverNest.cs" />
     <Compile Include="../RealisticBases/Planning/P4BAccessFrontage.cs" Link="Planning/P4BAccessFrontage.cs" />
     <Compile Include="../RealisticBases/Planning/P4CFinishes.cs" Link="Planning/P4CFinishes.cs" />
     <Compile Include="../RealisticBases/Planning/P4BFieldWall.cs" Link="Planning/P4BFieldWall.cs" />

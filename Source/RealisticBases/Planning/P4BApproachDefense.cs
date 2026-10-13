@@ -33,28 +33,6 @@ namespace RealisticBases.Planning
             new ReadOnlyCollection<GridPoint>(cells.Distinct().OrderBy(c => c).ToList());
     }
 
-    public sealed class P4BPerimeterPost
-    {
-        internal P4BPerimeterPost(string side, GridPoint outward, GridPoint face, GridPoint cell,
-            GridPoint gate, IEnumerable<GridPoint> route, IEnumerable<GridPoint> cover, GridPoint wallReturn)
-        {
-            Side = side; Outward = outward; Face = face; Cell = cell; AccessGate = gate;
-            Route = new ReadOnlyCollection<GridPoint>(route.ToList());
-            CoverCells = P4BAttackSide.Copy(cover);
-            WallReturn = wallReturn;
-        }
-        public string Side { get; }
-        public GridPoint Outward { get; }
-        public GridPoint Face { get; }
-        public GridPoint Cell { get; }
-        public GridPoint AccessGate { get; }
-        public GridPoint WallReturn { get; }
-        // Two gate-axis cells are exposed; the remaining lateral approach
-        // runs behind front screens. Cover is not invulnerability.
-        public IReadOnlyList<GridPoint> Route { get; }
-        public IReadOnlyList<GridPoint> CoverCells { get; }
-    }
-
     // A defense-only sally port in an ordinary one-cell built perimeter wall.
     // It is not a civilian arrival gate or a bypass through reinforced bands.
     public sealed class P4BSallyPort
@@ -76,15 +54,20 @@ namespace RealisticBases.Planning
     {
         private readonly HashSet<GridPoint> attackerReachable;
         internal P4BApproachDefensePlan(IEnumerable<GridPoint> reachable,
-            IEnumerable<P4BAttackSide> sides, IEnumerable<P4BPerimeterPost> posts,
-            IEnumerable<GridPoint> transit = null, IEnumerable<P4BSallyPort> sallyPorts = null)
+            IEnumerable<P4BAttackSide> sides, IEnumerable<P4BPost> posts,
+            IEnumerable<GridPoint> transit = null, IEnumerable<P4BSallyPort> sallyPorts = null,
+            string coverDefName = null, int pack = 0)
         {
             attackerReachable = new HashSet<GridPoint>(reachable);
             Sides = new ReadOnlyCollection<P4BAttackSide>(sides.ToList());
-            Posts = new ReadOnlyCollection<P4BPerimeterPost>(posts.ToList());
+            Posts = new ReadOnlyCollection<P4BPost>(posts.ToList());
             TransitCells = P4BAttackSide.Copy(transit ?? Enumerable.Empty<GridPoint>());
             SallyPorts = new ReadOnlyCollection<P4BSallyPort>((sallyPorts ?? Enumerable.Empty<P4BSallyPort>()).ToList());
-            ulong hash = StableHash.Add(StableHash.Start, "p4b-approach-defense-v1");
+            CoverDefName = coverDefName ?? "Barricade";
+            Pack = pack;
+            ulong hash = StableHash.Add(StableHash.Start, "p4b-approach-defense-v2");
+            hash = StableHash.Add(hash, CoverDefName);
+            hash = StableHash.Add(hash, Pack);
             foreach (P4BAttackSide side in Sides)
             {
                 hash = StableHash.Add(hash, side.Id); hash = StableHash.Add(hash, side.OmissionReason);
@@ -93,10 +76,13 @@ namespace RealisticBases.Planning
                     .Concat(side.Positions).Concat(side.Post.HasValue ? new[] { side.Post.Value } : new GridPoint[0]))
                 { hash = StableHash.Add(hash, c.X); hash = StableHash.Add(hash, c.Z); }
             }
-            foreach (P4BPerimeterPost post in Posts)
-                foreach (GridPoint c in new[] { post.Face, post.Cell, post.AccessGate, post.Outward, post.WallReturn }
-                    .Concat(post.Route).Concat(post.CoverCells))
+            foreach (P4BPost post in Posts)
+            {
+                hash = StableHash.Add(hash, post.Side);
+                foreach (GridPoint c in new[] { post.AccessGate, post.Outward, post.WallReturn ?? new GridPoint(-1, -1) }
+                    .Concat(post.Route).Concat(post.Slots).Concat(post.CoverCells))
                 { hash = StableHash.Add(hash, c.X); hash = StableHash.Add(hash, c.Z); }
+            }
             foreach (GridPoint c in TransitCells)
             { hash = StableHash.Add(hash, c.X); hash = StableHash.Add(hash, c.Z); }
             foreach (P4BSallyPort port in SallyPorts)
@@ -108,14 +94,18 @@ namespace RealisticBases.Planning
             Digest = hash.ToString("X16");
         }
         public IReadOnlyList<P4BAttackSide> Sides { get; }
-        public IReadOnlyList<P4BPerimeterPost> Posts { get; }
+        public IReadOnlyList<P4BPost> Posts { get; }
         public IReadOnlyList<GridPoint> TransitCells { get; }
         public IReadOnlyList<P4BSallyPort> SallyPorts { get; }
+        public string CoverDefName { get; }
+        // Ranged defenders the plan sizes every exposed side for.
+        public int Pack { get; }
+        public IEnumerable<GridPoint> WallReturns => Posts.Where(p => p.WallReturn.HasValue).Select(p => p.WallReturn.Value);
         public IEnumerable<GridPoint> CoverCells => Posts.SelectMany(p => p.CoverCells).Distinct();
         public IEnumerable<GridPoint> AllPosts => Sides.SelectMany(s => s.Positions).Distinct();
         public bool AttackerCanReach(GridPoint cell) => attackerReachable.Contains(cell);
         internal P4BApproachDefensePlan WithoutTransit(IEnumerable<GridPoint> blocked) =>
-            new P4BApproachDefensePlan(attackerReachable, Sides, Posts, TransitCells.Except(blocked), SallyPorts);
+            new P4BApproachDefensePlan(attackerReachable, Sides, Posts, TransitCells.Except(blocked), SallyPorts, CoverDefName, Pack);
         public string Digest { get; }
     }
 
@@ -132,12 +122,6 @@ namespace RealisticBases.Planning
         {
             internal GridPoint Cell, Outward;
             internal P4BSallyPort Port;
-        }
-        private sealed class PositionOption
-        {
-            internal P4BPerimeterPost Post;
-            internal P4BSallyPort Port;
-            internal int Shots, Fronts;
         }
 
         public static HashSet<GridPoint> Opaque(ProceduralLayout layout, TerrainSnapshot terrain = null) => new HashSet<GridPoint>(
@@ -168,8 +152,7 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> reachable = FloodEdges(input.Terrain, occupied);
             HashSet<GridPoint> perimeter = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.NaturalWalls)
                 .Concat(layout.OuterWalls).Concat(layout.Gates.SelectMany(g => g.BandWalls))
-                .Concat(layout.FieldWall == null ? Enumerable.Empty<GridPoint>() : layout.FieldWall.Walls
-                    .Except(layout.FieldWall.PostAccess.Select(p => p.WallReturn))));
+                .Concat(layout.FieldWall?.Walls ?? new GridPoint[0]));
             List<P4BAttackSide> exposed = new List<P4BAttackSide>();
             for (int direction = 0; direction < Directions.Length; direction++)
             {
@@ -226,187 +209,177 @@ namespace RealisticBases.Planning
                     previous[next] = here; queue.Enqueue(next);
                 }
             }
-            List<P4BPerimeterPost> posts = new List<P4BPerimeterPost>();
+            List<P4BPost> posts = new List<P4BPost>();
             List<P4BSallyPort> ports = new List<P4BSallyPort>();
-            HashSet<GridPoint> reserved = new HashSet<GridPoint>(layout.FieldWall?.CoverCells ?? new GridPoint[0]);
-            reserved.UnionWith(layout.FieldWall?.ExteriorPosts ?? new GridPoint[0]);
-            reserved.UnionWith(layout.JointSite?.AllPostClearance ?? new GridPoint[0]);
-            HashSet<GridPoint> arrival = new HashSet<GridPoint>(layout.Gates.SelectMany(g => g.ExteriorRoute));
+            HashSet<GridPoint> reserved = new HashSet<GridPoint>();
+            HashSet<GridPoint> arrival = new HashSet<GridPoint>(layout.Gates.SelectMany(g => g.ExteriorRoute)
+                .Concat(layout.FieldWall?.ArrivalRoute ?? new GridPoint[0]));
             HashSet<GridPoint> publicCells = new HashSet<GridPoint>(ProceduralLayoutValidator.PublicCirculation(input, layout)
                 .Except(layout.PowerYards.SelectMany(y => y.Cells)));
             Dictionary<GridPoint, GridPoint> fieldPrevious = FieldInteriorPaths(input, layout);
             HashSet<GridPoint> reinforcement = new HashSet<GridPoint>(layout.OuterWalls.Concat(
                 layout.Gates.SelectMany(g => g.BandWalls.Concat(g.BandDoors).Concat(g.OuterVestibule)))
                 .Concat(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex]))));
+            int pack = PackSize(input, layout);
+            List<GridPoint> allSamples = exposed.SelectMany(s => s.Samples).Distinct().ToList();
+            Dictionary<GridPoint, HashSet<GridPoint>> engagedCache = new Dictionary<GridPoint, HashSet<GridPoint>>();
+            Func<GridPoint, HashSet<GridPoint>> engaged = cell =>
+            {
+                if (!engagedCache.TryGetValue(cell, out HashSet<GridPoint> seen))
+                    engagedCache[cell] = seen = new HashSet<GridPoint>(allSamples.Where(t =>
+                        P4BFireLane.CanEngage(cell, t, P4BCoverNest.MinimumRange, P4BCoverNest.MaximumRange, opaque)));
+                return seen;
+            };
+            Func<P4BAttackSide, GridPoint, bool> facesSide = (side, cell) => side.Exposed &&
+                side.Faces.Any(face => Math.Abs(face.X - cell.X) + Math.Abs(face.Z - cell.Z) <= 6) &&
+                side.Samples.Count(engaged(cell).Contains) >= P4BCoverNest.MinimumShots;
+            List<GateOption> gates = layout.Gates
+                .Select(g => new GateOption { Outward = g.Outward, Cell = g.BandDoors.Concat(new[] { g.Cell })
+                    .OrderByDescending(c => c.X * g.Outward.X + c.Z * g.Outward.Z).First() }).ToList();
+            if (layout.FieldWall != null)
+                gates.Add(new GateOption { Cell = layout.FieldWall.OuterGate,
+                    Outward = layout.Gates[layout.FieldWall.GateIndex].Outward });
+            // Only one-cell built perimeter walls with a public cell
+            // immediately inside can become defense sally ports. Never
+            // cut a room, rock, gate band or reinforced wall section.
+            foreach (P4BAttackSide faceSide in exposed.Where(s => s.Exposed))
+            {
+                GridPoint across = new GridPoint(-faceSide.Outward.Z, faceSide.Outward.X);
+                List<GridPoint> portFaces = faceSide.Faces.Where(face => layout.BuiltWalls.Contains(face) &&
+                    !reinforcement.Contains(face) && Walkable(input.Terrain, face) &&
+                    input.Terrain[face].Has(TerrainTraits.Buildable) &&
+                    publicCells.Contains(At(face, faceSide.Outward, across, -1, 0)) &&
+                    reachable.Contains(At(face, faceSide.Outward, across, 1, 0))).ToList();
+                gates.AddRange(Spread(portFaces, 24).Select(face => new GateOption { Cell = face, Outward = faceSide.Outward,
+                    Port = new P4BSallyPort(face, At(face, faceSide.Outward, across, -1, 0), faceSide.Outward) }));
+                // The enclosed, unroofed field is also reachable ground.
+                // A side gate replaces an existing wall cell and connects
+                // through it without consuming a crop or roof cell.
+                List<GridPoint> fieldFaces = faceSide.Faces.Where(face =>
+                    (layout.FieldWall?.Walls.Contains(face) ?? false) &&
+                    fieldPrevious.ContainsKey(At(face, faceSide.Outward, across, -1, 0)) &&
+                    reachable.Contains(At(face, faceSide.Outward, across, 1, 0))).ToList();
+                gates.AddRange(Spread(fieldFaces, 24).Select(face =>
+                {
+                    GridPoint inside = At(face, faceSide.Outward, across, -1, 0);
+                    List<GridPoint> path = new List<GridPoint>();
+                    for (GridPoint c = inside; ; c = fieldPrevious[c])
+                    { path.Add(c); if (fieldPrevious[c].Equals(c)) break; }
+                    path.Reverse();
+                    return new GateOption { Cell = face, Outward = faceSide.Outward,
+                        Port = new P4BSallyPort(face, inside, faceSide.Outward, true, path) };
+                }));
+            }
+            List<GridPoint> doors = layout.Gates.SelectMany(g => g.BandDoors.Concat(new[] { g.Cell }))
+                .Concat(layout.FieldWall == null ? new GridPoint[0] : new[] { layout.FieldWall.OuterGate }
+                    .Concat(layout.FieldWall.InnerGate.HasValue ? new[] { layout.FieldWall.InnerGate.Value } : new GridPoint[0]))
+                .ToList();
+            string coverDef = P4BCoverNest.CoverDefName(input);
+            var nests = new Dictionary<KeyValuePair<GridPoint, int>, P4BPost>();
             List<P4BAttackSide> sides = new List<P4BAttackSide>();
             foreach (P4BAttackSide side in exposed)
             {
                 if (!side.Exposed) { sides.Add(side); continue; }
-                GridPoint? fallback = null;
-                List<GridPoint> existingPositions = (layout.FieldWall?.UsablePosts ?? new GridPoint[0]).Where(p =>
-                    side.Faces.Any(face => Math.Abs(face.X - p.X) + Math.Abs(face.Z - p.Z) <= 6) &&
-                    layout.FieldWall.CoverCells.Contains(new GridPoint(p.X + side.Outward.X, p.Z + side.Outward.Z)) &&
-                    side.Samples.Count(c => P4BFireLane.CanEngage(p, c, 8, 25, opaque)) >= 4)
-                    .OrderByDescending(p => side.Samples.Count(c => P4BFireLane.CanEngage(p, c, 8, 25, opaque)))
-                    .ThenBy(p => p).ToList();
-                GridPoint? existing = existingPositions.Cast<GridPoint?>().FirstOrDefault();
-                if (existing.HasValue)
+                Func<P4BPost, int> facing = post => post.Slots.Count(c => facesSide(side, c));
+                HashSet<GridPoint> seen = new HashSet<GridPoint>(side.Samples.Where(t =>
+                    posts.Any(p => p.Slots.Any(c => facesSide(side, c) && engaged(c).Contains(t)))));
+                int have = posts.Sum(facing);
+                P4BPost selected = posts.FirstOrDefault(p => facing(p) > 0);
+                string omission = coverDef == null ? "cover_def_unavailable" : "no_connected_short_gate_position";
+                // Every exposed side can hold the whole ranged pack (P5B moves
+                // the pack to the attacked side); posts spread along long fronts.
+                for (int added = 0; coverDef != null && added < 4 &&
+                    (have < pack || seen.Count < UsefulArc(side.Samples.Count)); added++)
                 {
-                    if (side.Samples.Count(c => existingPositions.Any(p =>
-                        P4BFireLane.CanEngage(p, c, 8, 25, opaque))) >= UsefulArc(side.Samples.Count))
+                    var ranked = new List<KeyValuePair<P4BPost, GateOption>>();
+                    foreach (GateOption gate in gates)
                     {
-                        sides.Add(new P4BAttackSide(side.Id, side.Outward, side.Faces, side.Samples, existing, null,
-                            side.OpenGroundArea));
-                        continue;
+                        // A door needs solid wall on both sides: no new port beside another door.
+                        if (gate.Port != null && doors.Concat(ports.Select(p => p.Cell)).Any(d =>
+                            Math.Abs(d.X - gate.Port.Cell.X) <= 1 && Math.Abs(d.Z - gate.Port.Cell.Z) <= 1)) continue;
+                        foreach (int flank in new[] { -1, 1 })
+                        {
+                            // Reservations only grow: an unobstructed cached nest
+                            // stays valid, and one that failed stays failed.
+                            var key = new KeyValuePair<GridPoint, int>(gate.Cell, flank);
+                            if (nests.TryGetValue(key, out P4BPost cached) && (cached == null ||
+                                !cached.Route.Skip(1).Concat(cached.CoverCells).Any(reserved.Contains) &&
+                                !(cached.WallReturn.HasValue && reserved.Contains(cached.WallReturn.Value))))
+                            {
+                                if (cached != null && facing(cached) > 0) ranked.Add(new KeyValuePair<P4BPost, GateOption>(cached, gate));
+                                continue;
+                            }
+                            P4BPost post = P4BCoverNest.Build(side.Id, gate.Cell, gate.Outward, flank, P4BCoverNest.MaxSlots,
+                                c => engaged(c), c => exposed.Any(s => facesSide(s, c)),
+                                c => navigation.Contains(c) && !reserved.Contains(c) && !occupied.Contains(c) && !arrival.Contains(c),
+                                c => !occupied.Contains(c) && !reserved.Contains(c) && !arrival.Contains(c) &&
+                                    !reinforcement.Contains(c) && Buildable(input.Terrain, c),
+                                perimeter.Contains,
+                                c => !occupied.Contains(c) && !reserved.Contains(c) && !arrival.Contains(c) &&
+                                    !reinforcement.Contains(c) && Buildable(input.Terrain, c));
+                            nests[key] = post;
+                            if (post != null && facing(post) > 0) ranked.Add(new KeyValuePair<P4BPost, GateOption>(post, gate));
+                        }
                     }
-                    fallback = existing;
-                }
-                // A dry corner shoulder can defend two faces. Reuse it only
-                // when it is physically near this face, has adjacent cover on
-                // this incoming-fire side and actually sees its approaches.
-                P4BPerimeterPost shared = posts.FirstOrDefault(p => side.Faces.Any(face =>
-                    Math.Abs(face.X - p.Cell.X) + Math.Abs(face.Z - p.Cell.Z) <= 6) &&
-                    p.CoverCells.Contains(new GridPoint(p.Cell.X + side.Outward.X, p.Cell.Z + side.Outward.Z)) &&
-                    side.Samples.Count(c => P4BFireLane.CanEngage(p.Cell, c, 8, 25, opaque)) >= 4);
-                if (shared != null)
-                {
-                    if (side.Samples.Count(c => P4BFireLane.CanEngage(shared.Cell, c, 8, 25, opaque)) >=
-                        UsefulArc(side.Samples.Count))
+                    bool accepted = false;
+                    foreach (var option in ranked
+                        .OrderByDescending(o => Math.Min(facing(o.Key), Math.Max(0, pack - have)))
+                        .ThenByDescending(o => exposed.Count(s => o.Key.Slots.Any(c => facesSide(s, c))))
+                        .ThenByDescending(o => side.Samples.Count(t => !seen.Contains(t) &&
+                            o.Key.Slots.Any(c => facesSide(side, c) && engaged(c).Contains(t))))
+                        .ThenBy(o => o.Value.Port != null ? 1 : 0).ThenBy(o => o.Key.Cell))
                     {
-                        sides.Add(new P4BAttackSide(side.Id, side.Outward, side.Faces, side.Samples, shared.Cell, null,
-                            side.OpenGroundArea));
-                        continue;
-                    }
-                    if (!fallback.HasValue) fallback = shared.Cell;
-                }
-                List<GateOption> gates = layout.Gates
-                    .Select(g => new GateOption { Outward = g.Outward, Cell = g.BandDoors.Concat(new[] { g.Cell })
-                        .OrderByDescending(c => c.X * g.Outward.X + c.Z * g.Outward.Z).First() }).ToList();
-                if (layout.FieldWall != null)
-                    gates.Add(new GateOption { Cell = layout.FieldWall.OuterGate,
-                        Outward = layout.Gates[layout.FieldWall.GateIndex].Outward });
-                // Only one-cell built perimeter walls with a public cell
-                // immediately inside can become defense sally ports. Never
-                // cut a room, rock, gate band or reinforced wall section.
-                foreach (P4BAttackSide faceSide in exposed)
-                {
-                    GridPoint across = new GridPoint(-faceSide.Outward.Z, faceSide.Outward.X);
-                    List<GridPoint> portFaces = faceSide.Faces.Where(face => layout.BuiltWalls.Contains(face) &&
-                        !ports.Any(p => p.Cell.Equals(face)) && !reinforcement.Contains(face) && Walkable(input.Terrain, face) &&
-                        input.Terrain[face].Has(TerrainTraits.Buildable) &&
-                        publicCells.Contains(At(face, faceSide.Outward, across, -1, 0)) &&
-                        reachable.Contains(At(face, faceSide.Outward, across, 1, 0))).ToList();
-                    gates.AddRange(Spread(portFaces, 24).Select(face => new GateOption { Cell = face, Outward = faceSide.Outward,
-                        Port = new P4BSallyPort(face, At(face, faceSide.Outward, across, -1, 0), faceSide.Outward) }));
-                    // The enclosed, unroofed field is also reachable ground.
-                    // A side gate replaces an existing wall cell and connects
-                    // through it without consuming a crop or roof cell.
-                    List<GridPoint> fieldFaces = faceSide.Faces.Where(face =>
-                        (layout.FieldWall?.Walls.Contains(face) ?? false) && !ports.Any(p => p.Cell.Equals(face)) &&
-                        fieldPrevious.ContainsKey(At(face, faceSide.Outward, across, -1, 0)) &&
-                        reachable.Contains(At(face, faceSide.Outward, across, 1, 0))).ToList();
-                    gates.AddRange(Spread(fieldFaces, 24).Select(face =>
-                    {
-                        GridPoint inside = At(face, faceSide.Outward, across, -1, 0);
-                        List<GridPoint> path = new List<GridPoint>();
-                        for (GridPoint c = inside; ; c = fieldPrevious[c])
-                        { path.Add(c); if (fieldPrevious[c].Equals(c)) break; }
-                        path.Reverse();
-                        return new GateOption { Cell = face, Outward = faceSide.Outward,
-                            Port = new P4BSallyPort(face, inside, faceSide.Outward, true, path) };
-                    }));
-                }
-                List<PositionOption> candidates = new List<PositionOption>();
-                foreach (GateOption gate in gates)
-                    foreach (int flank in new[] { -1, 1 })
-                    {
-                        GridPoint tangent = new GridPoint(-gate.Outward.Z, gate.Outward.X);
-                        Func<int, int, GridPoint> local = (f, l) => At(gate.Cell, gate.Outward, tangent, f, flank * l);
-                        GridPoint cell = local(2, 3), rear = local(1, 4);
-                        List<GridPoint> cover = Enumerable.Range(1, 4).Select(l => local(3, l))
-                            .Concat(new[] { local(2, 4) }).ToList();
-                        List<GridPoint> route = new[] { gate.Cell, local(1, 0), local(2, 0) }
-                            .Concat(Enumerable.Range(1, 3).Select(l => local(2, l))).ToList();
-                        // A connected rear return and front/flank screens,
-                        // not three isolated cover objects reached by a lap
-                        // around the settlement. All transit is six cells.
-                        if (!Enumerable.Range(1, 4).All(l => perimeter.Contains(local(0, l))) ||
-                            route.Skip(1).Any(c => !navigation.Contains(c) || reserved.Contains(c) || occupied.Contains(c)) ||
-                            cover.Concat(new[] { rear }).Any(c => occupied.Contains(c) || reserved.Contains(c) ||
-                                arrival.Contains(c) || reinforcement.Contains(c) || !Buildable(input.Terrain, c)) ||
-                            !Buildable(input.Terrain, cell) ||
-                            !side.Faces.Any(face => Math.Abs(face.X - cell.X) + Math.Abs(face.Z - cell.Z) <= 6) ||
-                            !cover.Contains(new GridPoint(cell.X + side.Outward.X, cell.Z + side.Outward.Z))) continue;
-                        HashSet<GridPoint> finalOpaque = new HashSet<GridPoint>(opaque) { rear };
-                        int shots = side.Samples.Count(c => P4BFireLane.CanEngage(cell, c, 8, 25, finalOpaque));
-                        if (shots < 4) continue;
-                        int fronts = exposed.Count(s => s.Exposed && s.Faces.Any(face =>
-                            Math.Abs(face.X - cell.X) + Math.Abs(face.Z - cell.Z) <= 6) &&
-                            cover.Contains(new GridPoint(cell.X + s.Outward.X, cell.Z + s.Outward.Z)) &&
-                            s.Samples.Count(c => P4BFireLane.CanEngage(cell, c, 8, 25, finalOpaque)) >= 4);
-                        candidates.Add(new PositionOption { Port = gate.Port, Shots = shots, Fronts = fronts,
-                            Post = new P4BPerimeterPost(side.Id, gate.Outward, gate.Cell, cell, gate.Cell, route, cover, rear) });
-                    }
-                P4BPerimeterPost selected = null;
-                string omission = "no_connected_short_gate_position";
-                Func<HashSet<GridPoint>, GridPoint[], HashSet<GridPoint>> seen = (blockers, extra) =>
-                    new HashSet<GridPoint>(side.Samples.Where(target => existingPositions.Concat(posts.Where(p =>
-                        side.Faces.Any(face => Math.Abs(face.X - p.Cell.X) + Math.Abs(face.Z - p.Cell.Z) <= 6) &&
-                        p.CoverCells.Contains(new GridPoint(p.Cell.X + side.Outward.X, p.Cell.Z + side.Outward.Z)))
-                        .Select(p => p.Cell)).Concat(extra).Any(p => P4BFireLane.CanEngage(p, target, 8, 25, blockers))));
-                // One corner post cannot cover a long front. Add bounded,
-                // separated projections by marginal coverage, preserving the
-                // same geometry, budget and short-access contract for each.
-                for (int addition = 0; addition < 3; addition++)
-                {
-                    HashSet<GridPoint> before = seen(opaque, new GridPoint[0]);
-                    if (before.Count >= UsefulArc(side.Samples.Count)) break;
-                    bool added = false;
-                    IEnumerable<PositionOption> ranked = addition == 0
-                        ? RankPositions(candidates, side.Samples.Count, c => c.Shots, c => c.Fronts,
-                            c => c.Port != null, c => c.Post.Outward.Equals(side.Outward), c => c.Post.Cell)
-                        : candidates.OrderByDescending(c => seen(new HashSet<GridPoint>(opaque) { c.Post.WallReturn },
-                            new[] { c.Post.Cell }).Count).ThenBy(c => c.Port != null ? 1 : 0).ThenBy(c => c.Post.Cell);
-                    foreach (PositionOption candidate in ranked)
-                    {
-                        P4BPerimeterPost post = candidate.Post;
-                        if (post.Route.Skip(1).Concat(post.CoverCells).Concat(new[] { post.WallReturn }).Any(reserved.Contains) ||
-                            (candidate.Port != null && ports.Any(p => p.Cell.Equals(candidate.Port.Cell))) ||
-                            seen(new HashSet<GridPoint>(opaque) { post.WallReturn }, new[] { post.Cell }).Count <= before.Count) continue;
-                        IEnumerable<P4BPerimeterPost> trialPosts = posts.Concat(new[] { post });
-                        IEnumerable<P4BSallyPort> trialPorts = ports.Concat(candidate.Port == null ?
-                            Enumerable.Empty<P4BSallyPort>() : new[] { candidate.Port });
-                        if (Materials(input, layout, trialPosts.Sum(p => p.CoverCells.Count), trialPosts, trialPorts).ImportValue >
-                            input.Requirements.ImportValueLimit)
-                        { omission = "cover_material_budget"; continue; }
+                        P4BPost post = option.Key;
+                        int gain = Math.Min(facing(post), Math.Max(0, pack - have));
+                        int newShots = side.Samples.Count(t => !seen.Contains(t) &&
+                            post.Slots.Any(c => facesSide(side, c) && engaged(c).Contains(t)));
+                        if (gain == 0 && newShots == 0) continue;
+                        IEnumerable<P4BPost> trialPosts = posts.Concat(new[] { post });
+                        IEnumerable<P4BSallyPort> trialPorts = ports.Concat(option.Value.Port == null ?
+                            Enumerable.Empty<P4BSallyPort>() : new[] { option.Value.Port });
+                        if (Materials(input, layout, trialPosts, trialPorts).ImportValue > input.Requirements.ImportValueLimit)
+                        { omission = "defense_material_budget"; continue; }
+                        if (post.Side != side.Id)
+                            post = new P4BPost(side.Id, post.Outward, post.AccessGate, post.Route, post.Slots, post.CoverCells, post.WallReturn);
+                        posts.Add(post);
                         if (selected == null) selected = post;
-                        posts.Add(post); reserved.UnionWith(post.CoverCells); reserved.UnionWith(post.Route.Skip(1));
-                        reserved.Add(post.WallReturn); opaque.Add(post.WallReturn);
-                        if (candidate.Port != null) ports.Add(candidate.Port);
-                        added = true; break;
+                        reserved.UnionWith(post.Route.Skip(1).Concat(post.CoverCells));
+                        if (post.WallReturn.HasValue) reserved.Add(post.WallReturn.Value);
+                        if (option.Value.Port != null) ports.Add(option.Value.Port);
+                        have += facing(post);
+                        seen.UnionWith(side.Samples.Where(t => post.Slots.Any(c => facesSide(side, c) && engaged(c).Contains(t))));
+                        accepted = true; break;
                     }
-                    if (!added) break;
+                    if (!accepted) break;
                 }
+                // The side's representative post is its slot with the most shots at it.
+                GridPoint? best = posts.SelectMany(p => p.Slots).Where(c => facesSide(side, c))
+                    .OrderByDescending(c => side.Samples.Count(engaged(c).Contains)).ThenBy(c => c)
+                    .Cast<GridPoint?>().FirstOrDefault();
                 sides.Add(new P4BAttackSide(side.Id, side.Outward, side.Faces, side.Samples,
-                    selected == null ? fallback : selected.Cell,
-                    selected == null && !fallback.HasValue ? omission : null, side.OpenGroundArea));
+                    best ?? selected?.Cell, selected == null ? omission : null, side.OpenGroundArea));
             }
-            // A side may be supported by both field flanks or a neighboring
-            // corner. Register every real, covered position with useful shots,
-            // so the garrison and gun planner use the same physical inventory.
-            var available = posts.SelectMany(p => FiringSlots(p, sides, opaque)
-                    .Select(c => new { Cell = c, Cover = p.CoverCells.AsEnumerable() }))
-                .Concat((layout.FieldWall?.UsablePosts ?? new GridPoint[0]).Select(c =>
-                    new { Cell = c, Cover = layout.FieldWall.CoverCells.AsEnumerable() })).ToList();
+            // Wall returns are opaque. Register every slot that still has
+            // useful shots, so the garrison and gun planner share one inventory.
+            opaque.UnionWith(posts.Where(p => p.WallReturn.HasValue).Select(p => p.WallReturn.Value));
             sides = sides.Select(s => new P4BAttackSide(s.Id, s.Outward, s.Faces, s.Samples, s.Post,
-                s.OmissionReason, s.OpenGroundArea, available.Where(p =>
-                    s.Faces.Any(face => Math.Abs(face.X - p.Cell.X) + Math.Abs(face.Z - p.Cell.Z) <= 6) &&
-                    p.Cover.Contains(new GridPoint(p.Cell.X + s.Outward.X, p.Cell.Z + s.Outward.Z)) &&
-                    s.Samples.Count(c => P4BFireLane.CanEngage(p.Cell, c, 8, 25, opaque)) >= 4)
-                    .Select(p => p.Cell))).ToList();
+                s.OmissionReason, s.OpenGroundArea, posts.SelectMany(p => p.Slots).Where(c => s.Exposed &&
+                    s.Faces.Any(face => Math.Abs(face.X - c.X) + Math.Abs(face.Z - c.Z) <= 6) &&
+                    s.Samples.Count(t => P4BFireLane.CanEngage(c, t, P4BCoverNest.MinimumRange,
+                        P4BCoverNest.MaximumRange, opaque)) >= P4BCoverNest.MinimumShots))).ToList();
             return new P4BApproachDefensePlan(reachable, sides, posts, previous.Keys
-                .Except(posts.Select(p => p.WallReturn)).Concat(posts.SelectMany(p => p.Route))
-                .Concat(ports.SelectMany(p => p.InteriorRoute)), ports);
+                .Except(posts.Where(p => p.WallReturn.HasValue).Select(p => p.WallReturn.Value))
+                .Concat(posts.SelectMany(p => p.Route))
+                .Concat(ports.SelectMany(p => p.InteriorRoute)), ports, coverDef, pack);
+        }
+
+        // Ranged residents of the planned loadout: the defender pack that
+        // every exposed side is sized to hold.
+        internal static int PackSize(ProceduralLayoutInput input, ProceduralLayout layout)
+        {
+            SettlementLoadout staffing = LayoutLoadoutModel.Build(input, layout);
+            return !staffing.Success ? 0 : staffing.Residents.Count(r => r.Weapon != null &&
+                input.Catalog.TryGet(r.Weapon.DefName, out CatalogDef weapon) && weapon.MaximumRange > 0);
         }
 
         private static Dictionary<GridPoint, GridPoint> FieldInteriorPaths(ProceduralLayoutInput input, ProceduralLayout layout)
@@ -434,21 +407,13 @@ namespace RealisticBases.Planning
 
         internal static int UsefulArc(int sampleCount) => Math.Max(4, (int)Math.Ceiling(sampleCount * 0.35));
 
-        // A five-cell screen protects three already-reserved, traversable
-        // standing cells. The former garrison exposed only its terminal cell,
-        // leaving funded shooters piled up at the support center.
-        public static IReadOnlyList<GridPoint> FiringSlots(P4BPerimeterPost post,
+        // Every slot of a nest that still has useful shots at a front.
+        public static IReadOnlyList<GridPoint> FiringSlots(P4BPost post,
             IEnumerable<P4BAttackSide> sides, IReadOnlyCollection<GridPoint> opaque)
         {
-            List<P4BAttackSide> fronts = (sides ?? Enumerable.Empty<P4BAttackSide>())
-                .Where(s => s.Exposed && (s.Id == post.Side || s.Positions.Contains(post.Cell))).ToList();
-            return post.Route.Skip(Math.Max(0, post.Route.Count - 3))
-                .Where(c => post.CoverCells.Contains(new GridPoint(c.X + post.Outward.X,
-                    c.Z + post.Outward.Z)) && fronts.Any(s => s.Samples.Count(target =>
-                    P4BFireLane.CanEngage(c, target, 8, 25, opaque)) >= 4))
-                .Distinct().OrderBy(c => c.Equals(post.Cell) ? 0 : 1)
-                .ThenBy(c => Math.Abs(c.X - post.Cell.X) + Math.Abs(c.Z - post.Cell.Z))
-                .ThenBy(c => c).ToList();
+            List<P4BAttackSide> fronts = (sides ?? Enumerable.Empty<P4BAttackSide>()).Where(s => s.Exposed).ToList();
+            return post.Slots.Where(c => fronts.Any(s => s.Samples.Count(target => P4BFireLane.CanEngage(c, target,
+                P4BCoverNest.MinimumRange, P4BCoverNest.MaximumRange, opaque)) >= P4BCoverNest.MinimumShots)).ToList();
         }
 
         // The old save format kept only the terminal post, access gate and
@@ -493,17 +458,17 @@ namespace RealisticBases.Planning
                     .ThenBy(c => needsPort(c) ? 1 : 0).ThenBy(cell)).ToList();
         }
 
-        public static LayoutMaterialLedger Materials(ProceduralLayoutInput input, ProceduralLayout layout, int extraCover,
-            IEnumerable<P4BPerimeterPost> posts = null, IEnumerable<P4BSallyPort> ports = null) =>
+        // Cover is built from the base's own construction stuff and adds no
+        // import; only wall returns, sally-port doors and walls are counted.
+        public static LayoutMaterialLedger Materials(ProceduralLayoutInput input, ProceduralLayout layout,
+            IEnumerable<P4BPost> posts = null, IEnumerable<P4BSallyPort> ports = null) =>
             input.Equipment.Count(layout.Rooms, layout.BuiltWalls.Except((ports ?? Enumerable.Empty<P4BSallyPort>()).Select(p => p.Cell))
-                .Concat((posts ?? Enumerable.Empty<P4BPerimeterPost>()).Select(p => p.WallReturn)).Concat(layout.OuterWalls)
-                .Concat(layout.Gates.SelectMany(g => g.BandWalls)).Concat(layout.ExhaustPocketWalls)
+                .Concat((posts ?? Enumerable.Empty<P4BPost>()).Where(p => p.WallReturn.HasValue).Select(p => p.WallReturn.Value))
+                .Concat(layout.OuterWalls).Concat(layout.Gates.SelectMany(g => g.BandWalls)).Concat(layout.ExhaustPocketWalls)
                 .Concat((layout.FieldWall?.Walls ?? new GridPoint[0]).Except(
                     (ports ?? Enumerable.Empty<P4BSallyPort>()).Select(p => p.Cell))),
                 layout.Gates.Sum(g => 1 + g.BandDoors.Count) + (layout.FieldWall == null ? 0 : 2) +
-                    (layout.ApproachDefense?.SallyPorts.Count ?? 0) + (ports?.Count() ?? 0), layout.Power,
-                Enumerable.Repeat(layout.FieldWall?.CoverDefName ?? "Barricade",
-                    (layout.FieldWall?.CoverCells.Count ?? 0) + extraCover));
+                    (layout.ApproachDefense?.SallyPorts.Count ?? 0) + (ports?.Count() ?? 0), layout.Power);
 
         public static IReadOnlyList<string> Validate(ProceduralLayoutInput input, ProceduralLayout layout)
         {
@@ -543,55 +508,52 @@ namespace RealisticBases.Planning
             if (!plan.Sides.Select(s => s.Id).SequenceEqual(Names)) errors.Add("attack_side_inventory");
             if (plan.Sides.SelectMany(s => s.Samples).Any(c => !plan.AttackerCanReach(c) || !Walkable(input.Terrain, c)))
                 errors.Add("unreachable_attack_sample");
-            foreach (P4BPerimeterPost post in plan.Posts)
+            HashSet<GridPoint> slots = new HashSet<GridPoint>();
+            HashSet<GridPoint> routes = new HashSet<GridPoint>(plan.Posts.SelectMany(p => p.Route));
+            HashSet<GridPoint> arrival = new HashSet<GridPoint>(layout.Gates.SelectMany(g => g.ExteriorRoute)
+                .Concat(layout.FieldWall?.ArrivalRoute ?? new GridPoint[0]));
+            if (!input.Catalog.TryGet(plan.CoverDefName, out CatalogDef coverDef) ||
+                !input.Catalog.IsLegal(coverDef, input.Equipment.Kit.Stage)) errors.Add("cover_def_illegal");
+            HashSet<GridPoint> firing = new HashSet<GridPoint>();
+            foreach (P4BPost post in plan.Posts)
             {
-                P4BAttackSide side = plan.Sides.FirstOrDefault(s => s.Id == post.Side);
-                if (side == null || !side.Positions.Contains(post.Cell) ||
-                    (!side.Faces.Contains(post.Face) && !AccessGates(layout).Contains(post.Face)) ||
-                    !post.CoverCells.Contains(new GridPoint(post.Cell.X + side.Outward.X, post.Cell.Z + side.Outward.Z)) ||
-                    !side.Faces.Any(face => Math.Abs(face.X - post.Cell.X) + Math.Abs(face.Z - post.Cell.Z) <= 6) ||
-                    side.Samples.Count(c => P4BFireLane.CanEngage(post.Cell, c, 8, 25, opaque)) < 4)
+                int before = firing.Count;
+                firing.UnionWith(FiringSlots(post, plan.Sides, opaque));
+                if (plan.Sides.All(s => s.Id != post.Side) || post.Slots.Count > P4BCoverNest.MaxSlots ||
+                    post.Slots.Any(c => !slots.Add(c)) || firing.Count == before)
                     errors.Add("perimeter_post_no_approach_fire");
-                if (post.Route.Count < 2 || !post.Route.First().Equals(post.AccessGate) ||
-                    !post.Route.Last().Equals(post.Cell) || !AccessGates(layout).Contains(post.AccessGate) ||
-                    post.Route.Skip(1).Any(c => occupied.Contains(c) || !Walkable(input.Terrain, c)) ||
-                    post.Route.Zip(post.Route.Skip(1), (a, b) => Math.Abs(a.X - b.X) + Math.Abs(a.Z - b.Z)).Any(d => d != 1))
-                    errors.Add("perimeter_post_access");
                 GridPoint tangent = new GridPoint(-post.Outward.Z, post.Outward.X);
                 int flank = Math.Sign((post.Cell.X - post.AccessGate.X) * tangent.X +
                     (post.Cell.Z - post.AccessGate.Z) * tangent.Z);
-                Func<int, int, GridPoint> local = (f, l) => At(post.AccessGate, post.Outward, tangent, f, flank * l);
-                List<GridPoint> expected = Enumerable.Range(1, 4).Select(l => local(3, l))
-                    .Concat(new[] { local(2, 4) }).ToList();
-                List<GridPoint> expectedRoute = new[] { post.AccessGate, local(1, 0), local(2, 0) }
-                    .Concat(Enumerable.Range(1, 3).Select(l => local(2, l))).ToList();
-                if (flank == 0 || !post.Cell.Equals(local(2, 3)) || !post.Route.SequenceEqual(expectedRoute) ||
-                    !post.Face.Equals(post.AccessGate)) errors.Add("perimeter_post_short_access_geometry");
-                if (!post.WallReturn.Equals(local(1, 4)) || !layout.BuiltWalls.Contains(post.WallReturn) ||
-                    !Enumerable.Range(1, 4).All(l => opaque.Contains(local(0, l))) || !Buildable(input.Terrain, post.WallReturn) ||
-                    layout.ExtraObstacles.Contains(post.WallReturn) ||
-                    layout.Gates.Any(g => g.ExteriorRoute.Contains(post.WallReturn))) errors.Add("perimeter_post_return");
-                if (!P4BAttackSide.Copy(expected).SequenceEqual(post.CoverCells) || post.CoverCells.Any(c =>
-                    !cover.Add(c) || occupied.Contains(c) || !Buildable(input.Terrain, c) ||
-                    plan.AllPosts.Contains(c) || post.Route.Contains(c) ||
-                    (layout.FieldWall?.CoverCells.Contains(c) ?? false) ||
-                    layout.Gates.Any(g => g.ExteriorRoute.Contains(c)))) errors.Add("perimeter_post_cover");
+                if (!Directions.Contains(post.Outward) || flank == 0 || !AccessGates(layout).Contains(post.AccessGate) ||
+                    !post.Route.SequenceEqual(P4BCoverNest.RouteFor(post.AccessGate, post.Outward, flank, post.Slots.Count)) ||
+                    !post.Route.Skip(3).SequenceEqual(post.Slots) ||
+                    post.Route.Skip(1).Any(c => occupied.Contains(c) || !Walkable(input.Terrain, c)))
+                    errors.Add("perimeter_post_access");
+                if (flank != 0 && Enumerable.Range(1, post.Slots.Count).Any(l =>
+                    !opaque.Contains(P4BCoverNest.Local(post.AccessGate, post.Outward, flank, 0, l))))
+                    errors.Add("perimeter_post_wall");
+                if (post.WallReturn.HasValue && (flank == 0 ||
+                    !post.WallReturn.Value.Equals(P4BCoverNest.Local(post.AccessGate, post.Outward, flank, 1, post.Slots.Count + 1)) ||
+                    !layout.BuiltWalls.Contains(post.WallReturn.Value) || !Buildable(input.Terrain, post.WallReturn.Value) ||
+                    layout.ExtraObstacles.Contains(post.WallReturn.Value) || arrival.Contains(post.WallReturn.Value)))
+                    errors.Add("perimeter_post_return");
+                if (post.CoverCells.Count == 0 || post.CoverCells.Any(c => !cover.Add(c) || occupied.Contains(c) ||
+                    !Buildable(input.Terrain, c) || routes.Contains(c) || arrival.Contains(c) ||
+                    !post.Slots.Any(slot => Math.Abs(slot.X - c.X) <= 1 && Math.Abs(slot.Z - c.Z) <= 1)))
+                    errors.Add("perimeter_post_cover");
             }
+            if (cover.Overlaps(slots)) errors.Add("perimeter_post_cover");
             foreach (P4BAttackSide side in plan.Sides)
             {
                 if (side.Exposed && ((!side.Post.HasValue && side.OmissionReason.Length == 0) ||
-                    (side.Post.HasValue && !plan.Posts.Any(p => p.Cell.Equals(side.Post.Value)) &&
-                    !(layout.FieldWall?.UsablePosts.Contains(side.Post.Value) ?? false))))
+                    (side.Post.HasValue && !plan.Posts.Any(p => p.Slots.Contains(side.Post.Value)))))
                     errors.Add("unreported_attack_side");
                 if (side.Post.HasValue && side.Samples.Count(c =>
                     P4BFireLane.CanEngage(side.Post.Value, c, 8, 25, opaque)) < 4)
                     errors.Add("attack_side_post_no_fire");
-                if (side.Positions.Any(p => (!plan.Posts.Any(post =>
-                    FiringSlots(post, plan.Sides, opaque).Contains(p)) &&
-                    !(layout.FieldWall?.UsablePosts.Contains(p) ?? false)) ||
+                if (side.Positions.Any(p => !firing.Contains(p) ||
                     !side.Faces.Any(face => Math.Abs(face.X - p.X) + Math.Abs(face.Z - p.Z) <= 6) ||
-                    !plan.CoverCells.Concat(layout.FieldWall?.CoverCells ?? new GridPoint[0])
-                        .Contains(new GridPoint(p.X + side.Outward.X, p.Z + side.Outward.Z)) ||
                     side.Samples.Count(c => P4BFireLane.CanEngage(p, c, 8, 25, opaque)) < 4))
                     errors.Add("attack_side_position_unverified");
             }

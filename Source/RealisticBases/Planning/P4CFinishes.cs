@@ -99,8 +99,7 @@ namespace RealisticBases.Planning
             if (input == null || layout == null || site == null) throw new ArgumentNullException();
             Dictionary<string, P4CFloorDef> defs = (available ?? Enumerable.Empty<P4CFloorDef>())
                 .ToDictionary(d => d.DefName, StringComparer.Ordinal);
-            int baseSpend = P4BApproachDefensePlanner.Materials(input, layout,
-                layout.ApproachDefense?.CoverCells.Count() ?? 0).ImportValue +
+            int baseSpend = P4BApproachDefensePlanner.Materials(input, layout).ImportValue +
                 (layout.Turret?.ImportValue ?? 0);
             // This cap limits decorative wealth even on rich sites. Existing
             // defense and facility commitments have first claim on imports.

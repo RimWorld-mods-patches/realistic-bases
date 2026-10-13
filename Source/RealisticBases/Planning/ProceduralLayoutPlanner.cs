@@ -421,9 +421,7 @@ namespace RealisticBases.Planning
             LayoutMaterialLedger materials = input.Equipment.Count(Rooms,
                 BuiltWalls.Concat(gates.SelectMany(g => g.BandWalls)).Concat(OuterWalls)
                     .Concat(ExhaustPocketWalls).Concat(fieldWall.Walls),
-                gates.Sum(g => 1 + g.BandDoors.Count) + 2 + (ApproachDefense?.SallyPorts.Count ?? 0), Power,
-                Enumerable.Repeat(fieldWall.CoverDefName, fieldWall.CoverCells.Count +
-                    (ApproachDefense?.CoverCells.Count() ?? 0)));
+                gates.Sum(g => 1 + g.BandDoors.Count) + 2 + (ApproachDefense?.SallyPorts.Count ?? 0), Power);
             return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court,
                 Enclosure, BuiltWalls, NaturalWalls, gates, Excavation, RetainedThickRoof, ConstructedRoof,
                 WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
@@ -435,11 +433,11 @@ namespace RealisticBases.Planning
         public ProceduralLayout WithApproachDefense(ProceduralLayoutInput input, P4BApproachDefensePlan defense)
         {
             if (input == null || defense == null || Turret != null) throw new ArgumentException("Defense precedes turret selection");
-            LayoutMaterialLedger materials = P4BApproachDefensePlanner.Materials(input, this, defense.CoverCells.Count(),
+            LayoutMaterialLedger materials = P4BApproachDefensePlanner.Materials(input, this,
                 defense.Posts, defense.SallyPorts);
             P4BFieldWallPlan fieldWall = FieldWall?.WithoutWalls(defense.SallyPorts.Where(p => p.Field).Select(p => p.Cell));
             return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court,
-                Enclosure, BuiltWalls.Except(defense.SallyPorts.Select(p => p.Cell)).Concat(defense.Posts.Select(p => p.WallReturn)),
+                Enclosure, BuiltWalls.Except(defense.SallyPorts.Select(p => p.Cell)).Concat(defense.WallReturns),
                 NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof,
                 WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
                 Notes.Concat(new[] { "approachDefense=" + defense.Digest }), TechStage, RolesDigest,
@@ -453,9 +451,7 @@ namespace RealisticBases.Planning
                 BuiltWalls.Concat(Gates.SelectMany(g => g.BandWalls)).Concat(OuterWalls)
                     .Concat(ExhaustPocketWalls).Concat(FieldWall.Walls),
                 Gates.Sum(g => 1 + g.BandDoors.Count) + 2 + (ApproachDefense?.SallyPorts.Count ?? 0), Power,
-                Enumerable.Repeat(FieldWall.CoverDefName, FieldWall.CoverCells.Count +
-                    (ApproachDefense?.CoverCells.Count() ?? 0))
-                    .Concat(Enumerable.Repeat(FieldWall.CoverDefName, turret.All.Sum(t => t.CoverCells.Count)))
+                Enumerable.Repeat(P4BCoverNest.CoverDefName(input), turret.All.Sum(t => t.CoverCells.Count))
                     .Concat(turret.All.Select(t => t.DefName)));
             return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court,
                 Enclosure, BuiltWalls, NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof,
@@ -1022,6 +1018,9 @@ namespace RealisticBases.Planning
                     diagnostics.Add(new LayoutDiagnostic("defense_front", covered >=
                         P4BApproachDefensePlanner.UsefulArc(side.Samples.Count) ? "useful" : "gap",
                         side.Id + " posts=" + side.Positions.Count + " samples=" + covered + "/" + side.Samples.Count));
+                    int pack = layout.ApproachDefense.Pack;
+                    diagnostics.Add(new LayoutDiagnostic("defense_front", side.Positions.Count >= pack ? "side_capacity" : "side_capacity_short",
+                        side.Id + "=" + side.Positions.Count + "/" + pack));
                 }
             }
             return layout;

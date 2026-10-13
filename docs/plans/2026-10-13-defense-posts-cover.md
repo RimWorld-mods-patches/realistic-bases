@@ -1,6 +1,8 @@
 # Plan: unified defense posts and threat-arc cover (before P5B)
 
-2026-10-13 · Status: **planned**, design agreed in the 2026-10-13 brainstorm.
+2026-10-13 · Status: **C1–C4 implemented** on branch `claude/defense-posts-cover`
+(pure evidence only); **C5 live checks pending**. Design agreed in the
+2026-10-13 brainstorm.
 Base: `main` `850beb8` (P5 and P5A merged). This checkpoint precedes P5B
 ([implementation plan](../implementation-plan.md#p5b--better-management));
 P5B's threat-state staffing reads the post inventory built here.
@@ -102,46 +104,47 @@ Expect about 3 cover cells per slot on a straight front.
 ## Steps
 
 ### C1 — Post model and CoverNest (pure)
-- [ ] Add `P4BPost` and a pure `P4BCoverNest` builder in `Planning/`.
-- [ ] Unit fixtures:
-  - [ ] straight front gets a full wraparound;
-  - [ ] corner post facing two sides;
-  - [ ] one-sided threat keeps its wall return;
-  - [ ] a blocked flank cell shrinks the nest;
-  - [ ] an anchor that cannot be covered is rejected;
-  - [ ] the route behind the slots never crosses cover.
+- [x] Add `P4BPost` and a pure `P4BCoverNest` builder in `Planning/`.
+- [x] Unit fixtures:
+  - [x] straight front gets a full wraparound;
+  - [x] corner post facing two sides;
+  - [x] one-sided threat keeps its wall return;
+  - [x] a blocked flank cell shrinks the nest;
+  - [x] an anchor that cannot be covered is rejected;
+  - [x] the route behind the slots never crosses cover.
 
 ### C2 — Unified anchors and per-side selection
-- [ ] Generate anchors from gate and sally-port positions and from
+- [x] Generate anchors from gate and sally-port positions and from
       field-wall faces.
-- [ ] Remove the fixed templates in `P4BApproachDefense` (~L320–340) and
+- [x] Remove the fixed templates in `P4BApproachDefense` (~L320–340) and
       the post and screen code in `P4BFieldWallPlanner`.
-- [ ] Per-side capacity selection loop and capacity diagnostics.
-- [ ] Local-stuff cover is free in `Materials`/`CoverImportValue`.
-- [ ] Update the validator (`P4BApproachDefensePlanner.Validate`) and
+- [x] Per-side capacity selection loop and capacity diagnostics.
+- [x] Local-stuff cover is free in `Materials`/`CoverImportValue`.
+- [x] Update the validator (`P4BApproachDefensePlanner.Validate`) and
       `ProceduralLayoutValidator` checks.
 
 ### C3 — Consumers
-- [ ] `P4BTurretPlanner`: block on the new post cells, and remove its reads
+- [x] `P4BTurretPlanner`: block on the new post cells, and remove its reads
       of `fieldWall.CoverCells` and `CoverDefName`.
-- [ ] `P4ProceduralSpawner`: spawn and audit the posts (~L385, ~L796).
-- [ ] `P3Doctrine`/`P3Garrison`: one post per slot, plus `SupportedSectors`
+- [x] `P4ProceduralSpawner`: spawn and audit the posts (~L385, ~L796).
+- [x] `P3Doctrine`/`P3Garrison`: one post per slot, plus `SupportedSectors`
       and per-slot `HasCover`.
-- [ ] `P4DQuestGeneration` (L241): cover cells from the new inventory.
-- [ ] Keep the legacy save recovery working.
+- [x] `P4DQuestGeneration` (L241): cover cells from the new inventory.
+- [x] Keep the legacy save recovery working.
 
 ### C4 — Tests and regression
-- [ ] Capacity fixtures:
-  - [ ] flat open terrain with 4/7/12 residents reaches the full pack on
+- [x] Capacity fixtures:
+  - [x] flat open terrain with 4/7/12 residents reaches the full pack on
         every exposed side;
-  - [ ] a mountain-backed unexposed side gets no posts;
-  - [ ] a cramped side comes out short but is accepted.
-- [ ] Update the existing turret, support and field-wall tests to the
+  - [x] a mountain-backed unexposed side gets no posts;
+  - [x] a cramped side comes out short but is accepted.
+- [x] Update the existing turret, support and field-wall tests to the
       shared posts.
-- [ ] Same seed gives the same digest.
-- [ ] Add `s`/`B` to the ASCII dump and refresh `docs/p4a-examples`.
-- [ ] Gates: full LayoutTests, PlannerTests, V2 matrix 80/80 on both
-      engines, high-industrial flat clutter 12/12, Release build clean.
+- [x] Same seed gives the same digest.
+- [x] Add slots (`@`) and cover (`b`) to the ASCII dump (`s`/`B` were taken);
+      `docs/p4a-examples` refreshed with `posts-*` and `v2-clusters-*` exports.
+- [x] Gates: full LayoutTests, PlannerTests, V2 matrix (now 120/120, one
+      engine), high-industrial flat clutter 12/12, Release build clean.
 
 ### C5 — Live checks (short only)
 - [ ] Core IndustrialMid flat: generation succeeds, capacity log, nest

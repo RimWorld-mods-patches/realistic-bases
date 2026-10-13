@@ -91,7 +91,6 @@ namespace RealisticBases.Generation
             HashSet<GridPoint> structures = new HashSet<GridPoint>(walls.Concat(doors).Concat(layout.AllFixtures
                 .Where(f => f.Kind != LayoutFixtureKind.Stockpile && f.Kind != LayoutFixtureKind.MortarCourt)
                 .SelectMany(f => f.Cells)).Concat(layout.PowerYards.SelectMany(y => y.Cells))
-                .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() : fieldWall.CoverCells)
                 .Concat(approachDefense?.CoverCells ?? new GridPoint[0])
                 .Concat(turretPlans.SelectMany(t => t.Footprint.Concat(t.CoverCells))));
             structures.UnionWith(layout.Courts.SelectMany(c => c.Cells));
@@ -151,14 +150,12 @@ namespace RealisticBases.Generation
             if (fieldWall != null)
                 P2Log.Message("PROCEDURAL_FIELD_WALL_PLAN", "map=" + map.uniqueID +
                     " digest=" + fieldWall.Digest + " fieldCells=" + fieldWall.Fields.Count +
-                    " wallCells=" + fieldWall.Walls.Count + " gates=2 cover=" + fieldWall.CoverCells.Count +
-                    " exteriorPosts=" + fieldWall.ExteriorPosts.Count + " usablePosts=" + fieldWall.UsablePosts.Count());
-            if (fieldWall != null)
-                foreach (P4BPostAccessPlan post in fieldWall.PostAccess)
-                    P2Log.Message("PROCEDURAL_FIELD_POST_ACCESS_PLAN", "map=" + map.uniqueID +
-                        " post=" + post.Post + " usable=" + post.Usable + " return=" + post.WallReturn +
-                        " routeCells=" + post.Route.Count + " screens=" + post.Screens.Count +
-                        " exposedCrossingCells=" + post.ExposedCells.Count + " omission=" + post.OmissionReason);
+                    " wallCells=" + fieldWall.Walls.Count + " gates=2");
+            foreach (P4BPost post in approachDefense?.Posts ?? Enumerable.Empty<P4BPost>())
+                P2Log.Message("PROCEDURAL_POST_PLAN", "map=" + map.uniqueID + " side=" + post.Side +
+                    " gate=" + post.AccessGate + " slots=" + post.Slots.Count + " cover=" + post.CoverCells.Count +
+                    " return=" + (post.WallReturn?.ToString() ?? "none") + " facing=" + string.Join(",",
+                        approachDefense.Sides.Where(s => s.Positions.Any(post.Slots.Contains)).Select(s => s.Id).ToArray()));
             if (turretPlan != null)
                 P2Log.Message("PROCEDURAL_DEFENSE_NETWORK_PLAN", "map=" + map.uniqueID +
                     " groups=" + turretPlan.Groups.Count() + " turrets=" + turretPlans.Count +
@@ -239,7 +236,6 @@ namespace RealisticBases.Generation
                         .Concat(fieldWall?.Access ?? new GridPoint[0])
                         // Low cover is passable; vanilla paths can step over a
                         // screen. This permits transit, not a protected post.
-                        .Concat(fieldWall?.CoverCells ?? new GridPoint[0])
                         .Concat(approachDefense?.CoverCells ?? new GridPoint[0])
                         .Concat(approachDefense?.TransitCells ?? new GridPoint[0])
                         .Concat(approachDefense?.Posts.SelectMany(p => p.Route) ?? new GridPoint[0])
@@ -249,7 +245,7 @@ namespace RealisticBases.Generation
                         .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() : new[] { fieldWall.OuterGate })
                         .Concat(turretPlans.SelectMany(t => t.ServiceRoute))
                         .Concat(P3DefenderRoute.TransitEnvelope(input.Terrain,
-                            (fieldWall?.Access ?? new GridPoint[0]).Concat(fieldWall?.CoverCells ?? new GridPoint[0])
+                            (fieldWall?.Access ?? new GridPoint[0])
                                 .Concat(approachDefense?.TransitCells ?? new GridPoint[0])
                                 .Concat(approachDefense?.Posts.SelectMany(p => p.Route) ?? new GridPoint[0])
                                 .Concat(turretPlans.SelectMany(t => t.ServiceRoute)),
@@ -262,16 +258,11 @@ namespace RealisticBases.Generation
                     // legacy ranged posts must not compete for their staff.
                     // Retain mortar, close gate reserves and inner fallback.
                     encounter = new EncounterPlan(layout.Digest, profile, encounter.Posts
-                        .Where(p => approachDefense == null || p.Inner || p.Mortar || p.MaximumRange <= 4).Concat(
-                        (fieldWall?.UsablePosts ?? Enumerable.Empty<GridPoint>()).Select((c, i) => new DefensivePost("field-outer-" + i,
-                            Sector(c, encounter.SupportCenter), c, sniperGuardSectors.ContainsKey(c) ? 35 : 8,
-                            sniperGuardSectors.ContainsKey(c) ? 44 : 38, true, true, true, false, false, true,
-                            approachDefense?.Sides.Where(s => s.Positions.Contains(c)).Select(s => s.Id)
-                                .Concat(sniperGuardSectors.TryGetValue(c, out HashSet<string> fieldSectors)
-                                    ? fieldSectors : Enumerable.Empty<string>()), fieldWall.InnerGate.Value)))
+                        .Where(p => approachDefense == null || p.Inner || p.Mortar || p.MaximumRange <= 4)
                         .Concat(approachDefense?.Posts.SelectMany(p =>
                             P4BApproachDefensePlanner.FiringSlots(p, approachDefense.Sides, postOpaque)
-                            .Select(c => new DefensivePost("perimeter-" + p.Side + "-" + c.X + "-" + c.Z,
+                            .Select(c => new DefensivePost((FieldAccess(layout, p.AccessGate) ? "field-outer-" : "perimeter-") +
+                                p.Side + "-" + c.X + "-" + c.Z,
                                 p.Side, c, c.Equals(p.Cell) && sniperGuardSectors.ContainsKey(p.Cell) ? 35 : 8,
                                 c.Equals(p.Cell) && sniperGuardSectors.ContainsKey(p.Cell) ? 44 : 25,
                                 true, true, true, false, false, true,
@@ -382,8 +373,8 @@ namespace RealisticBases.Generation
                 foreach (GridPoint c in doors.OrderBy(c => c)) Spawn(tx, ThingDefOf.Door, wallStuff, c, map, settlement.Faction, Rot4.North);
                 if (fieldWall != null || approachDefense != null)
                 {
-                    ThingDef coverDef = Require(fieldWall?.CoverDefName ?? "Barricade");
-                    foreach (GridPoint c in (fieldWall?.CoverCells ?? new GridPoint[0]).Concat(approachDefense?.CoverCells ?? new GridPoint[0])
+                    ThingDef coverDef = Require(approachDefense?.CoverDefName ?? P4BCoverNest.CoverDefName(input));
+                    foreach (GridPoint c in (approachDefense?.CoverCells ?? new GridPoint[0])
                         .Concat(turretPlans.SelectMany(t => t.CoverCells)).Distinct())
                         Spawn(tx, coverDef, wallStuff, c, map, settlement.Faction, Rot4.North);
                 }
@@ -605,7 +596,7 @@ namespace RealisticBases.Generation
                         !map.reachability.CanReach(ToCell(plan.AccessGate ?? fieldWall.OuterGate), ToCell(plan.ServiceCell),
                             PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)) ||
                         plan.CoverCells.Any(c => !ToCell(c).GetThingList(map)
-                            .Any(t => t.def.defName == fieldWall.CoverDefName)))
+                            .Any(t => t.def.defName == P4BCoverNest.CoverDefName(input))))
                         throw new InvalidOperationException("Turret fuel, net or service realization differs from plan");
                     P2Log.Message("PROCEDURAL_TURRET_AUDIT", "map=" + map.uniqueID +
                         " def=" + turret.def.defName + " powerNet=" + power.PowerNet.GetHashCode() +
@@ -679,10 +670,9 @@ namespace RealisticBases.Generation
                     HashSet<IntVec3> defendedCells = new HashSet<IntVec3>(encounter.DefendedCells.Select(ToCell));
                     int longestPostPath = 0;
                     int viaGatePaths = 0;
-                    foreach (GridPoint post in fieldWall.UsablePosts.Concat(approachDefense?.AllPosts ?? new GridPoint[0]).Distinct())
+                    foreach (GridPoint post in approachDefense?.AllPosts ?? new GridPoint[0])
                     {
                         GridPoint gate = encounter.Posts.FirstOrDefault(p => p.Cell.Equals(post) && p.AccessGate.HasValue)?.AccessGate ??
-                            fieldWall.PostAccess.FirstOrDefault(p => p.Post.Equals(post))?.Route.FirstOrDefault() ??
                             fieldWall.OuterGate;
                         int eligibleDefenders = 0;
                         List<string> routeDiagnostics = new List<string>();
@@ -753,9 +743,8 @@ namespace RealisticBases.Generation
                     if (wildPlantsInField != 0)
                         throw new InvalidOperationException("Established field retains wild plants: " + wildPlantsInField);
                     P2Log.Message("PROCEDURAL_FIELD_POST_PATH_AUDIT", "map=" + map.uniqueID +
-                        " posts=" + fieldWall.UsablePosts.Concat(approachDefense?.AllPosts ?? new GridPoint[0]).Distinct().Count() +
+                        " posts=" + (approachDefense?.AllPosts.Count() ?? 0) +
                         " eachReachableByAtLeast=2" +
-                        " omittedPosts=" + fieldWall.PostAccess.Count(p => !p.Usable) +
                         " exposedGateCrossingCells=2" +
                         " longestLegalPathNodes=" + longestPostPath +
                         " viaGatePaths=" + viaGatePaths +
@@ -770,36 +759,24 @@ namespace RealisticBases.Generation
                     int builtFieldWalls = fieldWall.Walls.Count(c => ToCell(c).GetEdifice(map)?.def == ThingDefOf.Wall);
                     int builtFieldGates = new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }
                         .Count(c => ToCell(c).GetEdifice(map) is Building_Door);
-                    int builtCover = fieldWall.CoverCells.Count(c => ToCell(c).GetThingList(map)
-                        .Any(t => t.def.defName == fieldWall.CoverDefName));
-                    int usablePostCount = fieldWall.UsablePosts.Count();
-                    int reachablePosts = fieldWall.UsablePosts.Count(c => map.reachability.CanReach(
-                        ToCell(layout.Gates[fieldWall.GateIndex].Inside), ToCell(c), PathEndMode.OnCell,
-                        TraverseParms.For(TraverseMode.PassDoors)));
-                    if (builtFieldWalls != fieldWall.Walls.Count || builtFieldGates != 2 ||
-                        builtCover != fieldWall.CoverCells.Count || reachablePosts != usablePostCount)
+                    if (builtFieldWalls != fieldWall.Walls.Count || builtFieldGates != 2)
                         throw new InvalidOperationException("Field enclosure realization failed: walls=" + builtFieldWalls +
-                            "/" + fieldWall.Walls.Count + " gates=" + builtFieldGates + "/2 cover=" + builtCover +
-                            "/" + fieldWall.CoverCells.Count + " reachablePosts=" + reachablePosts +
-                            "/" + usablePostCount);
+                            "/" + fieldWall.Walls.Count + " gates=" + builtFieldGates + "/2");
                     P2Log.Message("PROCEDURAL_FIELD_WALL_AUDIT", "map=" + map.uniqueID + " walls=" + builtFieldWalls +
-                        "/" + fieldWall.Walls.Count + " gates=" + builtFieldGates + "/2 cover=" + builtCover +
-                        "/" + fieldWall.CoverCells.Count + " reachablePosts=" + reachablePosts +
-                        "/" + usablePostCount);
+                        "/" + fieldWall.Walls.Count + " gates=" + builtFieldGates + "/2");
                 }
                 if (approachDefense != null)
                 {
-                    foreach (P4BPerimeterPost post in approachDefense.Posts)
+                    foreach (P4BPost post in approachDefense.Posts)
                     {
-                        if (!ToCell(post.Cell).Standable(map) ||
-                            ToCell(post.WallReturn).GetEdifice(map)?.def != ThingDefOf.Wall ||
-                            post.CoverCells.Any(c => !ToCell(c).GetThingList(map).Any(t => t.def.defName == (fieldWall?.CoverDefName ?? "Barricade"))) ||
-                            !map.reachability.CanReach(ToCell(post.AccessGate), ToCell(post.Cell), PathEndMode.OnCell,
-                                TraverseParms.For(TraverseMode.PassDoors)))
+                        if (post.Slots.Any(c => !ToCell(c).Standable(map) || !map.reachability.CanReach(ToCell(post.AccessGate),
+                                ToCell(c), PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) ||
+                            (post.WallReturn.HasValue && ToCell(post.WallReturn.Value).GetEdifice(map)?.def != ThingDefOf.Wall) ||
+                            post.CoverCells.Any(c => !ToCell(c).GetThingList(map).Any(t => t.def.defName == approachDefense.CoverDefName)))
                             throw new InvalidOperationException("Perimeter post realization failed: " + post.Side);
                         P2Log.Message("PROCEDURAL_PERIMETER_POST_AUDIT", "map=" + map.uniqueID + " side=" + post.Side +
-                            " post=" + post.Cell + " gate=" + post.AccessGate + " return=" + post.WallReturn +
-                            " cover=" + post.CoverCells.Count + " routeCells=" + post.Route.Count +
+                            " post=" + post.Cell + " gate=" + post.AccessGate + " return=" + (post.WallReturn?.ToString() ?? "none") +
+                            " slots=" + post.Slots.Count + " cover=" + post.CoverCells.Count + " routeCells=" + post.Route.Count +
                             " reachable=true exposedCrossingCells=2 routeFullyCovered=false");
                     }
                     foreach (P4BSallyPort port in approachDefense.SallyPorts)
@@ -1203,6 +1180,11 @@ namespace RealisticBases.Generation
                 field.Contains(c) ? P3PerimeterRegion.Field : P3PerimeterRegion.Compound,
                 gates.Contains(c)));
         }
+        // Posts reached through the field: its outer gate or a field sally port.
+        private static bool FieldAccess(ProceduralLayout layout, GridPoint gate) =>
+            layout.FieldWall != null && (gate.Equals(layout.FieldWall.OuterGate) ||
+                (layout.ApproachDefense?.SallyPorts.Any(p => p.Field && p.Cell.Equals(gate)) ?? false));
+
         private static string Sector(GridPoint cell, GridPoint center)
         {
             int dx = cell.X - center.X, dz = cell.Z - center.Z;

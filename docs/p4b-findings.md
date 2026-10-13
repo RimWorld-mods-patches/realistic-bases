@@ -389,3 +389,59 @@ normal saves are not touched. Evidence remains in ignored repository-local logs
 `p4e-2-east-transfer-fixed-20261002.log`.
 
 Add a defense plan derived from the immutable procedural layout and resolved runtime catalog *before* `TrySpawn` mutates the map. Its selected walls/doors/fixtures/stock and route reservations must be part of one final occupancy model, material and power ledger, digest/report, and preflight. The existing transaction owns every defense spawn so a forced failure rolls it back. P3 consumes verified posts from that final model; it must not independently infer ranged utility from wall proximity. Repair is bounded and deterministic; a rejected candidate remains zero-mutation. Natural rock may contribute to protection, but it is not a fabricated built-wall layer.
+
+## Unified posts and threat-arc cover (2026-10-13)
+
+Plan: [defense posts and cover](plans/2026-10-13-defense-posts-cover.md).
+Branch `claude/defense-posts-cover`. Pure evidence only; live checks (C5) are
+pending.
+
+**Change.**
+- **One post type.** Field-wall posts (`P4BPostAccessPlan`) and gate-side
+  posts (`P4BPerimeterPost`) used the same fixed L template. Both are now one
+  `P4BPost`: a row of 1–4 slots, reached across two exposed gate-axis cells
+  from a compound gate, a sally port or the field gate.
+- **Cover nests.** `P4BCoverNest` covers every 8-way neighbour of each slot
+  that faces an attacker sample the slot can engage (8–25 cells). A blocked
+  cover cell drops the outermost slot. A wall return stays only on a
+  threat-free flank.
+- **Capacity.** Every exposed side takes posts until its slots hold the
+  whole ranged pack (`PackSize`, from the loadout) and its useful arc is
+  met, with at most 4 posts per side. Corner slots count for every side
+  they face.
+- **Shortfalls.** A side that cannot fit the pack is logged as
+  `defense_front:side_capacity_short`; the base is not rejected.
+- **Cost.** Cover built from local construction stuff no longer charges
+  the import budget; wall returns and sally-port doors still do.
+- **Field wall.** It keeps only the field, its walls, gates, arrival route
+  and post clearance.
+
+**Fixes made during the change.**
+- New sally ports may not sit next to another door. Several ports per side
+  had produced `field_gate_not_in_wall`.
+- The turret search uses one frame per post rather than per slot. Defender
+  positions grew 2–4×, so the matrix wall time had risen to 408 s; it is
+  now 237 s, against 264 s on `main`.
+
+**Pure evidence.**
+- **Flat joint bases**, ranged pack vs. slots per exposed side:
+
+  | Residents | Pack | Slots per exposed side |
+  |---|---|---|
+  | 4 | 3 | 3–15 |
+  | 7 | 6 | 6–10 |
+  | 12 | 10 | 12–14 |
+
+- **Rock-backed west:** that side gets no posts.
+- **Beach:** the southern sea strip holds 2/6. It is reported and accepted.
+- **Gates:** LayoutTests 142/142, PlannerTests pass, V2 matrix 120/120,
+  high-industrial flat clutter 12/12, Release build clean.
+- **Examples:** `docs/p4a-examples/posts-flat-*.txt` show the nests (`@`
+  slot, `b` cover).
+
+**Not yet shown.**
+- Live spawning, save/reload and raid behaviour.
+- Realized vanilla block chance per slot
+  (`PROCEDURAL_DIRECTIONAL_COVER_AUDIT`).
+- Whether defenders take the new slots.
+- Settlements already on a map keep their stored posts.
