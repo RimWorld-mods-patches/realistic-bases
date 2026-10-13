@@ -654,7 +654,7 @@ namespace RealisticBases.Planning
             {
                 // Dispatchable-only worst case; the power room's own draw is part of the load it must cover.
                 int reserve = requirements.DefenseReserveWatts;
-                int batteries = LayoutPowerModel.Batteries(critical + reserve);
+                int batteries = LayoutPowerModel.Batteries(load + reserve);
                 // MaxSplit limits room splitting, not the number of generators
                 // one legal power room can hold. Use a physical area bound;
                 // furnishing still enforces batteries, working cells and aisles.
@@ -664,6 +664,14 @@ namespace RealisticBases.Planning
                     LayoutRoomDemand power = BuildPowerRoom(requirements, kit, generators, batteries, roomSeed);
                     if (power == null) { rejections.Add("room_demand_exceeds_legal_dimensions:Power:" + generators); break; }
                     int total = load + reserve + MaxLoad(power, requirements, kit);
+                    if (LayoutPowerModel.Batteries(total) > batteries)
+                    {
+                        // The bridge also covers the power room's own draw.
+                        batteries = LayoutPowerModel.Batteries(total);
+                        power = BuildPowerRoom(requirements, kit, generators, batteries, roomSeed);
+                        if (power == null) { rejections.Add("room_demand_exceeds_legal_dimensions:Power:" + generators); break; }
+                        total = load + reserve + MaxLoad(power, requirements, kit);
+                    }
                     if (generators * kit.GeneratorWatts < total) continue;
                     rooms.Add(power);
                     load = total;

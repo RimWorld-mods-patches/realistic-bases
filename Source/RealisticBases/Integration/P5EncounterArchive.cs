@@ -66,19 +66,57 @@ namespace RealisticBases.Integration
             P0SettlementState state = owner == null ? null : Current.Game.GetComponent<P0WorldState>()?.FindExisting(owner.ID);
             if (state == null) return;
             var assets = new List<P5AssetState>();
+            var present = new HashSet<string>();
             foreach (Building building in map.listerBuildings.allBuildingsNonColonist.Where(b => b.Faction == owner.Faction))
             {
+                present.Add(Key(building));
                 P5AssetSnapshot snapshot = Snapshot(building);
                 if (snapshot != null) assets.Add(P5AssetState.From(snapshot));
             }
             state.assetArchive = assets;
             state.assetArchiveLayout = state.proceduralLayoutDigest;
+            state.destroyedAssets = map.GetComponent<P5ReserveState>().BuiltAssets.Where(k => !present.Contains(k)).ToList();
             P0Log.Message("P5_ASSET_ARCHIVE", "map=" + map.uniqueID + " settlement=" + owner.ID +
                 " layout=" + state.assetArchiveLayout + " assets=" + assets.Count +
-                " damaged=" + assets.Count(a => a.hitPoints >= 0) +
+                " damaged=" + assets.Count(a => a.hitPoints >= 0) + " destroyed=" + state.destroyedAssets.Count +
                 " fuel=" + assets.Where(a => a.fuel >= 0).Sum(a => a.fuel).ToString("F4") +
                 " energy=" + assets.Where(a => a.storedEnergy >= 0).Sum(a => a.storedEnergy).ToString("F2") +
                 " loadedShells=" + string.Join(",", assets.Where(a => a.shellDef != null).Select(a => a.shellDef + "x" + a.shellCount)));
+        }
+
+        internal static string Key(Thing thing) => P5AssetSnapshot.KeyFor(thing.def.defName, thing.Position.x, thing.Position.z);
+
+        // The archive's destroyed buildings, when it belongs to this layout.
+        internal static HashSet<string> Destroyed(P0SettlementState state, string layoutDigest) =>
+            state == null || state.assetArchiveLayout != layoutDigest || state.destroyedAssets.Count == 0
+                ? new HashSet<string>() : new HashSet<string>(state.destroyedAssets);
+
+        // After commit, like a loss in combat: the full layout was realized and
+        // audited, then buildings missing at the last unload are removed again.
+        // Their roofs already fell then; drop newly unsupported thin roofs
+        // silently instead of collapsing them onto the residents.
+        internal static void RemoveDestroyed(Map map, Settlement settlement, IEnumerable<Thing> owned, HashSet<string> destroyed)
+        {
+            if (destroyed.Count == 0) return;
+            List<IntVec3> marked = map.roofCollapseBuffer.CellsMarkedToCollapse;
+            var queued = new HashSet<IntVec3>(marked);
+            var removed = new List<string>();
+            foreach (Building building in owned.OfType<Building>().Where(b => b.Spawned && b.Faction == settlement.Faction &&
+                destroyed.Contains(Key(b))).ToList())
+            {
+                removed.Add(Key(building));
+                building.Destroy(DestroyMode.Vanish);
+            }
+            int roofs = 0;
+            foreach (IntVec3 cell in marked.Where(c => !queued.Contains(c)).ToList())
+            {
+                marked.Remove(cell);
+                if (map.roofGrid.RoofAt(cell)?.isThickRoof == false) { map.roofGrid.SetRoof(cell, null); roofs++; }
+            }
+            P0Log.Message("P5_DESTROYED_RESTORE", "map=" + map.uniqueID + " settlement=" + settlement.ID +
+                " removed=" + removed.Count + "/" + destroyed.Count + " roofsAlreadyFallen=" + roofs +
+                " defs=" + string.Join(",", removed.Select(k => k.Split('@')[0]).GroupBy(d => d).Select(g => g.Key + ":" + g.Count())) +
+                " rebuilt=0");
         }
 
         private static P5AssetSnapshot Snapshot(Building building)
@@ -92,24 +130,51 @@ namespace RealisticBases.Integration
                 refuelable?.Fuel ?? -1, battery?.StoredEnergy ?? -1, shell?.LoadedShell?.defName, shell?.loadedCount ?? 0);
         }
 
-        // The archive applies only to the layout it was recorded for.
-        internal static Dictionary<string, P5AssetSnapshot> Assets(P0SettlementState state, string layoutDigest)
+        // Archived state paired with the regenerated buildings: exact on the
+        // same layout, by definition (consumables only) on a changed one.
+        internal static Dictionary<Thing, P5AssetSnapshot> PlanAssets(P0SettlementState state, string layoutDigest,
+            IEnumerable<Thing> owned, Faction faction, out bool exact, out List<P5AssetSnapshot> unmatched)
         {
-            if (state == null || state.assetArchive.Count == 0 && state.assetArchiveLayout == null) return null;
-            if (state.assetArchiveLayout != layoutDigest)
-            {
-                P0Log.Message("P5_ASSET_RESTORE_SKIPPED", "settlement=" + state.settlementId +
-                    " archivedLayout=" + state.assetArchiveLayout + " layout=" + layoutDigest);
-                return null;
-            }
-            return state.assetArchive.Select(a => a.Snapshot()).GroupBy(a => a.Key).ToDictionary(g => g.Key, g => g.First());
+            exact = state != null && state.assetArchiveLayout == layoutDigest;
+            unmatched = new List<P5AssetSnapshot>();
+            if (state == null || state.assetArchive.Count == 0) return null;
+            var buildings = owned.OfType<Building>().Where(b => b.Spawned && b.Faction == faction)
+                .GroupBy(Key).ToDictionary(g => g.Key, g => (Thing)g.First());
+            var matches = P5AssetSnapshot.Match(state.assetArchive.Select(a => a.Snapshot()), buildings.Keys, exact);
+            var plan = matches.ToDictionary(p => buildings[p.Key], p => p.Value);
+            var used = new HashSet<string>(matches.Select(p => p.Value.Key));
+            unmatched = state.assetArchive.Select(a => a.Snapshot()).Where(a => !used.Contains(a.Key)).ToList();
+            if (!exact)
+                P0Log.Message("P5_ASSET_RESTORE_BY_DEF", "settlement=" + state.settlementId + " archivedLayout=" +
+                    state.assetArchiveLayout + " layout=" + layoutDigest + " matched=" + plan.Count + "/" + state.assetArchive.Count +
+                    " damageAndDestroyedNotTransferable=True");
+            return plan;
         }
 
-        internal static P5AssetSnapshot For(Dictionary<string, P5AssetSnapshot> assets, Thing thing)
+        // Physical goods held by archived buildings that did not come back:
+        // loaded shells return as loose shells, generator tanks as fuel units.
+        internal static int LeftoverFuelUnits(IEnumerable<P5AssetSnapshot> unmatched, string fuelDef)
         {
-            if (assets == null) return null;
-            return assets.TryGetValue(P5AssetSnapshot.KeyFor(thing.def.defName, thing.Position.x, thing.Position.z), out var s) ? s : null;
+            ThingDef fuel = DefDatabase<ThingDef>.GetNamedSilentFail(fuelDef ?? string.Empty);
+            if (fuel == null) return 0;
+            double units = 0;
+            foreach (P5AssetSnapshot s in unmatched.Where(s => s.Fuel > 0))
+            {
+                ThingDef def = DefDatabase<ThingDef>.GetNamedSilentFail(s.DefName);
+                var props = def?.GetCompProperties<CompProperties_Refuelable>();
+                if (props == null || def.GetCompProperties<CompProperties_Power>() == null || !props.fuelFilter.Allows(fuel)) continue;
+                units += s.Fuel / Math.Max(0.0001f, props.FuelMultiplierCurrentDifficulty);
+            }
+            return (int)Math.Floor(units + 1e-6);
         }
+
+        internal static IEnumerable<KeyValuePair<ThingDef, int>> LeftoverShells(IEnumerable<P5AssetSnapshot> unmatched) =>
+            unmatched.Where(s => s.ShellDef != null && s.ShellCount > 0).GroupBy(s => s.ShellDef)
+                .Select(g => new KeyValuePair<ThingDef, int>(DefDatabase<ThingDef>.GetNamedSilentFail(g.Key), g.Sum(s => s.ShellCount)))
+                .Where(p => p.Key != null);
+
+        internal static P5AssetSnapshot For(Dictionary<Thing, P5AssetSnapshot> plan, Thing thing) =>
+            plan != null && plan.TryGetValue(thing, out var s) ? s : null;
 
         internal static void SetFuel(CompRefuelable refuelable, float amount)
         {
@@ -117,18 +182,16 @@ namespace RealisticBases.Integration
             refuelable.parent.BroadcastCompSignal("Refueled");
         }
 
-        internal static void ApplyAssets(Map map, Settlement settlement, IEnumerable<Thing> owned, Dictionary<string, P5AssetSnapshot> assets)
+        internal static void ApplyAssets(Map map, Settlement settlement, Dictionary<Thing, P5AssetSnapshot> assets)
         {
             if (assets == null) return;
             int applied = 0, damaged = 0;
             float fuel = 0, energy = 0;
             var shells = new List<string>();
-            var matched = new HashSet<string>();
-            foreach (Building building in owned.OfType<Building>().Where(b => b.Spawned && b.Faction == settlement.Faction))
+            foreach (var pair in assets)
             {
-                P5AssetSnapshot s = For(assets, building);
-                if (s == null) continue;
-                matched.Add(s.Key);
+                if (!(pair.Key is Building building) || !building.Spawned) continue;
+                P5AssetSnapshot s = pair.Value;
                 applied++;
                 if (s.HitPoints >= 0 && building.def.useHitPoints)
                 {
@@ -156,9 +219,36 @@ namespace RealisticBases.Integration
                 }
             }
             P0Log.Message("P5_ASSET_RESTORE", "map=" + map.uniqueID + " settlement=" + settlement.ID +
-                " applied=" + applied + "/" + assets.Count + " unmatched=" + (assets.Count - matched.Count) +
+                " applied=" + applied + "/" + assets.Count +
                 " damaged=" + damaged + " fuel=" + fuel.ToString("F4") + " energy=" + energy.ToString("F2") +
                 " loadedShells=" + (shells.Count == 0 ? "none" : string.Join(",", shells)) + " granted=0");
+        }
+
+        // A settlement removed while off-map (native defeat, quest or faction
+        // loss) no longer owns its archive: unpin the residents for native
+        // world-pawn handling and discard the asset state and archived goods.
+        internal static void ReleaseOrphaned(IEnumerable<P0SettlementState> states)
+        {
+            foreach (P0SettlementState state in states.Where(s => s.residentArchiveTick >= 0 || s.assetArchive.Count > 0 ||
+                s.allocatedReserves.Count > 0))
+            {
+                Settlement settlement = Find.WorldObjects.Settlements.FirstOrDefault(s => s.ID == state.settlementId);
+                if (settlement != null && settlement.Faction != null && !settlement.Faction.IsPlayer &&
+                    (state.factionDefName == null || settlement.Faction.def.defName == state.factionDefName)) continue;
+                int unpinned = 0;
+                foreach (Pawn pawn in Find.WorldPawns.AllPawnsAliveOrDead.Where(p => state.residentArchive.Contains(p.thingIDNumber)).ToList())
+                    if (Find.WorldPawns.ForcefullyKeptPawns.Remove(pawn)) unpinned++;
+                int goods = state.allocatedReserves.Sum(t => t.stackCount);
+                state.allocatedReserves.ClearAndDestroyContents();
+                state.residentArchive.Clear();
+                state.residentArchiveTick = -1;
+                state.assetArchive.Clear();
+                state.assetArchiveLayout = null;
+                state.defeated = true;
+                P0Log.Message("P5_ARCHIVE_RELEASED", "settlement=" + state.settlementId +
+                    " reason=" + (settlement == null ? "settlement_removed" : "owner_changed") +
+                    " unpinnedResidents=" + unpinned + " discardedArchivedUnits=" + goods);
+            }
         }
 
         // The archived survivors, taken back from the world, or null when this

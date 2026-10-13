@@ -74,11 +74,17 @@ namespace RealisticBases.Integration
                 .Sum(t => checked((int)(((long)t.stackCount + t.def.stackLimit - 1) / t.def.stackLimit)));
             int retainedPerishable = retained.Where(t => t.TryGetComp<CompRottable>() != null)
                 .Sum(t => checked((int)(((long)t.stackCount + t.def.stackLimit - 1) / t.def.stackLimit)));
+            // P5.4: keep the revisited layout unless its storage demand grew.
+            P0SettlementState planned = populationBudget == null ? null : worldState.FindExisting(settlement.ID);
             LayoutRequirements requirements = LayoutRequirements.FromProfile(profile, climate, stage: stage,
                 populationBudget: populationBudget, mortarBiasPercent: DebugMortarBiasNext,
-                saleStorageStacks: saleStock == null ? 0 : saleStock.StorageCells(P5StorageKind.Ordinary) + saleStock.StorageCells(P5StorageKind.Hazardous),
-                salePerishableStacks: saleStock?.StorageCells(P5StorageKind.Perishable) ?? 0,
-                retainedStorageStacks: retainedOrdinary, retainedPerishableStacks: retainedPerishable);
+                saleStorageStacks: P5RevisitDemand.Stacks(saleStock == null ? 0 :
+                    saleStock.StorageCells(P5StorageKind.Ordinary) + saleStock.StorageCells(P5StorageKind.Hazardous),
+                    planned?.plannedSaleStacks ?? -1),
+                salePerishableStacks: P5RevisitDemand.Stacks(saleStock?.StorageCells(P5StorageKind.Perishable) ?? 0,
+                    planned?.plannedSalePerishableStacks ?? -1),
+                retainedStorageStacks: P5RevisitDemand.Stacks(retainedOrdinary, planned?.plannedRetainedStacks ?? -1),
+                retainedPerishableStacks: P5RevisitDemand.Stacks(retainedPerishable, planned?.plannedRetainedPerishableStacks ?? -1));
             DebugMortarBiasNext = null;
             int targetLayers = requestedWallLayers >= 1 && requestedWallLayers <= 3 ? requestedWallLayers :
                 P4BLayerPolicy.Select(seed, stage.Level, requirements.EquipmentValueLimit,

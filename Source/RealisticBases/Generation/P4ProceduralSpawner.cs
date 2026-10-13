@@ -458,9 +458,17 @@ namespace RealisticBases.Generation
                     return capped;
                 };
                 // P5.4: device state recorded at the last unload of this layout.
-                Dictionary<string, P5AssetSnapshot> archivedAssets = quest == null ? P5EncounterArchive.Assets(
-                    Current.Game.GetComponent<P0WorldState>()?.FindExisting(settlement.ID), layout.Digest) : null;
+                bool exactAssets = false;
+                List<P5AssetSnapshot> unmatchedAssets = new List<P5AssetSnapshot>();
+                Dictionary<Thing, P5AssetSnapshot> archivedAssets = quest == null ? P5EncounterArchive.PlanAssets(
+                    Current.Game.GetComponent<P0WorldState>()?.FindExisting(settlement.ID), layout.Digest, tx.OwnedThings,
+                    settlement.Faction, out exactAssets, out unmatchedAssets) : null;
                 int fuel = layout.Power == null ? 0 : Planned(layout.Power.FuelDef, null, layout.Power.FuelStock);
+                // Tanks of archived generators this layout no longer has stay the
+                // residents' fuel: loose units, never a refill.
+                int leftoverFuel = layout.Power == null ? 0 : P5EncounterArchive.LeftoverFuelUnits(unmatchedAssets, layout.Power.FuelDef);
+                fuel += leftoverFuel;
+                if (leftoverFuel > 0) reserves?.Record(P5ReserveLedger.Key(layout.Power.FuelDef), leftoverFuel);
                 int internalFuel = 0;
                 if (layout.Power != null)
                     foreach (Thing generator in tx.OwnedThings.Where(t => t.def.defName == layout.Power.GeneratorDef))
@@ -515,6 +523,15 @@ namespace RealisticBases.Generation
                         }
                     }
                 }
+                foreach (var shell in P5EncounterArchive.LeftoverShells(unmatchedAssets))
+                {
+                    reserves?.Record(P5ReserveLedger.Key(shell.Key.defName), shell.Value);
+                    combatStocks.AddRange(SpawnStacks(tx, shell.Key, shell.Value, storageCells, map));
+                }
+                if (unmatchedAssets.Count > 0)
+                    RealisticBases.Core.P0Log.Message("P5_ASSET_LEFTOVERS", "map=" + map.uniqueID + " unmatched=" + unmatchedAssets.Count +
+                        " fuelUnits=" + leftoverFuel + " shells=" + string.Join(",", P5EncounterArchive.LeftoverShells(unmatchedAssets)
+                            .Select(p => p.Key.defName + ":" + p.Value)) + " granted=0");
                 if (mortars.Count > 0 && P4EFacilityDebugActions.FailNextMagazineStocks)
                 {
                     P4EFacilityDebugActions.FailNextMagazineStocks = false;
@@ -591,10 +608,15 @@ namespace RealisticBases.Generation
                         " cover=" + plan.CoverCells.Count + " serviceReachable=true");
                 }
                 foreach (Thing battery in tx.OwnedThings.Where(t => t.TryGetComp<CompPowerBattery>() != null))
-                    battery.TryGetComp<CompPowerBattery>().SetStoredEnergyPct(0.5f);
+                    // Charged like the generators' full tanks: the six-hour outage
+                    // bridge holds from the first tick.
+                    battery.TryGetComp<CompPowerBattery>().SetStoredEnergyPct(1f);
                 // After the fresh-layout audits above: damage, fuel, charge and
                 // loaded shells return as they were left, never refilled.
-                P5EncounterArchive.ApplyAssets(map, (Settlement)settlement, tx.OwnedThings, archivedAssets);
+                P5EncounterArchive.ApplyAssets(map, (Settlement)settlement, archivedAssets);
+                if (reserves != null)
+                    reserves.RecordBuilt(tx.OwnedThings.OfType<Building>().Where(b => b.Faction == settlement.Faction)
+                        .Select(P5EncounterArchive.Key));
                 PawnKindDef kind = settlement.Faction.def.basicMemberKind ?? PawnKindDefOf.Pirate;
                 List<GridPoint> homes = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Barracks || r.Kind == LayoutRoomKind.Bedroom)
                     .SelectMany(r => r.Interior.Points()).Where(c => ToCell(c).Standable(map) && ToCell(c).GetEdifice(map) == null).ToList();
@@ -876,10 +898,18 @@ namespace RealisticBases.Generation
                     layout.Enclosure, fieldFallbackPosts, mortars);
                 LordMaker.MakeNewLord(settlement.Faction, new LordJob_P3Garrison(settlement.ID), map, defenders);
                 P0SettlementState state = Current.Game.GetComponent<P0WorldState>().GetOrCreate(settlement.ID, settlement.Faction);
+                // Committed: never let the history step reach the rollback path.
+                try { P5EncounterArchive.RemoveDestroyed(map, (Settlement)settlement, tx.OwnedThings,
+                    P5EncounterArchive.Destroyed(state, layout.Digest)); }
+                catch (Exception ex) { RealisticBases.Core.P0Log.Error("P5_DESTROYED_RESTORE_FAILED", "map=" + map.uniqueID + " " + ex); }
                 state.generationCount++;
                 state.pawnIds = defenders.Select(p => p.thingIDNumber).ToList();
                 state.proceduralLayoutDigest = layout.Digest;
                 state.proceduralFinishDigest = finishPlan.Digest;
+                state.plannedSaleStacks = input.Requirements.SaleStorageStacks;
+                state.plannedSalePerishableStacks = input.Requirements.SalePerishableStacks;
+                state.plannedRetainedStacks = input.Requirements.RetainedStorageStacks;
+                state.plannedRetainedPerishableStacks = input.Requirements.RetainedPerishableStacks;
                 GridPoint marker = walls.First();
                 Thing woodStock = tx.OwnedThings.FirstOrDefault(t => t.def == ThingDefOf.WoodLog);
                 GridPoint stock = woodStock == null ? storageCells.First() :

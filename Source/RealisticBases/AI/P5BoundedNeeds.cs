@@ -58,11 +58,26 @@ namespace RealisticBases.AI
             if (controller == null || !controller.Controls(pawn) || !controller.P5NeedsRelief(pawn) ||
                 !pawn.health.HasHediffsNeedingTend() || RestUtility.DisturbancePreventsLyingDown(pawn)) return null;
             if (pawn.Downed && (!pawn.health.CanCrawl || pawn.GetPosture().InBed())) return null;
+            if (SelfTendDue(pawn))
+            {
+                // Vanilla JobGiver_SelfTend, once the doctors leave a bleeding
+                // patient waiting: no medicine, a single tend.
+                Job self = JobMaker.MakeJob(JobDefOf.TendPatient, pawn);
+                self.endAfterTendedOnce = true;
+                return self;
+            }
             Building_Bed bed = pawn.CurrentBed() ?? RestUtility.FindBedFor(pawn, pawn, checkSocialProperness: false);
             if (bed == null) return null;
             Job job = JobMaker.MakeJob(JobDefOf.LayDown, bed);
             job.checkOverrideOnExpire = true;
             return job;
         }
+
+        private const int SelfTendWaitTicks = 1250;
+
+        private static bool SelfTendDue(Pawn pawn) => pawn.InBed() && pawn.health.hediffSet.BleedRateTotal > 0 &&
+            pawn.health.capacities.CapableOf(PawnCapacityDefOf.Manipulation) &&
+            pawn.health.hediffSet.hediffs.Any(h => h.TendableNow() && h.Bleeding && h.ageTicks >= SelfTendWaitTicks) &&
+            pawn.Map.reservationManager.CanReserve(pawn, pawn);
     }
 }

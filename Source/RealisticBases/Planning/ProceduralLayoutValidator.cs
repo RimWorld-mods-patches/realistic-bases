@@ -493,7 +493,7 @@ namespace RealisticBases.Planning
                 fixtures.Any(f => f.Kind == LayoutFixtureKind.Generator && f.DefName != plan.GeneratorDef)) errors.Add("power_generator_mismatch");
             if ((long)generators * kit.GeneratorWatts < critical) errors.Add("power_critical_uncovered");
             if ((long)generators * kit.GeneratorWatts + renewable < critical + nonCritical) errors.Add("power_generation_below_load");
-            if (batteries != plan.Batteries || batteries < LayoutPowerModel.Batteries(critical)) errors.Add("power_battery_count");
+            if (batteries != plan.Batteries || batteries < LayoutPowerModel.Batteries(critical + nonCritical)) errors.Add("power_battery_count");
             if (fixtures.Any(f => f.Kind == LayoutFixtureKind.Battery && !layout.Rooms.Any(r => r.Kind == LayoutRoomKind.Power && r.Id == f.RoomId)))
                 errors.Add("battery_outdoors");
             if (plan.FuelStock != LayoutPowerModel.FuelStock(kit.Generator, generators)) errors.Add("power_fuel_stock");

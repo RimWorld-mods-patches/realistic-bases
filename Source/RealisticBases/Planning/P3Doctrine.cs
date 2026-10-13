@@ -96,7 +96,7 @@ namespace RealisticBases.Planning
         public DefenderCandidate(int id, DefenderWeaponClass weaponClass, int weaponRange,
             bool canOperateMortar, bool canSupport, bool needsFood, bool needsRest, bool needsTending,
             string previousPostId = null, GarrisonRole? previousRole = null, int lastAssignmentTick = int.MinValue,
-            GridPoint? currentCell = null, bool hasSmokepop = false)
+            GridPoint? currentCell = null, bool hasSmokepop = false, bool canTend = true)
         {
             if (id <= 0 || weaponRange < 0) throw new ArgumentOutOfRangeException();
             Id = id;
@@ -112,6 +112,7 @@ namespace RealisticBases.Planning
             LastAssignmentTick = lastAssignmentTick;
             CurrentCell = currentCell;
             HasSmokepop = hasSmokepop;
+            CanTend = canTend;
         }
 
         public int Id { get; }
@@ -120,6 +121,8 @@ namespace RealisticBases.Planning
         public bool CanOperateMortar { get; }
         public bool CanSupport { get; }
         public bool HasSmokepop { get; }
+        // Medical work is not disabled (vanilla Caring/Doctor).
+        public bool CanTend { get; }
         public bool NeedsFood { get; }
         public bool NeedsRest { get; }
         public bool NeedsTending { get; }
@@ -256,7 +259,9 @@ namespace RealisticBases.Planning
                 situation.CriticalSupportRequired && state != GarrisonState.InnerFallback &&
                     situation.Defenders.Count(d => !d.NeedsRelief) >= 4
                 ? situation.Defenders.Where(d => d.CanSupport && !d.NeedsRelief)
-                    .OrderBy(d => d.PreviousRole == GarrisonRole.MortarOperator && d.CanOperateMortar)
+                    // A wounded resident needs a support worker who can tend.
+                    .OrderBy(d => situation.Defenders.Any(w => w.NeedsTending) && !d.CanTend)
+                    .ThenBy(d => d.PreviousRole == GarrisonRole.MortarOperator && d.CanOperateMortar)
                     .ThenByDescending(d => d.HasSmokepop)
                     .ThenBy(d => d.CanOperateMortar)
                     .ThenBy(d => d.PreviousRole == GarrisonRole.Support || d.PreviousRole == GarrisonRole.GateReserve ? 0 :

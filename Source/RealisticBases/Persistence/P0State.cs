@@ -36,6 +36,10 @@ namespace RealisticBases.Persistence
         public int residentArchiveTick = -1;
         public string assetArchiveLayout;
         public List<P5AssetState> assetArchive = new List<P5AssetState>();
+        // Buildings of that layout absent at unload (destroyed, deconstructed or stolen).
+        public List<string> destroyedAssets = new List<string>();
+        // Storage demand of the last accepted layout (-1: none yet), pinned on revisits.
+        public int plannedSaleStacks = -1, plannedSalePerishableStacks = -1, plannedRetainedStacks = -1, plannedRetainedPerishableStacks = -1;
         public P0SettlementState() { allocatedReserves = new ThingOwner<Thing>(this); }
         public IThingHolder ParentHolder => null;
         public ThingOwner GetDirectlyHeldThings() => allocatedReserves;
@@ -74,6 +78,11 @@ namespace RealisticBases.Persistence
             Scribe_Values.Look(ref residentArchiveTick, "p5ResidentArchiveTick", -1);
             Scribe_Values.Look(ref assetArchiveLayout, "p5AssetArchiveLayout");
             Scribe_Collections.Look(ref assetArchive, "p5AssetArchive", LookMode.Deep);
+            Scribe_Collections.Look(ref destroyedAssets, "p5DestroyedAssets", LookMode.Value);
+            Scribe_Values.Look(ref plannedSaleStacks, "p5PlannedSaleStacks", -1);
+            Scribe_Values.Look(ref plannedSalePerishableStacks, "p5PlannedSalePerishableStacks", -1);
+            Scribe_Values.Look(ref plannedRetainedStacks, "p5PlannedRetainedStacks", -1);
+            Scribe_Values.Look(ref plannedRetainedPerishableStacks, "p5PlannedRetainedPerishableStacks", -1);
             if (Scribe.mode == LoadSaveMode.PostLoadInit && pawnIds == null)
             {
                 pawnIds = new List<int>();
@@ -84,6 +93,7 @@ namespace RealisticBases.Persistence
                 reserveRemaining = reserveRemaining ?? new List<int>();
                 allocatedReserves = allocatedReserves ?? new ThingOwner<Thing>(this);
                 residentArchive = residentArchive ?? new List<int>();
+                destroyedAssets = destroyedAssets ?? new List<string>();
                 assetArchive = assetArchive?.Where(a => a != null && !string.IsNullOrEmpty(a.key)).ToList() ?? new List<P5AssetState>();
                 if (reserveKeys.Count != reserveRemaining.Count) { reserveKeys.Clear(); reserveRemaining.Clear(); reserveLedgerTick = -1; }
             }
@@ -216,6 +226,13 @@ namespace RealisticBases.Persistence
         public override void LoadedGame()
         {
             P0Log.Message("GAME_LOADED", "worldStates=" + settlements.Count);
+        }
+
+        public override void GameComponentTick()
+        {
+            if (Find.TickManager.TicksGame % 2500 != 0) return;
+            try { Integration.P5EncounterArchive.ReleaseOrphaned(settlements); }
+            catch (System.Exception ex) { P0Log.Error("P5_ARCHIVE_RELEASE_FAILED", ex.ToString()); }
         }
     }
 

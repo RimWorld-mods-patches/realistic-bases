@@ -21,6 +21,10 @@ namespace RealisticBases.Integration
         private List<string> keys = new List<string>();
         private List<int> planned = new List<int>();
         private List<Thing> allocated = new List<Thing>();
+        // P5.4: every building this generation realized, by layout key.
+        private List<string> builtAssets = new List<string>();
+        internal IReadOnlyList<string> BuiltAssets => builtAssets;
+        internal void RecordBuilt(IEnumerable<string> keys) => builtAssets = keys.Distinct().ToList();
         private static Game allocationGame;
         private static readonly Dictionary<Thing, P5ReserveState> allocations = new Dictionary<Thing, P5ReserveState>();
 
@@ -139,9 +143,11 @@ namespace RealisticBases.Integration
             Scribe_Collections.Look(ref keys, "p5ReserveKeys", LookMode.Value);
             Scribe_Collections.Look(ref planned, "p5ReservePlanned", LookMode.Value);
             Scribe_Collections.Look(ref allocated, "p5AllocatedOperating", LookMode.Reference);
+            Scribe_Collections.Look(ref builtAssets, "p5BuiltAssets", LookMode.Value);
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
                 keys = keys ?? new List<string>();
+                builtAssets = builtAssets ?? new List<string>();
                 planned = planned ?? new List<int>();
                 allocated = allocated?.Where(t => t != null && !t.Destroyed).ToList() ?? new List<Thing>();
             }

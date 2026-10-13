@@ -55,6 +55,14 @@ namespace RealisticBases.Planning
         }
     }
 
+    // A revisit plans storage for at least the demand of its last accepted
+    // layout: goods bought or consumed since then must not reshape the base,
+    // or its archived buildings could not be matched again.
+    public static class P5RevisitDemand
+    {
+        public static int Stacks(int current, int recorded) => recorded < 0 ? current : Math.Max(current, recorded);
+    }
+
     // One building's supported state. Negative values mean "not applicable".
     public sealed class P5AssetSnapshot
     {
@@ -86,5 +94,38 @@ namespace RealisticBases.Planning
             HitPoints < 0 ? maxHitPoints : Math.Max(1, Math.Min(maxHitPoints, HitPoints));
         public float RestoredFuel(float capacity) => Fuel < 0 ? -1 : Math.Max(0, Math.Min(capacity, Fuel));
         public float RestoredEnergy(float capacity) => StoredEnergy < 0 ? -1 : Math.Max(0, Math.Min(capacity, StoredEnergy));
+
+        // Definition part of the key, for matching a changed layout.
+        public string DefName => Key.Substring(0, Key.IndexOf('@') < 0 ? Key.Length : Key.IndexOf('@'));
+
+        // On a changed layout only consumable state transfers; damage belongs
+        // to a specific building and cannot be placed on another one.
+        public P5AssetSnapshot WithoutDamage() => new P5AssetSnapshot(Key, -1, Fuel, StoredEnergy, ShellDef, ShellCount);
+
+        // Pairs archived snapshots with regenerated buildings: exact keys when
+        // the layout is unchanged, otherwise the same definition in key order.
+        public static IReadOnlyList<KeyValuePair<string, P5AssetSnapshot>> Match(IEnumerable<P5AssetSnapshot> archived,
+            IEnumerable<string> buildingKeys, bool exact)
+        {
+            var list = archived?.ToList() ?? new List<P5AssetSnapshot>();
+            var keys = buildingKeys?.Distinct().ToList() ?? new List<string>();
+            var result = new List<KeyValuePair<string, P5AssetSnapshot>>();
+            if (exact)
+            {
+                var byKey = list.GroupBy(a => a.Key).ToDictionary(g => g.Key, g => g.First());
+                foreach (string key in keys)
+                    if (byKey.TryGetValue(key, out P5AssetSnapshot s)) result.Add(new KeyValuePair<string, P5AssetSnapshot>(key, s));
+                return result;
+            }
+            foreach (var group in list.GroupBy(a => a.DefName))
+            {
+                var targets = keys.Where(k => k.StartsWith(group.Key + "@", StringComparison.Ordinal))
+                    .OrderBy(k => k, StringComparer.Ordinal).ToList();
+                var sources = group.OrderBy(a => a.Key, StringComparer.Ordinal).ToList();
+                for (int i = 0; i < Math.Min(targets.Count, sources.Count); i++)
+                    result.Add(new KeyValuePair<string, P5AssetSnapshot>(targets[i], sources[i].WithoutDamage()));
+            }
+            return result;
+        }
     }
 }

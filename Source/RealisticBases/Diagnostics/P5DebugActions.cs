@@ -297,6 +297,30 @@ namespace RealisticBases.Diagnostics
                 " physicalStacks=" + reopened.GetComponent<P5PhysicalSaleStock>().Goods.Count());
         }
 
+        // Jumps the disposable clock past the native 30-day restock boundary,
+        // for off-map expiry. Nothing elapses in between: no world simulation.
+        [DebugAction(Category, "P5 advance disposable clock past stock expiry", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        public static void AdvancePastExpiry()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("Disposable profile only");
+            int before = Find.TickManager.TicksGame;
+            Find.TickManager.DebugSetTicksGame(checked(before + P5StockEpoch.RestockTicks + 2500));
+            P0Log.Message("P5_CLOCK_ADVANCED", "from=" + before + " to=" + Find.TickManager.TicksGame + " simulated=False");
+        }
+
+        [DebugAction(Category, "P5 destroy archived settlement off-map", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        public static void DestroyArchivedOffMap()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("Disposable profile only");
+            var world = Current.Game.GetComponent<RealisticBases.Persistence.P0WorldState>();
+            var candidates = Find.WorldObjects.Settlements.Where(s => !s.HasMap && world.FindExisting(s.ID)?.residentArchiveTick >= 0).ToList();
+            if (candidates.Count != 1) throw new InvalidOperationException("Require one archived off-map settlement");
+            P0Log.Message("P5_TEST_SETTLEMENT_DESTROYED", "settlement=" + candidates[0].ID);
+            candidates[0].Destroy();
+        }
+
         [DebugAction(Category, "P5 save off-map archive checkpoint", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.Playing)]
         public static void SaveOffMapArchive()

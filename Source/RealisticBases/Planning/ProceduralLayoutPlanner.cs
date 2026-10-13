@@ -1747,7 +1747,7 @@ namespace RealisticBases.Planning
             LayoutPowerModel.Loads(rooms, out critical, out nonCritical);
             int renewable = yards.Sum(y => y.EffectiveWatts);
             int reserve = input.Requirements.DefenseReserveWatts;
-            int batteries = LayoutPowerModel.Batteries(critical + reserve);
+            int batteries = LayoutPowerModel.Batteries(critical + reserve + nonCritical);
             int generators = LayoutPowerModel.Generators(critical + reserve, nonCritical, renewable, kit.GeneratorWatts);
             LayoutRoomDemand demand = null;
             int ownLoad = 0;
@@ -1758,8 +1758,10 @@ namespace RealisticBases.Planning
                 int own = LayoutDemandModel.MaxLoad(demand, input.Requirements, kit);
                 ownLoad = own;
                 int needed = LayoutPowerModel.Generators(critical + reserve, nonCritical + own, renewable, kit.GeneratorWatts);
-                if (needed <= generators) break;
-                generators = needed;
+                int bridge = LayoutPowerModel.Batteries(critical + reserve + nonCritical + own);
+                if (needed <= generators && bridge <= batteries) break;
+                generators = Math.Max(generators, needed);
+                batteries = Math.Max(batteries, bridge);
             }
             if (!PlaceWithRepairs(demand)) return false;
             power = new LayoutPowerPlan(critical, nonCritical, kit.Generator, generators, batteries, yards, kit.GeneratorFuel,

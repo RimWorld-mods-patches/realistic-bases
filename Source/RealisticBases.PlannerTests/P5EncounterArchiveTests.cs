@@ -60,6 +60,31 @@ internal static class P5EncounterArchiveTests
         Check(threw);
     }
 
+    // A changed layout transfers consumables by definition only; the same
+    // layout matches exact buildings with their damage.
+    public static void Matching()
+    {
+        Check(P5RevisitDemand.Stacks(40, -1) == 40 && P5RevisitDemand.Stacks(30, 40) == 40 && P5RevisitDemand.Stacks(55, 40) == 55);
+        var archived = new[]
+        {
+            new P5AssetSnapshot("WoodFiredGenerator@10,10", 120, 60.5f, -1, null, 0),
+            new P5AssetSnapshot("WoodFiredGenerator@14,10", -1, 20f, -1, null, 0),
+            new P5AssetSnapshot("Battery@12,12", -1, -1, 450f, null, 0),
+            new P5AssetSnapshot("Turret_Mortar@30,30", 200, 70f, -1, "Shell_HighExplosive", 1),
+            new P5AssetSnapshot("Wall@1,1", 50, -1, -1, null, 0),
+        };
+        var same = P5AssetSnapshot.Match(archived, new[] { "WoodFiredGenerator@10,10", "WoodFiredGenerator@14,10", "Battery@12,12",
+            "Turret_Mortar@30,30", "Wall@1,1", "Wall@1,2" }, exact: true);
+        Check(same.Count == 5 && same.Single(p => p.Key == "Wall@1,1").Value.HitPoints == 50);
+        var moved = P5AssetSnapshot.Match(archived, new[] { "WoodFiredGenerator@40,8", "WoodFiredGenerator@44,8",
+            "WoodFiredGenerator@48,8", "Battery@41,12", "Turret_Mortar@60,60", "Wall@9,9" }, exact: false);
+        Check(moved.Count(p => p.Key.StartsWith("WoodFiredGenerator@")) == 2);   // a third new generator gets no archived tank
+        Check(Math.Abs(moved.Where(p => p.Key.StartsWith("WoodFiredGenerator@")).Sum(p => p.Value.Fuel) - 80.5f) < 1e-4);
+        Check(moved.Single(p => p.Key == "Battery@41,12").Value.StoredEnergy == 450f);
+        Check(moved.Single(p => p.Key == "Turret_Mortar@60,60").Value.ShellCount == 1);
+        Check(moved.All(p => p.Value.HitPoints < 0));                          // damage is not moved to another building
+    }
+
     private static void Check(bool condition)
     {
         if (!condition) throw new InvalidOperationException("P5.4 archive check failed");

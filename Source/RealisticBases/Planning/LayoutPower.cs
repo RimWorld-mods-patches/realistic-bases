@@ -120,10 +120,13 @@ namespace RealisticBases.Planning
         public const double GeothermalCapacityFactor = 1.0;
         // PROVISIONAL: at most this many units of one renewable source.
         public const int MaxUnitsPerSource = 4;
-        // PROVISIONAL: batteries bridge the critical load this long (P2 generator-service buffer).
+        // PROVISIONAL: batteries bridge the whole rated load this long with zero
+        // generation (P2 generator-service buffer; P5 six-hour outage).
         public const int BatteryBridgeHours = 6;
         // Vanilla battery capacity (Wd) from the plan's evidence.
         public const int BatteryStoredWattDays = 600;
+        // Native CompPowerBattery self-discharge per battery.
+        public const int BatterySelfDischargeWatts = 5;
 
         public const string Geothermal = "GeothermalGenerator";
         public const string Watermill = "WatermillGenerator";
@@ -182,8 +185,13 @@ namespace RealisticBases.Planning
             return Math.Max(1, (int)((need + generatorWatts - 1) / generatorWatts));
         }
 
-        public static int Batteries(int criticalWatts) =>
-            Math.Max(1, (int)Math.Ceiling(criticalWatts * (double)BatteryBridgeHours / (24.0 * BatteryStoredWattDays)));
+        // NPC residents shed no load in an outage, so the bridge covers every
+        // connected consumer, plus each battery's own self-discharge.
+        public static int Batteries(int bridgedWatts)
+        {
+            double perBattery = BatteryStoredWattDays - BatterySelfDischargeWatts * BatteryBridgeHours / 24.0;
+            return Math.Max(1, (int)Math.Ceiling(Math.Max(0, bridgedWatts) * BatteryBridgeHours / 24.0 / perBattery));
+        }
 
         public static int FuelStock(CatalogDef generator, int generators) =>
             generator == null ? 0 : TankFill(generator) * generators + WarehouseFuel(generator, generators);
