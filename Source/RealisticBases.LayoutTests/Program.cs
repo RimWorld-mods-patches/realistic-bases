@@ -60,6 +60,8 @@ internal static partial class Program
         Run("ordinary population fits cluttered flat tiles without reducing residents", OrdinaryPopulationClutter);
         Run("ordinary population reserves usable layered gate frontage", OrdinaryPopulationLayeredFrontage);
         Run("ordinary population stocks use all split rooms and prefer shelves", OrdinaryPopulationStocks);
+        Run("P5 sale offer is sized into storage without changing other inputs", P5SaleStorageSizing);
+        Run("P5 captured native trade tile fits its whole offer with dense storage", P5NativeTradeStorage);
         Run("demand scales with population and splits barracks", DemandScalesWithPopulation);
         Run("rich settlements get personal bedrooms", PersonalRooms);
         Run("climate drives heating, cooling and lighting fixtures", ClimateFixtures);
@@ -2021,16 +2023,20 @@ internal static partial class Program
     private static void PowerBatteries()
     {
         Equal(1, LayoutPowerModel.Batteries(0), "at least one");
-        Equal(1, LayoutPowerModel.Batteries(2400), "2400W x 6h = 600Wd");
-        Equal(2, LayoutPowerModel.Batteries(2401), "just over one battery");
-        Equal(3, LayoutPowerModel.Batteries(4801), "three");
+        Equal(1, LayoutPowerModel.Batteries(2395), "2395W x 6h = 598.75Wd, plus 1.25Wd self-discharge");
+        Equal(2, LayoutPowerModel.Batteries(2396), "just over one battery");
+        Equal(2, LayoutPowerModel.Batteries(2400), "a full 600Wd battery cannot also cover its own discharge");
+        Equal(3, LayoutPowerModel.Batteries(4791), "three");
         foreach (ProceduralLayoutResult result in new[] { Early(1), Mid(3, Cold), PlanWith(Plains(150), LayoutRequirements.FromPopulation(24, Industrial, Cold), 2, null) })
         {
             Accepted(result);
             int critical, nonCritical;
             LayoutPowerModel.Loads(result.Layout.Rooms, out critical, out nonCritical);
-            int expected = Math.Max(1, (int)Math.Ceiling(critical * 6.0 / 24 / 600));
-            Equal(expected, result.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.Battery), "battery count for " + critical + "W critical");
+            int batteries = result.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.Battery);
+            Equal(result.Layout.Power.Batteries, batteries, "planned batteries placed");
+            // Six hours of the whole rated load with zero generation, including self-discharge.
+            True(batteries * (600 - 5 * 6.0 / 24) + 1e-6 >= (critical + nonCritical) * 6.0 / 24,
+                "battery bridge for " + (critical + nonCritical) + "W rated load");
             True(result.Layout.AllFixtures.Where(f => f.Kind == LayoutFixtureKind.Battery).All(f => f.RoomId == "power"), "batteries indoors");
         }
     }

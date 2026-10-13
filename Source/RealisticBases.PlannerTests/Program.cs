@@ -12,6 +12,10 @@ internal static class Program
         Run("P5 explicit stock epochs reject empty reads and loaded restock", P5StockTests.Epochs);
         Run("P5 immutable stock conserves allocations and physical stack identities", P5StockTests.Conservation);
         Run("P5 actual offers reserve full legal storage and value without truncation", P5StockTests.Capacity);
+        Run("P5 reserve ledger caps re-entry at the unload remainder", P5StockTests.ReserveLedger);
+        Run("P5.4 re-entry restores survivors only and conserves carried goods", P5EncounterArchiveTests.Roster);
+        Run("P5.4 asset state returns as archived and never refills", P5EncounterArchiveTests.Assets);
+        Run("P5.4 revisits pin storage demand and match assets on a changed layout", P5EncounterArchiveTests.Matching);
         Run("P5 food uses nutrition and preserves larger finite reserves", P5ReadinessTests.Food);
         Run("P5 combat aggregates all installed guns without copying shared stock", P5ReadinessTests.Combat);
         Run("P5 outage uses actual load and battery self-discharge without zero-clamp passes", P5ReadinessTests.Outage);
@@ -66,6 +70,7 @@ internal static class Program
         Run("P3 invalid outer posts trigger inner fallback", P3InvalidOuterPostsTriggerInnerFallback);
         Run("P3 valid assignments resist oscillation", P3ValidAssignmentsResistOscillation);
         Run("P3 routine reserves a support worker", P3RoutineReservesSupportWorker);
+        Run("P5 a wounded roster gets a support worker who can tend", P5WoundedRosterGetsTendCapableSupport);
         Run("P3 wall damage outranks a decoy", P3WallDamageOutranksDecoy);
         Run("P3 breached wall and threat memory rank deterministically", P3WallBreachAndMemory);
         Run("P3 wall-threat assignment requires an actual firing lane", P3WallThreatUsesFiringLane);
@@ -773,6 +778,27 @@ internal static class Program
             "support-capable short-range defender selected");
         GarrisonPlan combat = GarrisonDoctrine.Assign(P3Situation(hostileThreat: true));
         True(combat.Assignments.All(a => a.Role != GarrisonRole.Support), "support worker returns to combat");
+    }
+
+    // 2026-10-13 live combat: the selected support worker had Caring disabled
+    // (backstory), so three wounded residents in bed were never tended.
+    private static void P5WoundedRosterGetsTendCapableSupport()
+    {
+        var defenders = new[]
+        {
+            new DefenderCandidate(1, DefenderWeaponClass.LongRanged, 30, false, true, false, false, false),
+            new DefenderCandidate(2, DefenderWeaponClass.ShortRanged, 12, false, true, false, false, false, canTend: false),
+            new DefenderCandidate(3, DefenderWeaponClass.ShortRanged, 16, false, true, false, false, false),
+            new DefenderCandidate(4, DefenderWeaponClass.ShortRanged, 14, false, true, false, false, false),
+            new DefenderCandidate(5, DefenderWeaponClass.LongRanged, 30, false, true, false, false, true),
+        };
+        GarrisonPlan wounded = GarrisonDoctrine.Assign(P3Situation(defenders: defenders, hostileThreat: false));
+        GarrisonAssignment support = wounded.Assignments.Single(a => a.Role == GarrisonRole.Support);
+        True(support.DefenderId != 2, "a worker who cannot tend is not the only support while someone is wounded");
+        var healthy = defenders.Select(d => d.Id == 5 ? new DefenderCandidate(5, DefenderWeaponClass.LongRanged, 30, false, true,
+            false, false, false) : d).ToArray();
+        Equal(2, GarrisonDoctrine.Assign(P3Situation(defenders: healthy, hostileThreat: false)).Assignments
+            .Single(a => a.Role == GarrisonRole.Support).DefenderId, "without wounded the usual short-range choice stands");
     }
 
     private static void P3WallDamageOutranksDecoy()

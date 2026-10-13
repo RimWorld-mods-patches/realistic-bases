@@ -47,4 +47,37 @@ namespace RealisticBases.AI
             return ThinkResult.NoJob;
         }
     }
+    // Vanilla doctors tend humanlike patients only in bed, and the relief duty
+    // has no patient-go-to-bed branch. Keep an injured resident in its own
+    // native bed until tended; the relief role ends with the need.
+    public sealed class JobGiver_P5PatientBedRest : ThinkNode_JobGiver
+    {
+        protected override Job TryGiveJob(Pawn pawn)
+        {
+            var controller = pawn.Map?.GetComponent<P3GarrisonController>();
+            if (controller == null || !controller.Controls(pawn) || !controller.P5NeedsRelief(pawn) ||
+                !pawn.health.HasHediffsNeedingTend() || RestUtility.DisturbancePreventsLyingDown(pawn)) return null;
+            if (pawn.Downed && (!pawn.health.CanCrawl || pawn.GetPosture().InBed())) return null;
+            if (SelfTendDue(pawn))
+            {
+                // Vanilla JobGiver_SelfTend, once the doctors leave a bleeding
+                // patient waiting: no medicine, a single tend.
+                Job self = JobMaker.MakeJob(JobDefOf.TendPatient, pawn);
+                self.endAfterTendedOnce = true;
+                return self;
+            }
+            Building_Bed bed = pawn.CurrentBed() ?? RestUtility.FindBedFor(pawn, pawn, checkSocialProperness: false);
+            if (bed == null) return null;
+            Job job = JobMaker.MakeJob(JobDefOf.LayDown, bed);
+            job.checkOverrideOnExpire = true;
+            return job;
+        }
+
+        private const int SelfTendWaitTicks = 1250;
+
+        private static bool SelfTendDue(Pawn pawn) => pawn.InBed() && pawn.health.hediffSet.BleedRateTotal > 0 &&
+            pawn.health.capacities.CapableOf(PawnCapacityDefOf.Manipulation) &&
+            pawn.health.hediffSet.hediffs.Any(h => h.TendableNow() && h.Bleeding && h.ageTicks >= SelfTendWaitTicks) &&
+            pawn.Map.reservationManager.CanReserve(pawn, pawn);
+    }
 }

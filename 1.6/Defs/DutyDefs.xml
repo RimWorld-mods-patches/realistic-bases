@@ -101,7 +101,10 @@
     <thinkNode Class="ThinkNode_Priority">
       <subNodes>
         <li Class="RealisticBases.AI.ThinkNode_P5BoundedNeeds">
-          <subNodes><li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li></subNodes>
+          <subNodes>
+            <li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li>
+            <li Class="RealisticBases.AI.JobGiver_P5PatientBedRest" />
+          </subNodes>
         </li>
         <li Class="RealisticBases.AI.JobGiver_P3HoldAssignedPost" />
       </subNodes>

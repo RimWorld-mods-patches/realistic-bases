@@ -94,6 +94,51 @@ internal static class P5StockTests
         Check(divided.StorageCells(P5StorageKind.Ordinary) == 10);
         Check(Math.Abs(divided.Value(P5Allocation.Sale) + divided.Value(P5Allocation.Operating) - snapshot.Value(P5Allocation.Sale)) < 0.001);
     }
+    // Unload/re-entry never refills: re-entry spawns min(planned, remainder).
+    public static void ReserveLedger()
+    {
+        Check(P5ReserveLedger.Key("Steel") == "Steel" && P5ReserveLedger.Key("Gun_Revolver", "Steel") == "Gun_Revolver|Steel");
+        var planned = new[] { new KeyValuePair<string, int>("MealSimple", 84), new KeyValuePair<string, int>("Shell_HighExplosive", 6),
+            new KeyValuePair<string, int>("Shell_HighExplosive", 6), new KeyValuePair<string, int>("WoodLog", 120) };
+        var observed = new Dictionary<string, int> { ["MealSimple"] = 40, ["Shell_HighExplosive"] = 30, ["WoodLog"] = 0 };
+        P5ReserveLedger ledger = P5ReserveLedger.Observe(planned, k => observed.TryGetValue(k, out int v) ? v : 0);
+        Check(ledger.Remaining["MealSimple"] == 40);
+        Check(ledger.Remaining["Shell_HighExplosive"] == 12);   // stray extra shells never become reserves
+        Check(ledger.Remaining["WoodLog"] == 0);
+        Check(ledger.Cap("MealSimple", 84) == 40 && ledger.Cap("MealSimple", 30) == 30);
+        Check(ledger.Cap("WoodLog", 120) == 0);                 // exhausted stays exhausted
+        Check(ledger.Cap("Steel", 75) == 75);                   // not generated last time: planned amount
+        P5ReserveLedger again = P5ReserveLedger.Observe(new[] { new KeyValuePair<string, int>("MealSimple", ledger.Cap("MealSimple", 84)) },
+            k => 40);
+        Check(again.Remaining["MealSimple"] == 40);             // a second unload without use keeps the same balance
+        // Visit sequence: exhausted on visit 1, so visit 2 grants and records 0;
+        // stray same-def items dropped later never refill it on visit 3.
+        var visit1 = P5ReserveLedger.Observe(new[] { new KeyValuePair<string, int>("WoodLog", 100) }, k => 0);
+        int visit2Grant = visit1.Grant("WoodLog", 100, new Dictionary<string, int>());
+        var visit2 = P5ReserveLedger.Observe(new[] { new KeyValuePair<string, int>("WoodLog", visit2Grant) }, k => 300);
+        Check(visit2Grant == 0 && visit2.Remaining["WoodLog"] == 0 && visit2.Grant("WoodLog", 100, new Dictionary<string, int>()) == 0);
+                // Two planned stocks of one key share a single remaining allowance.
+        var shared = new P5ReserveLedger(new[] { new KeyValuePair<string, int>("WoodLog", 100) });
+        var granted = new Dictionary<string, int>();
+        Check(shared.Grant("WoodLog", 80, granted) == 80 && shared.Grant("WoodLog", 50, granted) == 20 &&
+            shared.Grant("WoodLog", 10, granted) == 0 && granted["WoodLog"] == 100);
+        Check(shared.Grant("Steel", 40, granted) == 40 && !granted.ContainsKey("Steel"));
+        // Allocated merchandise is a separate authoritative physical object,
+        // not a refill of a depleted generated allowance or a new planned key.
+        var allocated = new P5StockSnapshot(new[] { new P5ItemFacts(91, "ReinforcedBarrel", 3),
+            new P5ItemFacts(92, "MedicineHerbal", 25, hitPoints: 40, maxHitPoints: 60) })
+            .Transfer(91, P5Allocation.Operating).Transfer(92, P5Allocation.Operating);
+        var emptyBarrels = new P5ReserveLedger(new[] { new KeyValuePair<string, int>("ReinforcedBarrel", 0) });
+        Check(emptyBarrels.Grant("ReinforcedBarrel", 2, new Dictionary<string, int>()) == 0);
+        Check(allocated.Count("ReinforcedBarrel", P5Allocation.Operating) == 3 &&
+            allocated.Count("MedicineHerbal", P5Allocation.Operating) == 25 &&
+            allocated.Items.Single(i => i.Id == 92).HitPoints == 40);
+        Check(allocated.Remove(91, 1, P5Allocation.Operating).Count("ReinforcedBarrel", P5Allocation.Operating) == 2);
+                Reject(() => new P5ReserveLedger(new[] { new KeyValuePair<string, int>("Steel", -1) }));
+        Reject(() => new P5ReserveLedger(new[] { new KeyValuePair<string, int>("Steel", 1), new KeyValuePair<string, int>("Steel", 2) }));
+        try { ledger.Cap("Steel", -1); throw new Exception("negative plan accepted"); } catch (ArgumentOutOfRangeException) { }
+    }
+
     private static void Check(bool condition) { if (!condition) throw new Exception("P5 stock contract failed"); }
     private static void Reject(Action action)
     {

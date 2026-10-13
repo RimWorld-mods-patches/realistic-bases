@@ -1,8 +1,20 @@
 # Realistic Bases: progress tracker
 
-Updated: 2026-10-12
+Updated: 2026-10-13
 
 ## Current state
+
+**P5 complete for the scoped contracts (2026-10-13).** Native trade→attack,
+physical sale stock, emergency allocation, rollback/overflow, NPC tending and
+the P5.4 encounter archive/restore were verified live. Revisits keep survivors,
+needs, inventory, damage, destroyed buildings, fuel, charge and loaded shells,
+with casualties and captives not replaced. Off-map expiry and removal and native
+defeat pass. Six-hour outage passes with batteries sized for the whole rated
+load. Six-hour combat passes on IndustrialMid (flat and native terrain) and
+Neolithic, including field tending, tend-capable support and self-tend. The P4D
+rescue/bandit regression and Geological Landforms compatibility pass. Long
+three-day horizons under the new rules are deferred to post-release live
+testing. See [closeout](p5-findings.md#2026-10-13-p5-closeout-work-outage-combat-medical-care-destroyed-buildings-expiry).
 
 Design, source review, P0–P3, bounded P4D and P4E are complete. P5 is now authorized and active from P4E `be39af9`; see [checkpoint plan](p5-encounter-plan.md) and [findings](p5-findings.md). Earlier P4/P4A/P4B/C tracker rows and fixed-compound observations are historical and are not new closeout claims. P5A remains separate.
 
@@ -14,7 +26,16 @@ Verification: complete LayoutTests (132,637 ms) and PlannerTests suites pass wit
 
 **2026-10-12 layout engine v2:** the clusters engine (hallway comb, room clusters with shared walls, superstructure/town/mountain styles, a pre-defense candidate pool) is the default planner on branch `claude/layout-engine-v2`. Pure evidence: 72/72 valid on the comparison matrix (legacy 71/72) and the full LayoutTests suite passes under the new default. Live checks are pending. See the [v2 plan and results](plans/2026-10-12-layout-engine-v2.md).
 
+**2026-10-12 P5 stock live verification:** full-offer generation/active reload and two real unload/re-entry cycles observed; all127 layout tests passed in ten parallel shards, PlannerTests and Release clean. Carried operating medicine was ignored by emergency allocation; fixed and live-replayed in `f7f4708`. A separate conservation failure remains: legitimate emergency sale→reserve transfers do not update the persisted reserve allowance (three released sale barrels become a zero-barrel unload ledger). Broader verification stopped with logs/saves preserved; native trade/attack, full-materialization rollback/overflow, expiry/defeat and the complete V2.6 matrix are not closed. See [live verification](p5-findings.md#live-verification--2026-10-12-stock-completion-branch). No merge or push.
+
 ## Milestones
+
+**2026-10-13 P5.3c:** the emergency-item loss above is now fixed with a sole-owner
+off-map holder for actual allocated Things, separate from the base count ledger.
+Real rollback, off-map save/reload, repeated entry, partial consumption, raw-food
+HP/rot/type preservation and native barrel use pass. Full127-case layout shards,
+PlannerTests and clean Release builds pass. Broader P5 remains open; see
+[P5.3c evidence](p5-findings.md#p53c--exact-emergency-allocation-handoff-and-retained-operating-goods).
 
 | Milestone | Status | Completion evidence / next action |
 |---|---|---|
@@ -29,10 +50,11 @@ Verification: complete LayoutTests (132,637 ms) and PlannerTests suites pass wit
 | P4C — Visually realistic bases | Planned; implementation authorized | Coherent room/path finishes and selected interior rock smoothing, bounded materials, transactional terrain/rock recovery, visual and live validation. See [P4C visual plan](p4c-visual-plan.md); no implementation evidence yet |
 | P4D — Quest-location support | Complete for bounded Core contracts | Exact bandit/rescue strategies, authoritative native content, original prisoner/join, native reward/expiry/death/departure/reload and verified late recovery; Core terrain/tech and GL-native compatibility matrix, complete suites/build. GL competing pipelines remain native. See [P4D findings](p4d-findings.md) |
 | P4E — Facility and defense adjustments | Complete (2026-10-12) | Climate/decorative labs, seats/medicine, compact magazines/up to three funded crews, budgeted autocannon defense, finite warehouse fetching, refund-/delayed-collapse-free rollback, Core/GL compatibility and full regression verified. See [P4E findings](p4e-findings.md) |
-| P5 — Encounter supplies, trade stock, and persistent consequences | In progress (2026-10-12) | Stock epoch/conservation spike and ten-resident three-day native food/bed/refuel case verified; bounded relief deadlock/post-sleep fixed, full suites pass. Other profiles, combat/outage/tending/failures, physical trade and unload persistence remain open. See [P5 findings](p5-findings.md) |
+| P5 — Encounter supplies, trade stock, and persistent consequences | Complete for scoped contracts (2026-10-13) | Trade→attack, physical stock, emergency allocation, rollback/overflow, NPC tending, encounter archive/restore (survivors, damage, destroyed, fuel/charge/shells), off-map expiry/removal, native defeat/capture, six-hour outage and combat on two profiles, P4D regression and GL compatibility verified. Long three-day horizons deferred to post-release live testing; known limits in [P5 findings](p5-findings.md) |
 | P5A — Additional improvements | Planned, separate from P5 | Generator ventilation/fill, shell minimums, cabinets/floors and richest-spacer wall materials retained from main |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage; add route diagnostics, evidence-driven soft-preference tuning, reproducibility and encounter-quality review |
-| P7 — Settlement specialization | Not started (post-MVP) | Final planned step: agriculture/industry first; evaluate mining, ranching, forestry, trading, military, medical and research profiles; verify trade-product influence feasibility |
+| P7 — Settlement specialization | Not started (post-MVP) | Agriculture/industry first; evaluate mining, ranching, forestry, trading, military, medical and research profiles; verify trade-product influence feasibility |
+| P8 — Off-map recovery | Not started (last planned item) | After 30 days off-map a settlement recovers (repairs, rebuilds, refuels, restocks reserves); casualties stay; earlier revisits keep the P5 frozen state. See [plan](implementation-plan.md#p8--off-map-recovery-last-planned-item) |
 
 ## P0 checklist
 

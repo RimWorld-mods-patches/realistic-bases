@@ -68,8 +68,8 @@ internal static partial class Program
                         {
                             True(layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.RenewableWatts -
                                 layout.Power.CriticalWatts - layout.Power.NonCriticalWatts >= req.DefenseReserveWatts, "real dispatchable headroom");
-                            Equal(LayoutPowerModel.Batteries(layout.Power.CriticalWatts + req.DefenseReserveWatts),
-                                layout.Power.Batteries, "defense included in outage buffer");
+                            True(layout.Power.Batteries >= LayoutPowerModel.Batteries(layout.Power.CriticalWatts +
+                                layout.Power.NonCriticalWatts + req.DefenseReserveWatts), "defense included in outage buffer");
                             generators += layout.Power.Generators;
                         }
                         if (layout.Turret == null) continue;

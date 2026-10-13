@@ -8,7 +8,7 @@ using Verse;
 
 namespace RealisticBases.Persistence
 {
-    public sealed class P0SettlementState : IExposable
+    public sealed class P0SettlementState : IExposable, IThingHolder
     {
         public int settlementId = -1;
         public int generationCount;
@@ -23,6 +23,38 @@ namespace RealisticBases.Persistence
         public string proceduralFinishDigest;
         // -1 = unassigned, 0 = retain an already-generated legacy four-resident plan.
         public int ordinaryWealthPercent = -1;
+        // P5 operating-reserve remainder recorded at the last map unload.
+        public List<string> reserveKeys = new List<string>();
+        public List<int> reserveRemaining = new List<int>();
+        public int reserveLedgerTick = -1;
+        // Sole owner only while off-map; on-map allocated reserves are references
+        // in P5ReserveState. These actual Things are never recreated from counts.
+        public ThingOwner<Thing> allocatedReserves;
+        // P5.4 encounter archive, written before native teardown. Residents stay
+        // native world pawns (pinned against discard); only their IDs are kept.
+        public List<int> residentArchive = new List<int>();
+        public int residentArchiveTick = -1;
+        public string assetArchiveLayout;
+        public List<P5AssetState> assetArchive = new List<P5AssetState>();
+        // Buildings of that layout absent at unload (destroyed, deconstructed or stolen).
+        public List<string> destroyedAssets = new List<string>();
+        // Storage demand of the last accepted layout (-1: none yet), pinned on revisits.
+        public int plannedSaleStacks = -1, plannedSalePerishableStacks = -1, plannedRetainedStacks = -1, plannedRetainedPerishableStacks = -1;
+        public P0SettlementState() { allocatedReserves = new ThingOwner<Thing>(this); }
+        public IThingHolder ParentHolder => null;
+        public ThingOwner GetDirectlyHeldThings() => allocatedReserves;
+        public void GetChildHolders(List<IThingHolder> children) =>
+            ThingOwnerUtility.AppendThingHoldersFromThings(children, allocatedReserves);
+
+        public P5ReserveLedger ReserveLedger() => reserveLedgerTick < 0 ? null :
+            new P5ReserveLedger(reserveKeys.Zip(reserveRemaining, (k, v) => new KeyValuePair<string, int>(k, v)));
+
+        public void StoreReserveLedger(P5ReserveLedger ledger, int tick)
+        {
+            reserveKeys = ledger.Remaining.Keys.OrderBy(k => k, System.StringComparer.Ordinal).ToList();
+            reserveRemaining = reserveKeys.Select(k => ledger.Remaining[k]).ToList();
+            reserveLedgerTick = tick;
+        }
 
         public void ExposeData()
         {
@@ -38,10 +70,61 @@ namespace RealisticBases.Persistence
             Scribe_Values.Look(ref proceduralLayoutDigest, "proceduralLayoutDigest");
             Scribe_Values.Look(ref proceduralFinishDigest, "proceduralFinishDigest");
             Scribe_Values.Look(ref ordinaryWealthPercent, "ordinaryWealthPercent", -1);
+            Scribe_Collections.Look(ref reserveKeys, "p5ReserveKeys", LookMode.Value);
+            Scribe_Collections.Look(ref reserveRemaining, "p5ReserveRemaining", LookMode.Value);
+            Scribe_Values.Look(ref reserveLedgerTick, "p5ReserveLedgerTick", -1);
+            Scribe_Deep.Look(ref allocatedReserves, "p5AllocatedReserves", this);
+            Scribe_Collections.Look(ref residentArchive, "p5ResidentArchive", LookMode.Value);
+            Scribe_Values.Look(ref residentArchiveTick, "p5ResidentArchiveTick", -1);
+            Scribe_Values.Look(ref assetArchiveLayout, "p5AssetArchiveLayout");
+            Scribe_Collections.Look(ref assetArchive, "p5AssetArchive", LookMode.Deep);
+            Scribe_Collections.Look(ref destroyedAssets, "p5DestroyedAssets", LookMode.Value);
+            Scribe_Values.Look(ref plannedSaleStacks, "p5PlannedSaleStacks", -1);
+            Scribe_Values.Look(ref plannedSalePerishableStacks, "p5PlannedSalePerishableStacks", -1);
+            Scribe_Values.Look(ref plannedRetainedStacks, "p5PlannedRetainedStacks", -1);
+            Scribe_Values.Look(ref plannedRetainedPerishableStacks, "p5PlannedRetainedPerishableStacks", -1);
             if (Scribe.mode == LoadSaveMode.PostLoadInit && pawnIds == null)
             {
                 pawnIds = new List<int>();
             }
+            if (Scribe.mode == LoadSaveMode.PostLoadInit)
+            {
+                reserveKeys = reserveKeys ?? new List<string>();
+                reserveRemaining = reserveRemaining ?? new List<int>();
+                allocatedReserves = allocatedReserves ?? new ThingOwner<Thing>(this);
+                residentArchive = residentArchive ?? new List<int>();
+                destroyedAssets = destroyedAssets ?? new List<string>();
+                assetArchive = assetArchive?.Where(a => a != null && !string.IsNullOrEmpty(a.key)).ToList() ?? new List<P5AssetState>();
+                if (reserveKeys.Count != reserveRemaining.Count) { reserveKeys.Clear(); reserveRemaining.Clear(); reserveLedgerTick = -1; }
+            }
+        }
+    }
+
+    public sealed class P5AssetState : IExposable
+    {
+        public string key;
+        public int hitPoints = -1;
+        public float fuel = -1;
+        public float storedEnergy = -1;
+        public string shellDef;
+        public int shellCount;
+
+        public static P5AssetState From(P5AssetSnapshot s) => new P5AssetState
+        {
+            key = s.Key, hitPoints = s.HitPoints, fuel = s.Fuel, storedEnergy = s.StoredEnergy,
+            shellDef = s.ShellDef, shellCount = s.ShellCount
+        };
+
+        public P5AssetSnapshot Snapshot() => new P5AssetSnapshot(key, hitPoints, fuel, storedEnergy, shellDef, shellCount);
+
+        public void ExposeData()
+        {
+            Scribe_Values.Look(ref key, "key");
+            Scribe_Values.Look(ref hitPoints, "hp", -1);
+            Scribe_Values.Look(ref fuel, "fuel", -1);
+            Scribe_Values.Look(ref storedEnergy, "energy", -1);
+            Scribe_Values.Look(ref shellDef, "shell");
+            Scribe_Values.Look(ref shellCount, "shellCount", 0);
         }
     }
 
@@ -143,6 +226,13 @@ namespace RealisticBases.Persistence
         public override void LoadedGame()
         {
             P0Log.Message("GAME_LOADED", "worldStates=" + settlements.Count);
+        }
+
+        public override void GameComponentTick()
+        {
+            if (Find.TickManager.TicksGame % 2500 != 0) return;
+            try { Integration.P5EncounterArchive.ReleaseOrphaned(settlements); }
+            catch (System.Exception ex) { P0Log.Error("P5_ARCHIVE_RELEASE_FAILED", ex.ToString()); }
         }
     }
 

@@ -178,6 +178,13 @@ namespace RealisticBases.AI
         internal IEnumerable<Pawn> P5Residents => defenders.Where(p => p != null && !p.Dead && p.Spawned && p.Faction == faction);
         internal string P5AssignedRole(Pawn pawn) => AssignedRole(pawn).ToString();
         internal bool P5NeedsRelief(Pawn pawn) => AssignedRole(pawn) == GarrisonRole.NeedsRelief;
+        internal bool P5AcceptsOperatingStock(Settlement owner) => settlement == owner && faction == owner.Faction;
+        internal void P5RegisterOperatingStock(Thing thing)
+        {
+            if (!ownedThings.Contains(thing)) ownedThings.Add(thing);
+            if (!operatingStocks.Contains(thing)) operatingStocks.Add(thing);
+        }
+        internal void P5UnregisterOperatingStock(Thing thing) { ownedThings.Remove(thing); operatingStocks.Remove(thing); }
         public int DebugOperatingStock(string defName) => CountStock(defName);
         public int DebugDisconnectConduits()
         {
@@ -601,11 +608,14 @@ namespace RealisticBases.AI
             if (!Controls(pawn)) return null;
             if (AssignedRole(pawn) != GarrisonRole.Support) return null;
             WorkGiver_RescueDowned rescue = DefDatabase<WorkGiverDef>.GetNamedSilentFail("RescueDowned")?.Worker as WorkGiver_RescueDowned;
-            WorkGiver_Tend tend = DefDatabase<WorkGiverDef>.GetNamedSilentFail("DoctorTendToHumanlikes")?.Worker as WorkGiver_Tend;
-            foreach (Pawn patient in defenders.Where(p => p != null && p.Spawned && p != pawn).OrderBy(p => p.thingIDNumber))
+            // Most urgent first: downed, then the heaviest bleeding.
+            foreach (Pawn patient in defenders.Where(p => p != null && p.Spawned && p != pawn)
+                .OrderByDescending(p => p.Downed).ThenByDescending(p => p.health.hediffSet.BleedRateTotal)
+                .ThenBy(p => p.thingIDNumber))
             {
                 if (patient.Downed && rescue != null && rescue.HasJobOnThing(pawn, patient)) return rescue.JobOnThing(pawn, patient);
-                if (tend != null && tend.HasJobOnThing(pawn, patient)) return tend.JobOnThing(pawn, patient);
+                Job tend = TryGiveTendJob(pawn, patient);
+                if (tend != null) return tend;
             }
             WorkGiver_Refuel refuel = DefDatabase<WorkGiverDef>.GetNamedSilentFail("Refuel")?.Worker as WorkGiver_Refuel;
             WorkGiver_Refuel rearm = DefDatabase<WorkGiverDef>.GetNamedSilentFail("RearmTurrets")?.Worker as WorkGiver_Refuel;
@@ -631,6 +641,47 @@ namespace RealisticBases.AI
                 if (job != null && RouteAllowed(pawn, job.targetB.Cell.IsValid ? job.targetB.Cell : thing.Position, 64)) return job;
             }
             return null;
+        }
+
+        // WorkGiver_Tend requires player settings on the patient, and vanilla
+        // FindBestMedicine allows no medicine without them. Keep the native
+        // tend job (bed, reservations, medicine pickup and consumption), but
+        // select the patient and the residents' own operating medicine here.
+        private Job TryGiveTendJob(Pawn doctor, Pawn patient)
+        {
+            // A defender held on post during a threat is never relieved to a
+            // bed. Tend it where it stands, like a drafted field tend, once no
+            // enemy is near; the native driver holds the patient while tending.
+            bool inField = !WorkGiver_Tend.GoodLayingStatusForTend(patient, doctor) && !patient.Downed &&
+                patient.pather?.Moving != true && !GenAI.EnemyIsNear(patient, 25f);
+            if (!patient.health.HasHediffsNeedingTend() ||
+                !WorkGiver_Tend.GoodLayingStatusForTend(patient, doctor) && !inField ||
+                patient.InAggroMentalState || doctor.WorkTypeIsDisabled(WorkTypeDefOf.Doctor) ||
+                !doctor.CanReserveAndReach(patient, PathEndMode.Touch, Danger.Deadly) ||
+                !RouteAllowed(doctor, patient.Position, 160)) return null;
+            Thing medicine = null;
+            if (Medicine.GetMedicineCountToFullyHeal(patient) > 0)
+                medicine = ownedThings.Where(t => t != null && !t.Destroyed && t.def.IsMedicine && MedicineAvailable(doctor, t))
+                    .OrderByDescending(t => t.def.GetStatValueAbstract(StatDefOf.MedicalPotency))
+                    .ThenBy(t => t.ParentHolder == doctor.inventory ? 0 : 1)
+                    .ThenBy(t => t.PositionHeld.DistanceToSquared(doctor.Position))
+                    .ThenBy(t => t.thingIDNumber).FirstOrDefault();
+            Job job = medicine == null ? JobMaker.MakeJob(JobDefOf.TendPatient, patient)
+                : medicine.SpawnedParentOrMe != medicine
+                ? JobMaker.MakeJob(JobDefOf.TendPatient, patient, medicine, medicine.SpawnedParentOrMe)
+                : JobMaker.MakeJob(JobDefOf.TendPatient, patient, medicine);
+            job.draftedTend = inField;
+            return job;
+        }
+
+        private bool MedicineAvailable(Pawn doctor, Thing medicine)
+        {
+            if (medicine.ParentHolder == doctor.inventory) return true;
+            if (medicine.ParentHolder is Pawn_InventoryTracker holder)
+                return holder.pawn != doctor && holder.pawn.Spawned && defenders.Contains(holder.pawn) &&
+                    RouteAllowed(doctor, holder.pawn.Position, 160);
+            return medicine.Spawned && !medicine.IsForbidden(doctor) && doctor.CanReserve(medicine, 10, 1) &&
+                RouteAllowed(doctor, medicine.Position, 160);
         }
 
         public Job TryGiveHoldJob(Pawn pawn)
@@ -853,7 +904,8 @@ namespace RealisticBases.AI
             bool tend = pawn.health?.HasHediffsNeedingTend() ?? false;
             return new DefenderCandidate(pawn.thingIDNumber, weaponClass, (int)Math.Round(range),
                 mortars.Any(GunAvailable) && weaponClass != DefenderWeaponClass.Melee, true, food, rest, tend,
-                previousPost, previousRole, previousTick, new GridPoint(pawn.Position.x, pawn.Position.z), SmokePack(pawn) != null);
+                previousPost, previousRole, previousTick, new GridPoint(pawn.Position.x, pawn.Position.z), SmokePack(pawn) != null,
+                !pawn.WorkTypeIsDisabled(WorkTypeDefOf.Doctor));
         }
 
         private List<DefensivePost> RuntimePosts(Pawn reachPawn)
