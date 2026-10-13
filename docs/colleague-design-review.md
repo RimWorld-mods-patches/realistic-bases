@@ -4,7 +4,7 @@
 
 **Recommendation: keep our current P4A architecture and borrow a few targeted ideas.** The document is useful as a checklist of spatial relationships and failure cases. It is not a reason to restart the planner, import a large room taxonomy, or introduce a general optimization framework. Our immediate priority remains finishing and validating the procedural generator.
 
-**Evidence and limits.** I read the supplied [conversation export](/Users/roman_gr/Repositories/rimworld/realistic-bases/docs/rimworld_chat_full.md) and compared it with implementation commit `110c78f711cb41ea34c1545a63108633f7665fc5` on `codex/p4-finish`, including the current progress tracker. The main checkout contains older planning documents; the comparison uses the implementation worktree. Code inspection and recorded runtime findings are distinguished below; I did not run a new game test for this review.
+**Evidence and limits.** I read the supplied conversation export (not in the repository) and compared it with implementation commit `110c78f711cb41ea34c1545a63108633f7665fc5` on `codex/p4-finish`, including the current progress tracker. The main checkout contains older planning documents; the comparison uses the implementation worktree. Code inspection and recorded runtime findings are distinguished below; I did not run a new game test for this review.
 
 The export is a proposed design, not a validated specification. Its claimed 55×55 matrix and 333 relations are in linked `sandbox:/mnt/data/...` attachments that are not included in the supplied Markdown. Only the visible excerpt and examples were reviewable. Room counts, DLC coverage, numerical weights and claimed wiki-derived rules should not become requirements without checking the relevant game definitions. The colleague's requests for Multiplayer and friendly visits do not automatically extend our scope.
 
@@ -20,7 +20,7 @@ The export is a proposed design, not a validated specification. Its claimed 55×
 | Validate before spawning and audit the actual map | Already part of our design and runtime work, including transactional recovery and cooler-exhaust checks. Complete the outstanding coverage; do not duplicate validators to match the proposed class list. |
 | Stable settlement seed, tech profile and diagnostics | Seeds, faction stages, planner identifiers, digests and bounded search statistics exist. This is a foundation, not proof of full revisit persistence or cross-version reproduction. |
 
-Relevant code: [relationship model](/Users/roman_gr/.codex/worktrees/75e8/realistic-bases/Source/RealisticBases/Planning/ProceduralLayoutModel.cs:405), [placement scoring](/Users/roman_gr/.codex/worktrees/75e8/realistic-bases/Source/RealisticBases/Planning/ProceduralLayoutPlanner.cs:1377), [final layout validation](/Users/roman_gr/.codex/worktrees/75e8/realistic-bases/Source/RealisticBases/Planning/ProceduralLayoutValidator.cs:16), and [runtime planning inputs](/Users/roman_gr/.codex/worktrees/75e8/realistic-bases/Source/RealisticBases/Integration/P4AMapPlanning.cs:26). These paths identify the reviewed implementation; line positions may change during ongoing work.
+Relevant code: [relationship model](../Source/RealisticBases/Planning/ProceduralLayoutModel.cs#L405), [placement scoring](../Source/RealisticBases/Planning/ProceduralLayoutPlanner.cs#L1377), [final layout validation](../Source/RealisticBases/Planning/ProceduralLayoutValidator.cs#L16), and [runtime planning inputs](../Source/RealisticBases/Integration/P4AMapPlanning.cs#L26). These paths identify the reviewed implementation; line positions may change during ongoing work.
 
 **Ideas worth using, in priority order**
 
@@ -87,6 +87,6 @@ Geological Landforms remains in current scope. Keep reading the generated map th
 | 3 | Only where those results justify it, add missing soft relations or bounded route-based candidate scoring. | Same-seed comparison demonstrates improvement without unacceptable rejection rates, lost variety or search cost. |
 | 4 | During P5, review reserve/trade storage and hazardous stock placement together. | Real quantities, access, no duplication and depletion/revisit behavior pass the existing P5 checks. |
 
-Trade remains an important omission from the colleague's design: a trading zone and economic specialization do not make spawned goods match the settlement's actual offer. Our [supply and MVP scope](/Users/roman_gr/.codex/worktrees/75e8/realistic-bases/docs/supply-and-mvp-scope.md) remains authoritative, including bounded encounter readiness and deferred long-term sustainability.
+Trade remains an important omission from the colleague's design: a trading zone and economic specialization do not make spawned goods match the settlement's actual offer. Our [supply and MVP scope](supply-and-mvp-scope.md) remains authoritative, including bounded encounter readiness and deferred long-term sustainability.
 
 The useful contribution is better spatial criteria and a few focused diagnostics. The proposed architecture, larger feature catalog and optimization machinery should not delay a working, tested procedural settlement raid.

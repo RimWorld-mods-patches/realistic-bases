@@ -41,7 +41,7 @@ Validation cases: existing versus never-generated stock; empty stock; buy then a
 
 ## 4. Source evidence and open implementation questions
 
-The local [Settlement_TraderTracker](/Users/roman_gr/Repositories/rimworld/vanilla-decompiled/Assembly-CSharp-1.6.4871/RimWorld.Planet.Settlement_TraderTracker.cs) owns a `ThingOwner`, serializes stock, and moves quantities through buy/sell methods. Its `StockListForReading` getter regenerates stock when absent **or empty**, and `TraderTrackerTick` expires stock on a timed restock boundary. Its initial generation passes trader kind, tile and faction to `ThingSetMakerDefOf.TraderStock`.
+The local Settlement_TraderTracker (decompiled `RimWorld.Planet.Settlement_TraderTracker.cs`) owns a `ThingOwner`, serializes stock, and moves quantities through buy/sell methods. Its `StockListForReading` getter regenerates stock when absent **or empty**, and `TraderTrackerTick` expires stock on a timed restock boundary. Its initial generation passes trader kind, tile and faction to `ThingSetMakerDefOf.TraderStock`.
 
 This directly supports using actual settlement merchandise as an input. It also means naïvely copying the list, emptying its holder, or calling the getter every generation can reroll or duplicate goods. The adapter must establish ownership, empty-stock suppression and restock reconciliation together. How to safely expose map-owned goods to the vanilla trade methods, and how loaded goods deteriorate versus off-map stock, remain explicit implementation questions. No runtime trade integration has been tested in this documentation revision.
 

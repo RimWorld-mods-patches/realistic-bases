@@ -91,7 +91,7 @@ Add the research and role/catalog entry through existing legality rules. Check p
 
 A uranium turret needs a usable longer-range lane and another appropriate position/weapon covering its close blind zone where feasible. Respect actual line of fire, friendly movement and turret explosion consequences when spacing emplacements. Use simple checks against nearby vulnerable assets and critical paths, not a general blast simulator. Validate actual firing, uranium consumption/rearming, exhaustion and save/reload in a high-industrial encounter, plus a lower-tier rejection case. P4B proves operation with finite stocks; P5 calibrates encounter-wide reserves and ownership/persistence.
 
-Evidence: installed [turret definitions](</Users/roman_gr/Library/Application Support/Steam/steamapps/common/RimWorld/RimWorldMac.app/Data/Core/Defs/ThingDefs_Buildings/Buildings_Security_Turrets.xml:425>) and [research definition](</Users/roman_gr/Library/Application Support/Steam/steamapps/common/RimWorld/RimWorldMac.app/Data/Core/Defs/ResearchProjectDefs/ResearchProjects_4_MultiAnalyzer.xml:287>). These are version-specific observations, not promises about arbitrary mods.
+Evidence: installed turret definitions (`Data/Core/Defs/ThingDefs_Buildings/Buildings_Security_Turrets.xml:425` in the game folder) and research definition (`Data/Core/Defs/ResearchProjectDefs/ResearchProjects_4_MultiAnalyzer.xml:287` in the game folder). These are version-specific observations, not promises about arbitrary mods.
 
 ## A small amount of fortification theory
 

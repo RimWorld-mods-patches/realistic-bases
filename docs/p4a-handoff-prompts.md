@@ -7,7 +7,7 @@ The live generator uses `ProceduralLayout` directly and validates it with
 below to wait for P4 closeout, avoid P4A files, or continue the fixed compound
 have been superseded.
 
-2026-09-23. There are two paste-ready prompts: **A** for the P4 owner, and **B** for the agent that picks up P4A after P4 closes. Both refer to commit `f844e43` on branch `claude/p4a-foundations` (worktree `/Users/roman_gr/Repositories/rimworld/realistic-bases-p4a`), which is based on P4 commit `a41477e`.
+2026-09-23. There are two paste-ready prompts: **A** for the P4 owner, and **B** for the agent that picks up P4A after P4 closes. Both refer to commit `f844e43` on branch `claude/p4a-foundations` (worktree `realistic-bases-p4a`), which is based on P4 commit `a41477e`.
 
 ---
 
@@ -64,7 +64,7 @@ have been superseded.
 > You are continuing **P4A — Procedural settlement layouts** for the RimWorld 1.6 mod Realistic Bases. The pure planner foundation and plan steps 1–6 (tech-stage-driven equipment) are complete and tested. Your job is runtime integration, meaning plan steps 7–8 plus the P4A integration checklist. **Do not start this until P4 is marked complete** in `docs/progress.md`, and until the P4 owner has answered the contract requests in `docs/p4a-handoff-prompts.md` (Prompt A).
 >
 > **Where the work is:**
-> - Branch `claude/p4a-foundations`, head `f844e43`, worktree `/Users/roman_gr/Repositories/rimworld/realistic-bases-p4a`. It may also have been brought into the main checkout (`codex/p4-connectivity`) or Terra's worktree; check with `git log`.
+> - Branch `claude/p4a-foundations`, head `f844e43`, worktree `realistic-bases-p4a`. It may also have been brought into the main checkout (`codex/p4-connectivity`) or Terra's worktree; check with `git log`.
 > - Commits:
 >   - Foundation: `74e5d57`, `7144e9f`, `00efed4`, `b08fe05`.
 >   - Plan: `0b4fd06`.
