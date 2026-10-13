@@ -1,0 +1,63 @@
+# CI + rolling GitHub Release for the main branch.
+
+name: Release Main
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    uses: ./.github/workflows/build.yml
+    with:
+      channel: main
+
+  publish:
+    name: Publish rolling release
+    needs: [build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+
+    - name: Checkout repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Download mod zip
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: ${{ needs.build.outputs.artifact }}-zip
+
+    - name: Publish main release
+      run: |
+        set -euo pipefail
+        TAG=main-latest
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          gh release delete "$TAG" --cleanup-tag --yes
+        fi
+        # Pass assets on create: gh drafts, uploads, then publishes in one flow.
+        gh release create "$TAG" \
+          --target "${{ github.sha }}" \
+          --title "Main (${{ needs.build.outputs.mod_version }})" \
+          --notes-file ".github/workflows/main-notes.md" \
+          --prerelease \
+          "${{ needs.build.outputs.zip }}"
