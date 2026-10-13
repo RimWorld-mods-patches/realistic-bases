@@ -154,6 +154,25 @@ internal static class P5BGarrisonTests
         Check(wakings < 60, "sleepers are not woken back and forth, wakings=" + wakings);
     }
 
+    // A quest camp's lone guard keeps the watch rather than becoming the
+    // support worker; with a mortar crew both stand duty.
+    public static void SmallRosterKeepsTheWatch()
+    {
+        List<DefenderCandidate> guard = new List<DefenderCandidate> {
+            new DefenderCandidate(1, DefenderWeaponClass.LongRanged, 30, false, true, false, false, false) };
+        foreach (bool hostile in new[] { false, true })
+        {
+            GarrisonPlan plan = GarrisonDoctrine.Assign(Situation(1000, guard, "west", hostile: hostile, mortar: false));
+            Equal(GarrisonRole.RangedPost, plan.Assignments.Single().Role, "the lone guard watches, hostile=" + hostile);
+        }
+        List<DefenderCandidate> crewed = new List<DefenderCandidate> {
+            new DefenderCandidate(1, DefenderWeaponClass.LongRanged, 30, true, true, false, false, false),
+            new DefenderCandidate(2, DefenderWeaponClass.ShortRanged, 15, true, true, false, false, false) };
+        GarrisonPlan watch = GarrisonDoctrine.Assign(Situation(1000, crewed, "west", assault: false));
+        Equal(1, watch.Assignments.Count(a => a.Role == GarrisonRole.MortarOperator), "the crew mans the mortar");
+        Equal(1, watch.Assignments.Count(a => a.Role == GarrisonRole.RangedPost), "the guard watches");
+    }
+
     public static void NoRestReliefUnderAssault()
     {
         List<DefenderCandidate> tired = Enumerable.Range(1, 6).Select(id => new DefenderCandidate(id,

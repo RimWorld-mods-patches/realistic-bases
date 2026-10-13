@@ -171,8 +171,9 @@ namespace RealisticBases.Planning
             LayoutMaterialLedger baseMaterials = layout.Turret == null ? materials :
                 input.Equipment.Count(layout.Rooms,
                     layout.BuiltWalls.Concat(layout.Gates.SelectMany(g => g.BandWalls)).Concat(layout.OuterWalls)
-                        .Concat(layout.ExhaustPocketWalls).Concat(layout.FieldWall.Walls),
-                    layout.Gates.Sum(g => 1 + g.BandDoors.Count) + 2 + (layout.ApproachDefense?.SallyPorts.Count ?? 0), layout.Power);
+                        .Concat(layout.ExhaustPocketWalls).Concat(layout.FieldWall?.Walls ?? Enumerable.Empty<GridPoint>()),
+                    layout.Gates.Sum(g => 1 + g.BandDoors.Count) + (layout.FieldWall == null ? 0 : 2) +
+                        (layout.ApproachDefense?.SallyPorts.Count ?? 0), layout.Power);
             // Turret.ImportValue contains its construction and finite fuel.
             // The stored materials ledger already contains construction, so
             // budget from the pre-turret ledger to avoid charging it twice.

@@ -175,7 +175,7 @@ namespace RealisticBases.Planning
             IEnumerable<KeyValuePair<LayoutRoomKind, int>> capacityFloors = null, SettlementTechStage stage = null, int importValueLimit = -1,
             int equipmentValueLimit = -1, int stockpileRoomCapacityTarget = 0, bool compactQuestCamp = false,
             int defenseReserveWatts = 0, int logisticsUtilityValueLimit = 0, int saleStorageStacks = 0, int salePerishableStacks = 0,
-            int retainedStorageStacks = 0, int retainedPerishableStacks = 0)
+            int retainedStorageStacks = 0, int retainedPerishableStacks = 0, int questArtillery = 0)
         {
             if (saleStorageStacks < 0 || salePerishableStacks < 0 || retainedStorageStacks < 0 || retainedPerishableStacks < 0 ||
                 compactQuestCamp && (saleStorageStacks + salePerishableStacks + retainedStorageStacks + retainedPerishableStacks > 0))
@@ -191,8 +191,10 @@ namespace RealisticBases.Planning
             if (stockpileRoomCapacityTarget < 0) throw new ArgumentOutOfRangeException(nameof(stockpileRoomCapacityTarget));
             Residents = residents;
             CompactQuestCamp = compactQuestCamp;
-            if (defenseReserveWatts < 0 || compactQuestCamp && defenseReserveWatts != 0) throw new ArgumentOutOfRangeException(nameof(defenseReserveWatts));
+            if (defenseReserveWatts < 0) throw new ArgumentOutOfRangeException(nameof(defenseReserveWatts));
             DefenseReserveWatts = defenseReserveWatts;
+            if (questArtillery < 0 || questArtillery > 0 && !compactQuestCamp) throw new ArgumentOutOfRangeException(nameof(questArtillery));
+            QuestArtillery = questArtillery;
             if (logisticsUtilityValueLimit < 0 || compactQuestCamp && logisticsUtilityValueLimit != 0)
                 throw new ArgumentOutOfRangeException(nameof(logisticsUtilityValueLimit));
             LogisticsUtilityValueLimit = logisticsUtilityValueLimit;
@@ -236,6 +238,9 @@ namespace RealisticBases.Planning
         public int Residents { get; }
         public bool CompactQuestCamp { get; }
         public int DefenseReserveWatts { get; }
+        // A quest camp's advertised mortars: exactly this many courts, crewed
+        // by the quest's own roster.
+        public int QuestArtillery { get; }
         public int LogisticsUtilityValueLimit { get; }
         public SettlementCapability Capabilities { get; }
         public HousingStandard Housing { get; }
@@ -359,6 +364,11 @@ namespace RealisticBases.Planning
                 hash = StableHash.Add(hash, StockpileRoomCapacityTarget);
             }
             if (CompactQuestCamp) hash = StableHash.Add(hash, "compact-finite-quest-camp-v1");
+            if (QuestArtillery > 0)
+            {
+                hash = StableHash.Add(hash, "quest-artillery");
+                hash = StableHash.Add(hash, QuestArtillery);
+            }
             if (SaleStorageStacks + SalePerishableStacks > 0)
             {
                 hash = StableHash.Add(hash, "p5-sale-stock");

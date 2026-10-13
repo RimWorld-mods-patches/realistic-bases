@@ -46,6 +46,7 @@ internal static partial class Program
         Run("P4D compact camps use shared geometry without ordinary gear", QuestCampLayouts);
         Run("P4D unusable terrain rejects without changing inputs", QuestCampRejection);
         Run("P4D terrain and tech matrix preserves objective and native roster", QuestTerrainTechMatrix, 15);
+        RunTurretRescueTests();
         Run("P4C finishes are deterministic, whole-room, protected and budgeted", P4CFinishPolicy, 15);
         Run("ordinary population follows wealth budgets with mean seven", OrdinaryPopulationBudgets);
         Run("ordinary population remains stable and preserves legacy saves", OrdinaryPopulationPersistence);

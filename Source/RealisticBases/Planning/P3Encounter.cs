@@ -32,7 +32,8 @@ namespace RealisticBases.Planning
     {
         public EncounterProfile(string id, bool mortarCapable, int combatHours, int mortarShotsPerHour,
             int heShells, int incendiaryShells, int reinforcedBarrels, int requiredRangedPosts,
-            int requiredGatePosts, int mortarOperators, int supportWorkers, int addedContinuousPowerWatts)
+            int requiredGatePosts, int mortarOperators, int supportWorkers, int addedContinuousPowerWatts,
+            bool nativeQuestSupply = false)
         {
             if (string.IsNullOrWhiteSpace(id) || combatHours <= 0 || mortarShotsPerHour < 0 || heShells < 0 ||
                 incendiaryShells < 0 || reinforcedBarrels < 0 || requiredRangedPosts <= 0 || requiredGatePosts <= 0 ||
@@ -52,7 +53,9 @@ namespace RealisticBases.Planning
             AddedContinuousPowerWatts = addedContinuousPowerWatts;
             if (mortarCapable)
             {
-                if (mortarOperators < 1 || HeShells < DeclaredMortarShots || reinforcedBarrels < 1)
+                // A settlement keeps a spare barrel; a quest's native mortar
+                // has only its own.
+                if (mortarOperators < 1 || HeShells < DeclaredMortarShots || reinforcedBarrels < (nativeQuestSupply ? 0 : 1))
                     throw new ArgumentException("Mortar profile does not cover declared firing duty.");
             }
             else if (mortarOperators != 0 || heShells != 0 || incendiaryShells != 0 || reinforcedBarrels != 0)
@@ -96,6 +99,15 @@ namespace RealisticBases.Planning
             if (guns < 1 || guns > 3) throw new ArgumentOutOfRangeException(nameof(guns));
             return guns == 1 ? Industrial : new EncounterProfile("industrial-encounter-p4e-" + guns,
                 true, 6, 2, HeShellsPerMortar * guns, IncendiaryShellsPerMortar * guns, 2, 4, 2, guns, 1, 0);
+        }
+
+        // A quest's advertised mortar as native supplies it: its crew, one
+        // stack of shells and the gun's own barrel, nothing in reserve.
+        public static EncounterProfile ForQuestArtillery(int guns, int shells)
+        {
+            if (guns < 1 || shells < guns) throw new ArgumentOutOfRangeException(nameof(shells));
+            return new EncounterProfile("quest-native-mortar-v1-" + guns + "-" + shells,
+                true, 1, shells / guns, shells, 0, 0, 4, 2, guns, 1, 0, nativeQuestSupply: true);
         }
 
         public static EncounterProfile For(PhysicalSettlementProfile profile) =>

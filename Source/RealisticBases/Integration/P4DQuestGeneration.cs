@@ -68,6 +68,8 @@ namespace RealisticBases.Integration
         public Pawn Prisoner { get; private set; }
         public CellRect PrisonBounds { get; private set; }
         public P4DQuestContract Contract { get; private set; }
+        // The native Turrets part, not an Outpost, owns this site's force.
+        public bool TurretPart => Force.def.defName == "Turrets";
         public bool Committed { get; private set; }
         public bool NativeFallback { get; set; }
         public bool RecoveryVerified { get; set; } = true;
@@ -85,12 +87,19 @@ namespace RealisticBases.Integration
             Rand.PushState(Gen.HashCombineInt(Force.parms.randomValue, Site.ID));
             try
             {
-                foreach (Pawn pawn in PawnGroupMakerUtility.GeneratePawns(new PawnGroupMakerParms
-                {
-                    tile = Map.Tile, faction = Site.Faction, groupKind = PawnGroupKindDefOf.Settlement,
-                    points = Force.parms.threatPoints, inhabitants = true,
-                    seed = OutpostSitePartUtility.GetPawnGroupMakerSeed(Force.parms)
-                }))
+                IEnumerable<Pawn> roster = TurretPart
+                    // Native GenStep_Turrets: one guard, and a crew pawn per
+                    // manned mortar, from the same requests BaseGen uses.
+                    ? Enumerable.Range(0, 1 + Force.parms.mortarsCount).Select(_ => PawnGenerator.GeneratePawn(
+                        new PawnGenerationRequest(Site.Faction.RandomPawnKind(), Site.Faction, PawnGenerationContext.NonPlayer,
+                            Map.Tile, mustBeCapableOfViolence: true, inhabitant: true))).ToList()
+                    : PawnGroupMakerUtility.GeneratePawns(new PawnGroupMakerParms
+                    {
+                        tile = Map.Tile, faction = Site.Faction, groupKind = PawnGroupKindDefOf.Settlement,
+                        points = Force.parms.threatPoints, inhabitants = true,
+                        seed = OutpostSitePartUtility.GetPawnGroupMakerSeed(Force.parms)
+                    });
+                foreach (Pawn pawn in roster)
                 {
                     Roster.Add(pawn);
                     if (!prepared.TryAdd(pawn, false)) throw new InvalidOperationException("Cannot stage native roster");
@@ -115,7 +124,8 @@ namespace RealisticBases.Integration
             QuestSiteFacts facts = new QuestSiteFacts(Site.ID, Site.Faction.def.defName, Map.generatorDef.defName,
                 Site.parts.Select(p => new QuestPartFacts(p.def.defName, p.hidden)), Force.parms.threatPoints,
                 Force.parms.randomValue, Force.parms.lootMarketValue, Force.expectedEnemyCount,
-                Roster.Select(Describe), Loot.Count, Prisoner?.ThingID, Prisoner?.holdingOwner == PrisonerPart?.things);
+                Roster.Select(Describe), Loot.Count, Prisoner?.ThingID, Prisoner?.holdingOwner == PrisonerPart?.things,
+                turretsCount: TurretPart ? Force.parms.turretsCount : 0, mortarsCount: TurretPart ? Force.parms.mortarsCount : 0);
             if (!P4DQuestContract.TryCreate(facts, out P4DQuestContract contract, out string reason))
                 throw new InvalidOperationException(reason);
             if (Roster.Any(p => p.IsPrisoner || p.IsSlave || p.Faction != Site.Faction || !p.RaceProps.Humanlike ||
@@ -195,11 +205,15 @@ namespace RealisticBases.Integration
         }
 
         public void BeforeCommit(P4SpawnTransaction tx, ProceduralLayout layout, string finish,
-            EncounterPlan encounter, IEnumerable<Thing> combatStocks, int startupFuel)
+            EncounterPlan encounter, IEnumerable<Thing> combatStocks, int startupFuel, IReadOnlyList<Thing> artillery)
         {
             if (P4DQuestGeneration.ForcedFailure == P4DForcedFailure.AfterBase)
                 throw new InvalidOperationException("forced_quest_failure_after_base");
-            double operatingValue = tx.OwnedThings.Where(t => t.def.category == ThingCategory.Item)
+            // The advertised mortar's native shells are quest content like the
+            // gun itself, not the camp's operating stock.
+            HashSet<Thing> gunSupply = new HashSet<Thing>(Contract.QuestMortars > 0 ? combatStocks : Enumerable.Empty<Thing>());
+            double gunSupplyValue = gunSupply.Sum(t => t.MarketValue * t.stackCount);
+            double operatingValue = tx.OwnedThings.Where(t => t.def.category == ThingCategory.Item && !gunSupply.Contains(t))
                 .Sum(t => t.MarketValue * t.stackCount) + startupFuel *
                 (layout.Power == null ? 0 : DefDatabase<ThingDef>.GetNamedSilentFail(layout.Power.FuelDef)?.BaseMarketValue ?? 0);
             if (operatingValue > Contract.OperatingValueAllowance + 0.01)
@@ -216,9 +230,9 @@ namespace RealisticBases.Integration
             });
             controller.Initialize(Site, layout.Gates.Select(g => g.Cell)
                 .Concat(layout.ApproachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0]),
-                encounter, Roster, tx.OwnedThings.Concat(Roster).Concat(Loot), null, combatStocks,
+                encounter, Roster, tx.OwnedThings.Concat(Roster).Concat(Loot), artillery.FirstOrDefault(), combatStocks,
                 P4ProceduralSpawner.PerimeterSegments(layout, encounter.SupportCenter),
-                layout.Enclosure, compoundRegion: layout.Enclosure);
+                layout.Enclosure, compoundRegion: layout.Enclosure, artillery: artillery);
             lord = LordMaker.MakeNewLord(Site.Faction, new LordJob_P3Garrison(Site.ID), Map, Roster);
             // Metadata is part of provisional ownership, never ordinary wealth state.
             var data = AccessTools.Field(typeof(MapGenerator), "data").GetValue(null) as Dictionary<string, object>;
@@ -250,12 +264,27 @@ namespace RealisticBases.Integration
                 throw new InvalidOperationException("forced_quest_failure_after_transfer_metadata");
             P4DQuestDebugActions.Log("QUEST_CONTENT_LEDGER", "site=" + Site.ID + " defenders=" + Roster.Count +
                 " threat=" + Force.parms.threatPoints + " groupSeed=" + Force.parms.randomValue +
-                " staticThreat=0 gearValue=" + Contract.EquipmentValue + " operating=" + operatingValue +
+                " staticThreat=" + Contract.AddedStaticThreatPoints + " turrets=" + Contract.QuestTurrets +
+                " mortars=" + Contract.QuestMortars + " shells=" + Contract.QuestMortarShells +
+                " gunSupply=" + gunSupplyValue.ToString("F0") + " gearValue=" + Contract.EquipmentValue + " operating=" + operatingValue +
                 "/" + Contract.OperatingValueAllowance + " lootAllowance=" + Force.parms.lootMarketValue +
                 " lootValue=" + Loot.Sum(t => t.MarketValue * t.stackCount) + " lootIDs=" + string.Join(",", Loot.Select(t => t.ThingID)));
         }
 
         public void MarkCommitted() { Committed = true; }
+
+        // A native turret site generates its own guard and crews, so a
+        // fallback discards the prepared, never spawned ones.
+        public void DiscardTurretRoster()
+        {
+            if (!TurretPart || rosterReleased) return;
+            rosterReleased = true;
+            foreach (Pawn pawn in Roster)
+            {
+                prepared.Remove(pawn);
+                if (!pawn.Discarded) Find.WorldPawns.PassToWorld(pawn, PawnDiscardDecideMode.Discard);
+            }
+        }
         public IEnumerable<Pawn> NativeRoster()
         {
             if (rosterReleased) throw new InvalidOperationException("Native quest roster consumed twice");
@@ -286,11 +315,14 @@ namespace RealisticBases.Integration
             if (P4DQuestDebugActions.Disposable && map.Parent is Site inventorySite)
                 P4DQuestDebugActions.Log("QUEST_STEPS", "site=" + inventorySite.ID + " actual=" +
                     string.Join(",", Steps.GetValue(map, _ => new List<GenStepWithParams>()).Select(s => s.def.defName + "@" + s.def.order)));
-            if (map.Parent is Site site && !site.parts.Any(p => p.def.ExtraGenSteps.Any(s => s.genStep is GenStep_Outpost)))
-                P4DQuestDebugActions.Log("QUEST_NATIVE", "site=" + site.ID + " reason=no_supported_outpost_step");
+            if (map.Parent is Site site && !site.parts.Any(p => p.def.ExtraGenSteps.Any(s =>
+                    s.genStep is GenStep_Outpost || s.genStep is GenStep_Turrets)))
+                P4DQuestDebugActions.Log("QUEST_NATIVE", "site=" + site.ID + " reason=no_supported_force_step");
         }
 
-        internal static bool TryGenerate(GenStep_Outpost step, Map map, GenStepParams parms)
+        // The site's force step: GenStep_Outpost, or GenStep_Turrets for the
+        // turret-guarded rescue.
+        internal static bool TryGenerate(GenStep step, Map map, GenStepParams parms)
         {
             if (!Eligible(step, map, parms, out string reason))
             {
@@ -310,8 +342,9 @@ namespace RealisticBases.Integration
                 context.Prepare();
                 var stage = TechStageModel.Create(map.ParentFaction.def.techLevel >= TechLevel.Industrial
                     ? SettlementTechStageLevel.IndustrialMid : SettlementTechStageLevel.Neolithic);
-                var input = new ProceduralLayoutInput(context.Contract.Requirements(stage, P4AMapPlanner.CaptureClimate(map)),
-                    P1MapPlanner.Capture(map), context.Contract.Seed, P4ARuntimeCatalog.Capture(),
+                TechCatalog catalog = P4ARuntimeCatalog.Capture();
+                var input = new ProceduralLayoutInput(context.Contract.Requirements(stage, P4AMapPlanner.CaptureClimate(map), catalog),
+                    P1MapPlanner.Capture(map), context.Contract.Seed, catalog,
                     resources: P4AMapPlanner.CaptureResources(map), questContract: context.Contract);
                 var result = ProceduralLayoutPlanner.Plan(input);
                 if (!result.Success) throw new InvalidOperationException("quest_layout:" + P4AMapPlanner.RejectionSummary(result));
@@ -331,15 +364,17 @@ namespace RealisticBases.Integration
                     " pawn=" + context.Prisoner.ThingID + " originalOwner=true join=" + context.Prisoner.mindState.WillJoinColonyIfRescued +
                     " health=" + context.Prisoner.health.summaryHealth.SummaryHealthPercent);
                 context.NativeFallback = true;
-                NativeActive = context;
+                if (context.TurretPart) context.DiscardTurretRoster();
+                else NativeActive = context;
                 P4DQuestDebugActions.Log("QUEST_FALLBACK", "site=" + context.Site.ID + " reason=" + ex.Message +
-                    " preparedRoster=" + context.Roster.Count + " nativeRuns=1");
+                    " preparedRoster=" + context.Roster.Count + (context.TurretPart ? " discarded=" + context.Roster.Count(p => p.Discarded) : "") +
+                    " nativeRuns=1");
                 return true;
             }
             finally { ForcedFailure = P4DForcedFailure.None; }
         }
 
-        private static bool Eligible(GenStep_Outpost step, Map map, GenStepParams parms, out string reason)
+        private static bool Eligible(GenStep step, Map map, GenStepParams parms, out string reason)
         {
             reason = "unsupported_contract";
             if (!RealisticBasesMod.Settings.enableP0Generator) { reason = "disabled"; return false; }
@@ -350,7 +385,9 @@ namespace RealisticBases.Integration
                 !new[] { "Pirate", "OutlanderRough", "TribeRough", "TribeSavage" }.Contains(site.Faction.def.defName) ||
                 site.parts.Any(p => p.hidden || p.def.modContentPack?.PackageIdPlayerFacing != "Ludeon.RimWorld")) return false;
             bool bandit = site.parts.Select(p => p.def.defName).SequenceEqual(new[] { "BanditCamp" });
-            bool rescue = site.parts.Select(p => p.def.defName).SequenceEqual(new[]
+            bool turrets = site.parts.Select(p => p.def.defName).SequenceEqual(new[]
+                { "PrisonerWillingToJoin", "Turrets", "PossibleUnknownThreatMarker" });
+            bool rescue = turrets || site.parts.Select(p => p.def.defName).SequenceEqual(new[]
                 { "PrisonerWillingToJoin", "Outpost", "PossibleUnknownThreatMarker" });
             if (!(bandit || rescue) || site.parts[bandit ? 0 : 1] != parms.sitePart || site.def.mapGenerator != null ||
                 !Find.QuestManager.QuestsListForReading.Any(q => q.State == QuestState.Ongoing &&
@@ -361,20 +398,31 @@ namespace RealisticBases.Integration
                 site.parts[0].def.ExtraGenSteps.Count != 1 || site.parts[0].def.ExtraGenSteps[0].genStep.GetType() != typeof(GenStep_PrisonerWillingToJoin) ||
                 site.parts[2].def.Worker.GetType() != typeof(SitePartWorker_UnknownThreatMarker) ||
                 site.parts[2].def.ExtraGenSteps.Any() || site.parts[2].things?.Any == true)) return false;
-            if (step.GetType() != typeof(GenStep_Outpost) || step.overrideFaction != null || step.forcedRect != null ||
-                step.settlementDontGeneratePawns || !step.generateLoot || step.unfogged || step.attackWhenPlayerBecameEnemy ||
-                step.requiredGravcoreRooms != 0 || step.requiredWorshippedTerminalRooms != 0 ||
-                step.postProcessSettlementParams != null || step.pawnGroupKindDef != null) return false;
+            if (turrets)
+            {
+                // Core's step: one guard, the advertised guns, nothing else.
+                if (!(step is GenStep_Turrets gunStep) || step.GetType() != typeof(GenStep_Turrets) ||
+                    gunStep.guardsCountRange != new IntRange(1, 1) ||
+                    parms.sitePart.def.Worker.GetType() != typeof(SitePartWorker_Turrets)) return false;
+            }
+            else if (!(step is GenStep_Outpost outpost) || step.GetType() != typeof(GenStep_Outpost) ||
+                outpost.overrideFaction != null || outpost.forcedRect != null ||
+                outpost.settlementDontGeneratePawns || !outpost.generateLoot || outpost.unfogged || outpost.attackWhenPlayerBecameEnemy ||
+                outpost.requiredGravcoreRooms != 0 || outpost.requiredWorshippedTerminalRooms != 0 ||
+                outpost.postProcessSettlementParams != null || outpost.pawnGroupKindDef != null) return false;
             if (!Steps.TryGetValue(map, out var actual)) return false;
             var expected = map.generatorDef.genSteps.Concat(site.parts.SelectMany(p => p.def.ExtraGenSteps)).ToList();
             if (actual.Count != expected.Count || expected.Distinct().Any(d =>
                     actual.Count(s => s.def == d) != expected.Count(e => e == d)))
             { reason = "competing_step_inventory"; return false; }
-            if (actual.Count(s => s.def.genStep is GenStep_Outpost) != 1 ||
+            Type force = turrets ? typeof(GenStep_Turrets) : typeof(GenStep_Outpost);
+            if (actual.Count(s => s.def.genStep.GetType() == force) != 1 ||
                 actual.Count(s => s.def.genStep is GenStep_Power) != 1 ||
-                parms.sitePart.def.Worker.GetType() != typeof(SitePartWorker_Outpost) ||
-                parms.sitePart.def.ExtraGenSteps.Any(s => s.genStep.GetType() != typeof(GenStep_Outpost) &&
+                parms.sitePart.def.Worker.GetType() != (turrets ? typeof(SitePartWorker_Turrets) : typeof(SitePartWorker_Outpost)) ||
+                parms.sitePart.def.ExtraGenSteps.Any(s => s.genStep.GetType() != force &&
                     s.genStep.GetType() != typeof(GenStep_Power))) return false;
+            if (turrets && (site.Faction.def.defName != "Pirate" && site.Faction.def.defName != "OutlanderRough"))
+            { reason = "unsupported_turret_faction"; return false; }
             reason = null; return true;
         }
 
@@ -426,6 +474,12 @@ namespace RealisticBases.Integration
         private static void Postfix(Map map) => P4DQuestGeneration.FinishNative(map);
         private static Exception Finalizer(Exception __exception, Map map)
         { P4DQuestGeneration.FinishNative(map); return __exception; }
+    }
+    [HarmonyPatch(typeof(GenStep_Turrets), nameof(GenStep_Turrets.Generate))]
+    internal static class P4DTurretsPatch
+    {
+        private static bool Prefix(GenStep_Turrets __instance, Map map, GenStepParams parms) =>
+            P4DQuestGeneration.TryGenerate(__instance, map, parms);
     }
     [HarmonyPatch(typeof(GenStep_Power), nameof(GenStep_Power.Generate))]
     internal static class P4DNativePowerPatch

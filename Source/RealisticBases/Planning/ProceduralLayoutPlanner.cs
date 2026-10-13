@@ -446,11 +446,14 @@ namespace RealisticBases.Planning
 
         public ProceduralLayout WithTurret(ProceduralLayoutInput input, P4BTurretPlan turret)
         {
-            if (input == null || turret == null || FieldWall == null) throw new ArgumentNullException(nameof(turret));
+            // A quest camp has no field wall; its guns stand at the camp's sides.
+            if (input == null || turret == null || FieldWall == null && input.QuestContract == null)
+                throw new ArgumentNullException(nameof(turret));
             LayoutMaterialLedger materials = input.Equipment.Count(Rooms,
                 BuiltWalls.Concat(Gates.SelectMany(g => g.BandWalls)).Concat(OuterWalls)
-                    .Concat(ExhaustPocketWalls).Concat(FieldWall.Walls),
-                Gates.Sum(g => 1 + g.BandDoors.Count) + 2 + (ApproachDefense?.SallyPorts.Count ?? 0), Power,
+                    .Concat(ExhaustPocketWalls).Concat(FieldWall?.Walls ?? new GridPoint[0]),
+                Gates.Sum(g => 1 + g.BandDoors.Count) + (FieldWall == null ? 0 : 2) +
+                    (ApproachDefense?.SallyPorts.Count ?? 0), Power,
                 Enumerable.Repeat(P4BCoverNest.CoverDefName(input), turret.All.Sum(t => t.CoverCells.Count))
                     .Concat(turret.All.Select(t => t.DefName)));
             return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court,
@@ -1000,7 +1003,16 @@ namespace RealisticBases.Planning
             if (input.QuestContract != null)
             {
                 layout = layout.WithApproachDefense(input, P4BApproachDefensePlanner.Plan(input, layout));
-                violations = ProceduralLayoutValidator.Validate(input, layout);
+                if (input.QuestContract.QuestTurrets > 0)
+                {
+                    P4BTurretPlan guns = P4BTurretPlanner.PlanQuestGuns(input, layout, input.QuestContract.QuestTurrets,
+                        out string gunDiagnostic);
+                    Note(diagnostics, "quest_guns", guns == null ? "rejected" : "accepted", anchor + " " + gunDiagnostic);
+                    if (guns == null) return null;
+                    layout = layout.WithTurret(input, guns);
+                }
+                violations = ProceduralLayoutValidator.Validate(input, layout)
+                    .Concat(input.QuestContract.ValidateReservations(layout)).ToList();
                 if (violations.Count != 0)
                 {
                     Note(diagnostics, "quest_defense", "rejected", string.Join("+", violations.Take(6)));
@@ -1286,7 +1298,9 @@ namespace RealisticBases.Planning
                     LayoutSeed.Sub(input.Seed, "loadout"), power?.Generators ?? 0, true);
                 int ranged = staffing.Success ? staffing.Residents.Count(r => r.Weapon != null &&
                     input.Catalog.TryGet(r.Weapon.DefName, out CatalogDef weapon) && weapon.MaximumRange > 0) : 0;
-                int capacity = Math.Min(P4EArtillery.Capacity(input.Requirements, input.Equipment.Kit), Math.Max(0, ranged - 2));
+                // A quest camp's advertised mortars bring their own crew.
+                int capacity = input.Requirements.CompactQuestCamp ? P4EArtillery.Capacity(input.Requirements, input.Equipment.Kit)
+                    : Math.Min(P4EArtillery.Capacity(input.Requirements, input.Equipment.Kit), Math.Max(0, ranged - 2));
                 for (int i = 0; i < capacity; i++)
                     if (!PlaceCourt()) { notes.Add("mortar_court_or_magazine_infeasible: count=" + courts.Count); break; }
             }

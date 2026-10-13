@@ -521,8 +521,12 @@ namespace RealisticBases.Diagnostics
 
         [DebugAction(Category, "P5B audit garrison states", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
-        private static void P5BAuditGarrison() =>
-            Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugAuditGarrisonStates("manual");
+        private static void P5BAuditGarrison()
+        {
+            // Every map with a garrison: a quest map need not be the current one.
+            foreach (Map map in Find.Maps)
+                map.GetComponent<P3GarrisonController>()?.DebugAuditGarrisonStates("manual");
+        }
 
         [DebugAction(Category, "P3 breach one generated gate", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]

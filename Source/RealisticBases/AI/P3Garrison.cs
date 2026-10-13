@@ -984,6 +984,26 @@ namespace RealisticBases.AI
                 .OrderBy(g => g.Key).Select(g => g.Key + "=" + g.Count() + (g.First().Stuff != null ? "(" +
                     string.Join("/", g.Select(t => t.Stuff.defName).Distinct().ToArray()) + ")" : "")).ToArray()) +
                 " detachedWallLights=" + detached);
+            List<Building_TurretGun> guns = map.listerThings.AllThings.OfType<Building_TurretGun>()
+                .Where(g => g.Faction == faction && g.Spawned).ToList();
+            P3Log.Message("P5B_GUN_AUDIT", "map=" + map.uniqueID + " guns=" + guns.Count + " " + string.Join(" ", guns
+                .OrderBy(g => g.def.defName).ThenBy(g => g.Position.x).ThenBy(g => g.Position.z).Select(g => g.def.defName + "@" +
+                    g.Position.x + "," + g.Position.z + ":power=" + (g.TryGetComp<CompPowerTrader>()?.PowerOn.ToString() ?? "none") +
+                    ":fuel=" + (g.TryGetComp<CompRefuelable>() is CompRefuelable fuel ? fuel.Fuel + "/" + fuel.Props.fuelCapacity : "none") +
+                    ":crew=" + (g.TryGetComp<CompMannable>()?.ManningPawn?.thingIDNumber.ToString() ?? "-"))) +
+                " shells=" + string.Join(",", map.listerThings.AllThings.Where(t => t.def.IsShell && t.Spawned)
+                    .GroupBy(t => t.def.defName).Select(g => g.Key + ":" + g.Sum(t => t.stackCount))));
+            foreach (PowerNet net in guns.Select(g => g.TryGetComp<CompPowerTrader>()?.PowerNet).Where(n => n != null).Distinct())
+                P3Log.Message("P5B_POWER_AUDIT", "map=" + map.uniqueID + " producers=" + string.Join(",", net.powerComps
+                    .Where(c => c.PowerOutput > 0 || c.parent.TryGetComp<CompPowerPlant>() != null)
+                    .Select(c => c.parent.def.defName + ":" + c.PowerOutput.ToString("F0") + ":" + (c.PowerOn ? "on" : "off") +
+                        (c.parent.TryGetComp<CompRefuelable>() is CompRefuelable f ? ":fuel=" + f.Fuel.ToString("F0") : ""))) +
+                    " demand=" + net.powerComps.Where(c => c.PowerOutput < 0).Sum(c => -c.Props.PowerConsumption).ToString("F0") +
+                    " served=" + net.powerComps.Where(c => c.PowerOutput < 0 && c.PowerOn).Sum(c => -c.PowerOutput).ToString("F0") +
+                    " stored=" + net.batteryComps.Sum(b => b.StoredEnergy).ToString("F0") +
+                    " consumers=" + string.Join(",", net.powerComps.Where(c => c.Props.PowerConsumption > 0)
+                        .GroupBy(c => c.parent.def.defName).Select(g => g.Key + "x" + g.Count() + "=" +
+                            g.Sum(c => c.Props.PowerConsumption).ToString("F0") + (g.Any(c => !c.PowerOn) ? "(off" + g.Count(c => !c.PowerOn) + ")" : ""))));
             P3Log.Message("P5B_GARRISON_AUDIT", "map=" + map.uniqueID + " phase=" + phase + " state=" + currentState +
                 " sector=" + currentSector + " pending=" + (sectorCandidate.Length == 0 ? "-" : sectorCandidate + "@" + sectorCandidateSince) +
                 " lastAssault=" + (lastAssaultTick == int.MinValue ? "never" : lastAssaultTick + ":" + lastAssaultTrigger) +

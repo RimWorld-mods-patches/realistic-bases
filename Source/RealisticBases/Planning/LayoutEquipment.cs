@@ -8,7 +8,7 @@ namespace RealisticBases.Planning
     public static class P4EArtillery
     {
         public static int Capacity(LayoutRequirements requirements, LayoutKit kit) =>
-            requirements.CompactQuestCamp || !kit.MortarCapable ? 0 :
+            !kit.MortarCapable ? 0 : requirements.CompactQuestCamp ? requirements.QuestArtillery :
             requirements.Residents >= 10 ? 3 : requirements.Residents == 9 ? 2 : 1;
         public static string PostId(int index) => index == 0 ? "mortar" : "mortar-" + index;
 
@@ -145,7 +145,9 @@ namespace RealisticBases.Planning
             Powered = FurnishingRoles.Select(DefFor).Any(d => d != null && d.BasePowerConsumption > 0);
             CatalogDef cool = DefFor(SettlementRole.Cool);
             Refrigerated = requirements.Refrigerated && cool != null && cool.ThingClass == CoolerThingClass;
-            MortarCapable = !requirements.CompactQuestCamp && requirements.Electric && catalog.IsLegal(MortarDefName, roles.Stage);
+            // A quest camp has artillery only when the quest advertises it.
+            MortarCapable = (!requirements.CompactQuestCamp || requirements.QuestArtillery > 0) &&
+                requirements.Electric && catalog.IsLegal(MortarDefName, roles.Stage);
             List<CatalogDef> workshop = new List<CatalogDef>();
             foreach (SettlementRole role in CraftRoles)
             {

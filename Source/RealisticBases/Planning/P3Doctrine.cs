@@ -457,20 +457,17 @@ namespace RealisticBases.Planning
             return true;
         }
 
-        // Routine and Watch: support workers, mortar crews in Watch, a watch on
-        // the likely side, a bounded share of sleepers and everyone else off duty.
+        // Routine and Watch: mortar crews in Watch, a watch on the likely side,
+        // support workers from whoever is left, a bounded share of sleepers and
+        // everyone else off duty. A small garrison keeps its watch before support.
         private static GarrisonPlan AssignStandby(GarrisonSituation situation, GarrisonState state)
         {
             List<DefensivePost> validPosts = situation.Posts.Where(p => p.IsValid).ToList();
-            HashSet<int> support = new HashSet<int>(SupportWorkers(situation));
             Dictionary<int, DefensivePost> crews = state == GarrisonState.Watch
-                ? ReserveCrews(situation, validPosts, support) : new Dictionary<int, DefensivePost>();
+                ? ReserveCrews(situation, validPosts, new HashSet<int>()) : new Dictionary<int, DefensivePost>();
             HashSet<string> occupied = new HashSet<string>(crews.Values.Select(p => p.Id), StringComparer.Ordinal);
             validPosts = validPosts.Where(p => !p.Mortar).ToList();
             List<GarrisonAssignment> assignments = new List<GarrisonAssignment>();
-            foreach (int id in support)
-                assignments.Add(new GarrisonAssignment(id, GarrisonRole.Support, string.Empty, string.Empty,
-                    situation.SupportCenter, situation.Tick, "routine_support"));
             foreach (KeyValuePair<int, DefensivePost> crew in crews)
                 assignments.Add(PostAssignment(situation.Defenders.Single(d => d.Id == crew.Key), crew.Value, state,
                     situation.Tick, "funded_mortar_operator"));
@@ -480,8 +477,11 @@ namespace RealisticBases.Planning
             // rested than the others, so a tired watcher goes to bed in its place.
             int watchSize = WatchSize(state, situation.Defenders.Count);
             HashSet<int> watch = new HashSet<int>();
+            // Support workers keep their duty while someone else can watch.
+            HashSet<int> supportFirst = new HashSet<int>(SupportWorkers(situation, crews.Keys)
+                .Take(Math.Max(0, situation.Defenders.Count - crews.Count - watchSize)));
             foreach (DefenderCandidate defender in situation.Defenders
-                .Where(d => !support.Contains(d.Id) && !crews.ContainsKey(d.Id))
+                .Where(d => !supportFirst.Contains(d.Id) && !crews.ContainsKey(d.Id))
                 .OrderBy(d => d.NeedsFood || d.NeedsTending)
                 .ThenBy(d => d.WeaponClass == DefenderWeaponClass.Melee)
                 .ThenByDescending(d => AwakeScore(d))
@@ -499,6 +499,10 @@ namespace RealisticBases.Planning
                     post == previous ? "stable_watch" : "watch"));
             }
 
+            HashSet<int> support = new HashSet<int>(SupportWorkers(situation, crews.Keys.Concat(watch)));
+            foreach (int id in support)
+                assignments.Add(new GarrisonAssignment(id, GarrisonRole.Support, string.Empty, string.Empty,
+                    situation.SupportCenter, situation.Tick, "routine_support"));
             List<DefenderCandidate> offDuty = situation.Defenders.Where(d => !support.Contains(d.Id) &&
                 !crews.ContainsKey(d.Id) && !watch.Contains(d.Id)).ToList();
             HashSet<int> relieved = new HashSet<int>();
@@ -536,8 +540,8 @@ namespace RealisticBases.Planning
         private static float AwakeScore(DefenderCandidate d) => d.RestLevel +
             (Sleeping(d) ? -SleeperHoldBand : 0f) + (Watching(d) && !d.NeedsRest ? 1f : 0f);
 
-        private static IEnumerable<int> SupportWorkers(GarrisonSituation situation) =>
-            situation.Defenders.Where(d => d.CanSupport && !d.NeedsRelief)
+        private static IEnumerable<int> SupportWorkers(GarrisonSituation situation, IEnumerable<int> excluded = null) =>
+            situation.Defenders.Where(d => d.CanSupport && !d.NeedsRelief && !(excluded ?? Enumerable.Empty<int>()).Contains(d.Id))
                 // A wounded resident needs a support worker who can tend.
                 .OrderBy(d => situation.Defenders.Any(w => w.NeedsTending) && !d.CanTend)
                 .ThenBy(d => d.PreviousRole == GarrisonRole.MortarOperator && d.CanOperateMortar)

@@ -281,6 +281,7 @@ Retain loaded-map serialization and unloaded damage/depletion/casualty reconcili
    - **Fallback.** If the advertised counts cannot fit, generation falls back to native and is never reduced.
    - **Open question.** Mortar crewing needs a decision: the single guard mans it, or the strategy is enabled only when `mortarsCount` is 0.
    - **Exit.** The same pure and live evidence as the existing quest strategies. The disposable reset save always rolls this variant, which gives the rescue path routine live coverage.
+   - **Implemented and live-checked:** `core-turret-rescue-v1` with exact advertised guns, native crew and native-equivalent supply. See the [turret rescue plan](plans/2026-10-13-p5b-turret-rescue.md) and the [P4D findings](p4d-findings.md#p5b-turret-guarded-rescue-2026-10-13).
 
 ### P6 — Balance, specialized tactics, and release
 

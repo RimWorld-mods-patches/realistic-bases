@@ -76,6 +76,7 @@ internal static class Program
         Run("P5B the pack follows the attacked side after the dwell", P5BGarrisonTests.RedeployFollowsTheAttack);
         Run("P5B sleepers: half the off-duty, at least a third of the pack", P5BGarrisonTests.SleepRotationIsCapped);
         Run("P5B nobody is relieved to sleep under assault", P5BGarrisonTests.NoRestReliefUnderAssault);
+        Run("P5B a quest camp's small roster keeps its watch", P5BGarrisonTests.SmallRosterKeepsTheWatch);
         Run("P5B the watch and sleep rotation sustains a garrison for three days", P5BGarrisonTests.RestRotationSustainsWatch);
         Run("P5B the assault latch falls back to watch after an hour", P5BGarrisonTests.AssaultLatch);
         Run("P3 wall damage outranks a decoy", P3WallDamageOutranksDecoy);

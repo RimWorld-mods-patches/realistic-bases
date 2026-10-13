@@ -245,3 +245,29 @@ process stopped. Runtime profiles, saves and logs remain ignored under `.runtime
 - Native quest-site removal prevents revisit after departure. No persistence layer
   or extra reward mechanism overrides that rule. ItemStash and marker-free rescue
   remain follow-ons; P4E and ordinary P4B/P4C scope/status are unchanged.
+
+## P5B turret-guarded rescue (2026-10-13)
+
+`[PrisonerWillingToJoin, Turrets, PossibleUnknownThreatMarker]` now has the
+strategy `core-turret-rescue-v1` ([plan](plans/2026-10-13-p5b-turret-rescue.md)).
+It builds the camp with exactly the advertised mini turrets and mortars, the
+native guard and one crew per mortar, and native-equivalent supply. Core +
+RIMAPI, disposable profile, quests from `P4D generate native rescue quest`
+(the threat part is random; the turret variant rolled within 1–3 tries).
+Logs: `.runtime/logs/p5b-turret-rescue-*.log`.
+
+| Check | Evidence |
+|---|---|
+| Commit, no mortar | Pirate, threat 350: 8 mini turrets, one guard, original prisoner in one jail. |
+| Commit, mortar | Pirate, threat 306.25: 7 mini turrets, 1 mortar, 5 HE (`gunSupply=275`), guard and crew. Turrets full (60/60), mortar barrel 20/20. In `Watch` the crew manned the mortar and the guard watched the arrivals' side. |
+| Power | Turrets come up as vanilla ramps new consumers (about 600 ticks); all five of the next camp were powered at tick 1969 (2 chemfuel + 2 solar, battery full). |
+| Save/reload | `QUEST_RELOADED` with strategy, contract, layout, roster and prisoner; `Watch` restored. |
+| Rescue | Defeat raised native `NoActiveThreats` and `AllEnemiesDefeated` (turrets counted). Vanilla `OfferHelp` recruited the same pawn. Departure removed the site; `EndedUnknownOutcome`, as for the outpost rescue. |
+| Target death | Quest stayed `Ongoing`; departure ended `EndedUnknownOutcome`, as Core specifies. |
+| Late failure | Forced failure after transfer: 389 owned things rolled back, prisoner returned to its holder, the prepared guard discarded. Native then generated once: its own guard (`LordJob_DefendBase`), 5 turrets, the same prisoner in one native prison. |
+
+**Found and fixed during the checks:** the spawner's sniper-guard rule applied
+to quest guns; the operating allowance counted the mortar's native shells; the
+quest controller was not given its mortars; prepared pawns must be discarded
+through `WorldPawns.PassToWorld`; a lone guard became the support worker
+instead of the sentry.
