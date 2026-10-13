@@ -862,3 +862,97 @@ extraMedicine=0`**. The next duty pass (3240) returns the patient from
 runtime exceptions. Log: `p5-npc-tending-adapter-20261013.log`. Clean Release
 build and PlannerTests pass. This is one bounded routine injury; combat-time
 tending and downed rescue-to-bed remain unmeasured.
+
+## 2026-10-13 P5.4 validation after NPC tending fix
+
+The user confirms `95ab4cd` is committed/validated and requests continued P5
+validation. Its recorded native tending replay above is accepted as the fixer's
+evidence, not claimed as a new replay here. Independently rerun PlannerTests and
+Release build: pass, zero build warnings/errors. Log:
+`p5-persistence-validation-build-20261013.txt`. No production code changed in
+this validation checkpoint.
+
+### Real unload/re-entry: sale preservation passes, encounter state fails
+
+Cold-load the preserved genuinely depleted three-day save
+`RealisticBases-P5-early-three-days-20261013.rws`. Confirm the five-mod profile,
+fresh GAME_LOADED, paused game and map1. At180588, save the actual before state;
+use the existing routine action **only to park the original visitor**, then
+explicitly enable the guarded generator and invoke real unload/re-entry twice.
+Both visits remain at180588: no elapsed-time production, restocking or consumption
+can explain the differences. The abandoned routine measurement is not another
+three-day pass. No actor, supplies, needs, relations or research are granted by
+the validation actions.
+
+| State | Before (map1) | First re-entry (map2) | Second re-entry (map3) |
+|---|---|---|---|
+| Sale stock | 124 stacks /6368 units | Same124 IDs, quantities, stuff, quality and HP | Same124 IDs and facts |
+| Loose operating simple meals | 46 | 46 | 46 |
+| Resident-carried simple meals | 0 | 11 | 6 |
+| Loose + loaded operating HE | 29+1 | 29+0 | 29+0 |
+| Generator fuel | 300.4000 | 375 | 375 |
+| Loose operating wood | 75 | 0 | 0 |
+| Battery stored power | 600 | 300 | 300 |
+
+Sale offer remains epoch1, saleSteel710, fingerprint/identities unchanged,
+`duplicateIdentity=False`;26 unsupported native Things remain native. Both
+`P5_REENTRY_AFTER sameOffer=True physicalStacks=124` markers pass. This closes
+the repeated re-entry sale-conservation check for this previously traded fixture,
+not the whole P5.4 contract.
+
+The original roster is94775/94786/94798/94807/94817. The first re-entry keeps
+94798/94817 but substitutes168793/168812/168819 for the other three. Those three
+original residents remain serialized in **worldPawns/pawnsAlive**, not dead.
+The second roster is168819/213715/213727/213735/213747: none of the original five
+returns. Asset identities also change (battery94433→168446, mortar94572→168585
+on the first re-entry). These are same-tick revisits, not fresh settlements.
+
+`P5_RESERVE_LEDGER` correctly records MealSimple46 and HE29. However, first-entry
+spawning logic still runs on revisits: native `PawnGenerator.GeneratePawn`
+creates/reuses arbitrary residents and supplies personal inventory outside the
+46-meal spawn allowance. Direct saved-inventory inspection attributes the first
+11 extra meals to94817:3,168793:2,168812:3,168819:3. The next visit gets3 each on
+213727/213735. Total operating meals therefore change46→57→52 without ticks or
+inputs. The existing pure remainder-cap test does not cover native pawn-generation
+inventories. This is a conservation defect, not a larger reserve intentionally
+retained from the previous visit.
+
+The existing spawner also rebuilds assets and initializes batteries to50%, while
+the unload ledger explicitly excludes turret/mortar loads. Thus the loaded HE
+unit is lost and charge resets. Fuel is pooled/floored into the wood allowance,
+then redistributed into full generators: total375.4000→375, not a demonstrated
+net fuel grant, but per-device state and fractional fuel are not retained. This
+trial does not test damaged walls, casualties, capture, or an almost-empty battery;
+do not infer their exact failure modes or claim they pass.
+
+### Evidence and next implementation boundary
+
+Log: `p5-unload-state-validation-20261013.log`. Named saves under the disposable
+profile, all suffixed `-20261013.rws`:
+
+- `RealisticBases-P5-before-state-reentry`
+- `RealisticBases-P5-after-state-reentry`
+- `RealisticBases-P5-after-second-state-reentry`
+
+Reproduce by cold-loading the before save, parking the existing visitor with
+`Start P5 three-day routine probe`, enabling the generator if BOOT says disabled,
+then `P5 unload and re-enter current settlement`. Save the result and compare
+`p3Defenders`, each resident's actual inventory, battery `storedPower`, generator
+`fuel`, and mortar gun `loadedShell`/`loadedCount`; the existing offer-only
+completion marker cannot certify those state gates. The original older save
+logs missing think-node keys after the duty-tree change; no runtime exception
+or ten-jobs error occurs, and no ticks advance during the two re-entry comparisons.
+
+Next implementation is **P5.4's supported encounter archive/restore**, not another
+stock-capacity/tending tweak: retain actual surviving roster/gear/needs and supported
+asset state before native teardown; restore them without rerunning initial pawn
+inventory, battery or loaded-ammo grants. Keep the native stock holder and exact
+allocated-item archive as sole authorities. Preserve native defeat/capture and
+P4D exclusions; do not claim casualty persistence merely from saving pawn IDs.
+Add conservation/restore regressions before a live replay of these named saves.
+
+The disposable process is stopped and autostart restored to the immutable baseline
+(matching SHA256 `81bae97b413a0520183fae4d14ae2f090b33ebe389c8df311b4e7d124f652541`).
+P5.4 fails this gate; P5 remains incomplete. No production fix, merge or push is
+included in this validation checkpoint. Off-map expiry/defeat, combat-time medical
+support/rescue, measured combat/outage and the integrated P5.5 matrix remain open.
