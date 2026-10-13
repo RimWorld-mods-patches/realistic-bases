@@ -9,7 +9,7 @@ namespace RealisticBases.Core
 {
     public sealed class RealisticBasesSettings : ModSettings
     {
-        public bool enableP0Generator;
+        public bool enableP0Generator = true;
         public bool forceRejectNext;
         public bool forcePartialFailureNext;
         public string forceP2ProfileNext;
@@ -18,7 +18,7 @@ namespace RealisticBases.Core
 
         public override void ExposeData()
         {
-            Scribe_Values.Look(ref enableP0Generator, "enableP0Generator", false);
+            Scribe_Values.Look(ref enableP0Generator, "enableP0Generator", true);
             Scribe_Values.Look(ref forceRejectNext, "forceRejectNext", false);
             Scribe_Values.Look(ref forcePartialFailureNext, "forcePartialFailureNext", false);
             Scribe_Values.Look(ref forceP2ProfileNext, "forceP2ProfileNext", string.Empty);
@@ -47,7 +47,7 @@ namespace RealisticBases.Core
             listing.CheckboxLabeled(
                 "Enable guarded P0 generator for newly visited ordinary hostile human settlements",
                 ref Settings.enableP0Generator,
-                "Off by default. Does not affect player maps, non-human factions, existing maps, or settlements with an explicit generator override.");
+                "On by default. Does not affect player maps, non-human factions, existing maps, or settlements with an explicit generator override.");
             listing.CheckboxLabeled("Force next eligible plan rejection", ref Settings.forceRejectNext);
             listing.CheckboxLabeled("Force next eligible partial-spawn failure and recovery", ref Settings.forcePartialFailureNext);
             listing.Label("P0 diagnostic only. No traps or IEDs are spawned; no resources are injected after setup.");
