@@ -698,3 +698,142 @@ coordinates), so the pure pass is not live evidence.
 
 After the main merge: clean Release build, PlannerTests pass, LayoutTests 134/134,
 V2 matrix legacy 80/80 and clusters 80/80.
+
+## 2026-10-13 resumed P5 validation
+
+The user reports the rejection fixed and authorizes continuing validation at
+`7760723` (includes structural fix `ccbc373` and main/P5A merge `6b8847f`).
+Independent rerun: captured trade-site regression passes (layout
+`ECACFC4362EF7881`,3 sites/28 attempts, budget not exhausted), PlannerTests passes,
+and Release builds with zero warnings/errors. Log:
+`p5-resume-build-tests-20261013.txt`. The earlier134-case/matrix results above
+are the fixer's recorded evidence, not newly rerun full suites.
+
+### Native trade→attack and active reload
+
+Cold-load the preserved pre-attack save, confirm the five-mod baseline and
+generator disabled at BOOT, audit native trade, explicitly enable the guarded
+generator, then invoke the native attack action through the checked API runner.
+At585: `P5_NATIVE_TRADE_ATTACK_COMPLETE passed=True sameOffer=True epoch=1
+offerUnits=6368 saleSteel=710 playerSteel=4`. Accepted map1 has five residents,
+12 rooms, layout `3F05405EFACB3508`. `P5_STOCK_SPAWN saleStacks=124 saleUnits=6368
+nativeOnly=False`; physical audit has124 spawned stacks,26 unsupported native
+Things, `duplicateIdentity=False`. Native hostility comes from the real attack;
+no research, relations, currency, pawns or supplies were granted.
+
+`P5 test native empty offer and loaded expiry` passes: two empty reads, exact26
+native Things restored, loaded restock suppressed, epoch1/tick restored and124
+mapped stacks retained. This is a synchronous clock-boundary test, not elapsed
+30-day evidence. The separate sale/reserve merge probe rejects before mutation:
+this early-industrial base has no operating steel stack for its hardcoded fixture.
+Do not count that invocation as a merge pass or a production ownership failure.
+
+Save/reload585→586 preserves all124 mapped sale IDs and API facts (definition,
+count, stuff in the audit, quality, HP, position and rotation); the physical-stock
+audit is identical. Snapshot files:
+`p5-fixed-trade-before-reload-things-20261013.json` and
+`p5-fixed-trade-after-reload-things-20261013.json`. Sale goods occupy50 cells,
+maximum3 sale stacks/cell. An independent saved-XML check against installed shelf
+size/rotation rules finds112 sale stacks on27 actual shelves (52 shelf cells),
+all accepted by their saved filters, and12 stacks on distinct ground cells.
+All serialized item classes on shelves stay within3 stacks/cell including
+operating items. Ground-sale definitions are nonperishable; this does not yet
+prove freezer temperature, reachable resupply or hazardous-stock separation.
+Log: `p5-fixed-native-trade-attack-20261013.log`. Named active save:
+`RealisticBases-P5-fixed-native-trade-active-20261013.rws`.
+
+### Full materialization rollback and forced overflow
+
+Independent cold-loads of the same pre-attack save, never concurrent game
+processes. After all124 stacks materialize, the armed late failure reports
+`P5_FULL_STOCK_ROLLBACK recovered=True exactNativeThings=True
+quantitiesAttributes=True itemLedgerRestored=True nativeThings=96`.
+The spawn rejects intentionally with `terrainPreserved=True layersPreserved=True`;
+833/833 plants restored, offer6368/epoch1/playerSteel4 unchanged. The attack's
+success verifier correctly reportsFalse because generation was deliberately
+rolled back; its subsequent audit still cannot resolve a realized encounter and
+throws the already-known diagnostic exception. This does not invalidate the
+earlier explicit rollback assertions or establish successful generation.
+Log: `p5-full-transfer-rollback-20261013.log`.
+
+Forced zero sale-storage destinations on the next independent replay produce
+`P5_SALE_NATIVE_ONLY`, `saleStacks=0 saleUnits=0 nativeOnly=True`, then accepted
+base generation and `P5_NATIVE_TRADE_ATTACK_COMPLETE passed=True sameOffer=True`.
+The entire offer6368 remains native, epoch1, saleSteel710/playerSteel4; physical
+stock inactive/empty, native96 Things/6396 total units including unsupported
+categories, `duplicateIdentity=False`. No partial transfer/truncation occurs.
+Native trading authorization is unchanged (hostility normally disallows trade);
+no hostile trade-window bypass is claimed. Log: `p5-sale-overflow-20261013.log`.
+
+Broader P5 stays open: off-map expiry/defeat, measured combat/outage/failure
+coverage, supported asset/roster/casualty persistence, other profiles and P5.5.
+
+### Tending regression: patient/doctor handoff fails
+
+First trial on the forced-overflow map starts587, patient `Human103379`, finite
+medicine17. The encounter unloads natively at2604 before the10000-tick deadline;
+there is no completion marker or tending pass. Preserve that limitation in
+`p5-sale-overflow-20261013.log`, not as evidence of successful support.
+
+Independent cold-load of the successful physical-stock save, then start the
+existing routine probe to park the original visitor at home and hold the map
+without changing NPC needs, jobs, supplies or native defeat. Start tending586
+on `Human94817`. At10590, **`P5_TENDING_PROBE_COMPLETE passed=False alive=True
+nativeTendJobs=0 medicineBefore=17 medicineAfter=17 physicallyConsumed=0`**.
+The routine trial includes this bounded test injury; it is not an untouched
+healthy-roster trial. Log: `p5-fixed-early-routine-tending-20261013.log`.
+Named save `RealisticBases-P5-native-tending-failure-20261013.rws` at10590
+preserves the exact failed tending checkpoint independently of the routine result.
+
+Saved duties show a real support worker `Human94807` (Medicine3) and the patient
+assigned `RB_P3_Relief`, but both are running `Wait_Combat`. The patient is not in
+a bed; `playerSettings IsNull=True` on both NPCs. Installed1.6.4871 source explains
+two concrete integration gaps:
+
+- `TryGiveSupportJob` calls `DoctorTendToHumanlikes`/`WorkGiver_Tend.HasJobOnThing`.
+  Its `HealthAIUtility.ShouldBeTendedNowByPlayer` predicate returnsFalse for an NPC
+  with null playerSettings; its humanlike laying predicate also requires a bed.
+- Relief only runs `SatisfyBasicNeeds` (food/rest/chemical needs) then the hold job.
+  There is no patient-go-to-bed branch for an otherwise awake injured resident.
+
+This is not explained by absent medicine or an unassigned support worker.
+Do not manufacture playerSettings, order patients/doctors manually, or grant
+medicine to make the test pass. A scoped NPC medical-rest/tending adapter with
+real reservation/reachability/medicine consumption is still required; this
+validation request does not implement that production change.
+
+### Early-industrial three-day routine: pass, separate from tending
+
+Continue the same explicitly held five-resident map after the tending deadline's
+automatic pause. An additional intermediate pause at61614 was inspected and
+resumed; only elapsed game ticks are counted. At180587:
+`P5_ROUTINE_PROBE_COMPLETE passed=True elapsed=180001 residents=5 ate=5 slept=5
+sleptInBed=5 nativeRefuelJobs=5 physicalFuelIncreases=5 missingSamples=0
+starvingSamples=0 downedSamples=0 minFood=0.108 minRest=0.128 parentChanged=False`.
+No NPC orders, supplies or credited future production. This is the same trial
+with the controlled tending injury above, not a successful medical-care test.
+The map hold is test instrumentation, not native removal/revisit evidence.
+
+Food nutrition66.60→41.40; loaded fuel375→300.40 and stored wood330→75 give
+actual net fuel depletion329.60 units. The readiness model's worst-case demand
+is330 over three days. At107179, current freezer/storeroom temperature−9.34°C;
+all rooms' raw temperatures are preserved in `p5-early-routine-rooms-20261013.json`.
+The probe records26 sampled cooler-power-off observations, so do not claim
+uninterrupted cooling or outage resilience. The six-hour outage audit remains
+insufficient at steady actual2985W/rated4245W with600Wd battery charge; the
+startup0W observation is not meaningful full-load outage acceptance. HE30 and
+barrel charges60 remain finite; six-hour firing-duty operation is still unmeasured.
+
+Named final save `RealisticBases-P5-early-three-days-20261013.rws`, final pawns/
+rooms JSON files `p5-early-routine-final-{pawns,rooms}-20261013.json`, and the
+routine/tending log retain the evidence. Focused already-built P5/P5A layout tests
+also pass, failures0/23114ms, `p5-resumed-focused-layout-20261013.txt`; no DLL
+rebuild while the game was running. The disposable process is stopped and its
+autoload copy restored to the unchanged immutable baseline. P5 is not complete;
+the NPC medical adapter is the next concrete implementation defect.
+
+Final physical audit still has124/6368 sale stacks/units,26 unsupported native
+Things and no duplicate ownership; no emergency sale allocation occurred in
+this trial. Final cold room60 is roofed,−9.42°C. The routine log has no runtime
+exception or ten-jobs-per-tick error. This does not override the earlier native
+tending failure or the26 sampled cooler-power-off observations.
