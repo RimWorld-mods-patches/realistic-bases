@@ -167,7 +167,7 @@ namespace RealisticBases.Planning
                         {
                             GridPoint c = At(face, outward, tangent, forward, lateral);
                             if (reachable.Contains(c) && P4BFireLane.CanEngage(
-                                At(face, outward, tangent, 1, 0), c, 0, 45, opaque)) probes.Add(c);
+                                At(face, outward, tangent, 1, 0), c, 0, P4BCoverNest.ThreatRange, opaque)) probes.Add(c);
                         }
                 int openGroundArea = 0;
                 if (faces.Count > 0)
@@ -230,6 +230,16 @@ namespace RealisticBases.Planning
                         P4BFireLane.CanEngage(cell, t, P4BCoverNest.MinimumRange, P4BCoverNest.MaximumRange, opaque)));
                 return seen;
             };
+            // Attackers shoot from beyond the defenders' own range: a slot
+            // needs cover toward every sample that can see it.
+            Dictionary<GridPoint, HashSet<GridPoint>> visibleCache = new Dictionary<GridPoint, HashSet<GridPoint>>();
+            Func<GridPoint, HashSet<GridPoint>> visible = cell =>
+            {
+                if (!visibleCache.TryGetValue(cell, out HashSet<GridPoint> seen))
+                    visibleCache[cell] = seen = new HashSet<GridPoint>(allSamples.Where(t =>
+                        P4BFireLane.CanEngage(cell, t, 0, P4BCoverNest.ThreatRange, opaque)));
+                return seen;
+            };
             Func<P4BAttackSide, GridPoint, bool> facesSide = (side, cell) => side.Exposed &&
                 side.Faces.Any(face => Math.Abs(face.X - cell.X) + Math.Abs(face.Z - cell.Z) <= 6) &&
                 side.Samples.Count(engaged(cell).Contains) >= P4BCoverNest.MinimumShots;
@@ -270,6 +280,10 @@ namespace RealisticBases.Planning
                         Port = new P4BSallyPort(face, inside, faceSide.Outward, true, path) };
                 }));
             }
+            // A slot holds a side only when that side's shooters mostly cross
+            // its cover: along a row the neighbouring slot is no barricade.
+            Func<P4BAttackSide, P4BPost, GridPoint, bool> holds = (side, post, c) => facesSide(side, c) &&
+                P4BCoverNest.Shielded(c, side.Samples.Where(visible(c).Contains), post.CoverCells, opaque.Contains);
             List<GridPoint> doors = layout.Gates.SelectMany(g => g.BandDoors.Concat(new[] { g.Cell }))
                 .Concat(layout.FieldWall == null ? new GridPoint[0] : new[] { layout.FieldWall.OuterGate }
                     .Concat(layout.FieldWall.InnerGate.HasValue ? new[] { layout.FieldWall.InnerGate.Value } : new GridPoint[0]))
@@ -280,15 +294,15 @@ namespace RealisticBases.Planning
             foreach (P4BAttackSide side in exposed)
             {
                 if (!side.Exposed) { sides.Add(side); continue; }
-                Func<P4BPost, int> facing = post => post.Slots.Count(c => facesSide(side, c));
+                Func<P4BPost, int> facing = post => post.Slots.Count(c => holds(side, post, c));
                 HashSet<GridPoint> seen = new HashSet<GridPoint>(side.Samples.Where(t =>
-                    posts.Any(p => p.Slots.Any(c => facesSide(side, c) && engaged(c).Contains(t)))));
+                    posts.Any(p => p.Slots.Any(c => holds(side, p, c) && engaged(c).Contains(t)))));
                 int have = posts.Sum(facing);
                 P4BPost selected = posts.FirstOrDefault(p => facing(p) > 0);
                 string omission = coverDef == null ? "cover_def_unavailable" : "no_connected_short_gate_position";
                 // Every exposed side can hold the whole ranged pack (P5B moves
                 // the pack to the attacked side); posts spread along long fronts.
-                for (int added = 0; coverDef != null && added < 4 &&
+                for (int added = 0; coverDef != null && added < MaxPostsPerSide &&
                     (have < pack || seen.Count < UsefulArc(side.Samples.Count)); added++)
                 {
                     var ranked = new List<KeyValuePair<P4BPost, GateOption>>();
@@ -310,7 +324,7 @@ namespace RealisticBases.Planning
                                 continue;
                             }
                             P4BPost post = P4BCoverNest.Build(side.Id, gate.Cell, gate.Outward, flank, P4BCoverNest.MaxSlots,
-                                c => engaged(c), c => exposed.Any(s => facesSide(s, c)),
+                                c => visible(c), c => exposed.Any(s => facesSide(s, c)),
                                 c => navigation.Contains(c) && !reserved.Contains(c) && !occupied.Contains(c) && !arrival.Contains(c),
                                 c => !occupied.Contains(c) && !reserved.Contains(c) && !arrival.Contains(c) &&
                                     !reinforcement.Contains(c) && Buildable(input.Terrain, c),
@@ -324,15 +338,15 @@ namespace RealisticBases.Planning
                     bool accepted = false;
                     foreach (var option in ranked
                         .OrderByDescending(o => Math.Min(facing(o.Key), Math.Max(0, pack - have)))
-                        .ThenByDescending(o => exposed.Count(s => o.Key.Slots.Any(c => facesSide(s, c))))
+                        .ThenByDescending(o => exposed.Count(s => o.Key.Slots.Any(c => holds(s, o.Key, c))))
                         .ThenByDescending(o => side.Samples.Count(t => !seen.Contains(t) &&
-                            o.Key.Slots.Any(c => facesSide(side, c) && engaged(c).Contains(t))))
+                            o.Key.Slots.Any(c => holds(side, o.Key, c) && engaged(c).Contains(t))))
                         .ThenBy(o => o.Value.Port != null ? 1 : 0).ThenBy(o => o.Key.Cell))
                     {
                         P4BPost post = option.Key;
                         int gain = Math.Min(facing(post), Math.Max(0, pack - have));
                         int newShots = side.Samples.Count(t => !seen.Contains(t) &&
-                            post.Slots.Any(c => facesSide(side, c) && engaged(c).Contains(t)));
+                            post.Slots.Any(c => holds(side, post, c) && engaged(c).Contains(t)));
                         if (gain == 0 && newShots == 0) continue;
                         IEnumerable<P4BPost> trialPosts = posts.Concat(new[] { post });
                         IEnumerable<P4BSallyPort> trialPorts = ports.Concat(option.Value.Port == null ?
@@ -347,13 +361,13 @@ namespace RealisticBases.Planning
                         if (post.WallReturn.HasValue) reserved.Add(post.WallReturn.Value);
                         if (option.Value.Port != null) ports.Add(option.Value.Port);
                         have += facing(post);
-                        seen.UnionWith(side.Samples.Where(t => post.Slots.Any(c => facesSide(side, c) && engaged(c).Contains(t))));
+                        seen.UnionWith(side.Samples.Where(t => post.Slots.Any(c => holds(side, post, c) && engaged(c).Contains(t))));
                         accepted = true; break;
                     }
                     if (!accepted) break;
                 }
                 // The side's representative post is its slot with the most shots at it.
-                GridPoint? best = posts.SelectMany(p => p.Slots).Where(c => facesSide(side, c))
+                GridPoint? best = posts.SelectMany(p => p.Slots.Where(c => holds(side, p, c)))
                     .OrderByDescending(c => side.Samples.Count(engaged(c).Contains)).ThenBy(c => c)
                     .Cast<GridPoint?>().FirstOrDefault();
                 sides.Add(new P4BAttackSide(side.Id, side.Outward, side.Faces, side.Samples,
@@ -363,10 +377,12 @@ namespace RealisticBases.Planning
             // useful shots, so the garrison and gun planner share one inventory.
             opaque.UnionWith(posts.Where(p => p.WallReturn.HasValue).Select(p => p.WallReturn.Value));
             sides = sides.Select(s => new P4BAttackSide(s.Id, s.Outward, s.Faces, s.Samples, s.Post,
-                s.OmissionReason, s.OpenGroundArea, posts.SelectMany(p => p.Slots).Where(c => s.Exposed &&
+                s.OmissionReason, s.OpenGroundArea, posts.SelectMany(p => p.Slots.Where(c => s.Exposed &&
                     s.Faces.Any(face => Math.Abs(face.X - c.X) + Math.Abs(face.Z - c.Z) <= 6) &&
                     s.Samples.Count(t => P4BFireLane.CanEngage(c, t, P4BCoverNest.MinimumRange,
-                        P4BCoverNest.MaximumRange, opaque)) >= P4BCoverNest.MinimumShots))).ToList();
+                        P4BCoverNest.MaximumRange, opaque)) >= P4BCoverNest.MinimumShots &&
+                    P4BCoverNest.Shielded(c, s.Samples.Where(t => P4BFireLane.CanEngage(c, t, 0, P4BCoverNest.ThreatRange, opaque)),
+                        p.CoverCells, opaque.Contains))))).ToList();
             return new P4BApproachDefensePlan(reachable, sides, posts, previous.Keys
                 .Except(posts.Where(p => p.WallReturn.HasValue).Select(p => p.WallReturn.Value))
                 .Concat(posts.SelectMany(p => p.Route))
@@ -405,6 +421,7 @@ namespace RealisticBases.Planning
             return previous;
         }
 
+        internal const int MaxPostsPerSide = 8;
         internal static int UsefulArc(int sampleCount) => Math.Max(4, (int)Math.Ceiling(sampleCount * 0.35));
 
         // Every slot of a nest that still has useful shots at a front.

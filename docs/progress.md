@@ -13,7 +13,10 @@ Updated: 2026-10-13
   - The legacy layout engine was removed first (`51ade54`).
 - **Evidence (pure):** LayoutTests 142/142, PlannerTests, V2 matrix
   120/120, flat clutter 12/12.
-- **Pending:** live checks.
+- **Evidence (live):** flat (measured cover on nearly every slot),
+  save/reload, a one-side probe, tribal and the P4D bandit quest.
+- **Pending:** a Geological Landforms smoke test, the supported rescue
+  variant and a live mountain site.
 - **Details:** [plan](plans/2026-10-13-defense-posts-cover.md) and
   [findings](p4b-findings.md#unified-posts-and-threat-arc-cover-2026-10-13).
 

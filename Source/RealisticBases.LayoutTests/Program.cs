@@ -1424,7 +1424,7 @@ internal static partial class Program
             GridPoint tangent = new GridPoint(-nest.Outward.Z, nest.Outward.X);
             int flank = Math.Sign((nest.Cell.X - nest.AccessGate.X) * tangent.X + (nest.Cell.Z - nest.AccessGate.Z) * tangent.Z);
             HashSet<GridPoint> required = P4BCoverNest.RequiredCover(nest.AccessGate, nest.Outward, flank, nest.Slots,
-                c => samples.Where(t => P4BFireLane.CanEngage(c, t, 8, 25, slotOpaque)), slotOpaque.Contains);
+                c => samples.Where(t => P4BFireLane.CanEngage(c, t, 0, P4BCoverNest.ThreatRange, slotOpaque)), slotOpaque.Contains);
             True(required.All(nest.CoverCells.Contains), "every threat-facing neighbour of " + nest.Cell + " is covered; missing=" +
                 string.Join(",", required.Where(c => !nest.CoverCells.Contains(c))));
         }

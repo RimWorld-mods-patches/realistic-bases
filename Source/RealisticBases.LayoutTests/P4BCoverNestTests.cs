@@ -54,8 +54,11 @@ internal static partial class Program
         Equal(4, post.Slots.Count, "full row of slots");
         True(post.Slots.SequenceEqual(new[] { new GridPoint(19, 12), new GridPoint(18, 12), new GridPoint(17, 12), new GridPoint(16, 12) }),
             "slots stand one cell off the wall: " + string.Join(",", post.Slots));
-        True(post.CoverCells.SequenceEqual(Enumerable.Range(15, 5).Select(x => new GridPoint(x, 13))),
-            "front and diagonals are covered, the gate axis stays open: " + string.Join(",", post.CoverCells));
+        True(post.CoverCells.SequenceEqual(Enumerable.Range(15, 6).Select(x => new GridPoint(x, 13))),
+            "front and diagonals are covered, including the free gate axis beyond the route: " + string.Join(",", post.CoverCells));
+        P4BPost busyAxis = Nest(NorthSamples(), coverable: c => c.Z > 10 && c.X != 20);
+        True(busyAxis != null && busyAxis.Slots.Count == 4 && !busyAxis.CoverCells.Contains(new GridPoint(20, 13)),
+            "a used gate axis stays open without shrinking the nest");
         Equal((GridPoint?)new GridPoint(15, 11), post.WallReturn, "threat-free far flank closes with a wall return");
         True(post.Route.SequenceEqual(new[] { NestGate, new GridPoint(20, 11), new GridPoint(20, 12) }.Concat(post.Slots)),
             "route crosses the gate axis and runs behind the cover");
@@ -71,6 +74,14 @@ internal static partial class Program
             (post == null ? "null" : string.Join(",", post.CoverCells)));
         Equal((GridPoint?)new GridPoint(15, 11), post.WallReturn, "the return behind it still faces no threat");
         True(!post.Route.Intersect(post.CoverCells).Any(), "route never crosses cover");
+        // Fire down the row: only the end slot is shielded from the west.
+        List<GridPoint> west = Enumerable.Range(0, 4).Select(i => new GridPoint(2 + i, 12)).ToList();
+        Func<GridPoint, bool> solid = c => c.Z == 10 && !c.Equals(NestGate);
+        True(P4BCoverNest.Shielded(new GridPoint(16, 12), west, post.CoverCells.ToList(), solid), "the row end holds the west");
+        True(!P4BCoverNest.Shielded(new GridPoint(19, 12), west, post.CoverCells.ToList(), solid),
+            "a slot behind its neighbours does not hold the west");
+        True(post.Slots.All(c => P4BCoverNest.Shielded(c, NorthSamples(), post.CoverCells.ToList(), solid)),
+            "every slot holds the north");
     }
 
     private static void CoverNestShrinks()

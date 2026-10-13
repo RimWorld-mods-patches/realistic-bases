@@ -40,6 +40,9 @@ namespace RealisticBases.Planning
         // A slot is useful when it engages this many samples of one front.
         public const int MinimumShots = 4;
         public const int MinimumRange = 8, MaximumRange = 25;
+        // Attack samples are probed up to this distance; any of them that
+        // can see a slot is a direction it needs cover from.
+        public const int ThreatRange = 45;
 
         // Barricades are built from the base's own construction stuff;
         // sandbags only where barricades are not legal for the stage.
@@ -59,6 +62,22 @@ namespace RealisticBases.Planning
             return new GridPoint(x, z);
         }
 
+        // Whether most shooters that can see a slot fire across adjacent
+        // cover or wall. A row cannot be covered along its own axis, so a
+        // slot does not hold a front whose fire runs down the row.
+        public static bool Shielded(GridPoint slot, IEnumerable<GridPoint> shooters, IReadOnlyCollection<GridPoint> cover,
+            Func<GridPoint, bool> solid)
+        {
+            int total = 0, covered = 0;
+            foreach (GridPoint t in shooters)
+            {
+                total++;
+                GridPoint d = Octant(slot, t), n = new GridPoint(slot.X + d.X, slot.Z + d.Z);
+                if (cover.Contains(n) || solid(n)) covered++;
+            }
+            return total == 0 || covered * 10 >= total * 9;
+        }
+
         // Rows are measured from the gate: forward along the outward normal,
         // lateral along the flank. Slots stand in row 2, one cell from the
         // wall; the gate axis (lateral 0) stays an open, exposed crossing.
@@ -76,13 +95,13 @@ namespace RealisticBases.Planning
         // Cover required by a row of slots: every threat-facing neighbour
         // that is not itself a slot, a route cell, the gate-axis mouth or a wall.
         internal static HashSet<GridPoint> RequiredCover(GridPoint gate, GridPoint outward, int flank,
-            IReadOnlyList<GridPoint> slots, Func<GridPoint, IEnumerable<GridPoint>> engaged, Func<GridPoint, bool> wall)
+            IReadOnlyList<GridPoint> slots, Func<GridPoint, IEnumerable<GridPoint>> threats, Func<GridPoint, bool> wall)
         {
             HashSet<GridPoint> mouth = new HashSet<GridPoint>(RouteFor(gate, outward, flank, slots.Count))
                 { Local(gate, outward, flank, 3, 0) };
             HashSet<GridPoint> cover = new HashSet<GridPoint>();
             foreach (GridPoint slot in slots)
-                foreach (GridPoint d in engaged(slot).Select(t => Octant(slot, t)).Distinct())
+                foreach (GridPoint d in threats(slot).Select(t => Octant(slot, t)).Distinct())
                 {
                     GridPoint c = new GridPoint(slot.X + d.X, slot.Z + d.Z);
                     if (!mouth.Contains(c) && !wall(c)) cover.Add(c);
@@ -93,14 +112,14 @@ namespace RealisticBases.Planning
         // The largest nest of at most maxSlots slots on one flank of a gate.
         // A blocked cover cell drops the outermost slot; null when even the
         // first slot cannot be covered, reached or given a useful shot.
-        //   engaged:   attacker samples a cell can engage (all fronts)
+        //   threats:   attacker samples that can see a cell (all fronts)
         //   useful:    whether a cell is a useful firing position
         //   open:      a route or slot cell is walkable and unclaimed
         //   coverable: a cover cell is buildable and unclaimed
         //   wall:      a cell is perimeter wall (opaque, already built)
         //   returnable: a wall return can be built on the cell
         public static P4BPost Build(string side, GridPoint gate, GridPoint outward, int flank, int maxSlots,
-            Func<GridPoint, IEnumerable<GridPoint>> engaged, Func<GridPoint, bool> useful, Func<GridPoint, bool> open,
+            Func<GridPoint, IEnumerable<GridPoint>> threats, Func<GridPoint, bool> useful, Func<GridPoint, bool> open,
             Func<GridPoint, bool> coverable, Func<GridPoint, bool> wall, Func<GridPoint, bool> returnable)
         {
             List<GridPoint> route = RouteFor(gate, outward, flank, Math.Min(MaxSlots, maxSlots));
@@ -109,8 +128,16 @@ namespace RealisticBases.Planning
                 List<GridPoint> slots = route.Skip(3).Take(n).ToList();
                 if (route.Skip(1).Take(2 + n).Any(c => !open(c)) || slots.Any(c => !useful(c)) ||
                     Enumerable.Range(1, n).Any(l => !wall(Local(gate, outward, flank, 0, l)))) continue;
-                HashSet<GridPoint> cover = RequiredCover(gate, outward, flank, slots, engaged, wall);
+                HashSet<GridPoint> cover = RequiredCover(gate, outward, flank, slots, threats, wall);
                 if (cover.Count == 0 || cover.Any(c => !coverable(c))) continue;
+                // The open gate axis beyond the route is optional cover: built
+                // where nothing else uses it (a sally port), otherwise left open.
+                GridPoint beyond = Local(gate, outward, flank, 3, 0);
+                if (coverable(beyond) && slots.Any(slot => threats(slot).Any(t =>
+                {
+                    GridPoint d = Octant(slot, t);
+                    return slot.X + d.X == beyond.X && slot.Z + d.Z == beyond.Z;
+                }))) cover.Add(beyond);
                 GridPoint end = Local(gate, outward, flank, 1, n + 1);
                 GridPoint? wallReturn = !cover.Contains(end) && returnable(end) &&
                     wall(Local(gate, outward, flank, 0, n + 1)) ? end : (GridPoint?)null;

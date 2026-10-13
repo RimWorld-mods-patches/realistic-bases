@@ -1,7 +1,9 @@
 # Plan: unified defense posts and threat-arc cover (before P5B)
 
-2026-10-13 · Status: **C1–C4 implemented** on branch `claude/defense-posts-cover`
-(pure evidence only); **C5 live checks pending**. Design agreed in the
+2026-10-13 · Status: **C1–C4 implemented** on branch `claude/defense-posts-cover`;
+**C5 mostly done**: flat, save/reload, a one-side probe, tribal and the P4D
+bandit quest pass live. The GL smoke test, the supported rescue variant and
+a live mountain site remain. Design agreed in the
 2026-10-13 brainstorm.
 Base: `main` `850beb8` (P5 and P5A merged). This checkpoint precedes P5B
 ([implementation plan](../implementation-plan.md#p5b--better-management));
@@ -147,14 +149,17 @@ Expect about 3 cover cells per slot on a straight front.
       engine), high-industrial flat clutter 12/12, Release build clean.
 
 ### C5 — Live checks (short only)
-- [ ] Core IndustrialMid flat: generation succeeds, capacity log, nest
-      screenshot, save/reload keeps the posts.
-- [ ] Raid from one side: defenders take covered slots and the per-slot
+- [x] Core IndustrialMid flat: generation succeeds, capacity log and
+      save/reload keeps the posts. The nest screenshot was not taken
+      (screen capture is unavailable to the agent); the measured
+      per-slot cover audit stands in for it.
+- [x] Raid from one side: defenders take covered slots and the per-slot
       `HasCover` holds.
-- [ ] Tribal settlement: wood or stone barricades.
-- [ ] Mountain foothill: an unexposed side gets no posts.
-- [ ] P4D rescue/bandit regression and a Geological Landforms smoke test.
-- [ ] Update `p4b-findings.md`, `progress.md` and the implementation plan.
+- [x] Tribal settlement: wood or stone barricades.
+- [ ] Mountain foothill: an unexposed side gets no posts (pure fixture only).
+- [ ] P4D rescue/bandit regression and a Geological Landforms smoke test
+      (bandit passed; supported rescue variant and GL not run).
+- [x] Update `p4b-findings.md`, `progress.md` and the implementation plan.
 
 Long three-day horizons stay deferred to post-release live testing.
 

@@ -445,3 +445,41 @@ pending.
   (`PROCEDURAL_DIRECTIONAL_COVER_AUDIT`).
 - Whether defenders take the new slots.
 - Settlements already on a map keep their stored posts.
+
+### Live checks (2026-10-13, Core + RIMAPI, disposable profile)
+
+**First flat run** (layout `C7AFBCD508C6F804`). The spawn completed, but
+`PROCEDURAL_DIRECTIONAL_COVER_AUDIT` showed real gaps:
+- **Long-range shooters.** Nest threats were limited to the defenders'
+  own 8–25 range, so samples 25–45 cells away that could still see a slot
+  hit it uncovered (for example 18/18 for one slot).
+- **Fire along a row.** A row lying parallel to a front shields its far
+  slots only with other defenders. `81,48` was uncovered from 20/20
+  southern samples.
+
+**Fixes**
+- Threat directions use every sample that can see the slot, up to the
+  45-cell probe horizon.
+- A slot counts as a position for a side only if at least 90% of that
+  side's visible shooters cross cover or wall (`P4BCoverNest.Shielded`).
+- Optional cover goes on the free gate axis beyond the route; a sally port
+  has no traffic there.
+- The cap is raised to 8 posts per side, so flat 4/7/12-resident bases
+  still hold the whole pack.
+
+After the fixes, all pure gates pass: LayoutTests 142/142, PlannerTests,
+V2 matrix 120/120 (289 s, against 264 s on `main`), flat clutter 12/12.
+
+**Rerun results**
+
+| Check | Evidence |
+|---|---|
+| Flat industrial | Layout `6251C0578500717C`: 9 posts and 29 positions on all four sides, every position reachable by at least two defenders. Nearly every position has zero uncovered samples, with mean block 55–64%. The worst are three northern slots at 4–7 of about 43 visible samples. |
+| Save/reload | Plan `A48E6349CA54A9E2` was unchanged. Ten assignments and three mortars were restored. No exceptions. |
+| One-side probe | `P4B stage field assault probe` from the west. The garrison switched to `HoldSectors sector=west`, occupied 9 posts with 0 outside bounds, and the mortars engaged (HE 87/90); the target was wounded. Every field post reported `cover=True`. The doctrine staffed slots `88–91,97` that hold the west rather than the nearest west/field posts; moving the pack to the attacked side's posts is P5B work. |
+| Tribal | Neolithic, 7 residents, layout `AF2422BA18114DC9`: 4 posts and 4–8 positions per side. Five positions had one uncovered sample each. |
+| P4D bandit | `core-bandit-v1` committed with 5 defenders and posts on all four sides. One earlier attempt fell back natively on `native_loot_stock_capacity`; posts do not use storage rooms. |
+| P4D rescue | The reset save always rolls the unsupported `[PrisonerWillingToJoin, Turrets, …]` variant, which correctly went native. The supported Outpost variant was not exercised. |
+
+**Not run:** a Geological Landforms smoke test, a live mountain-foothill
+site (covered by a pure fixture), and the supported rescue variant.
