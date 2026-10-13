@@ -7,8 +7,8 @@ namespace RealisticBases.Planning
     // Layout engine v2 front half (docs/plans/2026-10-12-layout-engine-v2.md):
     // a main hall plus comb branches, with room clusters packed along their
     // frontage and sharing walls. Furnishing, cooler exhaust, pockets and the
-    // whole back half (yards, power, courts, enclosure, gates) are shared with
-    // the legacy engine.
+    // whole back half (yards, power, courts, enclosure, gates) live in
+    // ProceduralLayoutPlanner.
     internal sealed partial class LayoutAttempt
     {
         private readonly Dictionary<GridPoint, string> wallOwner = new Dictionary<GridPoint, string>();
@@ -17,7 +17,6 @@ namespace RealisticBases.Planning
         private GridPoint frontPoint;
         private int branchSpacing;
 
-        private bool clusters => input.Engine == LayoutEngine.Clusters;
         private LayoutStyle Style => style ?? (style = LayoutStyle.Select(doctrine, input.Equipment.Kit, input.Requirements));
 
         private bool PlaceClusteredRooms()

@@ -10,7 +10,7 @@ internal static partial class Program
     {
         Run("V2 neighbouring rooms may share plain walls only", V2SharedWallContract);
         Run("V2 shared walls are built and charged once", V2SharedWallLedger);
-        Run("V2 clusters is the default engine; explicit legacy digest unchanged", V2EngineDigest);
+        Run("V2 clusters is the default engine; an injected engine plans and keys the digest", V2EngineInjection);
         Run("V2 clusters engine plans superstructure, town and mountain styles", V2ClusterStyles);
         Run("V2 candidate pool is bounded, deterministic and keeps the best score", V2CandidatePool);
     }
@@ -18,8 +18,8 @@ internal static partial class Program
     private static void V2CandidatePool()
     {
         V2Case c = V2StyleCases().Single(x => x.Name == "superstructure-plain");
-        ProceduralLayoutResult first = V2Plan(c, LayoutEngine.Clusters);
-        ProceduralLayoutResult again = V2Plan(c, LayoutEngine.Clusters);
+        ProceduralLayoutResult first = V2Plan(c);
+        ProceduralLayoutResult again = V2Plan(c);
         Accepted(first);
         Equal(first.Layout.Digest, again.Layout.Digest, "same input replays the same chosen candidate");
         List<double> scores = first.Diagnostics.Where(d => d.Stage == "candidate" && d.Code == "valid")
@@ -32,9 +32,6 @@ internal static partial class Program
             System.Globalization.CultureInfo.InvariantCulture);
         Equal(scores.Min().ToString("F1"), chosen.ToString("F1"), "lowest-scoring candidate finished first");
         Console.WriteLine("  candidate scores " + string.Join(",", scores.Select(x => x.ToString("F1"))) + " chosen=" + chosen.ToString("F1"));
-        // The legacy engine keeps its first-valid behaviour and reports no pool.
-        ProceduralLayoutResult legacy = V2Plan(c, LayoutEngine.Legacy);
-        True(!legacy.Diagnostics.Any(d => d.Stage == "candidate"), "legacy has no candidate pool");
     }
 
     private sealed class V2Case
@@ -66,9 +63,9 @@ internal static partial class Program
             Requirements = LayoutRequirements.FromPopulation(6, Tribal, Cold) },
     };
 
-    private static ProceduralLayoutResult V2Plan(V2Case c, LayoutEngine engine, LayoutFortificationReservation fortification = null) =>
+    private static ProceduralLayoutResult V2Plan(V2Case c, LayoutFortificationReservation fortification = null) =>
         ProceduralLayoutPlanner.Plan(new ProceduralLayoutInput(c.Requirements, c.Terrain, c.Seed, CoreCatalog,
-            fortification ?? new LayoutFortificationReservation(1), engine: engine), requireJointSite: c.JointSite);
+            fortification ?? new LayoutFortificationReservation(1)), requireJointSite: c.JointSite);
 
     private static void ExportLayout(string name, ProceduralLayoutResult result, TerrainSnapshot terrain)
     {
@@ -98,15 +95,12 @@ internal static partial class Program
     {
         foreach (V2Case c in V2StyleCases())
         {
-            ProceduralLayoutResult legacy = V2Plan(c, LayoutEngine.Legacy);
-            ProceduralLayoutResult v2 = V2Plan(c, LayoutEngine.Clusters);
-            Console.WriteLine("  " + c.Name + " legacy: " + V2Metrics(legacy));
+            ProceduralLayoutResult v2 = V2Plan(c);
             Console.WriteLine("  " + c.Name + " clusters: " + V2Metrics(v2));
-            ExportLayout("v2-legacy-" + c.Name, legacy, c.Terrain);
             ExportLayout("v2-clusters-" + c.Name, v2, c.Terrain);
             Accepted(v2);
             ProceduralLayoutInput input = new ProceduralLayoutInput(c.Requirements, c.Terrain, c.Seed, CoreCatalog,
-                new LayoutFortificationReservation(1), engine: LayoutEngine.Clusters);
+                new LayoutFortificationReservation(1));
             Equal(0, ProceduralLayoutValidator.Validate(input, v2.Layout).Count, c.Name + " validator");
             True(v2.Layout.Notes.Any(n => n.Contains("style=" + c.Style)), c.Name + " style " + c.Style);
             True(SharedWallCells(v2.Layout) > 0, c.Name + " rooms share walls");
@@ -153,18 +147,29 @@ internal static partial class Program
         Equal(25, shared, "shared wall charged once");
     }
 
-    private static void V2EngineDigest()
+    private sealed class StubEngine : ILayoutEngine
+    {
+        public int Calls;
+        public string Id => "Stub";
+        public ProceduralLayoutResult Plan(ProceduralLayoutInput input, bool requireJointSite)
+        {
+            Calls++;
+            return ClustersLayoutEngine.Instance.Plan(input, requireJointSite);
+        }
+    }
+
+    private static void V2EngineInjection()
     {
         TerrainSnapshot terrain = Plains(60);
         LayoutRequirements requirements = LayoutRequirements.FromPopulation(4, Industrial, Temperate);
         ProceduralLayoutInput implicitDefault = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog);
-        ProceduralLayoutInput legacy = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog, engine: LayoutEngine.Legacy);
-        ProceduralLayoutInput clusters = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog, engine: LayoutEngine.Clusters);
-        // Pinned: explicit legacy input digest (changes only with real input
-        // changes, e.g. the catalog's shelf stacks per cell).
-        Equal("4BB96194834A8620", legacy.Digest, "legacy digest unchanged");
-        True(clusters.Digest != legacy.Digest, "clusters engine is a distinct input");
-        Equal(LayoutEngine.Clusters, implicitDefault.Engine, "layout engine v2 is the default");
+        ProceduralLayoutInput clusters = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog, engine: ClustersLayoutEngine.Instance);
+        StubEngine stub = new StubEngine();
+        ProceduralLayoutInput injected = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog, engine: stub);
+        Equal("Clusters", implicitDefault.Engine.Id, "layout engine v2 is the default");
         Equal(clusters.Digest, implicitDefault.Digest, "default input is the clusters input");
+        True(injected.Digest != clusters.Digest, "another engine is a distinct input");
+        ProceduralLayoutPlanner.Plan(injected);
+        Equal(1, stub.Calls, "planning goes through the injected engine");
     }
 }

@@ -83,11 +83,11 @@ internal static partial class Program
         int planted = 0;
         foreach (V2Case c in V2StyleCases().Where(x => x.JointSite))
         {
-            ProceduralLayoutResult result = V2Plan(c, LayoutEngine.Clusters);
+            ProceduralLayoutResult result = V2Plan(c);
             Accepted(result);
             ProceduralLayout layout = result.Layout;
             ProceduralLayoutInput input = new ProceduralLayoutInput(c.Requirements, c.Terrain, c.Seed, CoreCatalog,
-                new LayoutFortificationReservation(1), engine: LayoutEngine.Clusters);
+                new LayoutFortificationReservation(1));
             Equal(0, ProceduralLayoutValidator.Validate(input, layout).Count, c.Name + " validator with bonus fields");
             HashSet<GridPoint> bonus = new HashSet<GridPoint>(layout.BonusFields);
             True(!bonus.Overlaps(layout.Corridors.SelectMany(k => k.Cells)) && !bonus.Overlaps(layout.Rooms.SelectMany(r => r.Bounds.Points())) &&
@@ -103,9 +103,6 @@ internal static partial class Program
                     "bonus_field_illegal_cell");
             }
         }
-        // Legacy plans stay exactly as before: no inner-yard crops.
-        ProceduralLayoutResult legacy = V2Plan(V2StyleCases().First(x => x.JointSite), LayoutEngine.Legacy);
-        Equal(0, legacy.Layout.BonusFields.Count, "legacy engine adds no inner-yard crops");
         Console.WriteLine("  inner-yard crop cells over joint cases=" + planted);
     }
 }
