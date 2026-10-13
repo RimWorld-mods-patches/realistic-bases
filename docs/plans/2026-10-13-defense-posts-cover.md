@@ -1,9 +1,10 @@
 # Plan: unified defense posts and threat-arc cover (before P5B)
 
 2026-10-13 · Status: **C1–C4 implemented** on branch `claude/defense-posts-cover`;
-**C5 mostly done**: flat, save/reload, a one-side probe, tribal and the P4D
-bandit quest pass live. The GL smoke test, the supported rescue variant and
-a live mountain site remain. Design agreed in the
+**C5 done** apart from the supported rescue variant, which cannot be rolled
+(moved to P5B item 7). Flat, save/reload, a one-side probe, tribal, the P4D
+bandit quest, foothill, mountainous and a GL smoke test pass live; one GL
+mountainous tile rejected cleanly, and whether that is a regression is open. Design agreed in the
 2026-10-13 brainstorm.
 Base: `main` `850beb8` (P5 and P5A merged). This checkpoint precedes P5B
 ([implementation plan](../implementation-plan.md#p5b--better-management));
@@ -156,9 +157,11 @@ Expect about 3 cover cells per slot on a straight front.
 - [x] Raid from one side: defenders take covered slots and the per-slot
       `HasCover` holds.
 - [x] Tribal settlement: wood or stone barricades.
-- [ ] Mountain foothill: an unexposed side gets no posts (pure fixture only).
-- [ ] P4D rescue/bandit regression and a Geological Landforms smoke test
-      (bandit passed; supported rescue variant and GL not run).
+- [x] Mountain foothill: an unexposed side gets no posts (Core foothill and mountainous, live).
+- [x] P4D bandit regression and a Geological Landforms smoke test (GL flat
+      accepted; one GL mountainous tile rejected cleanly, cause open).
+- [ ] Supported rescue variant: not reachable from the reset save; moved to
+      P5B item 7.
 - [x] Update `p4b-findings.md`, `progress.md` and the implementation plan.
 
 Long three-day horizons stay deferred to post-release live testing.

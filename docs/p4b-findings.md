@@ -481,5 +481,9 @@ V2 matrix 120/120 (289 s, against 264 s on `main`), flat clutter 12/12.
 | P4D bandit | `core-bandit-v1` committed with 5 defenders and posts on all four sides. One earlier attempt fell back natively on `native_loot_stock_capacity`; posts do not use storage rooms. |
 | P4D rescue | The reset save always rolls the unsupported `[PrisonerWillingToJoin, Turrets, …]` variant, which correctly went native. The supported Outpost variant was not exercised. |
 
-**Not run:** a Geological Landforms smoke test, a live mountain-foothill
-site (covered by a pure fixture), and the supported rescue variant.
+| Foothill (Core) | Layout `AB7BEAD8E5DA950D`, 6 residents: 5 posts, 8 slots each facing south, north and west, all routes reachable. **No post faces the rock-backed east** (6 reachable samples). Slot audit: 0 uncovered samples except one or two on three slots. |
+| Mountainous (Core) | Layout `4483E1A8A0AD2F92`, 6 residents: 7 posts, with south 6, east 6 and west 16 slots. **No post faces the rock-backed north.** Every audited slot had `noCover=0`. No exceptions. |
+| GL smoke | GL 1.7.13.1 + Map Preview, 44 landforms. Flat `EF08966CAB5D79A3` (2 layers, 4 residents) accepted with posts facing south, east and north. A mountainous tile (26843, `Landforms: None`) **rejected cleanly** with `mutationCount=0`, `no_valid_layout_sites=10` and `field_approach_unavailable`/`no_street_route`. That code also exists on `main`. With main's DLL in the same GL setup, a flat and two mountainous tiles were accepted, one of them `GL_CoastCorner`. Tiles are drawn at random on every run, so this A/B is not like-for-like. Whether that rejection is a regression is **still open**: replaying the captured terrain offline would settle it. No exceptions. |
+
+**Not run:** the supported rescue variant. The reset save cannot roll it, and
+turret-guarded rescue is now P5B item 7.
