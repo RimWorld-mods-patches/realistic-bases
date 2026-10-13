@@ -956,3 +956,86 @@ The disposable process is stopped and autostart restored to the immutable baseli
 P5.4 fails this gate; P5 remains incomplete. No production fix, merge or push is
 included in this validation checkpoint. Off-map expiry/defeat, combat-time medical
 support/rescue, measured combat/outage and the integrated P5.5 matrix remain open.
+
+## 2026-10-13 P5.4 encounter archive/restore: implemented
+
+**Design.** A pre-teardown archive in the existing `MapDeiniter.Deinit` prefix,
+after sale return and allocated-item archiving and before the ledger:
+
+- **Residents.** Record the surviving resident IDs (humanlike, own faction, not
+  prisoners or hosted). Carried stacks move into the resident's own inventory,
+  because native despawn would drop them on the closing map. Native teardown still
+  passes the residents to the world. A postfix pins them in
+  `WorldPawns.ForcefullyKeptPawns`, so world-pawn GC cannot discard them. On
+  re-entry, `TakeSurvivors` removes the same pawns from the world and spawns them
+  at home cells with their own gear, inventory, needs and injuries. Dead, captured,
+  departed or missing residents are not replaced (`P5RosterRestore`). A
+  re-entry with zero survivors rejects visibly (`p5_no_surviving_residents`)
+  rather than inventing a roster. First visits and pre-P5.4 saves keep native
+  generation.
+- **Assets.** Snapshot every owner-faction building with damage, a refuelable
+  comp, a battery, or a turret gun with a changeable projectile. Key it by
+  `def@position` and store it with its layout digest. On re-entry with the same
+  digest: generators skip the pooled tank fill and get their archived tank
+  exactly. After the fresh-layout audits, `ApplyAssets` restores damage, every
+  archived fuel/barrel value, battery charge and loaded shells. Each value is
+  clamped to capacity and never raised above the archive. A different layout
+  digest skips the restore (logged) and keeps the conservative pooled behaviour.
+- **Ledger.** `Observe` now counts only loose, non-sale, non-allocated units.
+  Resident inventories travel with the residents, and device loads travel with
+  the asset archive, so neither is regenerated from the remainder.
+
+Pure regressions (`P5EncounterArchiveTests`): survivor-only restore with
+dead/captured/departed/missing fates, constant meal totals across two same-tick
+revisits, and archived-not-refilled asset clamps. PlannerTests pass, and the
+Release build has zero warnings and errors. Debug-only additions: `P5 save
+off-map archive checkpoint`. `P5 reopen saved allocated-stock settlement` also
+accepts a resident-archived site.
+
+### Live replay of the failed re-entry gate
+
+Cold-load `RealisticBases-P5-before-state-reentry-20261013.rws`. Park the visitor
+with the routine action, enable the generator, then run `P5 unload and re-enter`
+twice, all at 180589:
+
+| State | Before (map1) | Re-entry map2 | Re-entry map3 |
+|---|---|---|---|
+| Residents | 94775/94786/94798/94807/94817 | same five, `generated=0 replaced=0` | same five |
+| Food need | 0.148/0.860/0.632/0.980/0.976 | identical | identical |
+| Loose operating meals (API) | 46 | 46 | 46 |
+| Resident inventory units | 2 | 2 | 2 |
+| Loaded mortar HE | 1 | 1 | 1 |
+| Total refuelable fuel | 320.3982 | 320.3982 | 320.3982 |
+| Battery stored energy | 600 | 600 | 600 |
+| Ledger | MealSimple46, HE29, WoodLog75 | same | same |
+
+Both `P5_REENTRY_AFTER sameOffer=True physicalStacks=124`, with the asset
+restore `applied=7/7 unmatched=0 granted=0`. Log:
+`p5-roster-asset-reentry-20261013.log`.
+
+**Off-map save/load.** Unload only, then save
+`RealisticBases-P5-offmap-archive-20261013.rws`. The saved XML lists all five
+residents in `pawnsForcefullyKeptAsWorldPawns`. After a cold restart from that
+save and reopening, the same five residents return with identical needs: 46 loose
+meals, fuel 320.3982, energy 600, one loaded HE shell, and 124 sale stacks with an
+unchanged offer. Log: `p5-offmap-archive-save-20261013.log`.
+
+**Casualty.** On that reopened map, resident 94786 was killed through the RIMAPI
+pawn status edit, a disposable test mutation. The next unload archives four
+survivors and pins 4/4. Re-entry restores exactly 94775/94798/94807/94817, with
+`generated=0 replaced=0`. The corpse's single carried unit stays with the closed
+map. Log: `p5-offmap-reload-casualty-20261013.log`.
+
+**Not covered.**
+- Destroyed buildings are regenerated; only surviving buildings keep their
+  damage. Skipping destroyed walls or fixtures would conflict with the realized
+  layout audits and needs its own design.
+- Asset Thing IDs are regenerated; their state is restored, not their identity.
+- Capture was exercised only in the pure model.
+- Residents archived off-map are frozen as world pawns; no elapsed off-map
+  consumption is modelled.
+- Off-map expiry/defeat, combat-time medical support, measured combat/outage,
+  other profiles and P5.5 remain open.
+
+The disposable process is stopped and autostart is restored to the immutable
+baseline (SHA256 `81bae97b…652541`).

@@ -457,6 +457,9 @@ namespace RealisticBases.Generation
                     if (capped != count) reserveCaps.Add(key + ":" + count + "->" + capped);
                     return capped;
                 };
+                // P5.4: device state recorded at the last unload of this layout.
+                Dictionary<string, P5AssetSnapshot> archivedAssets = quest == null ? P5EncounterArchive.Assets(
+                    Current.Game.GetComponent<P0WorldState>()?.FindExisting(settlement.ID), layout.Digest) : null;
                 int fuel = layout.Power == null ? 0 : Planned(layout.Power.FuelDef, null, layout.Power.FuelStock);
                 int internalFuel = 0;
                 if (layout.Power != null)
@@ -464,6 +467,8 @@ namespace RealisticBases.Generation
                     {
                         CompRefuelable refuelable = generator.TryGetComp<CompRefuelable>();
                         if (refuelable == null) continue;
+                        // A revisited generator keeps its own archived tank, not the pooled fill.
+                        if (P5EncounterArchive.For(archivedAssets, generator)?.Fuel >= 0) continue;
                         // Full tanks at spawn; the plan stocks them on top of the warehouse fuel.
                         int add = Math.Min(fuel, (int)Math.Ceiling(refuelable.Props.fuelCapacity - refuelable.Fuel));
                         if (add <= 0) continue;
@@ -587,6 +592,9 @@ namespace RealisticBases.Generation
                 }
                 foreach (Thing battery in tx.OwnedThings.Where(t => t.TryGetComp<CompPowerBattery>() != null))
                     battery.TryGetComp<CompPowerBattery>().SetStoredEnergyPct(0.5f);
+                // After the fresh-layout audits above: damage, fuel, charge and
+                // loaded shells return as they were left, never refilled.
+                P5EncounterArchive.ApplyAssets(map, (Settlement)settlement, tx.OwnedThings, archivedAssets);
                 PawnKindDef kind = settlement.Faction.def.basicMemberKind ?? PawnKindDefOf.Pirate;
                 List<GridPoint> homes = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Barracks || r.Kind == LayoutRoomKind.Bedroom)
                     .SelectMany(r => r.Interior.Points()).Where(c => ToCell(c).Standable(map) && ToCell(c).GetEdifice(map) == null).ToList();
@@ -596,6 +604,11 @@ namespace RealisticBases.Generation
                     quest.SpawnRoster(tx, homes);
                     defenders.AddRange(quest.Roster);
                 }
+                else if (P5EncounterArchive.TakeSurvivors(tx, (Settlement)settlement, map, homes.Select(ToCell).ToList())
+                    is List<Pawn> survivors)
+                    // Revisit: the same surviving residents with their own gear and
+                    // inventory. Casualties and captives are not replaced.
+                    defenders.AddRange(survivors);
                 else for (int i = 0; i < input.Requirements.Residents; i++)
                 {
                     Pawn pawn = PawnGenerator.GeneratePawn(kind, settlement.Faction, map.Tile);

@@ -297,13 +297,25 @@ namespace RealisticBases.Diagnostics
                 " physicalStacks=" + reopened.GetComponent<P5PhysicalSaleStock>().Goods.Count());
         }
 
+        [DebugAction(Category, "P5 save off-map archive checkpoint", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        public static void SaveOffMapArchive()
+        {
+            if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("Disposable profile only");
+            GameDataSaveLoader.SaveGame("RealisticBases-P5-offmap-archive");
+            P0Log.Message("P5_OFFMAP_ARCHIVE_SAVED", "save=RealisticBases-P5-offmap-archive pinned=" +
+                Find.WorldPawns.ForcefullyKeptPawns.Count);
+        }
+
         [DebugAction(Category, "P5 reopen saved allocated-stock settlement", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.Playing)]
         public static void ReopenAllocated()
         {
             if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("Disposable profile only");
+            // Allocated reserves or a P5.4 resident archive mark a retained site.
             var candidates = Find.WorldObjects.Settlements.Where(s => P5TradeStock.Supported(s) && !s.HasMap &&
-                Current.Game.GetComponent<RealisticBases.Persistence.P0WorldState>().FindExisting(s.ID)?.allocatedReserves.Count > 0).ToList();
+                Current.Game.GetComponent<RealisticBases.Persistence.P0WorldState>().FindExisting(s.ID) is var state && state != null &&
+                (state.allocatedReserves.Count > 0 || state.residentArchiveTick >= 0)).ToList();
             if (candidates.Count != 1) throw new InvalidOperationException("Require one saved allocated-stock settlement");
             Settlement settlement = candidates[0];
             string before = OfferFingerprint(settlement, out long units);

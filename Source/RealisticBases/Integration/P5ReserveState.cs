@@ -27,6 +27,7 @@ namespace RealisticBases.Integration
         public P5ReserveState(Map map) : base(map) { }
 
         internal bool Active => owner != null && owner.Faction?.loadID == factionId && !owner.Faction.IsPlayer && map.Parent == owner;
+        internal Settlement Owner => Active ? owner : null;
 
         internal void Begin(Settlement settlement, P4SpawnTransaction tx)
         {
@@ -148,9 +149,9 @@ namespace RealisticBases.Integration
         public override void FinalizeInit() { foreach (Thing t in allocated.ToArray()) RegisterAllocation(t); }
 
         // Remaining units of one reserve key: loose items on the map that are
-        // not sale goods, items carried by the settlement's own pawns, and
-        // fuel already loaded into its generators (they are refilled from the
-        // same reserve on re-entry). Turret and mortar loads are not counted.
+        // not sale goods. Residents' inventories return with the residents and
+        // device loads (generator fuel, turret/mortar loads, charge) with the
+        // asset archive, so neither is regenerated from this remainder.
         internal int Observe(string key)
         {
             string[] parts = key.Split('|');
@@ -160,20 +161,6 @@ namespace RealisticBases.Integration
             Func<Thing, bool> match = t => t.def == def && (parts.Length == 1 || t.Stuff == stuff) &&
                 P5PhysicalSaleStock.Tracked(t) == null && AllocationFor(t) == null;
             long units = map.listerThings.ThingsOfDef(def).Where(t => t.Spawned && match(t)).Sum(t => (long)t.stackCount);
-            foreach (Pawn pawn in map.mapPawns.SpawnedPawnsInFaction(owner.Faction).Where(p => !p.IsPrisoner))
-            {
-                if (pawn.inventory?.innerContainer != null)
-                    units += pawn.inventory.innerContainer.Where(match).Sum(t => (long)t.stackCount);
-                Thing carried = pawn.carryTracker?.CarriedThing;
-                if (carried != null && match(carried)) units += carried.stackCount;
-            }
-            foreach (Building building in map.listerBuildings.allBuildingsNonColonist.Where(b => b.Faction == owner.Faction &&
-                b.TryGetComp<CompPowerPlant>() != null))
-            {
-                CompRefuelable fuel = building.TryGetComp<CompRefuelable>();
-                if (fuel != null && fuel.Props.fuelFilter.Allows(def))
-                    units += (long)Math.Floor(fuel.Fuel / Math.Max(0.0001f, fuel.Props.FuelMultiplierCurrentDifficulty));
-            }
             return (int)Math.Min(int.MaxValue, units);
         }
 
@@ -207,14 +194,28 @@ namespace RealisticBases.Integration
     [HarmonyPatch(typeof(MapDeiniter), nameof(MapDeiniter.Deinit))]
     internal static class P5MapUnloadPatch
     {
-        private static void Prefix(Map map)
+        private static void Prefix(Map map, out List<Pawn> __state)
         {
+            __state = null;
             try { map?.GetComponent<P5PhysicalSaleStock>()?.ReturnToNative(); }
             catch (Exception ex) { P0Log.Error("P5_SALE_RETURN_FAILED", "map=" + map?.uniqueID + " " + ex); }
             try { map?.GetComponent<P5ReserveState>()?.ArchiveAllocated(); }
             catch (Exception ex) { P0Log.Error("P5_ALLOCATED_ARCHIVE_FAILED", "map=" + map?.uniqueID + " " + ex); }
+            // Residents and assets before the ledger: carried stacks move into
+            // inventories first, so the loose remainder excludes them.
+            try { if (map != null) __state = P5EncounterArchive.ArchiveResidents(map); }
+            catch (Exception ex) { P0Log.Error("P5_RESIDENT_ARCHIVE_FAILED", "map=" + map?.uniqueID + " " + ex); }
+            try { if (map != null) P5EncounterArchive.ArchiveAssets(map); }
+            catch (Exception ex) { P0Log.Error("P5_ASSET_ARCHIVE_FAILED", "map=" + map?.uniqueID + " " + ex); }
             try { map?.GetComponent<P5ReserveState>()?.PersistOnUnload(); }
             catch (Exception ex) { P0Log.Error("P5_RESERVE_LEDGER_FAILED", "map=" + map?.uniqueID + " " + ex); }
+        }
+
+        // Native teardown has passed the residents to the world by now.
+        private static void Postfix(List<Pawn> __state)
+        {
+            try { P5EncounterArchive.PinResidents(__state); }
+            catch (Exception ex) { P0Log.Error("P5_RESIDENT_PIN_FAILED", ex.ToString()); }
         }
     }
 }

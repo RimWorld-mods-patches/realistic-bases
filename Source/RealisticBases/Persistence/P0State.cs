@@ -30,6 +30,12 @@ namespace RealisticBases.Persistence
         // Sole owner only while off-map; on-map allocated reserves are references
         // in P5ReserveState. These actual Things are never recreated from counts.
         public ThingOwner<Thing> allocatedReserves;
+        // P5.4 encounter archive, written before native teardown. Residents stay
+        // native world pawns (pinned against discard); only their IDs are kept.
+        public List<int> residentArchive = new List<int>();
+        public int residentArchiveTick = -1;
+        public string assetArchiveLayout;
+        public List<P5AssetState> assetArchive = new List<P5AssetState>();
         public P0SettlementState() { allocatedReserves = new ThingOwner<Thing>(this); }
         public IThingHolder ParentHolder => null;
         public ThingOwner GetDirectlyHeldThings() => allocatedReserves;
@@ -64,6 +70,10 @@ namespace RealisticBases.Persistence
             Scribe_Collections.Look(ref reserveRemaining, "p5ReserveRemaining", LookMode.Value);
             Scribe_Values.Look(ref reserveLedgerTick, "p5ReserveLedgerTick", -1);
             Scribe_Deep.Look(ref allocatedReserves, "p5AllocatedReserves", this);
+            Scribe_Collections.Look(ref residentArchive, "p5ResidentArchive", LookMode.Value);
+            Scribe_Values.Look(ref residentArchiveTick, "p5ResidentArchiveTick", -1);
+            Scribe_Values.Look(ref assetArchiveLayout, "p5AssetArchiveLayout");
+            Scribe_Collections.Look(ref assetArchive, "p5AssetArchive", LookMode.Deep);
             if (Scribe.mode == LoadSaveMode.PostLoadInit && pawnIds == null)
             {
                 pawnIds = new List<int>();
@@ -73,8 +83,38 @@ namespace RealisticBases.Persistence
                 reserveKeys = reserveKeys ?? new List<string>();
                 reserveRemaining = reserveRemaining ?? new List<int>();
                 allocatedReserves = allocatedReserves ?? new ThingOwner<Thing>(this);
+                residentArchive = residentArchive ?? new List<int>();
+                assetArchive = assetArchive?.Where(a => a != null && !string.IsNullOrEmpty(a.key)).ToList() ?? new List<P5AssetState>();
                 if (reserveKeys.Count != reserveRemaining.Count) { reserveKeys.Clear(); reserveRemaining.Clear(); reserveLedgerTick = -1; }
             }
+        }
+    }
+
+    public sealed class P5AssetState : IExposable
+    {
+        public string key;
+        public int hitPoints = -1;
+        public float fuel = -1;
+        public float storedEnergy = -1;
+        public string shellDef;
+        public int shellCount;
+
+        public static P5AssetState From(P5AssetSnapshot s) => new P5AssetState
+        {
+            key = s.Key, hitPoints = s.HitPoints, fuel = s.Fuel, storedEnergy = s.StoredEnergy,
+            shellDef = s.ShellDef, shellCount = s.ShellCount
+        };
+
+        public P5AssetSnapshot Snapshot() => new P5AssetSnapshot(key, hitPoints, fuel, storedEnergy, shellDef, shellCount);
+
+        public void ExposeData()
+        {
+            Scribe_Values.Look(ref key, "key");
+            Scribe_Values.Look(ref hitPoints, "hp", -1);
+            Scribe_Values.Look(ref fuel, "fuel", -1);
+            Scribe_Values.Look(ref storedEnergy, "energy", -1);
+            Scribe_Values.Look(ref shellDef, "shell");
+            Scribe_Values.Look(ref shellCount, "shellCount", 0);
         }
     }
 

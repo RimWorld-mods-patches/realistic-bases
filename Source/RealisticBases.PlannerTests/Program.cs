@@ -13,6 +13,8 @@ internal static class Program
         Run("P5 immutable stock conserves allocations and physical stack identities", P5StockTests.Conservation);
         Run("P5 actual offers reserve full legal storage and value without truncation", P5StockTests.Capacity);
         Run("P5 reserve ledger caps re-entry at the unload remainder", P5StockTests.ReserveLedger);
+        Run("P5.4 re-entry restores survivors only and conserves carried goods", P5EncounterArchiveTests.Roster);
+        Run("P5.4 asset state returns as archived and never refills", P5EncounterArchiveTests.Assets);
         Run("P5 food uses nutrition and preserves larger finite reserves", P5ReadinessTests.Food);
         Run("P5 combat aggregates all installed guns without copying shared stock", P5ReadinessTests.Combat);
         Run("P5 outage uses actual load and battery self-discharge without zero-clamp passes", P5ReadinessTests.Outage);
