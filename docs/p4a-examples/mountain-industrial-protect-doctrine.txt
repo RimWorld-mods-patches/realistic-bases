@@ -3,119 +3,104 @@ legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' pub
         B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
         f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
         Y power yard (solar/wind/geothermal)  w wind clear zone  x cooler exhaust pocket (sealed, unroofed)
-        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
+        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle  " inner-yard crops
+        F field crops  @ defender slot  b cover (barricade/sandbags)  U turret
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
 roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  'O' roof cleared over an exhaust pocket  ' ' open sky
 
-digest=849D7686D22DF317 doctrine=RockProtected gates=2 wallLayers=1 court=False excavated=299 retainedRoof=298 enclosure=583
-  barracks-1  bounds=59,71,6x8    door=60,71   6/6 beds rock-protected
-  dining      bounds=59,61,8x8    door=59,67   8/6 seats rock-protected
-  freezer     bounds=51,71,7x11   door=54,71   40/36 stockpile-cells rock-protected
-  jail        bounds=69,71,5x6    door=71,71   1/1 beds rock-protected
-  kitchen     bounds=51,64,6x5    door=54,68   1/1 stoves rock-protected
-  laboratory  bounds=66,63,5x6    door=69,68   1/1 benches rock-protected
-  medical     bounds=64,71,6x5    door=65,71   1/1 beds rock-protected
-  power       bounds=53,57,5x8    door=57,60   2/2 generators
-  storage     bounds=59,55,11x7   door=59,58   42/38 stockpile-cells rock-protected
-  workshop    bounds=55,46,5x11   door=58,56   4/4 benches
-  note: engine=Clusters style=Mountain typicalDepth=3 branchSpacing=10 front=46,69
+digest=782483671D79B7D1 doctrine=RockProtected gates=2 wallLayers=1 court=False excavated=260 retainedRoof=259 enclosure=512
+  barracks-1  bounds=67,71,6x8    door=68,71   6/6 beds rock-protected
+  dining      bounds=59,71,9x7    door=60,71   8/6 seats rock-protected
+  freezer     bounds=59,63,8x6    door=59,66   46/36 stockpile-cells rock-protected
+  jail        bounds=59,57,6x5    door=59,59   1/1 beds rock-protected
+  kitchen     bounds=52,64,6x5    door=57,66   1/1 stoves rock-protected
+  laboratory  bounds=52,74,6x5    door=57,75   1/1 benches rock-protected
+  medical     bounds=66,63,5x6    door=68,68   1/1 beds rock-protected
+  power       bounds=48,71,5x8    door=50,71   2/2 generators
+  storage     bounds=59,77,8x6    door=59,80   47/38 stockpile-cells rock-protected
+  workshop    bounds=50,78,8x6    door=57,80   4/4 benches rock-protected
+  note: engine=Clusters style=Mountain typicalDepth=3 branchSpacing=10 front=47,69
   note: mortar_court_dropped_for_rock_protection
-  note: excavated=299/600 retainedThickRoof=298
+  note: excavated=260/600 retainedThickRoof=259
   note: gates=2 desired=2
   note: outerSections=0/0 outerWallCells=0
-  note: exhaustPockets=1 roofHoles=1/1
-  note: materials walls=67 doors=12 stuff=WoodLog:2190 constructionWood=2190 fuelWood=0 generatorFuel=WoodLog:132/imported 0 localWood=2322 importedWood=0 importValue=0
-  power: critical=400W nonCritical=1360W WoodFiredGeneratorx2 batteries=1 renewables= (0W) fuel=WoodLog:132
+  note: exhaustPockets=2 roofHoles=1/1
+  note: materials walls=54 doors=12 stuff=WoodLog:2205 constructionWood=2205 fuelWood=0 generatorFuel=WoodLog:282/imported 0 localWood=2487 importedWood=0 importValue=0
+  power: critical=200W nonCritical=1330W WoodFiredGeneratorx2 batteries=1 renewables= (0W) fuel=WoodLog:282
   power: renewables_skipped_rock_protected
-     *      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-     *     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-     *     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-     *    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-     *    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-     *    ^^^LLkkk^^^^^^^^^^^^^^^^^^^^^
-     *    ^^^____k^^^^^^^^^^^^^^^^^^^^^
-     *    ^^^k____^^^^^^^^^^^^^^^^^^^^^
-     *    ^^^k____^^^BBBB^^^^^^^^^^^^^^
-     *    ^^^k____^^^BBBB^^^^^^^^^^^^^^
-     *  ##^^^k____^^^....^^^^^^PL.^^^^^
-     s  #,^^^_____^^^BB.L^HkL.^P..^^^^^
-   ##G###,^xCi____^^^BB..^H...^...^^^^^
-   #,,,,#,,##i_.__^^^....^....^...^^^^^
-   #,,,,,,,,#C^D^^^^^D^^^^D^^^^^D^^^^^^
-   #,,,==========================^^^^^^
-   #,,,==========================^^^^^^
-   #,,,,,,,,^^^D^^^=^^^^^^^^^^D^^^^^^^^
-   #,,,,#G#,#....^^=D...c.R^...^^^^^^^^
-   ######s#,#..c.^^=^...TTc^.cL^^^^^^^^
-**********#,#LSSS^^=^.ccTT.^WWW^^^^^^^^
-          #,##^^^^^=^.TTcc.^WWW^^^^^^^^
-          #,,,^L..^=^cTT..L^^^^^^^^^^^^
-          ###,#AA.^=^..c...^^^^^^^^^^^^
-            #,#EE.^=^^^^^^^^^^^^^^^^^^^
-            #,#EE.D=^_kkkkkk_L^^^^^^^^^
-            #,#EE.^=^________L^^^^^^^^^
-            #,#EE.^=D._______k^^^^^^^^^
-            #,##^^^=^________k^^^^^^^^^
-            #,,,^^^D^_________^^^^^^^^^
-            ###,^...^^^^^^^^^^^^^^^^^^^
-              #,^..L^^^^^^^^^^^^^^^^^^^
-              #,^..W^^^^^^^^^^^^^^^^^^^
-              #,^.cW^^^^^^^^^^^^^^^^^^^
-              #,^W.W^^^^^^^^^^^^^^^^^^^
-              #,^WcW^^^^^^^^^^^^^^^^^^^
-              #,#WcW^^^^^^^^^^^^^^^^^^^
-              #,#.cW^^^^^^^^^^^^^^^^^^^
-              #,#WWW^^^^^^^^^^^^^^^^^^^
-              #,#^^^^^^^^^^^^^^^^^^^^^^
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   *         ^^^^^^^^^^^^^^^^^^^^^^^^^
+   *         ^^^^^^^^^^^^^^^^^^^^^^^^^
+   *        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   *     ###^^^^^^^^^^^^^^^^^^^^^^^^^^
+   *     #,^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   *     #,^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   *     #^^WWWWWW^^^^^^^^^^^^^^^^^^^^
+   *      ^^Wc..c.^^^_kLkkk^^^^^^^^^^^
+   *   ###^^Wcc...D=D.____k^^^^^^^^^^^
+   *   #,,^^WWWL..^=^_____k^^^^^^^^^^^
+   *   #,#^^^^^^^^^=^_kkkkk^^^^^^^^^^^
+   *   #,#EE.^WW..^=^^^^^^^^^BBBB^^^^^
+   *   #,#EE.^WWcL^=^RcL.c..^BBBB^^^^^
+   *  ##,#EE.^WW..D=^.TTcTTc^....^^^^^
+   * ##,,#EE.^^^^^^=^cTTcTT.^LB..^^^^^
+   *##,,##LA.^^^^^^=^..c..c.^BB..^^^^^
+   sG,,#xvi..^^^^^^=^...L...^....^^^^^
+    #,,,###D##^^^^^=^D^^^^^^^D^^^^^^^^
+    #,,,========================^^^^^^
+    #,,,========================^^^^^^
+    #,,,,,,,^^^^^^^=^^^^^^^^^D^^^^^^^^
+    #,,,,###,^S...^=^_kLkkk^..L^^^^^^^
+    ####G# #,^Sc..D=D.____k^...^^^^^^^
+********s  #,^S..L^=^_____k^..H^^^^^^^
+           #,#^^^^^=^ikkkkk^.kH^^^^^^^
+           #,,^^^^^=^C^^^^^^^^^^^^^^^^
+           ####^^^^=^x^^^^^^^^^^^^^^^^
+               ^^^^=^^^^^^^^^^^^^^^^^^
+                ^^^=^L.PP^^^^^^^^^^^^^
+                ^^^=D....^^^^^^^^^^^^^
+                ^^^^^....^^^^^^^^^^^^^
+                ^^^^^^^^^^^^^^^^^^^^^^
+                ^^^^^^^^^^^^^^^^^^^^^^
+                ^^^^^^^^^^^^^^^^^^^^^^
+                ^^^^^^^^^^^^^^^^^^^^^^
+                ^^^^^^^^^^^^^^^^^^^^^^
 
 roof view:
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-          ^^^RRRRR^^^^^^^^^^^^^^^^^^^^^
-          ^^^RRRRR^^^^^^^^^^^^^^^^^^^^^
-          ^^^RRRRR^^^^^^^^^^^^^^^^^^^^^
-          ^^^RRRRR^^^RRRR^^^^^^^^^^^^^^
-          ^^^RRRRR^^^RRRR^^^^^^^^^^^^^^
-          ^^^RRRRR^^^RRRR^^^^^^RRR^^^^^
-          ^^^RRRRR^^^RRRR^RRRR^RRR^^^^^
-          ^ORRRRRR^^^RRRR^RRRR^RRR^^^^^
-            rRRRRR^^^RRRR^RRRR^RRR^^^^^
-            rr^R^^^^^R^^^^R^^^^^R^^^^^^
-              RRRRRRRRRRRRRRRRRRR^^^^^^
-               RRRRRRRRRRRRRRRRRR^^^^^^
-            ^^^R^^^R^^^^^^^^^^R^^^^^^^^
-            rRRRR^^RRRRRRRR^RRR^^^^^^^^
-            rRRRR^^R^RRRRRR^RRR^^^^^^^^
-            rRRRR^^R^RRRRRR^RRR^^^^^^^^
-            rr^^^^^R^RRRRRR^RRR^^^^^^^^
-              ^RRR^R^RRRRRR^^^^^^^^^^^^
-              rRRR^R^RRRRRR^^^^^^^^^^^^
-              rRRR^R^^^^^^^^^^^^^^^^^^^
-              rrRRRR^RRRRRRRRR^^^^^^^^^
-              rrRR^R^RRRRRRRRR^^^^^^^^^
-              rrRR^RRRRRRRRRRR^^^^^^^^^
-              rr^^^R^RRRRRRRRR^^^^^^^^^
-                ^^^R^RRRRRRRRR^^^^^^^^^
-                ^RRR^^^^^^^^^^^^^^^^^^^
-                ^RRR^^^^^^^^^^^^^^^^^^^
-                ^RRR^^^^^^^^^^^^^^^^^^^
-                ^RRR^^^^^^^^^^^^^^^^^^^
-                ^RRR^^^^^^^^^^^^^^^^^^^
-                ^RRR^^^^^^^^^^^^^^^^^^^
-                rrRR^^^^^^^^^^^^^^^^^^^
-                rrRR^^^^^^^^^^^^^^^^^^^
-                rRRR^^^^^^^^^^^^^^^^^^^
-                r^^^^^^^^^^^^^^^^^^^^^^
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+          ^^RRRRRR^^^^^^^^^^^^^^^^^^^^
+          ^^RRRRRR^^^RRRRRR^^^^^^^^^^^
+          ^^RRRRRRRRRRRRRRR^^^^^^^^^^^
+          ^^RRRRRR^R^RRRRRR^^^^^^^^^^^
+         r^^^^^^^^^R^RRRRRR^^^^^^^^^^^
+         rRRR^RRRR^R^^^^^^^^^RRRR^^^^^
+         rRRR^RRRR^R^RRRRRRR^RRRR^^^^^
+         rRRR^RRRRRR^RRRRRRR^RRRR^^^^^
+         rRRR^^^^^^R^RRRRRRR^RRRR^^^^^
+         rRRR^^^^^^R^RRRRRRR^RRRR^^^^^
+         rrrr^^^^^^R^RRRRRRR^RRRR^^^^^
+         rrrrr^^^^^R^R^^^^^^^R^^^^^^^^
+              RRRRRRRRRRRRRRRRRR^^^^^^
+               RRRRRRRRRRRRRRRRR^^^^^^
+            ^^^^^^^R^^^^^^^^^R^^^^^^^^
+             ^RRRR^R^RRRRRR^RRR^^^^^^^
+             ^RRRRRRRRRRRRR^RRR^^^^^^^
+             ^RRRR^R^RRRRRR^RRR^^^^^^^
+             r^^^^^R^RRRRRR^RRR^^^^^^^
+              ^^^^^R^R^^^^^^^^^^^^^^^^
+               ^^^^R^O^^^^^^^^^^^^^^^^
+               ^^^^R^^^^^^^^^^^^^^^^^^
+                ^^^R^RRRR^^^^^^^^^^^^^
+                ^^^RRRRRR^^^^^^^^^^^^^
+                ^^^^^RRRR^^^^^^^^^^^^^
+                ^^^^^^^^^^^^^^^^^^^^^^
+                ^^^^^^^^^^^^^^^^^^^^^^
+                ^^^^^^^^^^^^^^^^^^^^^^
+                ^^^^^^^^^^^^^^^^^^^^^^
+                ^^^^^^^^^^^^^^^^^^^^^^
 
-search: sites=1 attempts=3 evaluations=17253 repairs=0 routeNodes=25048 budgetExhausted=False
+search: sites=1 attempts=3 evaluations=15966 repairs=0 routeNodes=25226 budgetExhausted=False

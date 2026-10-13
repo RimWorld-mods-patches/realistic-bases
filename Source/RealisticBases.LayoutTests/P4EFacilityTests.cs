@@ -330,8 +330,9 @@ internal static partial class Program
             ProceduralLayoutResult result = Plan(Plains(140), LayoutRequirements.FromPopulation(7, Tribal, Temperate,
                 stage: TechStageModel.Create(level)), 33);
             Accepted(result);
-            Equal(level != SettlementTechStageLevel.Neolithic, result.Layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Medical)
-                .Any(r => r.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Shelf)), "legal shelf stage");
+            // Neolithic has no ComplexFurniture, but its wooden small shelf is the P5B exception.
+            True(result.Layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Medical)
+                .All(r => r.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Shelf && f.DefName == "ShelfSmall")), "legal shelf stage");
         }
         TechCatalog withoutSmall = new TechCatalog("no-small-shelf", CoreCatalog.Defs.Where(d => d.DefName != "ShelfSmall"), CoreCatalog.Research);
         LayoutEquipment fallback = LayoutEquipment.Resolve(LayoutRequirements.FromPopulation(7, Industrial, Cold), withoutSmall, null, 2, 9);

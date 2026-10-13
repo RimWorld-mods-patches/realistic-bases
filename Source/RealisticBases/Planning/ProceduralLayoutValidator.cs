@@ -196,9 +196,11 @@ namespace RealisticBases.Planning
                     errors.Add("bonus_field_illegal_cell");
             }
 
+            CatalogDef wallLight = input.Equipment.Kit.DefFor(SettlementRole.WallLight);
+            ValidateWallLights(layout, wallLight, errors);
             foreach (LayoutRoom room in layout.Rooms)
             {
-                ValidateRoom(room, requirements, grid, excavation, retained, extra, reach, errors);
+                ValidateRoom(room, requirements, grid, excavation, retained, extra, reach, errors, wallLight?.DefName);
                 ValidateSeatsAndMedicalShelf(input, room, errors);
                 if (room.Kind == LayoutRoomKind.Power && input.Equipment.Kit.Vent != null &&
                     !room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.WallVent)) errors.Add("generator_vent_" + room.Id);
@@ -495,7 +497,7 @@ namespace RealisticBases.Planning
         }
 
         private static void ValidateRoom(LayoutRoom room, LayoutRequirements requirements, LayoutTerrainGrid grid, HashSet<GridPoint> excavation,
-            HashSet<GridPoint> retained, HashSet<GridPoint> extra, HashSet<GridPoint> reach, List<string> errors)
+            HashSet<GridPoint> retained, HashSet<GridPoint> extra, HashSet<GridPoint> reach, List<string> errors, string wallLight)
         {
             string id = room.Id;
             GridRect interior = room.Interior;
@@ -541,7 +543,9 @@ namespace RealisticBases.Planning
                 if (fixture.Access.Any(c => blocking.Contains(c) || !local.Contains(c))) errors.Add("interaction_unreachable_" + label);
                 if (fixture.Blocking && !LayoutFixtureKinds.ThroughWall(fixture.Kind) && !fixture.Cells.Any(c => Neighbors(c).Any(local.Contains)))
                     errors.Add("job_access_" + label);
-                if (!fixture.Blocking && fixture.Cells.Any(c => !local.Contains(c))) errors.Add("zone_unreachable_" + label);
+                // A wall light hangs over racks and furniture; the wall-light check covers it.
+                if (!fixture.Blocking && fixture.Cells.Any(c => !local.Contains(c)) &&
+                    !(fixture.Role == SettlementRole.Light && fixture.DefName == wallLight)) errors.Add("zone_unreachable_" + label);
                 if ((fixture.Kind == LayoutFixtureKind.Stove || fixture.Kind == LayoutFixtureKind.Workbench || fixture.Kind == LayoutFixtureKind.Generator) &&
                     fixture.Cells.Any(c => !excavation.Contains(c) && !grid.Terrain[c].Has(TerrainTraits.SupportsHeavy))) errors.Add("heavy_floor_" + label);
                 if ((fixture.Kind == LayoutFixtureKind.Stove || fixture.Kind == LayoutFixtureKind.Workbench) && !BackToWall(room, fixture))
@@ -558,6 +562,27 @@ namespace RealisticBases.Planning
             }
             if (room.Kind != LayoutRoomKind.Power && room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Battery || f.Kind == LayoutFixtureKind.Generator))
                 errors.Add("power_equipment_outside_power_room_" + id);
+        }
+
+        // Vanilla Placeworker_AttachedToWall: the cell the light faces must stay a
+        // wall. The spawner builds every room edge that is not a door, gate, sally
+        // port or through-wall fixture, so that is the support a wall light needs.
+        private static void ValidateWallLights(ProceduralLayout layout, CatalogDef wallLight, List<string> errors)
+        {
+            if (wallLight == null) return;
+            HashSet<GridPoint> openings = new HashSet<GridPoint>(layout.Gates.Select(g => g.Cell)
+                .Concat(layout.Gates.SelectMany(g => g.BandDoors)).Concat(layout.Rooms.Select(r => r.Door))
+                .Concat(layout.ApproachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0])
+                .Concat(layout.Rooms.SelectMany(r => r.Fixtures).Where(f => LayoutFixtureKinds.ThroughWall(f.Kind)).SelectMany(f => f.Cells)));
+            HashSet<KeyValuePair<GridPoint, string>> mounts = new HashSet<KeyValuePair<GridPoint, string>>();
+            foreach (LayoutRoom room in layout.Rooms)
+                foreach (LayoutFixture light in room.Fixtures.Where(f => f.Role == SettlementRole.Light && f.DefName == wallLight.DefName))
+                {
+                    GridPoint cell = light.Cells[0], support = new GridPoint(cell.X - light.Facing.X, cell.Z - light.Facing.Z);
+                    if (light.Cells.Count != 1 || !room.Interior.Contains(cell) || !room.IsEdge(support) || openings.Contains(support))
+                        errors.Add("wall_light_unsupported_" + room.Id);
+                    if (!mounts.Add(new KeyValuePair<GridPoint, string>(cell, light.Rotation))) errors.Add("wall_light_duplicate_" + room.Id);
+                }
         }
 
         private static void ValidateSeatsAndMedicalShelf(ProceduralLayoutInput input, LayoutRoom room, List<string> errors)
@@ -804,7 +829,9 @@ namespace RealisticBases.Planning
             foreach (LayoutRoom room in layout.Rooms)
             {
                 HashSet<GridPoint> occupied = new HashSet<GridPoint>(room.Fixtures.Where(f => f.Blocking).SelectMany(f => f.Cells));
-                foreach (LayoutFixture fixture in room.Fixtures.Where(f => f.Kind != LayoutFixtureKind.Stockpile && f.Kind != LayoutFixtureKind.Chair))
+                // Wall lights hang over other fixtures and never block movement.
+                foreach (LayoutFixture fixture in room.Fixtures.Where(f => f.Kind != LayoutFixtureKind.Stockpile && f.Kind != LayoutFixtureKind.Chair &&
+                    !(f.Role == SettlementRole.Light && !f.Blocking)))
                 {
                     GridPoint anchor = fixture.Cells.OrderBy(c => ProceduralLayoutValidator.Neighbors(c)
                         .Any(n => fixture.Access.Contains(n) || (room.Interior.Contains(n) && !occupied.Contains(n))) ? 0 : 1).ThenBy(c => c).First();

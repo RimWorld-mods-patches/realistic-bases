@@ -70,6 +70,7 @@ internal static partial class Program
         RunCoolerExhaustTests();
         RunLayoutEngineV2Tests();
         RunCoverNestTests();
+        RunP5BTests();
         Run("natural barriers: shallow water walks, deep water and rock block", ExposureRules);
         Run("joint sites prefer natural barriers on beach and lakeshore maps", BarrierSiting);
         Run("inner yards become crop patches without touching circulation", InnerYardCrops);
@@ -333,7 +334,8 @@ internal static partial class Program
         Accepted(large);
         Func<ProceduralLayout, int> interior = l => l.Rooms.Sum(r => r.Interior.Area);
         True(large.Layout.Enclosure.Count > small.Layout.Enclosure.Count, "enclosure grows");
-        True(interior(large.Layout) > interior(small.Layout) * 2, "interior area grows");
+        // Wall lights take no floor, so dense warehouses and freezers grow less than linearly.
+        True(interior(large.Layout) * 4 > interior(small.Layout) * 7, "interior area grows");
         True(large.Layout.Rooms.Count > small.Layout.Rooms.Count, "more rooms (barracks split)");
         True(large.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.Stove) > small.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.Stove), "more stoves");
         True(large.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.Table) > small.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.Table), "more tables");
@@ -1678,7 +1680,9 @@ internal static partial class Program
             {
                 CatalogDef def;
                 if (!CoreCatalog.TryGet(fixture.DefName, out def)) continue;
-                True(!def.ResearchPrerequisites.Any(forbidden.Contains), climate + " tribal fixture " + def.DefName + " needs no complex research");
+                // The wooden small shelf is the P5B Neolithic storage exception.
+                True(TechCatalog.IsNeolithicShelf(def, stage) || !def.ResearchPrerequisites.Any(forbidden.Contains),
+                    climate + " tribal fixture " + def.DefName + " needs no complex research");
                 True(CoreCatalog.IsLegal(def, stage), climate + " " + def.DefName + " legal");
             }
             List<string> defs = result.Layout.AllFixtures.Select(f => f.DefName).Distinct().ToList();
@@ -2850,9 +2854,9 @@ internal static partial class Program
     {
         Dictionary<SettlementTechStageLevel, string> expected = new Dictionary<SettlementTechStageLevel, string>
         {
-            { SettlementTechStageLevel.Neolithic, "Sleep=Bedroll Light=TorchLamp Cooking=Campfire CraftSmithing=CraftingSpot CraftTailoring=CraftingSpot Storage=Stockpile Door=Door Seat=Stool Recreation=HorseshoesPin Heat=Campfire Cool=PassiveCooler MedicalBed=Bedroll" },
+            { SettlementTechStageLevel.Neolithic, "Sleep=Bedroll Light=TorchLamp WallLight=TorchWallLamp Cooking=Campfire CraftSmithing=CraftingSpot CraftTailoring=CraftingSpot Storage=ShelfSmall Door=Door Seat=Stool Recreation=HorseshoesPin Heat=Campfire Cool=PassiveCooler MedicalBed=Bedroll" },
             { SettlementTechStageLevel.Medieval, "Sleep=Bed Light=TorchLamp Cooking=FueledStove CraftSmithing=FueledSmithy CraftTailoring=HandTailoringBench CraftStonecutting=TableStonecutter Storage=Shelf Seat=DiningChair Recreation=ChessTable" },
-            { SettlementTechStageLevel.IndustrialEarly, "Sleep=Bed Light=StandingLamp Cooking=ElectricStove CraftSmithing=ElectricSmithy CraftMachining=TableMachining Heat=Heater Cool=Cooler Defense=Sandbags MedicalBed=Bed" },
+            { SettlementTechStageLevel.IndustrialEarly, "Sleep=Bed Light=StandingLamp WallLight=WallLamp Cooking=ElectricStove CraftSmithing=ElectricSmithy CraftMachining=TableMachining Heat=Heater Cool=Cooler Defense=Sandbags MedicalBed=Bed" },
             { SettlementTechStageLevel.IndustrialMid, "MedicalBed=HospitalBed Defense=Turret_MiniTurret UtilityBelt=Apparel_SmokepopBelt" },
             { SettlementTechStageLevel.IndustrialLate, "MedicalMonitor=VitalsMonitor CraftFabrication=FabricationBench Defense=Turret_Sniper" },
             { SettlementTechStageLevel.Spacer, "UtilityBelt=Apparel_ShieldBelt Sleep=Bed Light=StandingLamp" }

@@ -356,6 +356,14 @@ namespace RealisticBases.Planning
             return defName != null && research.TryGetValue(defName, out project);
         }
 
+        // Neolithic storage exception: open stockpiles need too much warehouse
+        // space, so a Neolithic settlement may build wooden one-cell shelves
+        // without ComplexFurniture. Other shelves keep the research rule.
+        public const string NeolithicShelfDefName = "ShelfSmall";
+        public const string NeolithicShelfWaivedResearch = "ComplexFurniture";
+        public static bool IsNeolithicShelf(CatalogDef def, SettlementTechStage stage) =>
+            def != null && stage != null && def.DefName == NeolithicShelfDefName && stage.Level == SettlementTechStageLevel.Neolithic;
+
         public bool IsLegal(string defName, SettlementTechStage stage) => Evaluate(defName, stage).Legal;
         public bool IsLegal(CatalogDef def, SettlementTechStage stage) => Evaluate(def, stage).Legal;
 
@@ -372,7 +380,8 @@ namespace RealisticBases.Planning
             if (def == null) throw new ArgumentNullException(nameof(def));
             if (stage == null) throw new ArgumentNullException(nameof(stage));
             if (ProhibitedContent.IsProhibited(def)) return CatalogLegality.No(CatalogLegality.Prohibited);
-            List<string> missing = def.ResearchPrerequisites.Where(r => !stage.HasResearch(r)).ToList();
+            List<string> missing = def.ResearchPrerequisites.Where(r => !stage.HasResearch(r) &&
+                !(r == NeolithicShelfWaivedResearch && IsNeolithicShelf(def, stage))).ToList();
             if (missing.Count > 0) return CatalogLegality.No(CatalogLegality.ResearchMissing, string.Join(",", missing));
             TechTier tier = EffectiveTechLevel(def);
             if (tier > stage.Ceiling) return CatalogLegality.No(CatalogLegality.AboveCeiling, tier + ">" + stage.Ceiling);

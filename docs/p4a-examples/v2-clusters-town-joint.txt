@@ -8,97 +8,52 @@ legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' pub
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
 roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  'O' roof cleared over an exhaust pocket  ' ' open sky
 
-digest=4F97972C5018071A doctrine=OpenGround gates=2 wallLayers=1 court=False excavated=0 retainedRoof=0 enclosure=656
-  barracks-1  bounds=139,65,6x8   door=144,70  7/7 beds
-  dining      bounds=147,67,9x6   door=147,70  8/7 seats
-  jail        bounds=152,61,6x5   door=154,61  1/1 beds
-  kitchen     bounds=139,76,6x5   door=144,78  1/1 stoves
-  laboratory  bounds=147,49,5x6   door=147,52  1/1 benches
-  medical     bounds=147,61,6x5   door=147,63  2/2 beds
-  pantry      bounds=146,75,11x7  door=146,78  42/42 stockpile-cells
-  storage     bounds=135,52,10x8  door=144,56  45/42 stockpile-cells
-  workshop    bounds=147,54,5x5   door=147,56  2/2 benches
-  note: fieldApproachReserved=145,89 terminal=145,82
-  note: engine=Clusters style=Town typicalDepth=3 branchSpacing=10 front=145,49
+digest=6BB75CD23F9D6AB6 doctrine=OpenGround gates=2 wallLayers=1 court=False excavated=0 retainedRoof=0 enclosure=592
+  barracks-1  bounds=122,143,5x10 door=124,143 7/7 beds
+  dining      bounds=122,132,6x9  door=123,140 8/7 seats
+  jail        bounds=128,147,6x5  door=133,150 1/1 beds
+  kitchen     bounds=114,136,5x5  door=116,140 1/1 stoves
+  laboratory  bounds=135,132,6x5  door=135,134 1/1 benches
+  medical     bounds=128,143,6x5  door=130,143 2/2 beds
+  pantry      bounds=113,142,7x7  door=116,142 50/42 stockpile-cells
+  storage     bounds=135,136,9x5  door=135,138 46/42 stockpile-cells
+  workshop    bounds=129,136,5x5  door=133,138 2/2 benches
+  note: fieldApproachReserved=104,141 terminal=111,141
+  note: engine=Clusters style=Town typicalDepth=3 branchSpacing=10 front=147,141
   note: excavated=0/305 retainedThickRoof=0
   note: gates=2 desired=2
   note: outerSections=0/0 outerWallCells=0
-  note: materials walls=331 doors=11 stuff=WoodLog:2415 constructionWood=2415 fuelWood=96 generatorFuel=:0/imported 0 localWood=2511 importedWood=0 importValue=0
-  note: fieldWall=EE3D9295883EFA4B materials walls=430 doors=13 stuff=WoodLog:2960 constructionWood=2960 fuelWood=96 generatorFuel=:0/imported 0 localWood=3056 importedWood=0 importValue=0
-  note: approachDefense=AB22B2343430BF04
-
-
-               *********************
-               * bb
-               *b@@
-               *#
-       ########G###G#######
-       #       *          #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       # FFFFFF*FFFFFFFFF #
-       #       *          #
-       ########G###########
-       #       *          #
-       #       *          #
-       #       *          #
-       ########s###########
-            ###G###
-            #,,,,,###########
-    bb#######,===,,,,,,,,,,,#
-    b@ #,,,,,,,=###########,#
-    b@ #,######=#________t#,#
-    b@ #,#....#=#________t#,#
-    b@ #,#t...D=D.________#,#
-       G,#Sc..#=#_________#,#
-       #,######=#_________#,#
-       #,,,,,,,=###########,#
-       ######,,=,,,,,,,,,,,,#
-       #,,,,,,,=,,,,,,,,,,,##
-       #,######==#########,#
-       #,#BB.t#==#.c..ctR#,#
-       #,#BB..D==D.TTcTTc#,#
-       #,#BB..#==#cTTcTT.#,#
-       #,#BB..#==#..c..c.#,#
-       #,#BB.B#==#########,###
-       #,#BB.B#==,,,,,,,,,,,,##bb
-       #,######==###########,# @b
-       #,,,,,,,==#..HH#Pt..#,# @b
-       #######,==D..HH#P...#,# @b
-             #,==#...t#....#,# @b
-   ###########,==#######D###,G
-   #,,,,,,,,,,,==========,,,,#
-   #,##########==,,,,,,,,,####
-   #,#________#==#####,##G#
-   #,#________#==#.cW#,# s**********
-   #,#_______.D==D.cW#,#
-   #,#________#==#..t#,#
-   #,#t_______#==#####,#
-   #,#t_______#==#.WW#,#
-   #,##########==DcWW#,#
-   #,,,,,,,,,,,==#.WW#,#
-   ###########,==#..t#,#
-            #,,==#####,#
-            #,,,,,,,,,,#
-            #,,,,,,#####
-            #,,,,,,#
-            #G######
-                 bb
-              @@@@b
-              bbbbb
+  note: materials walls=311 doors=11 stuff=WoodLog:2585 constructionWood=2585 fuelWood=84 generatorFuel=:0/imported 0 localWood=2669 importedWood=0 importValue=0
+  note: fieldWall=7E79CC8EDAC35678 materials walls=410 doors=13 stuff=WoodLog:3130 constructionWood=3130 fuelWood=84 generatorFuel=:0/imported 0 localWood=3214 importedWood=0 importValue=0
+  note: approachDefense=927513AC88BB29D3
+  *
+  *
+  *
+  *                                      #########
+  *                              bbbbbb  #,,,,,,,########
+  *   #####################      b@@@@   #,#####,,,,,,,,##
+  *   #                  ##      b bb    #,#BBB#,######,,#
+  *   # FFFFFFFFFFFFFFFF ##     ######G###,#BBB#,#....D=,##bb
+  *   # FFFFFFFFFFFFFFFF ##     #,,,,,,,,,,#...#,#....#=,# @b
+  *   # FFFFFFFFFFFFFFFF ##     #,#######,,#BB.#,#PP.t#=,# @b       bbbbbb
+  *   # FFFFFFFFFFFFFFFF ##     #,#kkkkk#,,#tB.#,######=,# @b        @@@@b
+  *   # FFFFFFFFFFFFFFFF ##     #,#_____#,,#BB.#,#HHk.#=,# @b          bbb
+  *   # FFFFFFFFFFFFFFFF ##     #,#t_k_k#,,#BB.#,#HH..#=,G         #G####
+  *   # FFFFFFFFFFFFFFFF ##   ###,#k_k_k#,,#...#,#t...#=,###########,,,,#
+  *   # FFFFFFFFFFFFFFFF ##   #,,,#k_._k#,,##D##,##D###=,,,,,,,,,,,,,,,,#
+  *   # FFFFFFFFFFFFFFFF ######,=,###D###,,==========================,,,#
+  ****G******************G***sG,=====================================,,,Gs***
+      # FFFFFFFFFFFFFFFF #   ##,=,,##D##,,,#D####,#####=#########,,,,,,,#
+      # FFFFFFFFFFFFFFFF #   ##,,,,#..t#,,,#.c..#,#...#=#kktkk_k#,##,,,,#
+      # FFFFFFFFFFFFFFFF #   #####,#..c#,#,#.TTc#,#Wc.D=D._____k#,##G####
+   b  G FFFFFFFFFFFFFFFF #   #   #,#..S#,#,#cTT.#,#Wct#=#kkkkk_k#,#    bbb
+   b@ # FFFFFFFFFFFFFFFF #   #   #,#####,#,#.cct#,#####=#########,#  @@@@b
+   b@ # FFFFFFFFFFFFFFFF #   #   #,,,,,,,#,#.TTc#,,,,,,=#t.WW#,,,,# bbbbbb
+   b@b#                  #   #   ###G#####,#cTT.#,####,=D.cWW#,####
+   b@b########################           #,#..cR#,#  #,,#..WW#,#
+   bbb                          b@@@     #,######,#  ##,######,#
+                                bbbbb    #,,,,,,,,#   #,,,,,,,,#
+                                         ##########   ##########
 
 
 
@@ -109,76 +64,31 @@ roof view:
 
 
 
+                                           rrrrr
+                                           rrrrr rrrrrr
+                                           rrrrr rrrrrr
+                                           rrrrr rrrrrr
+                                  rrrrrrr  rrrrr rrrrrr
+                                  rrrrrrr  rrrrr rrrrrr
+                                  rrrrrrr  rrrrr rrrrrr
+                                  rrrrrrr  rrrrr rrrrrr
+                                  rrrrrrr  rrrrr rrrrrr
+                                  rrrrrrr  rrrrr rrrrrr
+                                  rrrrrrr
+
+                                   rrrrr   rrrrrr rrrrr rrrrrrrrr
+                                   rrrrr   rrrrrr rrrrr rrrrrrrrr
+                                   rrrrr   rrrrrr rrrrr rrrrrrrrr
+                                   rrrrr   rrrrrr rrrrr rrrrrrrrr
+                                   rrrrr   rrrrrr rrrrr rrrrrrrrr
+                                           rrrrrr       rrrrrr
+                                           rrrrrr       rrrrrr
+                                           rrrrrr       rrrrrr
+                                           rrrrrr       rrrrrr
 
 
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                rrrrrrrrrrr
-         rrrrrr rrrrrrrrrrr
-         rrrrrr rrrrrrrrrrr
-         rrrrrr rrrrrrrrrrr
-         rrrrrr rrrrrrrrrrr
-         rrrrrr rrrrrrrrrrr
-                rrrrrrrrrrr
-
-
-         rrrrrr  rrrrrrrrr
-         rrrrrr  rrrrrrrrr
-         rrrrrr  rrrrrrrrr
-         rrrrrr  rrrrrrrrr
-         rrrrrr  rrrrrrrrr
-         rrrrrr  rrrrrrrrr
-         rrrrrr
-         rrrrrr  rrrrrrrrrrr
-                 rrrrrrrrrrr
-                 rrrrrrrrrrr
-                 rrrrrrrrrrr
-                 rrrrrrrrrrr
-
-     rrrrrrrrrr
-     rrrrrrrrrr  rrrrr
-     rrrrrrrrrr  rrrrr
-     rrrrrrrrrr  rrrrr
-     rrrrrrrrrr  rrrrr
-     rrrrrrrrrr  rrrrr
-     rrrrrrrrrr  rrrrr
-     rrrrrrrrrr  rrrrr
-                 rrrrr
-                 rrrrr
-                 rrrrr
-
-
-
-
-
-
-
-
-
-
-
-metrics: rooms=9 enclosure=656 roomCells=394 sharedWallCells=10 compactness=1.66 pockets=0 gates=2 sites=1 attempts=3 evaluations=18492 repairs=0 routeNodes=102196 budgetExhausted=False
+metrics: rooms=9 enclosure=592 roomCells=326 sharedWallCells=12 compactness=1.82 pockets=0 gates=2 sites=1 attempts=6 evaluations=37756 repairs=0 routeNodes=212034 budgetExhausted=False

@@ -3,65 +3,69 @@ legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' pub
         B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
         f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
         Y power yard (solar/wind/geothermal)  w wind clear zone  x cooler exhaust pocket (sealed, unroofed)
-        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
+        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle  " inner-yard crops
+        F field crops  @ defender slot  b cover (barricade/sandbags)  U turret
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
 roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  'O' roof cleared over an exhaust pocket  ' ' open sky
 
-digest=61D0A4D60F61611D doctrine=OpenGround gates=2 wallLayers=1 court=False excavated=0 retainedRoof=0 enclosure=727
-  barracks-1  bounds=59,45,11x5   door=69,48   8/8 beds
-  dining      bounds=72,44,10x6   door=72,48   8/8 seats
-  freezer     bounds=72,49,9x10   door=72,51   51/48 stockpile-cells
-  jail        bounds=57,57,5x5    door=59,61   1/1 beds
-  kitchen     bounds=65,49,5x6    door=69,51   1/1 stoves
-  laboratory  bounds=78,60,7x5    door=81,60   1/1 benches
-  medical     bounds=63,41,7x5    door=69,44   2/2 beds
-  power       bounds=74,60,5x5    door=77,60   1/1 generators
-  storage     bounds=80,49,9x10   door=82,58   53/51 stockpile-cells
-  workshop    bounds=84,58,10x5   door=84,59   4/4 benches
-  note: engine=Clusters style=Superstructure typicalDepth=3 branchSpacing=10 front=70,41
-  note: mortar_magazine=55,62 operator=58,62 loadingManhattan=1
-  note: mortar_court_dropped_for_outline: same required rooms retained count=0
+digest=081390D82A2C1511 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=686
+  barracks-1  bounds=58,51,5x11   door=60,61   8/8 beds
+  dining      bounds=47,70,6x9    door=51,70   8/8 seats
+  freezer     bounds=58,70,5x10   door=60,70   54/48 stockpile-cells
+  jail        bounds=70,69,5x5    door=70,71   1/1 beds
+  kitchen     bounds=52,70,5x5    door=55,70   1/1 stoves
+  laboratory  bounds=51,61,5x8    door=54,68   1/1 benches
+  medical     bounds=54,57,5x5    door=56,61   2/2 beds
+  mortar-magazine bounds=65,62,3x3    door=65,63   1/1 shelf_cells
+  power       bounds=70,73,5x5    door=70,75   1/1 generators
+  storage     bounds=43,67,5x11   door=47,69   50/50 stockpile-cells
+  workshop    bounds=47,59,5x10   door=49,68   4/4 benches
+  note: engine=Clusters style=Superstructure typicalDepth=3 branchSpacing=10 front=62,65
+  note: mortar_magazine=66,63 operator=64,63 loadingManhattan=0
   note: excavated=0/620 retainedThickRoof=0
   note: gates=2 desired=2
   note: outerSections=0/0 outerWallCells=0
-  note: materials walls=332 doors=12 stuff=WoodLog:3525 constructionWood=3525 fuelWood=0 generatorFuel=WoodLog:66/imported 0 localWood=3591 importedWood=0 importValue=0
-  power: critical=400W nonCritical=1610W WoodFiredGeneratorx1 batteries=1 renewables=GeothermalGenerator (3600W) fuel=WoodLog:66
+  note: exhaustPockets=2 roofHoles=0
+  note: materials walls=347 doors=13 stuff=WoodLog:3715 constructionWood=3715 fuelWood=0 generatorFuel=WoodLog:141/imported 0 localWood=3856 importedWood=0 importValue=3190
+  power: critical=200W nonCritical=1550W WoodFiredGeneratorx1 batteries=1 renewables=GeothermalGenerator (3600W) fuel=WoodLog:141
+                            *
+                            *
+                            *
+                  ######### *  #####
+       ########## #,,,,,,,# * ##,,,##
+   #####,,,,,,,,# #,#####,# * #,,#,,###
+   #,,,,,######,# #,#kkk#,# * #,#x#,,,#
+   #,#####Rc..#,# #,#k_k#,# *##,#v###,#
+   #,#kk_#.TTc#,###,#k_k#,# sG,,#LEE#,#
+   #,#k__#cTT.#,,,,,#k_k#,#  #,=D.EE#,#
+   #,#k__#Lcc.#####,#L_k#,#  #,=#.AA#,#
+   #,#k__#.TTc#SSS#,#k_k#,#  #,=#####,#
+   #,#k_L#cTT.#.c.###k_k#,#  #,=#LPP#,#
+   #,#k__#..c.#L..#xCi.k#,####,=D...#,#
+   #,#k__####D###D####D##,,,,,,=#...#,#
+   #,#k_.D=================,,===#####,#
+   #,#kkk##D####D#,,,,,,,,=,,=,,,,,,,,#
+   #,#####...#...#,"""",,,=,,=,########
+   #,,,,,#..W#.WL#,"""",======,#
+   #####,#.cW#.WW#,"""",======,#
+       #,#W.L#cWW#,"""",MM=###,Gs*********
+       #,#WcW#.WW#,,,,,,MMiDk#,##
+       #,#WcW#.WW#=======i=###,,#
+       #,#.cW#####D###D##YYYYYY,#
+       #,#WWW#,,#..L#...#YYYYYY,#
+       #,#####,,#.HH#.BB#YYYYYY,#
+       #,,,,,,,,#kHH#.BB#YYYYYY,#
+       ########,#####.BB#YYYYYY,#
+              #,,,,,#.BL#YYYYYY,#
+              #####,#.BB#,,,,,,,#
+                  #,#...#,#######
+                  #,#BBB#,#
+                  #,#BBB#,#
+                  #,#####,#
+                  #,,,,,,,#
+                  #########
 
 
 
-                    ###############
-******s             #,,,,,,,,,,,,,#
-     #G##############,###########,##########
-   ###,,,,,,,,,,,,,,,,#EEA#WWWWW#,,,,,,,,,,#
-   #,,,====i========,,#EEA#WWWWW##########,#
-   #,##D##,YYYYYY,==,,#L..#L.c..#LWWWWWWW#,#
-   #,#...#,YYYYYY,==,,###D###D###..c.cccW#,#
-   #,#..P#,YYYYYY,==============D...WWW.W#,#
-   #,#.LP#,YYYYYY,==##########D###########,#
-   #,#####,YYYYYY,==#_kkkk_L#_.____k#,,,,,,#
-   #,,,,,,,YYYYYY,==#______L#______k#,######
-   #######,,,,,,,,==#______k#______k#,#
-         ###,#####==Ci_____k#______k#,#
-           #,#L..#==Ci_____k#______k#,#
-           #,#S..#==#______k#______k#,#
-     #######,#Sc.D==D._____k#_______#,#
-     #,,,,,,,#S..#==#______k#_kkkkLL#,#
-     #,###########==#################,#
-     #,#BB.......D==D..c..cLR#,,,,,,,,#
-     #,#BB.BBBBB.#==#..TTcTTc#,########
-     #,#BB.BBBBBL#==#.cTTcTT.#,#
-     #,###########==#...c..c.#,#
-     #,,,,,#k....D==##########,#
-     #####,#HH...#==,,,,,,,,,,,#
-         #,#HH.L.#==,###########
-         #,#######==,,#
-         #,,,,,,,,,,,,#
-         #######,,,,,,#
-               #,,,,,,#
-               ######G#
-                     s
-                     *
-                     *
-                     *
 
-search: sites=2 attempts=6 evaluations=29227 repairs=9 routeNodes=118823 budgetExhausted=False
+search: sites=1 attempts=3 evaluations=14096 repairs=10 routeNodes=145127 budgetExhausted=False
