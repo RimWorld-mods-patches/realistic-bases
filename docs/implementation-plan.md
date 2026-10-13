@@ -268,6 +268,7 @@ Retain loaded-map serialization and unloaded damage/depletion/casualty reconcili
   - when the caravan arrives but it doesn't attack, they don't need to put max defenders to the posts. They can use mortars and have reasonable number of defenders on the posts (the posts relevant for the potential direction of the attack). The others can do some everyday activities/sleep/eat.
   - when the attackers start the assault, everyone should be alarmed, even the ones sleeping
 3. Currently defenders go to some strange point when they change activity (internal post?). It looks strange.
+4. Better barricades/sandbags (done first, as its own checkpoint): one post type with cover on every side an attacker can shoot from, and every exposed side able to hold the whole ranged pack. See the [defense posts and cover plan](plans/2026-10-13-defense-posts-cover.md).
 
 ### P6 — Balance, specialized tactics, and release
 
