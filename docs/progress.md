@@ -53,7 +53,7 @@ PlannerTests and clean Release builds pass. Broader P5 remains open; see
 | P5 — Encounter supplies, trade stock, and persistent consequences | Complete for scoped contracts (2026-10-13) | Trade→attack, physical stock, emergency allocation, rollback/overflow, NPC tending, encounter archive/restore (survivors, damage, destroyed, fuel/charge/shells), off-map expiry/removal, native defeat/capture, six-hour outage and combat on two profiles, P4D regression and GL compatibility verified. Long three-day horizons deferred to post-release live testing; known limits in [P5 findings](p5-findings.md) |
 | P5A — Additional improvements | Planned, separate from P5 | Generator ventilation/fill, shell minimums, cabinets/floors and richest-spacer wall materials retained from main |
 | P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage; add route diagnostics, evidence-driven soft-preference tuning, reproducibility and encounter-quality review |
-| P7 — Settlement specialization | Not started (post-MVP) | Final planned step: agriculture/industry first; evaluate mining, ranching, forestry, trading, military, medical and research profiles; verify trade-product influence feasibility |
+| P7 — Settlement specialization | Not started (post-MVP) | Agriculture/industry first; evaluate mining, ranching, forestry, trading, military, medical and research profiles; verify trade-product influence feasibility |
 | P8 — Off-map recovery | Not started (last planned item) | After 30 days off-map a settlement recovers (repairs, rebuilds, refuels, restocks reserves); casualties stay; earlier revisits keep the P5 frozen state. See [plan](implementation-plan.md#p8--off-map-recovery-last-planned-item) |
 
 ## P0 checklist
