@@ -12,8 +12,6 @@ internal static partial class Program
     private static int failures;
     private static string exportDir;
     private static string only;
-    // --shard i/n runs every n-th selected test, so n processes share one build.
-    private static int shard, shards = 1, runIndex;
     private static readonly SettlementCapability Industrial = P2ProfileCatalog.IndustrialTemperate.Capabilities;
     private static readonly SettlementCapability Tribal = P2ProfileCatalog.TribalTemperate.Capabilities;
     private static readonly LayoutClimate Temperate = new LayoutClimate(12, 28);
@@ -26,24 +24,20 @@ internal static partial class Program
         if (export >= 0 && export + 1 < args.Length) exportDir = args[export + 1];
         int selected = Array.IndexOf(args, "--only");
         if (selected >= 0 && selected + 1 < args.Length) only = args[selected + 1];
-        int sharded = Array.IndexOf(args, "--shard");
-        if (sharded >= 0 && sharded + 1 < args.Length)
-        {
-            string[] parts = args[sharded + 1].Split('/');
-            shard = int.Parse(parts[0]);
-            shards = int.Parse(parts[1]);
-        }
+        int workerArg = Array.IndexOf(args, "--workers");
+        int workers = workerArg >= 0 && workerArg + 1 < args.Length ? int.Parse(args[workerArg + 1]) : Environment.ProcessorCount;
         Stopwatch watch = Stopwatch.StartNew();
         Run("P4E laboratory stage matrix and compact quest exclusions", P4ELaboratoryStageMatrix);
         Run("P4E occupied room climate and power demand", P4EOccupiedRoomClimate);
         Run("P4E cardinal work dining seats and medical shelves", P4ESeatsAndMedicalShelves);
         Run("P4E compact mortar magazine geometry and rotated access", P4EMortarMagazine);
         Run("P4E population artillery caps shared stock and cost", P4EArtilleryCapacity);
-        Run("P4E exact ten-resident rejected flat tile packs required rooms", P4ETenRejectedTile);
-        Run("P4E exact flat cooler tile keeps a valid served room", P4EFlatCoolerTile);
+        Run("P4E exact ten-resident rejected flat tile packs required rooms", P4ETenRejectedTile, 20);
+        Run("P4E exact flat cooler tile keeps a valid served room", P4EFlatCoolerTile, 70);
         Run("P4E cleared vegetation does not split cooler served rooms", P4EClearedThermalPlants);
         Run("P4E spare barrels may use warehouse without moving ammunition", P4EBarrelWarehouse);
-        Run("P4E ordinary defense allowance power and weapon sweep", P4EDefenseAllowance);
+        Run("P4E ordinary defense allowance and weapon order", P4EDefenseAllowance);
+        RunP4EDefenseSweep();
         Run("P4E legal logistics smoke top-up preserves population", P4ELogisticsSmokeBudget);
         Run("seed derivation is stable and purpose-separated", SeedDerivation);
         Run("P4D strategies require whole native compositions", QuestStrategies);
@@ -51,16 +45,17 @@ internal static partial class Program
         Run("P4D reserves the original prisoner separately", QuestObjectiveContracts);
         Run("P4D compact camps use shared geometry without ordinary gear", QuestCampLayouts);
         Run("P4D unusable terrain rejects without changing inputs", QuestCampRejection);
-        Run("P4D terrain and tech matrix preserves objective and native roster", QuestTerrainTechMatrix);
-        Run("P4C finishes are deterministic, whole-room, protected and budgeted", P4CFinishPolicy);
+        Run("P4D terrain and tech matrix preserves objective and native roster", QuestTerrainTechMatrix, 15);
+        RunTurretRescueTests();
+        Run("P4C finishes are deterministic, whole-room, protected and budgeted", P4CFinishPolicy, 15);
         Run("ordinary population follows wealth budgets with mean seven", OrdinaryPopulationBudgets);
         Run("ordinary population remains stable and preserves legacy saves", OrdinaryPopulationPersistence);
         Run("ordinary population reserves facility and circulation space upfront", OrdinaryPopulationReservation);
-        Run("ordinary population plans complete four seven and twelve resident sites", OrdinaryPopulationLayouts);
-        Run("ordinary population fits cluttered flat tiles without reducing residents", OrdinaryPopulationClutter);
-        Run("ordinary population reserves usable layered gate frontage", OrdinaryPopulationLayeredFrontage);
-        Run("ordinary population stocks use all split rooms and prefer shelves", OrdinaryPopulationStocks);
-        Run("P5 sale offer is sized into storage without changing other inputs", P5SaleStorageSizing);
+        Run("ordinary population plans complete four seven and twelve resident sites", OrdinaryPopulationLayouts, 180);
+        Run("ordinary population fits cluttered flat tiles without reducing residents", OrdinaryPopulationClutter, 165);
+        Run("ordinary population reserves usable layered gate frontage", OrdinaryPopulationLayeredFrontage, 95);
+        Run("ordinary population stocks use all split rooms and prefer shelves", OrdinaryPopulationStocks, 175);
+        Run("P5 sale offer is sized into storage without changing other inputs", P5SaleStorageSizing, 110);
         Run("P5 captured native trade tile fits its whole offer with dense storage", P5NativeTradeStorage);
         Run("demand scales with population and splits barracks", DemandScalesWithPopulation);
         Run("rich settlements get personal bedrooms", PersonalRooms);
@@ -70,9 +65,10 @@ internal static partial class Program
         RunCoolerExhaustTests();
         RunLayoutEngineV2Tests();
         RunCoverNestTests();
+        RunP5BTests();
         Run("natural barriers: shallow water walks, deep water and rock block", ExposureRules);
-        Run("joint sites prefer natural barriers on beach and lakeshore maps", BarrierSiting);
-        Run("inner yards become crop patches without touching circulation", InnerYardCrops);
+        Run("joint sites prefer natural barriers on beach and lakeshore maps", BarrierSiting, 95);
+        Run("inner yards become crop patches without touching circulation", InnerYardCrops, 70);
         Run("P5A: fueled generator rooms vent to outdoor air", GeneratorRoomVents);
         Run("P5A: shelves face into their rooms", ShelvesFaceTheRoom);
         Run("P5A: wealthiest spacer settlements get premium perimeter walls", PremiumPerimeterStuff);
@@ -88,7 +84,7 @@ internal static partial class Program
         Run("captured flat obstruction pattern places complete rooms without RimWorld", CapturedFlatTile);
         Run("final obstacles and access reservations are validated", ConnectivityAfterBlocking);
         Run("rooms are never public transit", RoomsNeverTransit);
-        Run("impossible demand and unusable terrain reject predictably", Rejections);
+        Run("impossible demand and unusable terrain reject predictably", Rejections, 10);
         Run("search is bounded and inputs stay unchanged", BoundedAndImmutable);
         Run("tribal settlement digs under rock with natural roof support", RockProtectedTribal);
         Run("mortar doctrine trades protection for an open-sky court", MortarDoctrine);
@@ -102,20 +98,20 @@ internal static partial class Program
         Run("validator rejects a blocked outer-wall service lane", BlockedFortificationServiceLane);
         Run("P4B firing-lane prefilter rejects opaque and out-of-range shots", P4BFireLaneCases);
         Run("P4B field wall joins the perimeter with unroofed crops and exterior posts", P4BFieldWallCases);
-        Run("P4B field wall planner finds an attached flat-map bailey", P4BFieldWallPlannerCases);
-        Run("P4B joint site keeps crop capacity and compound space together", P4BJointSiteCases);
-        Run("P4B turret emplacement respects stage, geometry and finite stocks", P4BTurretPlacementCases);
-        Run("P4B high-industrial field pair fits its facilities", P4BHighIndustrialJointSite);
-        Run("P4B turret network adds coordinated budgeted groups", P4BTurretNetwork);
+        Run("P4B field wall planner finds an attached flat-map bailey", P4BFieldWallPlannerCases, 40);
+        Run("P4B joint site keeps crop capacity and compound space together", P4BJointSiteCases, 15);
+        Run("P4B turret emplacement respects stage, geometry and finite stocks", P4BTurretPlacementCases, 25);
+        Run("P4B high-industrial field pair fits its facilities", P4BHighIndustrialJointSite, 30);
+        Run("P4B turret network adds coordinated budgeted groups", P4BTurretNetwork, 45);
         Run("P4B staffing does not borrow one marksman across separated fronts", P4BStaffingIsExclusive);
         Run("P4B field breach has compound gate fallback firing posts", P4BFieldFallbackPosts);
         Run("P4B final path audit flushes deferred grids and restores batching", P4BFinalPathAuditSynchronization);
-        Run("P4B high-industrial settlement packs on a captured flat tile", P4BHighIndustrialCapturedFlat);
-        Run("P4B high-industrial settlement tolerates live-density flat clutter", P4BHighIndustrialFlatDensity);
-        Run("P4B joint reservation constrains detailed room packing", P4BJointPackingCases);
-        Run("P4B approach defense covers exposed sides and respects terrain", P4BApproachDefenseCases);
-        Run("P4B public frontages repair weak sides without moving rooms or fields", P4BAccessFrontageCases);
-        Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck);
+        Run("P4B high-industrial settlement packs on a captured flat tile", P4BHighIndustrialCapturedFlat, 10);
+        Run("P4B high-industrial settlement tolerates live-density flat clutter", P4BHighIndustrialFlatDensity, 75);
+        Run("P4B joint reservation constrains detailed room packing", P4BJointPackingCases, 75);
+        Run("P4B approach defense covers exposed sides and respects terrain", P4BApproachDefenseCases, 35);
+        Run("P4B public frontages repair weak sides without moving rooms or fields", P4BAccessFrontageCases, 185);
+        Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck, 15);
         Run("tech stage is stable per faction", TechStageStablePerFaction);
         Run("tech stage respects every faction band", TechStageBands);
         Run("tech stage research sets are monotonic", TechStageMonotonic);
@@ -162,6 +158,7 @@ internal static partial class Program
         Run("loadout: temperate kits fit the stage default budget", LoadoutBudgetDefaults);
         Run("loadout: budget degrades then rejects", LoadoutBudgetDegradation);
         Run("loadout: built from a planned layout and validated", LoadoutFromLayout);
+        Execute(workers);
         Console.WriteLine("P4A layout foundation tests: " + (failures == 0 ? "PASS" : "FAIL") + " failures=" + failures +
             " elapsedMs=" + watch.ElapsedMilliseconds);
         return failures == 0 ? 0 : 1;
@@ -333,7 +330,8 @@ internal static partial class Program
         Accepted(large);
         Func<ProceduralLayout, int> interior = l => l.Rooms.Sum(r => r.Interior.Area);
         True(large.Layout.Enclosure.Count > small.Layout.Enclosure.Count, "enclosure grows");
-        True(interior(large.Layout) > interior(small.Layout) * 2, "interior area grows");
+        // Wall lights take no floor, so dense warehouses and freezers grow less than linearly.
+        True(interior(large.Layout) * 4 > interior(small.Layout) * 7, "interior area grows");
         True(large.Layout.Rooms.Count > small.Layout.Rooms.Count, "more rooms (barracks split)");
         True(large.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.Stove) > small.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.Stove), "more stoves");
         True(large.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.Table) > small.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.Table), "more tables");
@@ -1678,7 +1676,9 @@ internal static partial class Program
             {
                 CatalogDef def;
                 if (!CoreCatalog.TryGet(fixture.DefName, out def)) continue;
-                True(!def.ResearchPrerequisites.Any(forbidden.Contains), climate + " tribal fixture " + def.DefName + " needs no complex research");
+                // The wooden small shelf is the P5B Neolithic storage exception.
+                True(TechCatalog.IsNeolithicShelf(def, stage) || !def.ResearchPrerequisites.Any(forbidden.Contains),
+                    climate + " tribal fixture " + def.DefName + " needs no complex research");
                 True(CoreCatalog.IsLegal(def, stage), climate + " " + def.DefName + " legal");
             }
             List<string> defs = result.Layout.AllFixtures.Select(f => f.DefName).Distinct().ToList();
@@ -2643,8 +2643,8 @@ internal static partial class Program
     private static LayoutDemandSet Demand(LayoutRequirements requirements) =>
         LayoutEquipment.Resolve(requirements, CoreCatalog, null, 2, 7).Demand;
 
-    private static TechCatalog coreCatalog;
-    private static TechCatalog CoreCatalog => coreCatalog ?? (coreCatalog = CoreCatalogFixture.Build());
+    private static readonly Lazy<TechCatalog> coreCatalog = new Lazy<TechCatalog>(CoreCatalogFixture.Build);
+    private static TechCatalog CoreCatalog => coreCatalog.Value;
 
     private static void CatalogPrerequisiteClosure()
     {
@@ -2850,9 +2850,9 @@ internal static partial class Program
     {
         Dictionary<SettlementTechStageLevel, string> expected = new Dictionary<SettlementTechStageLevel, string>
         {
-            { SettlementTechStageLevel.Neolithic, "Sleep=Bedroll Light=TorchLamp Cooking=Campfire CraftSmithing=CraftingSpot CraftTailoring=CraftingSpot Storage=Stockpile Door=Door Seat=Stool Recreation=HorseshoesPin Heat=Campfire Cool=PassiveCooler MedicalBed=Bedroll" },
+            { SettlementTechStageLevel.Neolithic, "Sleep=Bedroll Light=TorchLamp WallLight=TorchWallLamp Cooking=Campfire CraftSmithing=CraftingSpot CraftTailoring=CraftingSpot Storage=ShelfSmall Door=Door Seat=Stool Recreation=HorseshoesPin Heat=Campfire Cool=PassiveCooler MedicalBed=Bedroll" },
             { SettlementTechStageLevel.Medieval, "Sleep=Bed Light=TorchLamp Cooking=FueledStove CraftSmithing=FueledSmithy CraftTailoring=HandTailoringBench CraftStonecutting=TableStonecutter Storage=Shelf Seat=DiningChair Recreation=ChessTable" },
-            { SettlementTechStageLevel.IndustrialEarly, "Sleep=Bed Light=StandingLamp Cooking=ElectricStove CraftSmithing=ElectricSmithy CraftMachining=TableMachining Heat=Heater Cool=Cooler Defense=Sandbags MedicalBed=Bed" },
+            { SettlementTechStageLevel.IndustrialEarly, "Sleep=Bed Light=StandingLamp WallLight=WallLamp Cooking=ElectricStove CraftSmithing=ElectricSmithy CraftMachining=TableMachining Heat=Heater Cool=Cooler Defense=Sandbags MedicalBed=Bed" },
             { SettlementTechStageLevel.IndustrialMid, "MedicalBed=HospitalBed Defense=Turret_MiniTurret UtilityBelt=Apparel_SmokepopBelt" },
             { SettlementTechStageLevel.IndustrialLate, "MedicalMonitor=VitalsMonitor CraftFabrication=FabricationBench Defense=Turret_Sniper" },
             { SettlementTechStageLevel.Spacer, "UtilityBelt=Apparel_ShieldBelt Sleep=Bed Light=StandingLamp" }
@@ -2932,15 +2932,6 @@ internal static partial class Program
         True(!medieval.Success && medieval.Stage.Level == SettlementTechStageLevel.Neolithic, "steps down to neolithic, then rejects");
         True(medieval.StepDowns.SequenceEqual(new[] { "stage_step_down:Medieval->Neolithic:essential_role_unresolved:Door" }), "logged step-down before rejection");
         Contains(medieval.Diagnostics, "essential_role_unresolved:Door");
-    }
-
-    private static void Run(string name, Action test)
-    {
-        if (only != null && name.IndexOf(only, StringComparison.OrdinalIgnoreCase) < 0) return;
-        if (runIndex++ % shards != shard) return;
-        Stopwatch watch = Stopwatch.StartNew();
-        try { test(); Console.WriteLine("PASS " + name + " (" + watch.ElapsedMilliseconds + " ms)"); }
-        catch (Exception ex) { failures++; Console.WriteLine("FAIL " + name + ": " + ex.Message + "\n" + ex.StackTrace?.Split('\n').FirstOrDefault()); }
     }
 
     private static void True(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }

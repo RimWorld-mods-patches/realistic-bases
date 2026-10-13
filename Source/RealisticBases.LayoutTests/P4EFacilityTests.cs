@@ -41,54 +41,6 @@ internal static partial class Program
             new string[0], 34.9, 45.9)[0], "long-only lanes retain uranium");
         Equal("Turret_Sniper", P4BTurretPlanner.HeavyWeaponOrder(new[] { new GridPoint(20, 0), new GridPoint(40, 0) }, post,
             new[] { "Turret_Autocannon" }, 34.9, 45.9)[0], "existing autocannon permits complementary long-range group");
-        int autos = 0, slugs = 0;
-        foreach (var level in new[] { SettlementTechStageLevel.IndustrialMid, SettlementTechStageLevel.IndustrialLate })
-        {
-            var stage = TechStageModel.Create(level);
-            foreach (int wealth in new[] { 100, 180 })
-            {
-                foreach (int allowance in new[] { 100, 125, 150 })
-                {
-                    int guns = 0, groups = 0, guards = 0, value = 0, generators = 0, watts = 0;
-                    for (ulong seed = 1; seed <= 3; seed++)
-                    {
-                        var budget = OrdinarySettlementPopulation.Create(P2ProfileCatalog.IndustrialTemperate, stage, Temperate, wealth, allowance);
-                        var baseline = OrdinarySettlementPopulation.Create(P2ProfileCatalog.IndustrialTemperate, stage, Temperate, wealth, 100);
-                        Equal(baseline.Residents, budget.Residents, "no roster inflation");
-                        Equal(baseline.EquipmentValue, budget.EquipmentValue, "no equipment-budget inflation");
-                        var req = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, Temperate, stage: stage, populationBudget: budget);
-                        Equal(allowance == 100 ? 0 : 960, req.DefenseReserveWatts, "ordinary-only dispatchable reservation");
-                        var input = new ProceduralLayoutInput(req, Plains(180), seed, CoreCatalog,
-                            new LayoutFortificationReservation(1), resources:
-                            new LayoutLocalResources(100000, new[] { "BlocksGranite" }));
-                        var result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true); Accepted(result);
-                        var layout = result.Layout;
-                        True(layout.Materials.ImportValue <= req.ImportValueLimit, "construction and fuel remain funded");
-                        if (layout.Power != null)
-                        {
-                            True(layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.RenewableWatts -
-                                layout.Power.CriticalWatts - layout.Power.NonCriticalWatts >= req.DefenseReserveWatts, "real dispatchable headroom");
-                            True(layout.Power.Batteries >= LayoutPowerModel.Batteries(layout.Power.CriticalWatts +
-                                layout.Power.NonCriticalWatts + req.DefenseReserveWatts), "defense included in outage buffer");
-                            generators += layout.Power.Generators;
-                        }
-                        if (layout.Turret == null) continue;
-                        var staffing = P4BStaffing.Audit(input, layout, layout.Turret);
-                        Equal(staffing.Guns, staffing.GuardedGuns, "all guns concurrently guarded");
-                        Equal(staffing.Guns, staffing.CloseSupportedGuns, "all guns close-supported");
-                        guns += layout.Turret.All.Count(); groups += layout.Turret.Groups.Count();
-                        guards += staffing.GuardedGuns; value += layout.Turret.ImportValue; watts += layout.Turret.TotalWatts;
-                        autos += layout.Turret.All.Count(t => t.DefName == "Turret_Autocannon");
-                        slugs += layout.Turret.All.Count(t => t.DefName == "Turret_Sniper");
-                    }
-                    Console.WriteLine("  sweep stage=" + level + " wealth=" + wealth + " allowance=" + allowance +
-                        " guns=" + guns + " groups=" + groups + " guards=" + guards + " turretValue=" + value +
-                        " generators=" + generators + " turretWatts=" + watts);
-                }
-            }
-        }
-        True(autos > 0, "autocannons actually selected in resolved eligible layouts");
-        Console.WriteLine("  sweep autocannons=" + autos + " uranium=" + slugs);
         foreach (var level in new[] { SettlementTechStageLevel.Neolithic, SettlementTechStageLevel.Medieval, SettlementTechStageLevel.IndustrialEarly })
         {
             bool primitive = level < SettlementTechStageLevel.IndustrialEarly;
@@ -98,6 +50,59 @@ internal static partial class Program
         }
         Equal(0, LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, Temperate).DefenseReserveWatts,
             "legacy/native quest profile budgets unchanged without ordinary wealth contract");
+    }
+
+    // The defense allowance sweep, one test per stage, wealth and allowance so
+    // the queue spreads its plans over the workers.
+    private static void RunP4EDefenseSweep()
+    {
+        foreach (var level in new[] { SettlementTechStageLevel.IndustrialMid, SettlementTechStageLevel.IndustrialLate })
+            foreach (int wealth in new[] { 100, 180 })
+                foreach (int allowance in new[] { 100, 125, 150 })
+                    Run("P4E defense allowance sweep " + level + " wealth=" + wealth + " allowance=" + allowance,
+                        () => P4EDefenseSweep(level, wealth, allowance), 100);
+    }
+
+    private static void P4EDefenseSweep(SettlementTechStageLevel level, int wealth, int allowance)
+    {
+        var stage = TechStageModel.Create(level);
+        int guns = 0, groups = 0, guards = 0, value = 0, generators = 0, watts = 0, autos = 0, slugs = 0;
+        for (ulong seed = 1; seed <= 3; seed++)
+        {
+            var budget = OrdinarySettlementPopulation.Create(P2ProfileCatalog.IndustrialTemperate, stage, Temperate, wealth, allowance);
+            var baseline = OrdinarySettlementPopulation.Create(P2ProfileCatalog.IndustrialTemperate, stage, Temperate, wealth, 100);
+            Equal(baseline.Residents, budget.Residents, "no roster inflation");
+            Equal(baseline.EquipmentValue, budget.EquipmentValue, "no equipment-budget inflation");
+            var req = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, Temperate, stage: stage, populationBudget: budget);
+            Equal(allowance == 100 ? 0 : 960, req.DefenseReserveWatts, "ordinary-only dispatchable reservation");
+            var input = new ProceduralLayoutInput(req, Plains(180), seed, CoreCatalog,
+                new LayoutFortificationReservation(1), resources:
+                new LayoutLocalResources(100000, new[] { "BlocksGranite" }));
+            var result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true); Accepted(result);
+            var layout = result.Layout;
+            True(layout.Materials.ImportValue <= req.ImportValueLimit, "construction and fuel remain funded");
+            if (layout.Power != null)
+            {
+                True(layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.RenewableWatts -
+                    layout.Power.CriticalWatts - layout.Power.NonCriticalWatts >= req.DefenseReserveWatts, "real dispatchable headroom");
+                True(layout.Power.Batteries >= LayoutPowerModel.Batteries(layout.Power.CriticalWatts +
+                    layout.Power.NonCriticalWatts + req.DefenseReserveWatts), "defense included in outage buffer");
+                generators += layout.Power.Generators;
+            }
+            if (layout.Turret == null) continue;
+            var staffing = P4BStaffing.Audit(input, layout, layout.Turret);
+            Equal(staffing.Guns, staffing.GuardedGuns, "all guns concurrently guarded");
+            Equal(staffing.Guns, staffing.CloseSupportedGuns, "all guns close-supported");
+            guns += layout.Turret.All.Count(); groups += layout.Turret.Groups.Count();
+            guards += staffing.GuardedGuns; value += layout.Turret.ImportValue; watts += layout.Turret.TotalWatts;
+            autos += layout.Turret.All.Count(t => t.DefName == "Turret_Autocannon");
+            slugs += layout.Turret.All.Count(t => t.DefName == "Turret_Sniper");
+        }
+        Console.WriteLine("  sweep stage=" + level + " wealth=" + wealth + " allowance=" + allowance +
+            " guns=" + guns + " groups=" + groups + " guards=" + guards + " turretValue=" + value +
+            " generators=" + generators + " turretWatts=" + watts + " autocannons=" + autos + " uranium=" + slugs);
+        if (!CoreCatalog.IsLegal("Turret_Autocannon", stage)) Equal(0, autos, "autocannons need their research");
+        else if (wealth > 100 || allowance > 100) True(autos > 0, "autocannons actually selected in funded eligible layouts");
     }
 
     private static void P4EBarrelWarehouse()
@@ -330,8 +335,9 @@ internal static partial class Program
             ProceduralLayoutResult result = Plan(Plains(140), LayoutRequirements.FromPopulation(7, Tribal, Temperate,
                 stage: TechStageModel.Create(level)), 33);
             Accepted(result);
-            Equal(level != SettlementTechStageLevel.Neolithic, result.Layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Medical)
-                .Any(r => r.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Shelf)), "legal shelf stage");
+            // Neolithic has no ComplexFurniture, but its wooden small shelf is the P5B exception.
+            True(result.Layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Medical)
+                .All(r => r.Fixtures.Any(f => f.Kind == LayoutFixtureKind.Shelf && f.DefName == "ShelfSmall")), "legal shelf stage");
         }
         TechCatalog withoutSmall = new TechCatalog("no-small-shelf", CoreCatalog.Defs.Where(d => d.DefName != "ShelfSmall"), CoreCatalog.Research);
         LayoutEquipment fallback = LayoutEquipment.Resolve(LayoutRequirements.FromPopulation(7, Industrial, Cold), withoutSmall, null, 2, 9);

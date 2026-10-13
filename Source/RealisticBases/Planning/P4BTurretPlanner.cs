@@ -120,7 +120,8 @@ namespace RealisticBases.Planning
             P4BTurretPlan turret, IEnumerable<GridPoint> additionalBlocked = null,
             SettlementLoadout loadout = null)
         {
-            if (input == null || layout?.FieldWall == null || turret == null) return new[] { "missing_plan" };
+            if (input == null || layout == null || turret == null ||
+                layout.FieldWall == null && input.QuestContract == null) return new[] { "missing_plan" };
             List<string> errors = new List<string>();
             List<P4BTurretPlan> guns = turret.All.ToList();
             if (turret.AdditionalGroups.Any(g => g.AdditionalGroups.Count > 0) ||
@@ -158,6 +159,10 @@ namespace RealisticBases.Planning
                     errors.Add("turret_obstructs_defender_frontage");
             }
             finalOpaque.UnionWith(guns.SelectMany(t => t.Footprint));
+            // A quest camp's guns are the native advertised threat: its one guard
+            // cannot staff them, so the garrison support rules below are for
+            // settlements only. Geometry, cover, service and power still apply.
+            if (input.QuestContract != null) return errors.Distinct().ToList();
             IEnumerable<GridPoint> posts = layout.ApproachDefense?.AllPosts ?? new GridPoint[0];
             foreach (P4BTurretPlan group in turret.Groups)
             {
@@ -243,10 +248,14 @@ namespace RealisticBases.Planning
             P4BTurretPlan turret, IEnumerable<GridPoint> additionalBlocked, IEnumerable<P4BTurretPlan> otherGuns)
         {
             List<string> errors = new List<string>();
-            if (input == null || layout?.FieldWall == null || turret == null)
+            if (input == null || layout == null || turret == null ||
+                layout.FieldWall == null && input.QuestContract == null)
                 return new[] { "missing_plan" };
+            // A quest camp has no field: its guns carry their access gate and side.
             P4BFieldWallPlan fieldWall = layout.FieldWall;
-            if (!fieldWall.InnerGate.HasValue) return new[] { "missing_inner_gate" };
+            if (fieldWall != null && !fieldWall.InnerGate.HasValue) return new[] { "missing_inner_gate" };
+            if (fieldWall == null && (!turret.AccessGate.HasValue || !turret.Outward.HasValue))
+                return new[] { "missing_access_or_side" };
             if (!input.Catalog.TryGet(turret.DefName, out CatalogDef def) ||
                 !input.Catalog.IsLegal(def, input.Equipment.Kit.Stage) || !def.AutonomousTurret ||
                 def.FuelCapacity <= 0 || def.FuelMultiplier <= 0 || def.FuelPerShot <= 0 ||
@@ -262,7 +271,7 @@ namespace RealisticBases.Planning
                 .Concat(layout.PowerYards.SelectMany(y => y.Cells))
                 .Concat(layout.AllFixtures.SelectMany(f => f.Cells))
                 .Concat(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex])))
-                .Concat(fieldWall.Walls).Concat(fieldWall.Fields).Concat(fieldWall.ExteriorPosts));
+                .Concat(FieldContent(fieldWall)));
             occupied.UnionWith(layout.ApproachDefense?.CoverCells ?? new GridPoint[0]);
             occupied.UnionWith(layout.ApproachDefense?.AllPosts ?? new GridPoint[0]);
             occupied.UnionWith(layout.ExtraObstacles);
@@ -271,7 +280,7 @@ namespace RealisticBases.Planning
             opaque.UnionWith(otherGuns.SelectMany(t => t.Footprint));
             opaque.UnionWith(turret.Support?.Footprint ?? Enumerable.Empty<GridPoint>());
             occupied.UnionWith(opaque.Except(P4BApproachDefensePlanner.AccessGates(layout))
-                .Where(c => !c.Equals(fieldWall.InnerGate.Value)));
+                .Where(c => fieldWall == null || !c.Equals(fieldWall.InnerGate.Value)));
             GridPoint accessGate = turret.AccessGate ?? fieldWall.OuterGate;
             if (!P4BApproachDefensePlanner.AccessGates(layout).Contains(accessGate)) errors.Add("access_gate");
             if (!footprint.OrderBy(c => c).SequenceEqual(turret.Footprint) || footprint.Any(c =>
@@ -322,8 +331,7 @@ namespace RealisticBases.Planning
                     layout.Power.CriticalWatts - layout.Power.NonCriticalWatts < turret.TotalWatts ||
                 turret.Watts != def.BasePowerConsumption) errors.Add("power_budget");
             if (turret.LoadedFuelUnits != (int)Math.Ceiling(def.FuelCapacity * def.InitialFuelPercent / def.FuelMultiplier) ||
-                turret.ReserveFuelUnits != P5Readiness.ReloadReserve(def.FuelCapacity, def.InitialFuelPercent, def.FuelPerShot,
-                    def.FuelMultiplier, (int)Math.Ceiling(def.FuelCapacity / def.FuelMultiplier)) ||
+                turret.ReserveFuelUnits != ReserveFuel(input, def) ||
                 turret.ImportValue != ImportValue(input.Catalog, def, fuel,
                     turret.LoadedFuelUnits + turret.ReserveFuelUnits) +
                     CoverImportValue(input, P4BCoverNest.CoverDefName(input), turret.CoverCells.Count) +
@@ -582,6 +590,126 @@ namespace RealisticBases.Planning
             void Reject(string code) { rejected.TryGetValue(code, out int n); rejected[code] = n + 1; }
         }
 
+        // A quest camp's advertised mini turrets: exactly `count`, spread
+        // round-robin over the exposed sides (most approach samples first),
+        // each with a cover nest and a service route from a camp gate. Loaded
+        // as native loads them, with no reserve. Null when the count cannot fit.
+        public static P4BTurretPlan PlanQuestGuns(ProceduralLayoutInput input, ProceduralLayout layout, int count,
+            out string diagnostic)
+        {
+            if (input == null || layout == null) throw new ArgumentNullException();
+            if (count <= 0) { diagnostic = "none_advertised"; return null; }
+            if (layout.ApproachDefense == null || layout.Power == null)
+            { diagnostic = "defense_or_power_unavailable"; return null; }
+            if (!input.Catalog.TryGet("Turret_MiniTurret", out CatalogDef mini) ||
+                !input.Catalog.IsLegal(mini, input.Equipment.Kit.Stage) || !mini.AutonomousTurret ||
+                mini.FuelCapacity <= 0 || mini.FuelMultiplier <= 0 || mini.Fuel.Count != 1 ||
+                !input.Catalog.TryGet(mini.Fuel[0], out CatalogDef fuel) ||
+                !input.Catalog.IsLegal(fuel, input.Equipment.Kit.Stage))
+            { diagnostic = "mini_turret_illegal"; return null; }
+            int loaded = (int)Math.Ceiling(mini.FuelCapacity * mini.InitialFuelPercent / mini.FuelMultiplier);
+            int value = ImportValue(input.Catalog, mini, fuel, loaded);
+            List<P4BAttackSide> sides = layout.ApproachDefense.Sides.Where(s => s.Exposed)
+                .OrderByDescending(s => s.Samples.Count).ThenBy(s => s.Id, StringComparer.Ordinal).ToList();
+            if (sides.Count == 0) { diagnostic = "no_exposed_side"; return null; }
+            List<Frame> frames = sides.SelectMany(s => layout.ApproachDefense.Posts
+                .Select(p => new { Post = p, Slot = p.Slots.Cast<GridPoint?>().FirstOrDefault(c => s.Positions.Contains(c.Value)) })
+                .Where(x => x.Slot.HasValue).Select(x => new Frame { Anchor = x.Slot.Value, Gate = x.Post.AccessGate,
+                    Outward = s.Outward, Side = s.Id })).ToList();
+            HashSet<GridPoint> baseBlocked = new HashSet<GridPoint>(layout.Enclosure
+                .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
+                .Concat(layout.PowerYards.SelectMany(y => y.Cells))
+                .Concat(layout.AllFixtures.SelectMany(f => f.Cells))
+                .Concat(layout.OuterSections.SelectMany(o => o.ServiceLane(layout.Gates[o.GateIndex])))
+                .Concat(layout.ApproachDefense.CoverCells).Concat(layout.ApproachDefense.AllPosts));
+            HashSet<GridPoint> baseOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
+            baseBlocked.UnionWith(baseOpaque.Except(P4BApproachDefensePlanner.AccessGates(layout)));
+            List<P4BTurretPlan> guns = new List<P4BTurretPlan>();
+            Dictionary<string, int> rejected = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int i = 0; i < count; i++)
+            {
+                // The side whose turn it is first, then any other side.
+                IEnumerable<P4BAttackSide> order = sides.Skip(i % sides.Count).Concat(sides.Take(i % sides.Count));
+                P4BTurretPlan placed = null;
+                foreach (P4BAttackSide side in order)
+                {
+                    placed = PlaceQuestGun(input, layout, mini, fuel, loaded, value, frames.Where(f => f.Side == side.Id),
+                        side, guns, baseBlocked, baseOpaque, rejected);
+                    if (placed != null) break;
+                }
+                if (placed == null)
+                {
+                    diagnostic = "placed=" + guns.Count + "/" + count + " " + string.Join(",", rejected
+                        .OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => kv.Key + ":" + kv.Value));
+                    return null;
+                }
+                guns.Add(placed);
+            }
+            P4BTurretPlan network = Combine(input.Catalog, guns);
+            diagnostic = "accepted turrets=" + guns.Count + " sides=" + string.Join(",", guns.GroupBy(g => g.Side)
+                .OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => g.Key + ":" + g.Count())) +
+                " watts=" + network.TotalWatts + " value=" + network.ImportValue;
+            return network;
+        }
+
+        private static P4BTurretPlan PlaceQuestGun(ProceduralLayoutInput input, ProceduralLayout layout,
+            CatalogDef mini, CatalogDef fuel, int loaded, int value, IEnumerable<Frame> frames, P4BAttackSide side,
+            List<P4BTurretPlan> guns, HashSet<GridPoint> baseBlocked, HashSet<GridPoint> baseOpaque,
+            Dictionary<string, int> rejected)
+        {
+            HashSet<GridPoint> blocked = new HashSet<GridPoint>(baseBlocked);
+            blocked.UnionWith(guns.SelectMany(t => t.Footprint.Concat(t.CoverCells)));
+            HashSet<GridPoint> opaque = new HashSet<GridPoint>(baseOpaque);
+            opaque.UnionWith(guns.SelectMany(t => t.Footprint));
+            int minimum = (int)Math.Ceiling(mini.MinimumRange), maximum = (int)Math.Floor(mini.MaximumRange);
+            var candidates = frames.SelectMany(frame => new[] { 2, 3, 4, 5, 6, 7, 8, 10, 12 }.SelectMany(forward =>
+                    new[] { 0, -2, 2, -4, 4, -6, 6, -8, 8, -10, 10, -12, 12, -14, 14 }.Select(lateral => new
+                    { Frame = frame, Origin = At(frame.Anchor, frame.Outward,
+                        new GridPoint(-frame.Outward.Z, frame.Outward.X), forward, lateral) })))
+                .Select(c => new { c.Frame, c.Origin, Shots = side.Samples.Count(t =>
+                    P4BFireLane.CanEngage(c.Origin, t, minimum, maximum, opaque)) })
+                .Where(c => c.Shots >= 4)
+                .OrderByDescending(c => c.Shots).ThenBy(c => Manhattan(c.Origin, c.Frame.Gate)).ThenBy(c => c.Origin);
+            foreach (var candidate in candidates)
+            {
+                Frame frame = candidate.Frame;
+                GridPoint facing = frame.Outward, across = new GridPoint(-facing.Z, facing.X);
+                List<GridPoint> footprint = Enumerable.Range(0, mini.SizeX).SelectMany(x =>
+                    Enumerable.Range(0, mini.SizeZ).Select(z => new GridPoint(candidate.Origin.X + x, candidate.Origin.Z + z))).ToList();
+                if (footprint.Any(c => blocked.Contains(c) || opaque.Contains(c) || Arrival(layout).Contains(c) ||
+                    !Buildable(input.Terrain, c) || guns.Any(t => t.ServiceRoute.Contains(c)) ||
+                    layout.ApproachDefense.Posts.Any(p => p.Route.Contains(c))))
+                { Reject("footprint"); continue; }
+                if (DefendedAssets(layout).Any(c => footprint.Any(f => Distance(f, c) < mini.ExplosionRadius + 2)) ||
+                    guns.Any(t => footprint.Any(f => t.Footprint.Any(c => Distance(f, c) < mini.ExplosionRadius + 2))))
+                { Reject("blast_clearance"); continue; }
+                foreach (GridPoint service in footprint.SelectMany(c => Cardinal.Select(d => new GridPoint(c.X + d.X, c.Z + d.Z)))
+                    .Distinct().OrderBy(c => Manhattan(c, frame.Gate)).ThenBy(c => c))
+                {
+                    if (footprint.Contains(service) || blocked.Contains(service) || !Walkable(input.Terrain, service)) continue;
+                    List<GridPoint> route = Route(input.Terrain, frame.Gate, service, blocked, footprint);
+                    if (route == null) continue;
+                    List<GridPoint> cover = CoverFor(input.Terrain, layout, footprint, route, blocked, opaque, facing, across, 1);
+                    if (cover == null || guns.Any(t => t.ServiceRoute.Intersect(cover).Any()))
+                    { Reject("turret_cover"); continue; }
+                    int coverValue = CoverImportValue(input, P4BCoverNest.CoverDefName(input), cover.Count);
+                    if (coverValue == int.MaxValue) { Reject("cover_value"); continue; }
+                    P4BTurretPlan proposed = new P4BTurretPlan(mini, candidate.Origin, footprint, service, route, fuel.DefName,
+                        loaded, 0, value + coverValue, coverCells: cover, accessGate: frame.Gate, outward: facing, side: frame.Side);
+                    P4BTurretPlan network = Combine(input.Catalog, guns.Concat(new[] { proposed }));
+                    IReadOnlyList<string> errors = Validate(input, layout, network);
+                    if (errors.Count > 0) { Reject("network_" + errors[0]); continue; }
+                    if (P4BApproachDefensePlanner.Validate(input, layout.WithTurret(input, network)).Count > 0)
+                    { Reject("post_lane_obstructed"); continue; }
+                    return proposed;
+                }
+                Reject("service_route");
+            }
+            return null;
+
+            void Reject(string code) { rejected.TryGetValue(code, out int n); rejected[code] = n + 1; }
+        }
+
         private static GridPoint At(GridPoint origin, GridPoint outward, GridPoint tangent, int forward, int lateral) =>
             new GridPoint(origin.X + outward.X * forward + tangent.X * lateral,
                 origin.Z + outward.Z * forward + tangent.Z * lateral);
@@ -704,7 +832,7 @@ namespace RealisticBases.Planning
                 c.X + outward.X, c.Z + outward.Z)).Distinct().ToList();
             bool legal(GridPoint c) => !footprint.Contains(c) && !blocked.Contains(c) &&
                 !opaque.Contains(c) && !serviceRoute.Contains(c) && !Arrival(layout).Contains(c) &&
-                !fieldWall.ExteriorPosts.Contains(c) && Buildable(terrain, c);
+                (fieldWall == null || !fieldWall.ExteriorPosts.Contains(c)) && Buildable(terrain, c);
             if (front.Count == 0 || front.Any(c => !legal(c))) return null;
             List<GridPoint> cover = new List<GridPoint>(front);
             foreach (int sign in new[] { side, -side })
@@ -773,8 +901,17 @@ namespace RealisticBases.Planning
         }
 
         private static IEnumerable<GridPoint> Arrival(ProceduralLayout layout) => layout.Gates.SelectMany(g => g.ExteriorRoute);
+        private static IEnumerable<GridPoint> FieldContent(P4BFieldWallPlan fieldWall) => fieldWall == null
+            ? Enumerable.Empty<GridPoint>() : fieldWall.Walls.Concat(fieldWall.Fields).Concat(fieldWall.ExteriorPosts);
+
+        // A quest camp's advertised guns carry what native gives them, no
+        // reserve; settlement guns keep the reload reserve.
+        private static int ReserveFuel(ProceduralLayoutInput input, CatalogDef def) =>
+            input.QuestContract != null ? 0 : P5Readiness.ReloadReserve(def.FuelCapacity, def.InitialFuelPercent,
+                def.FuelPerShot, def.FuelMultiplier, (int)Math.Ceiling(def.FuelCapacity / def.FuelMultiplier));
+
         private static IEnumerable<GridPoint> DefendedAssets(ProceduralLayout layout) =>
-            layout.FieldWall.ExteriorPosts
+            (layout.FieldWall?.ExteriorPosts ?? Enumerable.Empty<GridPoint>())
                 .Concat(P4BApproachDefensePlanner.AccessGates(layout))
                 .Concat(layout.ApproachDefense?.AllPosts ?? new GridPoint[0])
                 .Concat(layout.ApproachDefense?.CoverCells ?? new GridPoint[0]);

@@ -3,84 +3,88 @@ legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' pub
         B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater
         f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf
         Y power yard (solar/wind/geothermal)  w wind clear zone  x cooler exhaust pocket (sealed, unroofed)
-        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle
+        g band door  | band wall  v outer vestibule  s staging  * exterior route  X injected obstacle  " inner-yard crops
+        F field crops  @ defender slot  b cover (barricade/sandbags)  U turret
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
 roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  'O' roof cleared over an exhaust pocket  ' ' open sky
 
-digest=EB0EC04E230E699A doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=801
-  bedroom-1   bounds=63,47,6x5    door=64,51   1/1 beds
-  bedroom-2   bounds=65,66,5x6    door=65,67   1/1 beds
-  bedroom-3   bounds=69,66,5x6    door=71,66   1/1 beds
-  bedroom-4   bounds=65,71,6x5    door=65,72   1/1 beds
-  bedroom-5   bounds=59,66,5x5    door=63,67   1/1 beds
-  dining      bounds=57,48,7x9    door=63,55   8/5 seats
-  freezer     bounds=56,56,8x8    door=63,59   32/30 stockpile-cells
-  jail        bounds=54,66,5x6    door=55,66   1/1 beds
-  kitchen     bounds=65,57,5x5    door=65,59   1/1 stoves
-  laboratory  bounds=65,52,5x6    door=65,55   1/1 benches
-  medical     bounds=58,70,6x5    door=63,71   1/1 beds
-  mortar-magazine bounds=64,78,3x3    door=65,78   1/1 shelf_cells
-  power       bounds=73,40,5x12   door=74,51   4/4 generators
-  storage     bounds=69,50,5x14   door=73,56   34/34 stockpile-cells
-  workshop    bounds=75,51,5x10   door=75,56   4/4 benches
-  note: engine=Clusters style=Superstructure typicalDepth=3 branchSpacing=10 front=54,64
-  note: mortar_magazine=65,79 operator=64,77 loadingManhattan=1
+digest=AD90369551E2D7E8 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=1011
+  bedroom-1   bounds=50,58,5x6    door=53,63   1/1 beds
+  bedroom-2   bounds=46,63,6x5    door=51,64   1/1 beds
+  bedroom-3   bounds=59,69,5x5    door=63,70   1/1 beds
+  bedroom-4   bounds=55,75,5x5    door=58,75   1/1 beds
+  bedroom-5   bounds=59,75,5x6    door=60,75   1/1 beds
+  dining      bounds=51,65,9x7    door=58,65   8/5 seats
+  freezer     bounds=58,58,6x6    door=61,63   30/30 stockpile-cells
+  jail        bounds=71,65,6x5    door=75,65   1/1 beds
+  kitchen     bounds=59,65,5x5    door=61,65   1/1 stoves
+  laboratory  bounds=54,58,5x6    door=56,63   1/1 benches
+  medical     bounds=66,67,6x5    door=66,70   1/1 beds
+  mortar-magazine bounds=49,73,3x3    door=51,74   1/1 shelf_cells
+  power       bounds=73,57,7x7    door=74,63   3/3 generators
+  storage     bounds=56,54,8x5    door=63,56   41/34 stockpile-cells
+  workshop    bounds=55,50,9x5    door=63,52   4/4 benches
+  note: engine=Clusters style=Superstructure typicalDepth=3 branchSpacing=10 front=64,49
+  note: mortar_magazine=50,74 operator=53,74 loadingManhattan=1
   note: excavated=0/410 retainedThickRoof=0
   note: gates=2 desired=2
   note: outerSections=0/0 outerWallCells=0
-  note: materials walls=399 doors=17 stuff=WoodLog:3900 constructionWood=3900 fuelWood=0 generatorFuel=WoodLog:264/imported 0 localWood=4164 importedWood=0 importValue=3190
-  power: critical=2325W nonCritical=1420W WoodFiredGeneratorx4 batteries=1 renewables= (0W) fuel=WoodLog:264
-  power: power_source_unplaceable:WindTurbine:no_clear_zone
+  note: exhaustPockets=1 roofHoles=0
+  note: materials walls=390 doors=17 stuff=WoodLog:3935 constructionWood=3935 fuelWood=0 generatorFuel=WoodLog:423/imported 0 localWood=4358 importedWood=0 importValue=3190
+  power: critical=2125W nonCritical=1450W WoodFiredGeneratorx3 batteries=2 renewables=WindTurbine,WindTurbine (1840W) fuel=WoodLog:423
+                     *
+                     *
+                     *
+                     * ###########
+                     * #,,,,,,,,,#
+                     * #,wwwwwww,#
+                     * #,wwwwwww,#
+                     * #,wwwwwww,#
+                     * #,wwwwwww,#
+                     s #,wwwwwww,#
+                    #G##,wwwwwww,#
+                    #,,,,wwwwwww,#
+                #####,,,,wwwwwww,#
+            #####,,,,,,,,wwwwwww,#
+            #,,,,,#####==wwwwwww,#
+            #,#####Bh.#==YYYYYYY,#
+            #,#Bh.#B..#=iYYYYYYY,#
+      #######,#B..#...#==wwwwwww,#
+      #,,,,,#,#L..#.L.#==wwwwwww,#
+      #,###,,,###D#D###==wwwwwww,#
+      #,#kD=i============wwwwwww,#
+      #,###MM,,,,,#####==wwwwwww,#
+      #,,,,MM,,,,,#...#==wwwwwww,#
+      ###,#########h.L#==######,,#####
+        #,#RcL.ch.#BB.D==D..HH#,,,,,,#
+   ######,#.TTcTTc#####==#L..k######,#
+   #,,,,,,#cTTcTT.#SSS#==#...h#Ph..#,#
+   #,######..c..c.#hc.#==######P...#,#
+   #,#....#...L...#L..#==,,,,,#L...#,#
+   #,#h..L#######D##D##==,,,,,####D#,####
+   #,#BB..D=========================,,,,#
+   #,#######D##D##C#D##==wwwwwww#D#v###,##
+   #,,,,,#.L.#..L#i_.L#==wwwwwww#..iEE#,,##
+   #####,#...#.ch#k__k#==wwwwwww#AA.EE##,,#
+       #,#..B#WWW#k__k#==wwwwwww#L...ivx#,#
+       #,#.hB#WWW#kkkk#==wwwwwww#AEEEE##,,#
+       #,##############==wwwwwww#AEEEE#,,##
+       #,,,,,,,#kkkkkk#==wwwwwww#######,##
+       #######,#k____.D==wwwwwww,,,,,,,,#
+            #,,#kkkkL_#==wwwwwww,########
+            #,#########==wwwwwww,#
+            #,#WhWWW..#==YYYYYYY,#
+            #,#Wccc.c.D=iYYYYYYY,#
+            #,#WWWWLWW#==wwwwwww,#
+            #,#########==wwwwwww,#
+            #,,,,,,,,,,==wwwwwww,#
+            #########,,,,wwwwwww,#
+                    #,,,,wwwwwww,#
+                    #,,,,wwwwwww,#
+                    ##G#,,,,,,,,,#
+                      s###########
+                      *
+                      *
+                      *
 
-
-
-                #######
-                #,,,,,#
-              ###,###,#
-              #,,,#k#,#
-              #,MM#D#,#
-              #,MMi,,,#####
-          #####,,,=,,,,,,,#
-          #,,,,,,,=######,#
-          #,######=#..BB#,#
-      #####,#h...#=#...h#,####
-      #,,,,,#k...#=D...L#,,,,#
-      #,#####HHL.D=#########,#
-      #,#PhL######=#.BB#BhL#,#
-      #,#P..##L..#=#..h#B..#,#
-    ###,#...##h..#=#..L#...#,#####
-    #,,,#...##BB.D=D...#...#,,,,,#
-    #,,,#D########=######D##,,,,,#
-    #,,,======================,,,#
-    #,,,======================,,,Gs****
-***sG,,,,,########=,,,,#####=,,,,#
-    #,,,,,#______#=,,,,#___#=,,,,###
-    #####,#k____iC=#####___#=,,,,,,#
-        #,#k_____#=#LhS#___#=#####,#
-        #,#k____.D=D.cS#___#=#.LW#,#
-        #,#k_____#=#..S#___#=#.cW#,#
-        #,#L_kk_iC=#####k__#=#..W#,#
-        #,########=#LWW#k_.D=D..W#,#
-        #,,#Lc...D=DcWW#k__#=#WcW#,#
-        ##,#hTTc.#=#.WW#k__#=#WcW#,#
-         #,#cTT..#=#..h#k__#=#Wch#,#
-         #,#.cc..#=#####k__#=#WWW#,#
-         #,#.TTc.#D#####L__#D#####,#
-         #,#cTT..#....######...#,,,#
-         #,#R.c..#...B#,,,,#.AA#,###
-         #,#######.LhB#,##,#.EE#,#
-         #,,,,,,,######,##,#.EE#,#
-         #######,,,,,,,,##,#.EE#,#
-               ###########,#.EE#,#
-                         #,#.EE#,#
-                         #,#.EE#,#
-                         #,#.EE#,#
-                         #,#LEE#,#
-                         #,#####,#
-                         #,,,,,,,#
-                         #########
-
-
-
-
-search: sites=1 attempts=3 evaluations=39918 repairs=0 routeNodes=65476 budgetExhausted=False
+search: sites=1 attempts=3 evaluations=38177 repairs=0 routeNodes=64782 budgetExhausted=False

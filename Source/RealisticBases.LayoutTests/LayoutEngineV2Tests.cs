@@ -11,7 +11,7 @@ internal static partial class Program
         Run("V2 neighbouring rooms may share plain walls only", V2SharedWallContract);
         Run("V2 shared walls are built and charged once", V2SharedWallLedger);
         Run("V2 clusters is the default engine; an injected engine plans and keys the digest", V2EngineInjection);
-        Run("V2 clusters engine plans superstructure, town and mountain styles", V2ClusterStyles);
+        Run("V2 clusters engine plans superstructure, town and mountain styles", V2ClusterStyles, 70);
         Run("V2 candidate pool is bounded, deterministic and keeps the best score", V2CandidatePool);
     }
 

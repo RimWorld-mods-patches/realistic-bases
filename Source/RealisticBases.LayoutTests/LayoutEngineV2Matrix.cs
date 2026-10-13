@@ -19,7 +19,7 @@ internal static partial class Program
     private static void RunLayoutEngineV2Matrix()
     {
         if (only == null || only.IndexOf("matrix", StringComparison.OrdinalIgnoreCase) < 0) return;
-        Run("V2 matrix", V2Matrix);
+        Run("V2 matrix", V2Matrix, 255);
     }
 
     private static TerrainSnapshot V2Clutter(int salt) => Build(160, 160, (x, z) =>
@@ -167,6 +167,8 @@ internal static partial class Program
             for (int seed = 1; seed <= seeds; seed++) runs.Add(new V2MatrixRun { Case = c, Seed = seed });
         }
         Stopwatch wall = Stopwatch.StartNew();
+        int done = 0, failed = 0;
+        Console.WriteLine("  matrix: " + runs.Count + " plans on " + Environment.ProcessorCount + " threads");
         // Longest cases first keeps the tail short.
         System.Threading.Tasks.Parallel.ForEach(runs.OrderByDescending(r => r.Case.JointSite).ToList(),
             new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, run =>
@@ -185,6 +187,12 @@ internal static partial class Program
             else run.Failure = run.Seed + ":" + (result.RejectionCode ?? "validator") + ":" +
                 string.Join("|", result.Diagnostics.Where(d => d.Stage == "attempt" || d.Stage == "validate" || d.Stage == "joint_site")
                     .Select(d => d.Code).GroupBy(x => x).OrderByDescending(g => g.Count()).Take(3).Select(g => g.Key + "x" + g.Count()));
+            // One progress line per finished plan; Console.WriteLine is thread-safe.
+            int finished = System.Threading.Interlocked.Increment(ref done);
+            int failures = run.Ok ? System.Threading.Volatile.Read(ref failed) : System.Threading.Interlocked.Increment(ref failed);
+            Console.WriteLine("  [" + finished.ToString().PadLeft(runs.Count.ToString().Length) + "/" + runs.Count + "] " +
+                (run.Case.Name + " seed" + run.Seed).PadRight(34) + (run.Ok ? " ok  " : " FAIL") + " " + run.Ms / 1000 + "s" +
+                " elapsed=" + wall.ElapsedMilliseconds / 1000 + "s failed=" + failures);
         });
         int[] totals = new int[2];
         foreach (IGrouping<string, V2MatrixRun> group in runs.GroupBy(r => r.Case.Name))

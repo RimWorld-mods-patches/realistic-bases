@@ -8,71 +8,74 @@ legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' pub
         outside: ' ' open ground  ':' roofed floor  '~' water  'o' occupied  '%' other unusable
 roof view: 'R' retained thick rock roof  'r' constructed roof  '^' intact rock  'O' roof cleared over an exhaust pocket  ' ' open sky
 
-digest=37B3673BD5E8EB9F doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=677
-  barracks-1  bounds=151,101,6x7  door=152,107 4/4 beds
-  dining      bounds=144,101,6x7  door=147,107 4/4 seats
-  freezer     bounds=140,110,5x7  door=142,110 24/24 stockpile-cells
-  jail        bounds=151,118,6x5  door=151,121 1/1 beds
-  kitchen     bounds=140,102,5x6  door=142,107 1/1 stoves
-  laboratory  bounds=151,110,6x5  door=151,112 1/1 benches
-  medical     bounds=156,110,6x5  door=158,110 1/1 beds
-  mortar-magazine bounds=147,98,3x3   door=149,99  1/1 shelf_cells
-  power       bounds=144,118,6x5  door=149,119 1/1 generators
-  storage     bounds=144,112,6x7  door=149,115 34/26 stockpile-cells
-  workshop    bounds=151,114,10x5 door=151,115 4/4 benches
+digest=C43663DEEFBC9AB7 doctrine=OpenGround gates=2 wallLayers=1 court=True excavated=0 retainedRoof=0 enclosure=709
+  barracks-1  bounds=143,101,5x7  door=145,107 4/4 beds
+  dining      bounds=144,110,6x6  door=145,110 4/4 seats
+  freezer     bounds=135,102,7x5  door=136,106 25/24 stockpile-cells
+  jail        bounds=151,120,5x6  door=151,121 1/1 beds
+  kitchen     bounds=140,110,5x5  door=141,110 1/1 stoves
+  laboratory  bounds=144,120,6x5  door=149,121 1/1 benches
+  medical     bounds=151,103,5x5  door=152,107 1/1 beds
+  mortar-magazine bounds=149,93,3x3   door=150,95  1/1 shelf_cells
+  power       bounds=145,97,5x5   door=149,100 1/1 generators
+  storage     bounds=144,115,6x6  door=149,117 31/26 stockpile-cells
+  workshop    bounds=151,113,6x8  door=151,117 4/4 benches
   note: fieldApproachReserved=129,108 terminal=136,108
   note: engine=Clusters style=Superstructure typicalDepth=3 branchSpacing=10 front=161,108
-  note: mortar_magazine=148,99 operator=150,99 loadingManhattan=0
+  note: mortar_magazine=150,94 operator=150,97 loadingManhattan=1
   note: excavated=0/340 retainedThickRoof=0
   note: gates=2 desired=2
   note: outerSections=0/0 outerWallCells=0
   note: exhaustPockets=1 roofHoles=0
-  note: materials walls=293 doors=13 stuff=WoodLog:3015 constructionWood=3015 fuelWood=0 generatorFuel=WoodLog:141/imported 0 localWood=3156 importedWood=0 importValue=3190
-  note: fieldWall=FA047975A02BBD0E materials walls=377 doors=15 stuff=WoodLog:3485 constructionWood=3485 fuelWood=0 generatorFuel=WoodLog:141/imported 0 localWood=3626 importedWood=0 importValue=3190
-  note: approachDefense=02023434AA497BAF
+  note: materials walls=300 doors=13 stuff=WoodLog:3050 constructionWood=3050 fuelWood=0 generatorFuel=WoodLog:141/imported 0 localWood=3191 importedWood=0 importValue=3190
+  note: fieldWall=9F2A0FDB35AB7737 materials walls=384 doors=15 stuff=WoodLog:3520 constructionWood=3520 fuelWood=0 generatorFuel=WoodLog:141/imported 0 localWood=3661 importedWood=0 importValue=3190
+  note: approachDefense=E6EFFEE68A023DC7
   power: critical=200W nonCritical=1300W WoodFiredGeneratorx1 batteries=1 renewables=WindTurbine (920W) fuel=WoodLog:141
   *
   *
   *
-  *                               bbbbb
-  *                               b@@@@
   *                               bbb
-  *                                ####G############
-  *                                #,,,,,,,,,,,,,,,#
-  *                                #,######,######,#
-  *                                #,#AA.iv=D..PP#,#
-  *                                #,#EE..#=#...L#,#####
-  *                                #,#EEL.D=#....#,,,,,#
-  *                            #####,######=##########,#
-  *bbb##################       #,,,,,#kkk_#=#LWWWWWWW#,#
-  *b@b#               ##       #,#####k___#=#..c.cccW#,##
-  *b@ # FFFFFFFFFFFFF ##       #,#Lkk#k__.D=D...WWW.W#,,#
-  *b@ # FFFFFFFFFFFFF ##       #,#__k#k___#=###########,#
-  *b@ # FFFFFFFFFFFFF ##       #,#k_k#L_kk#=#.LWW#HkL.#,#  bbb
-  *   G FFFFFFFFFFFFF ##     ###,#k__######=D.cWW#H...#,###b@b
-  *   # FFFFFFFFFFFFF ##   ###,,,#_.iCx#,,,=#..WW#....#,,,# @b
-  *   # FFFFFFFFFFFFF ##   #,,,,,##D###,,,,=#######D###,,,# @b
-  *   # FFFFFFFFFFFFF ######,=,,,======================ww,G
-  ****G***************G***sG,==========================ww,#
-      # FFFFFFFFFFFFF #   ##,=,,,##D####D##=#D####wwwwwww,#
-      G FFFFFFFFFFFFF #   ##,,,,,#...#....#=#....#wwwwwww,Gs*****
-   b@ # FFFFFFFFFFFFF #   ######,#...#.c..#=#...L#wwwwwww,#
-   b@ # FFFFFFFFFFFFF #   #    #,#.cL#.TTc#=#....#wwwwwww,#
-   b@ # FFFFFFFFFFFFF #   #    #,#SSS#cTTL#=#BBBB#wwwwwww,#
-   b@b#               #   #    #,#####..cR#=#BBBB#wwwwwww,#
-   bbb#####################    #,,,,,######=######wwwwwww,#
-                               #####,,,,###=======i==wwww,#
-                                   ####,#kDiMM,,,,YYYYYYY,#
-                                      #,###,MM,##,YYYYYYY,#
-                                      #,,,,,,,,##,wwwwwww,#
-                                      ###########,wwwwwww,#
-                                                #,wwwwwww,#
-                                                #,wwwwwww,#
-                                                G,wwwwwww,#
-                                             b@ #,wwwwwww,#
-                                             b@b#,,,,,,,,,#
-                                             b@b###########
-                                             bbb
+  *                               b@
+  *                               bb      #########
+  *                                #G######,,,,,,,#
+  *                                #,,,,,,,,#####,#
+  *                                #,######,#LPP#,#
+  *                                #,#WW..#,#...#,#
+  *                                #,#WWcL#,#...#,##
+  *                                #,#WW..D=D...#,,##bb
+  *                                #,######=######,# @b
+  *                                #,#kkk_#=#WWWW#,# @b
+  *                                #,#k___#=#.ccW#,# @b
+  *   ##################           #,#k__.D=D...W#,# @bbbbb
+  *   #               ##       #####,#kkkL#=#L..W#,G  b @@b
+  *   # FFFFFFFFFFFFF ##       #,,,,,######=#.ccW#,#     bb
+  *   # FFFFFFFFFFFFF ##       #,#####Rc..#=#WWWW#,####G##
+  *   # FFFFFFFFFFFFF ##       #,#SSS#.TTc#=######,,,,,,,#
+  *   # FFFFFFFFFFFFF ##     ###,#.c.#cTT.#=,,,,,wwwwwww,##
+  *   # FFFFFFFFFFFFF ########,,,#.L.#.Lc.#=,,,,,wwwwwww,,#
+  ****G***************G***sG,,,,,#D###D####=,,,,,wwwwwww,,#
+      # FFFFFFFFFFFFF #  ###,=,,,======================w,,#
+      # FFFFFFFFFFFFF #  ###,==========================w,,#
+   bb## FFFFFFFFFFFFF #  ##,,=,,,,,,##D##,,=#D###wwwwwww,,#
+   b@ # FFFFFFFFFFFFF #  ##,#D#######..L#,,=#..L#wwwwwww,,Gs***
+   b@ # FFFFFFFFFFFFF #  ##,#.___LCx#.BB#,,=#..H#wwwwwww,##
+   b@ # FFFFFFFFFFFFF #  ##,#k____###...#,,=#.kH#wwwwwww,#
+   b@b# FFFFFFFFFFFFF #  ##,#kkkkk#,#BBB#,,=#####wwwwwww,#
+   b  G               #  ##,#######,#BBB#,,=,,,,,YYYYYYY,#
+      #####################,,,,,,,,,#######=,,,,,YYYYYYY,#
+                          ###G#####,,,#AA.D======i===www,#
+                                  ###,#EEL#=,,,,,wwwwwww,#
+                         b@@@       #,#EEiv=,,,#,wwwwwww,#
+                         bbbbb      #,#####iMM,#,wwwwwww,#
+                                    #,,,,,,=MM,#,wwwwwww,#
+                                    #####,#D#,,#,wwwwwww,#
+                                        #,#k#,##,,,,,,,,,#
+                                        #,###,############
+                                        #,,,,,#
+                                        #G#####
+                                       b
+                                       b@
+                                       bbb
 
 
 
@@ -85,32 +88,39 @@ roof view:
 
 
 
-
+                                            rrrrr
+                                     rrrrrr rrrrr
+                                     rrrrrr rrrrr
+                                     rrrrrr rrrrr
+                                     rrrrrr rrrrr
                                      rrrrrr rrrrrr
                                      rrrrrr rrrrrr
                                      rrrrrr rrrrrr
                                      rrrrrr rrrrrr
-                                     rrrrrr rrrrrrrrrr
-                                     rrrrrr rrrrrrrrrr
-                                 rrrrrrrrrr rrrrrrrrrr
-                                 rrrrrrrrrr rrrrrrrrrr
-                                 rrrrrrrrrr rrrrrrrrrrr
-                                 rrrrrrrrrr rrrrrrrrrrr
-                                 rrrrrrrrrr rrrrrrrrrrr
-                                 rrrrr      rrrrrrrrrrr
-                                 rrrrr      rrrrrrrrrrr
-
-
-                                 rrrrrrrrrr rrrrrr
-                                 rrrrrrrrrr rrrrrr
-                                 rrrrrrrrrr rrrrrr
-                                 rrrrrrrrrr rrrrrr
-                                 rrrrrrrrrr rrrrrr
-                                 rrrrrrrrrr rrrrrr
                                      rrrrrr rrrrrr
-                                        rrr
-                                        rrr
-                                        rrr
+                                     rrrrrr rrrrrr
+                                 rrrrrrrrrr rrrrrr
+                                 rrrrrrrrrr rrrrrr
+                                 rrrrrrrrrr
+                                 rrrrrrrrrr
+                                 rrrrrrrrrr
+
+
+                                    rrrrr   rrrrr
+                            rrrrrrr rrrrr   rrrrr
+                            rrrrrrr rrrrr   rrrrr
+                            rrrrrrr rrrrr   rrrrr
+                            rrrrrrr rrrrr   rrrrr
+                            rrrrrrr rrrrr
+                                    rrrrrrr
+                                      rrrrr
+                                      rrrrr
+                                      rrrrr
+                                      rrrrr
+
+                                          rrr
+                                          rrr
+                                          rrr
 
 
 
@@ -120,8 +130,4 @@ roof view:
 
 
 
-
-
-
-
-metrics: rooms=11 enclosure=677 roomCells=332 sharedWallCells=37 compactness=2.04 pockets=1 gates=2 sites=1 attempts=3 evaluations=34217 repairs=0 routeNodes=102633 budgetExhausted=False
+metrics: rooms=11 enclosure=709 roomCells=309 sharedWallCells=25 compactness=2.29 pockets=1 gates=2 sites=1 attempts=3 evaluations=32172 repairs=0 routeNodes=105638 budgetExhausted=False

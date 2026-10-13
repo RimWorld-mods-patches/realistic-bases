@@ -126,8 +126,9 @@ namespace RealisticBases.Planning
                 if (input.Profile.IncendiaryShells > 0)
                     supplies.Add(new CombatSupply("Shell_Incendiary", input.Profile.IncendiaryShells, StockPurpose.OperatingReserve,
                         "bounded contingency"));
-                supplies.Add(new CombatSupply("ReinforcedBarrel", input.Profile.ReinforcedBarrels, StockPurpose.OperatingReserve,
-                    "non-classic mortar reserve"));
+                if (input.Profile.ReinforcedBarrels > 0)
+                    supplies.Add(new CombatSupply("ReinforcedBarrel", input.Profile.ReinforcedBarrels, StockPurpose.OperatingReserve,
+                        "non-classic mortar reserve"));
             }
             int minX = enclosed.Min(c => c.X), maxX = enclosed.Max(c => c.X);
             int minZ = enclosed.Min(c => c.Z), maxZ = enclosed.Max(c => c.Z);

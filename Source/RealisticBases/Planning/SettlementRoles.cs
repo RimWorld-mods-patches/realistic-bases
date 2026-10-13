@@ -31,7 +31,9 @@ namespace RealisticBases.Planning
         Research,
         ResearchAnalyzer,
         MedicalStorage,
-        MortarStorage
+        MortarStorage,
+        // Lights attached to a room wall; the floor Light role is the fallback.
+        WallLight
     }
 
     // One preference. A virtual option (a zone) needs no def and is always legal.
@@ -122,6 +124,7 @@ namespace RealisticBases.Planning
                 new RoleDefinition(SettlementRole.Seat, false, new[] { d("DiningChair"), d("Stool") }),
                 new RoleDefinition(SettlementRole.Table, false, new[] { d("Table2x2c"), d("Table1x2c") }),
                 new RoleDefinition(SettlementRole.Light, true, new[] { d("StandingLamp"), capped("TorchLamp", medieval) }),
+                new RoleDefinition(SettlementRole.WallLight, false, new[] { d("WallLamp"), capped("TorchWallLamp", medieval) }),
                 // Heat and Cool are climate dependent; the planner escalates them when the climate demands it.
                 new RoleDefinition(SettlementRole.Heat, false, new[] { d("Heater"), capped("Campfire", medieval) }),
                 new RoleDefinition(SettlementRole.Cool, false, new[] { d("Cooler"), capped("PassiveCooler", medieval) }),
@@ -133,7 +136,7 @@ namespace RealisticBases.Planning
                 new RoleDefinition(SettlementRole.CraftFabrication, false, new[] { d("FabricationBench") }),
                 new RoleDefinition(SettlementRole.Research, false, new[] { d("HiTechResearchBench"), d("SimpleResearchBench") }),
                 new RoleDefinition(SettlementRole.ResearchAnalyzer, false, new[] { d("MultiAnalyzer") }),
-                new RoleDefinition(SettlementRole.Storage, true, new[] { d("Shelf"), RoleOption.Zone("Stockpile") }),
+                new RoleDefinition(SettlementRole.Storage, true, new[] { d("Shelf"), capped("ShelfSmall", neolithic), RoleOption.Zone("Stockpile") }),
                 new RoleDefinition(SettlementRole.MedicalStorage, false, new[] { d("ShelfSmall"), d("Shelf") }),
                 new RoleDefinition(SettlementRole.MortarStorage, false, new[] { d("ShelfSmall") }),
                 new RoleDefinition(SettlementRole.Recreation, false, new[]

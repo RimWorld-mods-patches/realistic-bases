@@ -175,7 +175,7 @@ namespace RealisticBases.Planning
             IEnumerable<KeyValuePair<LayoutRoomKind, int>> capacityFloors = null, SettlementTechStage stage = null, int importValueLimit = -1,
             int equipmentValueLimit = -1, int stockpileRoomCapacityTarget = 0, bool compactQuestCamp = false,
             int defenseReserveWatts = 0, int logisticsUtilityValueLimit = 0, int saleStorageStacks = 0, int salePerishableStacks = 0,
-            int retainedStorageStacks = 0, int retainedPerishableStacks = 0)
+            int retainedStorageStacks = 0, int retainedPerishableStacks = 0, int questArtillery = 0)
         {
             if (saleStorageStacks < 0 || salePerishableStacks < 0 || retainedStorageStacks < 0 || retainedPerishableStacks < 0 ||
                 compactQuestCamp && (saleStorageStacks + salePerishableStacks + retainedStorageStacks + retainedPerishableStacks > 0))
@@ -191,8 +191,10 @@ namespace RealisticBases.Planning
             if (stockpileRoomCapacityTarget < 0) throw new ArgumentOutOfRangeException(nameof(stockpileRoomCapacityTarget));
             Residents = residents;
             CompactQuestCamp = compactQuestCamp;
-            if (defenseReserveWatts < 0 || compactQuestCamp && defenseReserveWatts != 0) throw new ArgumentOutOfRangeException(nameof(defenseReserveWatts));
+            if (defenseReserveWatts < 0) throw new ArgumentOutOfRangeException(nameof(defenseReserveWatts));
             DefenseReserveWatts = defenseReserveWatts;
+            if (questArtillery < 0 || questArtillery > 0 && !compactQuestCamp) throw new ArgumentOutOfRangeException(nameof(questArtillery));
+            QuestArtillery = questArtillery;
             if (logisticsUtilityValueLimit < 0 || compactQuestCamp && logisticsUtilityValueLimit != 0)
                 throw new ArgumentOutOfRangeException(nameof(logisticsUtilityValueLimit));
             LogisticsUtilityValueLimit = logisticsUtilityValueLimit;
@@ -236,6 +238,9 @@ namespace RealisticBases.Planning
         public int Residents { get; }
         public bool CompactQuestCamp { get; }
         public int DefenseReserveWatts { get; }
+        // A quest camp's advertised mortars: exactly this many courts, crewed
+        // by the quest's own roster.
+        public int QuestArtillery { get; }
         public int LogisticsUtilityValueLimit { get; }
         public SettlementCapability Capabilities { get; }
         public HousingStandard Housing { get; }
@@ -359,6 +364,11 @@ namespace RealisticBases.Planning
                 hash = StableHash.Add(hash, StockpileRoomCapacityTarget);
             }
             if (CompactQuestCamp) hash = StableHash.Add(hash, "compact-finite-quest-camp-v1");
+            if (QuestArtillery > 0)
+            {
+                hash = StableHash.Add(hash, "quest-artillery");
+                hash = StableHash.Add(hash, QuestArtillery);
+            }
             if (SaleStorageStacks + SalePerishableStacks > 0)
             {
                 hash = StableHash.Add(hash, "p5-sale-stock");
@@ -914,7 +924,7 @@ namespace RealisticBases.Planning
             int area = w * h;
             int capacity = 0;
             string failure = null;
-            Template light = Light(kit);
+            Template light = Light(kit), wallLight = WallLight(kit);
             if (LayoutDemandModel.IsStockpile(kind))
             {
                 if (kind == LayoutRoomKind.Freezer)
@@ -922,7 +932,10 @@ namespace RealisticBases.Planning
                     Template cooler = Cool(kit);
                     if (cooler == null || !cooler.WallMounted || !room.PlaceWallCoolers(cooler, Ceil(area, 30), context.ExhaustCost, true)) failure = "freezer_cooler_exhaust";
                 }
-                if (failure == null && (light == null || !room.Place(light, (area + 35) / 36))) failure = "lights";
+                // Wall lights hang over racks and stock, so they are planned here
+                // and added after the racks; floor lights must claim cells first.
+                List<LayoutLocalFixture> wallLights = failure == null ? room.WallLights(wallLight) : null;
+                if (failure == null && wallLights == null && (light == null || !room.Place(light, (area + 35) / 36))) failure = "lights";
                 int shelfStacks = 0;
                 Template shelf = From(kit.DefFor(SettlementRole.Storage), LayoutFixtureKind.Shelf, SettlementRole.Storage);
                 // A player fills a warehouse with racks: shelves along the walls,
@@ -937,6 +950,7 @@ namespace RealisticBases.Planning
                     if (stock.Count > 0)
                         room.Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Stockpile, "Stockpile", stock, null, new GridPoint(0, 1), false, 0, false,
                             SettlementRole.Storage));
+                    if (wallLights != null) room.Fixtures.AddRange(wallLights);
                 }
             }
             else
@@ -1013,7 +1027,12 @@ namespace RealisticBases.Planning
                         if (!placed) failure = "cooling";
                     }
                 }
-                if (failure == null && (light == null || !room.Place(light, (area + 35) / 36))) failure = "lights";
+                if (failure == null)
+                {
+                    List<LayoutLocalFixture> wallLights = room.WallLights(wallLight);
+                    if (wallLights != null) room.Fixtures.AddRange(wallLights);
+                    else if (light == null || !room.Place(light, (area + 35) / 36)) failure = "lights";
+                }
             }
             if (failure == null && capacity < capacityTarget) failure = "capacity";
             return new LayoutFurnishResult(room.Fixtures, capacity, failure);
@@ -1077,6 +1096,12 @@ namespace RealisticBases.Planning
         private static Template Light(LayoutKit kit)
         {
             CatalogDef def = kit.DefFor(SettlementRole.Light);
+            return From(def, def != null && def.BasePowerConsumption > 0 ? LayoutFixtureKind.Lamp : LayoutFixtureKind.Torch, SettlementRole.Light);
+        }
+
+        private static Template WallLight(LayoutKit kit)
+        {
+            CatalogDef def = kit.DefFor(SettlementRole.WallLight);
             return From(def, def != null && def.BasePowerConsumption > 0 ? LayoutFixtureKind.Lamp : LayoutFixtureKind.Torch, SettlementRole.Light);
         }
 
@@ -1315,6 +1340,52 @@ namespace RealisticBases.Planning
             // door) with their cold side in the room. exhaustCost(local wall cell) prices
             // the hot-side cell outside that wall, or returns -1 when it cannot take exhaust.
             // Lower cost wins; at equal cost the door wall is preferred.
+            // A lit cell is within this many cells of a lamp: about half of the
+            // vanilla wall torch's glow radius (9), so the wall lamp's (11) is safe.
+            public const int WallLightReachSquared = 20;
+
+            // Lights attached to this room's own wall, facing the wall they hang
+            // on. They take no floor: the cell below stays free for racks,
+            // stock and furniture. Never on the door or a through-wall fixture.
+            // Each lamp lights the most unlit interior cells; null when a cell
+            // stays unlit, and the room falls back to floor lights.
+            public List<LayoutLocalFixture> WallLights(Template lamp)
+            {
+                if (lamp == null) return null;
+                HashSet<GridPoint> through = new HashSet<GridPoint>(Fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind)).SelectMany(f => f.Cells));
+                List<KeyValuePair<GridPoint, GridPoint>> candidates = new List<KeyValuePair<GridPoint, GridPoint>>();
+                for (int x = 1; x <= w; x++) candidates.Add(new KeyValuePair<GridPoint, GridPoint>(new GridPoint(x, 0), new GridPoint(0, 1)));
+                for (int z = 1; z <= h; z++) candidates.Add(new KeyValuePair<GridPoint, GridPoint>(new GridPoint(0, z), new GridPoint(1, 0)));
+                for (int z = 1; z <= h; z++) candidates.Add(new KeyValuePair<GridPoint, GridPoint>(new GridPoint(w + 1, z), new GridPoint(-1, 0)));
+                for (int x = 1; x <= w; x++) candidates.Add(new KeyValuePair<GridPoint, GridPoint>(new GridPoint(x, h + 1), new GridPoint(0, -1)));
+                candidates.RemoveAll(c => (c.Key.Z == 0 && c.Key.X == doorX) || through.Contains(c.Key));
+                List<GridPoint> unlit = new List<GridPoint>();
+                for (int z = 1; z <= h; z++)
+                    for (int x = 1; x <= w; x++) unlit.Add(new GridPoint(x, z));
+                List<LayoutLocalFixture> lights = new List<LayoutLocalFixture>();
+                HashSet<GridPoint> used = new HashSet<GridPoint>();
+                Func<GridPoint, GridPoint, bool> litBy = (lampCell, c) =>
+                    (lampCell.X - c.X) * (lampCell.X - c.X) + (lampCell.Z - c.Z) * (lampCell.Z - c.Z) <= WallLightReachSquared;
+                while (unlit.Count > 0)
+                {
+                    int best = -1, gain = 0;
+                    for (int i = 0; i < candidates.Count; i++)
+                    {
+                        GridPoint cell = new GridPoint(candidates[i].Key.X + candidates[i].Value.X, candidates[i].Key.Z + candidates[i].Value.Z);
+                        if (used.Contains(cell)) continue;
+                        int g = unlit.Count(c => litBy(cell, c));
+                        if (g > gain) { gain = g; best = i; }
+                    }
+                    if (best < 0) return null;
+                    GridPoint inward = candidates[best].Value;
+                    GridPoint at = new GridPoint(candidates[best].Key.X + inward.X, candidates[best].Key.Z + inward.Z);
+                    used.Add(at);
+                    unlit.RemoveAll(c => litBy(at, c));
+                    lights.Add(new LayoutLocalFixture(lamp.Kind, lamp.Def, new[] { at }, null, inward, false, lamp.Watts, lamp.Fuel, lamp.Role));
+                }
+                return lights;
+            }
+
             public bool PlaceWallCoolers(Template cooler, int count, Func<GridPoint, int> exhaustCost, bool keepHotAwayFromDoor)
             {
                 List<KeyValuePair<GridPoint, GridPoint>> walls = new List<KeyValuePair<GridPoint, GridPoint>>();

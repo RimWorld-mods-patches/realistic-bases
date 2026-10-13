@@ -90,7 +90,7 @@
             <subNodes><li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li></subNodes>
           </li></subNodes>
         </li>
-        <li Class="RealisticBases.AI.JobGiver_P3HoldAssignedPost" />
+        <li Class="RealisticBases.AI.JobGiver_P5BOffDutyWander" />
       </subNodes>
     </thinkNode>
   </DutyDef>
@@ -102,11 +102,32 @@
       <subNodes>
         <li Class="RealisticBases.AI.ThinkNode_P5BoundedNeeds">
           <subNodes>
-            <li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li>
+            <li Class="RealisticBases.AI.ThinkNode_P5AwakePostNeeds">
+              <subNodes><li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li></subNodes>
+            </li>
             <li Class="RealisticBases.AI.JobGiver_P5PatientBedRest" />
           </subNodes>
         </li>
-        <li Class="RealisticBases.AI.JobGiver_P3HoldAssignedPost" />
+        <li Class="RealisticBases.AI.JobGiver_P5BOffDutyWander" />
+      </subNodes>
+    </thinkNode>
+  </DutyDef>
+
+  <!-- No post and no rest: bounded native needs without sleep, then an idle
+       wander near the pawn's own bed. Sleep needs the relief role. -->
+  <DutyDef>
+    <defName>RB_P3_OffDuty</defName>
+    <alwaysShowWeapon>true</alwaysShowWeapon>
+    <thinkNode Class="ThinkNode_Priority">
+      <subNodes>
+        <li Class="RealisticBases.AI.ThinkNode_P5BoundedNeeds">
+          <subNodes>
+            <li Class="RealisticBases.AI.ThinkNode_P5AwakePostNeeds">
+              <subNodes><li Class="ThinkNode_Subtree"><treeDef>SatisfyBasicNeeds</treeDef></li></subNodes>
+            </li>
+          </subNodes>
+        </li>
+        <li Class="RealisticBases.AI.JobGiver_P5BOffDutyWander" />
       </subNodes>
     </thinkNode>
   </DutyDef>

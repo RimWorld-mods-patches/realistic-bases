@@ -8,7 +8,7 @@ namespace RealisticBases.Planning
     public static class P4EArtillery
     {
         public static int Capacity(LayoutRequirements requirements, LayoutKit kit) =>
-            requirements.CompactQuestCamp || !kit.MortarCapable ? 0 :
+            !kit.MortarCapable ? 0 : requirements.CompactQuestCamp ? requirements.QuestArtillery :
             requirements.Residents >= 10 ? 3 : requirements.Residents == 9 ? 2 : 1;
         public static string PostId(int index) => index == 0 ? "mortar" : "mortar-" + index;
 
@@ -128,7 +128,7 @@ namespace RealisticBases.Planning
             SettlementRole.Light, SettlementRole.Heat, SettlementRole.Cool, SettlementRole.Cooking, SettlementRole.CraftSmithing,
             SettlementRole.CraftTailoring, SettlementRole.CraftMachining, SettlementRole.CraftFabrication, SettlementRole.CraftStonecutting,
             SettlementRole.Storage, SettlementRole.Recreation, SettlementRole.Research, SettlementRole.ResearchAnalyzer,
-            SettlementRole.MedicalStorage, SettlementRole.MortarStorage
+            SettlementRole.MedicalStorage, SettlementRole.MortarStorage, SettlementRole.WallLight
         });
 
         // Workshop bench roles in placement order.
@@ -145,7 +145,9 @@ namespace RealisticBases.Planning
             Powered = FurnishingRoles.Select(DefFor).Any(d => d != null && d.BasePowerConsumption > 0);
             CatalogDef cool = DefFor(SettlementRole.Cool);
             Refrigerated = requirements.Refrigerated && cool != null && cool.ThingClass == CoolerThingClass;
-            MortarCapable = !requirements.CompactQuestCamp && requirements.Electric && catalog.IsLegal(MortarDefName, roles.Stage);
+            // A quest camp has artillery only when the quest advertises it.
+            MortarCapable = (!requirements.CompactQuestCamp || requirements.QuestArtillery > 0) &&
+                requirements.Electric && catalog.IsLegal(MortarDefName, roles.Stage);
             List<CatalogDef> workshop = new List<CatalogDef>();
             foreach (SettlementRole role in CraftRoles)
             {
@@ -442,12 +444,13 @@ namespace RealisticBases.Planning
         public string StuffFor(CatalogDef def)
         {
             if (def == null || def.StuffCategories.Count == 0) return null;
-            return StuffFor(def, ConstructionStuff);
+            return StuffFor(def, ConstructionStuff, Kit.Stage);
         }
 
-        private static string StuffFor(CatalogDef def, string construction)
+        private static string StuffFor(CatalogDef def, string construction, SettlementTechStage stage)
         {
             if (def.StuffCategories.Count == 0) return null;
+            if (TechCatalog.IsNeolithicShelf(def, stage)) return def.StuffCategories.Contains(StuffWoody) ? Wood : null;
             if (construction != Wood && def.StuffCategories.Contains(StuffStony)) return construction;
             return def.StuffCategories.Contains(StuffWoody) ? Wood : null;
         }
@@ -541,7 +544,7 @@ namespace RealisticBases.Planning
                 if (def == null || count <= 0) return;
                 if (def.CostStuffCount > 0)
                 {
-                    string s = StuffFor(def, stuff);
+                    string s = StuffFor(def, stuff, kit.Stage);
                     if (s == null) unaccounted.Add(def.DefName);
                     else Add(stuffs, s, def.CostStuffCount * count);
                 }

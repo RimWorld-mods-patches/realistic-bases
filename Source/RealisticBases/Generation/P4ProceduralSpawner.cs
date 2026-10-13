@@ -42,7 +42,9 @@ namespace RealisticBases.Generation
             if (!loadout.Success || errors.Count != 0)
             { failure = "invalid_loadout:" + loadout.Rejection + ":" + string.Join(",", errors); return false; }
             Dictionary<GridPoint, HashSet<string>> sniperGuardSectors = new Dictionary<GridPoint, HashSet<string>>();
-            if (approachDefense != null && turretPlans.Count > 0)
+            // A quest camp's guns are the native advertised threat; it has no
+            // sniper guards to answer fire on them.
+            if (approachDefense != null && turretPlans.Count > 0 && quest == null)
             {
                 HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
                 opaque.UnionWith(turretPlans.SelectMany(t => t.Footprint));
@@ -209,7 +211,9 @@ namespace RealisticBases.Generation
             try
             {
                 IReadOnlyCollection<GridPoint> publicCells = ProceduralLayoutValidator.PublicCirculation(input, layout);
-                EncounterProfile profile = layout.Court != null ? P3EncounterProfiles.ForArtillery(layout.Courts.Count) :
+                EncounterProfile profile = layout.Court != null && quest?.Contract.QuestMortars > 0
+                    ? P3EncounterProfiles.ForQuestArtillery(layout.Courts.Count, quest.Contract.QuestMortarShells)
+                    : layout.Court != null ? P3EncounterProfiles.ForArtillery(layout.Courts.Count) :
                     input.Requirements.Capabilities.HasFlag(SettlementCapability.Electricity)
                         ? P3EncounterProfiles.IndustrialNoMortar : P3EncounterProfiles.Tribal;
                 encounter = GeometryEncounterPlanner.Plan(new GeometryEncounterInput(layout.Digest, profile,
@@ -859,7 +863,7 @@ namespace RealisticBases.Generation
                     " clearService=" + clearServiceCells + "/" + layerServiceCells.Count +
                     " reachableService=" + reachableServiceTermini + "/" + serviceTermini.Count);
                 int outdoorExhausts = AuditCoolerExhaust(map, layout);
-                quest?.BeforeCommit(tx, layout, finishPlan.Digest, encounter, combatStocks, internalFuel);
+                quest?.BeforeCommit(tx, layout, finishPlan.Digest, encounter, combatStocks, internalFuel, mortars);
                 tx.Commit();
 
                 if (quest != null)

@@ -8,7 +8,7 @@ internal static partial class Program
 {
     private static void RunCoolerExhaustTests()
     {
-        Run("cooler rotation matches vanilla hot and cold sides", CoolerRotationMatchesVanilla);
+        Run("cooler rotation matches vanilla hot and cold sides", CoolerRotationMatchesVanilla, 10);
         Run("room partition follows vanilla's outdoor-temperature rule", RoomPartitionFollowsVanillaRule);
         Run("open-ground coolers cool their room and exhaust outdoors", OpenGroundCoolersExhaustOutdoors);
         Run("rock-protected coolers use sealed exhaust pockets within the roof-hole budget", RockProtectedCoolersUsePockets);
