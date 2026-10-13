@@ -474,6 +474,18 @@ namespace RealisticBases.AI
             Scribe_Values.Look(ref fieldEverPenetrated, "p3FieldEverPenetrated", false);
             Scribe_Values.Look(ref compoundEverPenetrated, "p3CompoundEverPenetrated", false);
             Scribe_Values.Look(ref garrisonEverDefeated, "p3GarrisonEverDefeated", false);
+            List<long> retryKeys = null;
+            List<int> retryExpiries = null;
+            if (Scribe.mode == LoadSaveMode.Saving)
+            {
+                var pending = serviceRetry.Pending(GenTicks.TicksGame);
+                retryKeys = pending.Select(e => e.Key).ToList();
+                retryExpiries = pending.Select(e => e.Value).ToList();
+            }
+            Scribe_Collections.Look(ref retryKeys, "p3ServiceRetryKeys", LookMode.Value);
+            Scribe_Collections.Look(ref retryExpiries, "p3ServiceRetryUntil", LookMode.Value);
+            if (Scribe.mode == LoadSaveMode.LoadingVars && retryKeys != null && retryExpiries != null)
+                serviceRetry.Restore(retryKeys, retryExpiries);
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
                 // Saves without the latch keep a running assault for a full latch.

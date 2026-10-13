@@ -160,6 +160,13 @@ internal static class Program
         True(retry.Allowed(1, 2, 400), "retry after finite delay");
         True(retry.Allowed(1, 3, 100), "other target available");
         True(retry.Allowed(3, 2, 100), "other worker available");
+        retry.Failed(5, 6, -200);
+        var saved = retry.Pending(200);
+        Equal(1, saved.Count, "an expired entry is not saved");
+        var restored = new P3ServiceRetry();
+        restored.Restore(saved.Select(e => e.Key).ToList(), saved.Select(e => e.Value).ToList());
+        True(!restored.Allowed(1, 2, 399) && restored.Allowed(1, 2, 400) && restored.Allowed(5, 6, 200),
+            "a reload keeps the pending backoff");
     }
 
     private static void StableSeedAndInputDigest()

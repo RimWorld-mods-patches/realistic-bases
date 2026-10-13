@@ -237,7 +237,7 @@ namespace RealisticBases.Diagnostics
                 int oldLayers = RealisticBasesMod.Settings.forceP4WallLayersNext;
                 try
                 {
-                    RealisticBasesMod.Settings.enableP0Generator = true;
+                    GeneratorSwitch.Set(true);
                     // Keep the selected override or ordinary seeded policy.
                     // A retry must not silently force a different layer budget.
                     map = GetOrGenerateMapUtility.GetOrGenerateMap(settlement.Tile, new IntVec3(160, 1, 160), null);

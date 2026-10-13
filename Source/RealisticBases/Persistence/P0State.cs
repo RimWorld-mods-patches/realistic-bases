@@ -144,10 +144,13 @@ namespace RealisticBases.Persistence
     {
         private List<P0SettlementState> settlements = new List<P0SettlementState>();
         private List<P4AFactionStageState> factionStages = new List<P4AFactionStageState>();
+        private bool generatorEnabled = RealisticBasesMod.Settings?.enableP0Generator ?? true;
 
         public P0WorldState(Game game)
         {
         }
+
+        internal bool GeneratorEnabled { get => generatorEnabled; set => generatorEnabled = value; }
 
         public P0SettlementState FindExisting(int settlementId) => settlements.FirstOrDefault(s => s.settlementId == settlementId);
 
@@ -215,6 +218,7 @@ namespace RealisticBases.Persistence
         {
             Scribe_Collections.Look(ref settlements, "p0SettlementStates", LookMode.Deep);
             Scribe_Collections.Look(ref factionStages, "p4aFactionStages", LookMode.Deep);
+            Scribe_Values.Look(ref generatorEnabled, "generatorEnabled", RealisticBasesMod.Settings.enableP0Generator, forceSave: true);
             if (Scribe.mode == LoadSaveMode.PostLoadInit && settlements == null)
             {
                 settlements = new List<P0SettlementState>();
@@ -222,6 +226,8 @@ namespace RealisticBases.Persistence
             if (Scribe.mode == LoadSaveMode.PostLoadInit && factionStages == null)
                 factionStages = new List<P4AFactionStageState>();
         }
+
+        public override void FinalizeInit() => GeneratorSwitch.AdoptSetting(this);
 
         public override void LoadedGame()
         {

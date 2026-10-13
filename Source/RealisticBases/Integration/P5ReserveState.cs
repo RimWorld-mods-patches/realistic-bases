@@ -58,7 +58,8 @@ namespace RealisticBases.Integration
 
         internal static P5ReserveState AllocationFor(Thing thing)
         {
-            if (thing == null) return null;
+            // Rebuilt lazily without destroyed things; see P5PhysicalSaleStock.Tracked.
+            if (thing == null || thing.Destroyed) return null;
             if (!ReferenceEquals(allocationGame, Current.Game))
             {
                 allocationGame = Current.Game; allocations.Clear();

@@ -377,7 +377,7 @@ namespace RealisticBases.Integration
         private static bool Eligible(GenStep step, Map map, GenStepParams parms, out string reason)
         {
             reason = "unsupported_contract";
-            if (!RealisticBasesMod.Settings.enableP0Generator) { reason = "disabled"; return false; }
+            if (!GeneratorSwitch.Enabled) { reason = "disabled"; return false; }
             if (map.Parent?.GetType() != typeof(Site) || !(map.Parent is Site site) || CaravanEntrySite != site ||
                 map.generatorDef != MapGeneratorDefOf.Encounter || map.wasSpawnedViaGravShipLanding ||
                 map.TileInfo.Layer.Def.isSpace || parms.gravship != null || site.Faction == null ||

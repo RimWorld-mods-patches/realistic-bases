@@ -57,6 +57,8 @@ Hard invariants live in validators shared by planning, fallback, and final-map c
 
 **2026-09-24 planning update:** Adopt the bounded recommendations from the [colleague-design review](colleague-design-review.md) in future P5/P6 work and add P7 specialization as the final planned milestone. This does not expand current P4/P4A closeout. Keep the existing planner; the large room catalog, simulated annealing, general clustering/room-merging frameworks, friendly visits and Multiplayer integration remain deferred or outside the initial release.
 
+**2026-10-13 planning update:** Multiplayer compatibility is now a requirement (user decision). The [Multiplayer audit](multiplayer-audit.md) fixed the per-client generator switch, the per-client force flags, an unsaved garrison cooldown and a destroyed-thing cache edge. Remaining: the two-client playtest in that document's checklist. Later work must keep its rules: no decision from per-client settings, UI state, time or unordered hashing; saved decision state; and synced commands for any new state-changing UI.
+
 ### P0 — Resolve the technical risks
 
 **Purpose:** establish that the intended integration, enemy operation, and lifecycle are reachable in RimWorld 1.6.4871, then pin the supported game build.

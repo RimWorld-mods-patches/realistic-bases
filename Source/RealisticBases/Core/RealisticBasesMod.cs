@@ -1,4 +1,7 @@
+using System;
+using System.Reflection;
 using HarmonyLib;
+using RealisticBases.Persistence;
 using RimWorld;
 using RimWorld.Planet;
 using UnityEngine;
@@ -16,14 +19,12 @@ namespace RealisticBases.Core
         public int forceP4WallLayersNext;
         public bool probeProceduralNext;
 
+        // The force flags are one-shot debug-action state and are not saved:
+        // Multiplayer runs debug actions on every client, but a saved or
+        // window-set flag would exist on one client only.
         public override void ExposeData()
         {
             Scribe_Values.Look(ref enableP0Generator, "enableP0Generator", true);
-            Scribe_Values.Look(ref forceRejectNext, "forceRejectNext", false);
-            Scribe_Values.Look(ref forcePartialFailureNext, "forcePartialFailureNext", false);
-            Scribe_Values.Look(ref forceP2ProfileNext, "forceP2ProfileNext", string.Empty);
-            Scribe_Values.Look(ref forceP4WallLayersNext, "forceP4WallLayersNext", 0);
-            Scribe_Values.Look(ref probeProceduralNext, "probeProceduralNext", false);
         }
     }
 
@@ -48,15 +49,17 @@ namespace RealisticBases.Core
                 "Enable guarded P0 generator for newly visited ordinary hostile human settlements",
                 ref Settings.enableP0Generator,
                 "On by default. Does not affect player maps, non-human factions, existing maps, or settlements with an explicit generator override.");
-            listing.CheckboxLabeled("Force next eligible plan rejection", ref Settings.forceRejectNext);
-            listing.CheckboxLabeled("Force next eligible partial-spawn failure and recovery", ref Settings.forcePartialFailureNext);
-            listing.Label("P0 diagnostic only. No traps or IEDs are spawned; no resources are injected after setup.");
+            if (MultiplayerSession.Active && Current.Game != null)
+                listing.Label("This Multiplayer game keeps the host's saved setting (generator " +
+                    (GeneratorSwitch.Enabled ? "on" : "off") + "). Changes here apply to single-player games.");
+            listing.Label("No traps or IEDs are spawned; no resources are injected after setup.");
             listing.End();
         }
 
         public override void WriteSettings()
         {
             base.WriteSettings();
+            GeneratorSwitch.AdoptSetting(Current.Game?.GetComponent<P0WorldState>());
             P0Log.Message("SETTINGS", "generator=" + Settings.enableP0Generator +
                 " forceRejectNext=" + Settings.forceRejectNext +
                 " forcePartialFailureNext=" + Settings.forcePartialFailureNext +
@@ -90,7 +93,7 @@ namespace RealisticBases.Core
     {
         private static void Postfix(Settlement __instance, ref MapGeneratorDef __result)
         {
-            if (!RealisticBasesMod.Settings.enableP0Generator ||
+            if (!GeneratorSwitch.Enabled ||
                 __instance == null ||
                 __instance.GetType() != typeof(Settlement) ||
                 __instance.Faction == null ||
@@ -106,6 +109,46 @@ namespace RealisticBases.Core
             P0Log.Message("GEN_SELECT", "settlement=" + __instance.ID +
                 " faction=" + __instance.Faction.def.defName +
                 " generator=" + __result.defName);
+        }
+    }
+
+    // The generator switch generation reads. The game saves its own copy, so
+    // every Multiplayer client generates with the host's value; the mod
+    // setting is the player's preference and is copied into a single-player
+    // game when it loads and whenever the setting changes.
+    internal static class GeneratorSwitch
+    {
+        internal static bool Enabled =>
+            Current.Game?.GetComponent<P0WorldState>()?.GeneratorEnabled ?? RealisticBasesMod.Settings.enableP0Generator;
+
+        // Debug actions run on every Multiplayer client, so they set both.
+        internal static void Set(bool enabled)
+        {
+            RealisticBasesMod.Settings.enableP0Generator = enabled;
+            P0WorldState state = Current.Game?.GetComponent<P0WorldState>();
+            if (state != null) state.GeneratorEnabled = enabled;
+        }
+
+        internal static void AdoptSetting(P0WorldState state)
+        {
+            if (state == null || MultiplayerSession.Active) return;
+            state.GeneratorEnabled = RealisticBasesMod.Settings.enableP0Generator;
+        }
+    }
+
+    // Detects a running Multiplayer session through the public API that the
+    // Multiplayer mod ships, without referencing it.
+    internal static class MultiplayerSession
+    {
+        private static Func<bool> inMultiplayer;
+
+        internal static bool Active => (inMultiplayer ??= Resolve())();
+
+        private static Func<bool> Resolve()
+        {
+            MethodInfo getter = AccessTools.TypeByName("Multiplayer.API.MP")?
+                .GetProperty("IsInMultiplayer", BindingFlags.Public | BindingFlags.Static)?.GetGetMethod();
+            return getter == null ? () => false : (Func<bool>)Delegate.CreateDelegate(typeof(Func<bool>), getter);
         }
     }
 

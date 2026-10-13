@@ -124,7 +124,7 @@ namespace RealisticBases.Diagnostics
             allowedGameStates = AllowedGameStates.Playing)]
         public static void AttackTradedSettlement()
         {
-            if (!P4DQuestDebugActions.Disposable || !RealisticBasesMod.Settings.enableP0Generator)
+            if (!P4DQuestDebugActions.Disposable || !GeneratorSwitch.Enabled)
                 throw new InvalidOperationException("Requires disposable profile and explicitly enabled generator");
             var targets = Find.WorldObjects.Settlements.Where(s => P5TradeStock.Supported(s) && !s.HasMap &&
                 P5TradeStock.Record(s.trader) != null).ToList();

@@ -156,7 +156,7 @@ namespace RealisticBases.Diagnostics
                 return;
             }
 
-            RealisticBasesMod.Settings.enableP0Generator = true;
+            GeneratorSwitch.Set(true);
             PlanetTile tile = TileFinder.RandomSettlementTileFor(Faction.OfPlayer, mustBeAutoChoosable: true,
                 extraValidator: candidate => Find.WorldGrid[candidate].PrimaryBiome == BiomeDefOf.TemperateForest &&
                     (requireMountainous
@@ -347,10 +347,10 @@ namespace RealisticBases.Diagnostics
             allowedGameStates = AllowedGameStates.Playing)]
         private static void ToggleGenerator()
         {
-            RealisticBasesMod.Settings.enableP0Generator = !RealisticBasesMod.Settings.enableP0Generator;
-            P0Log.Message("DEBUG_TOGGLE", "enableP0Generator=" + RealisticBasesMod.Settings.enableP0Generator);
+            GeneratorSwitch.Set(!GeneratorSwitch.Enabled);
+            P0Log.Message("DEBUG_TOGGLE", "enableP0Generator=" + GeneratorSwitch.Enabled);
             Messages.Message("Realistic Bases P0 generator: " +
-                (RealisticBasesMod.Settings.enableP0Generator ? "enabled" : "disabled"), MessageTypeDefOf.TaskCompletion, false);
+                (GeneratorSwitch.Enabled ? "enabled" : "disabled"), MessageTypeDefOf.TaskCompletion, false);
         }
 
         [DebugAction(Category, "Arm next pre-spawn rejection", actionType = DebugActionType.Action,

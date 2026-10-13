@@ -34,7 +34,9 @@ namespace RealisticBases.Integration
         }
         internal static P5PhysicalSaleStock Tracked(Thing thing)
         {
-            if (thing == null) return null;
+            // The cache is rebuilt lazily without destroyed things, so a
+            // destroyed thing is never tracked, whenever the rebuild ran.
+            if (thing == null || thing.Destroyed) return null;
             EnsureCache();
             return cache.TryGetValue(thing, out var result) && result.Active ? result : null;
         }
