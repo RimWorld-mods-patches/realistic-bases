@@ -191,24 +191,6 @@ Commit P4D.0 source/native baselines, P4D.1 pure contracts, P4D.2 bandit integra
 
 **Exit:** both initial contracts have a documented support matrix and pure/build/live normal, rejection, late recovery and lifecycle evidence. Original threat inputs, objective identities, rewards and signals survive; unsupported/competing generators and ordinary settlements retain their routing. A generated screenshot or bandit-only pass does not close P4D.
 
-**Follow-on (planned 2026-10-13): turret-guarded rescue.** Add a third exact strategy for `[PrisonerWillingToJoin, Turrets, PossibleUnknownThreatMarker]`, which is currently routed native.
-
-What the native generator builds and the strategy must preserve:
-- **No outpost and no roster.** `GenStep_PrisonerWillingToJoin` builds a standalone prison cell.
-- **Edge defence.** `GenStep_Turrets` rings it with exactly `turretsCount` mini turrets and `mortarsCount` manned mortars, both advertised in the quest text, plus one hostile guard, sandbags, power and lights.
-
-The strategy builds a compact compound instead:
-- **Rooms:** a jail holding the original prisoner, a power room and quarters for the guard.
-- **Defences:** exactly the advertised turret and mortar counts, placed by `P4BTurretPlanner` with cover nests and powered by the planned generator. Covered posts are added for the guard.
-- **Garrison:** the guard is the admitted P3 roster.
-- **Native ownership:** quest success, timeout, rewards and removal stay native.
-
-Guard rails:
-- **Fixed counts.** When the advertised count cannot fit, generation falls back to native; it is never silently reduced.
-- **Mortar crew.** A manned mortar needs a decision on crew (the single guard, or the mortar strategy enabled only when `mortarsCount` is 0).
-
-Exit: pure contract and placement tests, then live normal, rejection, late recovery, save/reload and lifecycle checks, as for the existing strategies. The disposable reset save always rolls this variant, so it also gives the rescue path routine live coverage.
-
 ### P4E — Small adjustments
 
 **Status:** complete (2026-10-12); P4E.0–P4E.5 verified, with final recovery, warehouse fetching and Core/GL evidence in the findings. Laboratories are decorative, with no NPC research progression/jobs. Detailed checkpoints, resource rules and acceptance: [P4E facility and defense plan](p4e-facilities-plan.md). The six user requests below remain the scope authority.
@@ -289,6 +271,13 @@ Retain loaded-map serialization and unloaded damage/depletion/casualty reconcili
 4. Better barricades/sandbags (done first, as its own checkpoint): one post type with cover on every side an attacker can shoot from, and every exposed side able to hold the whole ranged pack. See the [defense posts and cover plan](plans/2026-10-13-defense-posts-cover.md).
 5. Switch to wall-attached lamps so lights stop taking floor space: Core `WallLamp` for powered bases and `TorchWallLamp` for unpowered ones, mounted on room walls. Standing lamps and torches remain only where no wall position lights the room.
 6. Neolithic storage exception: allow wooden small shelves (Core `ShelfSmall`, 1×1) in Neolithic settlements even though they lack `ComplexFurniture`, because open stockpiles need too much warehouse space. Wood only; other shelves keep the research rule.
+7. Turret-guarded rescue quests. Support `[PrisonerWillingToJoin, Turrets, PossibleUnknownThreatMarker]`, which the P4D strategies currently route native, with a third exact strategy.
+   - **Native content.** `GenStep_PrisonerWillingToJoin` builds a standalone prison cell. `GenStep_Turrets` rings it with exactly `turretsCount` mini turrets and `mortarsCount` manned mortars (both advertised in the quest text), one hostile guard, sandbags, power and lights.
+   - **What the strategy builds.** A compact compound: a jail holding the original prisoner, power and guard quarters. It has exactly the advertised turrets and mortars, placed by `P4BTurretPlanner` with cover nests and powered by the planned generator, plus covered posts for the guard. The guard is the admitted P3 roster.
+   - **Ownership.** Quest success, timeout, rewards and removal stay native.
+   - **Fallback.** If the advertised counts cannot fit, generation falls back to native and is never reduced.
+   - **Open question.** Mortar crewing needs a decision: the single guard mans it, or the strategy is enabled only when `mortarsCount` is 0.
+   - **Exit.** The same pure and live evidence as the existing quest strategies. The disposable reset save always rolls this variant, which gives the rescue path routine live coverage.
 
 ### P6 — Balance, specialized tactics, and release
 
