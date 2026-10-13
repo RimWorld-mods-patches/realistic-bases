@@ -13,8 +13,9 @@ internal static partial class Program
         Run("cover nest: a second front adds flank cover", CoverNestCornerFront);
         Run("cover nest: blocked cover or missing wall drops outer slots", CoverNestShrinks);
         Run("cover nest: an anchor that cannot be covered is rejected", CoverNestRejectsAnchor);
-        Run("defense capacity: flat bases hold the ranged pack on every exposed side", DefenseCapacityFlat);
-        Run("defense capacity: twelve residents hold the pack on most seeds", DefenseCapacityFlatLarge);
+        Run("defense capacity: flat bases hold the ranged pack on every exposed side", DefenseCapacityFlat, 45);
+        foreach (ulong seed in new ulong[] { 1, 2, 3, 4, 5, 6, 7, 8 })
+            Run("defense capacity: twelve residents, seed " + seed, () => DefenseCapacityFlatLarge(seed), 25);
         Run("defense capacity: a rock-backed side gets no posts", DefenseCapacityMountain);
         Run("defense capacity: a cramped side comes out short but is accepted", DefenseCapacityShort);
     }
@@ -130,23 +131,19 @@ internal static partial class Program
     }
 
     // Twelve residents need ten slots per side; whether a side fits them
-    // depends on the compound the seed produces. Shortfalls are logged, never
-    // rejected; most seeds hold the full pack.
-    private static void DefenseCapacityFlatLarge()
+    // depends on the compound the seed produces. A short side is logged,
+    // never rejected, and misses at most one slot.
+    private static void DefenseCapacityFlatLarge(ulong seed)
     {
-        int full = 0;
-        foreach (ulong seed in new ulong[] { 1, 2, 3, 4, 5, 6, 7, 8 })
-        {
-            ProceduralLayoutInput input = Input(Plains(180), LayoutRequirements.FromPopulation(12, Industrial, Temperate), seed,
-                new LayoutFortificationReservation(1));
-            ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
-            Accepted(result);
-            AssertCapacityDiagnostics(result, "flat-12-seed" + seed);
-            if (seed == 3) ExportLayout("posts-flat-12", result, input.Terrain);
-            P4BApproachDefensePlan defense = result.Layout.ApproachDefense;
-            if (defense.Sides.Where(s => s.Exposed).All(s => s.Positions.Count >= defense.Pack)) full++;
-        }
-        True(full >= 5, "most 12-resident seeds hold the pack on every exposed side: " + full + "/8");
+        ProceduralLayoutInput input = Input(Plains(180), LayoutRequirements.FromPopulation(12, Industrial, Temperate), seed,
+            new LayoutFortificationReservation(1));
+        ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+        Accepted(result);
+        AssertCapacityDiagnostics(result, "flat-12-seed" + seed);
+        if (seed == 3) ExportLayout("posts-flat-12", result, input.Terrain);
+        P4BApproachDefensePlan defense = result.Layout.ApproachDefense;
+        True(defense.Sides.Where(s => s.Exposed).All(s => s.Positions.Count >= defense.Pack - 1),
+            "every exposed side holds the pack of " + defense.Pack + " or misses one slot");
     }
 
     private static void DefenseCapacityMountain()

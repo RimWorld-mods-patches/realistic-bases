@@ -19,7 +19,7 @@ internal static partial class Program
     private static void RunLayoutEngineV2Matrix()
     {
         if (only == null || only.IndexOf("matrix", StringComparison.OrdinalIgnoreCase) < 0) return;
-        Run("V2 matrix", V2Matrix);
+        Run("V2 matrix", V2Matrix, 255);
     }
 
     private static TerrainSnapshot V2Clutter(int salt) => Build(160, 160, (x, z) =>
