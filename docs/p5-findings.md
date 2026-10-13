@@ -837,3 +837,28 @@ Things and no duplicate ownership; no emergency sale allocation occurred in
 this trial. Final cold room60 is roofed,−9.42°C. The routine log has no runtime
 exception or ten-jobs-per-tick error. This does not override the earlier native
 tending failure or the26 sampled cooler-power-off observations.
+
+### NPC tending adapter: fixed
+
+The relief duty now has a scoped patient bed-rest branch after basic needs:
+`JobGiver_P5PatientBedRest` lays an injured relief resident in its own native
+bed (`CurrentBed` or `RestUtility.FindBedFor`) while it has hediffs needing tend,
+inside the existing whole-route needs bound. The support worker no longer uses
+`WorkGiver_Tend.HasJobOnThing`/`FindBestMedicine`, whose player-settings and
+medical-care predicates reject NPCs. `TryGiveTendJob` keeps the vanilla
+`GoodLayingStatusForTend`, reservation/reachability, Doctor capability and
+aggro-mental checks, and issues the native `TendPatient` job with the residents'
+own operating medicine (owned stock or resident inventory, never sale goods;
+best potency, then nearest). Medicine pickup, reservation and consumption stay
+native. No playerSettings, orders or medicine are manufactured.
+
+Replay of the same failed trial: cold-load
+`RealisticBases-P5-fixed-native-trade-active-20261013.rws`, start the routine hold
+probe at586, then tending on the same patient `Human94817` with medicine17.
+At3225: **`P5_TENDING_PROBE_COMPLETE passed=True alive=True nativeTendJobs=1
+medicineBefore=17 medicineAfter=16 physicallyConsumed=1 npcOrdersIssued=0
+extraMedicine=0`**. The next duty pass (3240) returns the patient from
+`NeedsRelief` to a ranged post, and it is at that post shortly after. There are no
+runtime exceptions. Log: `p5-npc-tending-adapter-20261013.log`. Clean Release
+build and PlannerTests pass. This is one bounded routine injury; combat-time
+tending and downed rescue-to-bed remain unmeasured.

@@ -47,4 +47,22 @@ namespace RealisticBases.AI
             return ThinkResult.NoJob;
         }
     }
+    // Vanilla doctors tend humanlike patients only in bed, and the relief duty
+    // has no patient-go-to-bed branch. Keep an injured resident in its own
+    // native bed until tended; the relief role ends with the need.
+    public sealed class JobGiver_P5PatientBedRest : ThinkNode_JobGiver
+    {
+        protected override Job TryGiveJob(Pawn pawn)
+        {
+            var controller = pawn.Map?.GetComponent<P3GarrisonController>();
+            if (controller == null || !controller.Controls(pawn) || !controller.P5NeedsRelief(pawn) ||
+                !pawn.health.HasHediffsNeedingTend() || RestUtility.DisturbancePreventsLyingDown(pawn)) return null;
+            if (pawn.Downed && (!pawn.health.CanCrawl || pawn.GetPosture().InBed())) return null;
+            Building_Bed bed = pawn.CurrentBed() ?? RestUtility.FindBedFor(pawn, pawn, checkSocialProperness: false);
+            if (bed == null) return null;
+            Job job = JobMaker.MakeJob(JobDefOf.LayDown, bed);
+            job.checkOverrideOnExpire = true;
+            return job;
+        }
+    }
 }
