@@ -17,7 +17,7 @@
     "brrainz.harmony",
     "ludeon.rimworld",
     "RedEyeDev.RIMAPI",
-    "roman.rimapi.debugactions",
+    "romangr.rimapi.debugactions",
     "romangr.realisticbases"
   ],
   "mod_sources": {
@@ -27,7 +27,7 @@
     "RedEyeDev.RIMAPI": {
       "workshop": "3593423732"
     },
-    "roman.rimapi.debugactions": {
+    "romangr.rimapi.debugactions": {
       "github_release": "RimWorld-mods-patches/rimapi-debug-actions"
     }
   }
