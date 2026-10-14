@@ -100,7 +100,8 @@ namespace RealisticBases.Planning
     public sealed class LayoutRoom
     {
         internal LayoutRoom(LayoutRoomDemand demand, GridRect bounds, GridPoint door, GridPoint facing, int capacity,
-            IEnumerable<LayoutFixture> fixtures, bool protectedByRock, IEnumerable<GridPoint> naturalWalls)
+            IEnumerable<LayoutFixture> fixtures, bool protectedByRock, IEnumerable<GridPoint> naturalWalls,
+            IEnumerable<GridPoint> sideDoors = null)
         {
             Id = demand.Id;
             Kind = demand.Kind;
@@ -113,7 +114,14 @@ namespace RealisticBases.Planning
             Fixtures = new ReadOnlyCollection<LayoutFixture>(fixtures.ToList());
             ProtectedByRock = protectedByRock;
             NaturalWalls = new ReadOnlyCollection<GridPoint>(naturalWalls.OrderBy(c => c).ToList());
+            SideDoors = new ReadOnlyCollection<GridPoint>((sideDoors ?? Enumerable.Empty<GridPoint>()).OrderBy(c => c).ToList());
+            demandSource = demand;
         }
+
+        private readonly LayoutRoomDemand demandSource;
+
+        internal LayoutRoom WithSideDoors(IEnumerable<GridPoint> sideDoors) =>
+            new LayoutRoom(demandSource, Bounds, Door, Facing, Capacity, Fixtures, ProtectedByRock, NaturalWalls, sideDoors);
 
         public string Id { get; }
         public LayoutRoomKind Kind { get; }
@@ -131,6 +139,14 @@ namespace RealisticBases.Planning
         public IReadOnlyList<GridPoint> NaturalWalls { get; }
         public GridRect Interior => new GridRect(Bounds.MinX + 1, Bounds.MinZ + 1, Bounds.Width - 2, Bounds.Height - 2);
         public bool IsEdge(GridPoint c) => Bounds.Contains(c) && (c.X == Bounds.MinX || c.X == Bounds.MaxX || c.Z == Bounds.MinZ || c.Z == Bounds.MaxZ);
+        // Further doors of a dining hall onto the corridor loop around it.
+        public IReadOnlyList<GridPoint> SideDoors { get; }
+        public IEnumerable<GridPoint> Doors => new[] { Door }.Concat(SideDoors);
+        public bool IsDoor(GridPoint c) => c.Equals(Door) || SideDoors.Contains(c);
+        // The public cell in front of a door cell on this room's wall.
+        public GridPoint OutsideOf(GridPoint door) =>
+            door.X == Bounds.MinX ? new GridPoint(door.X - 1, door.Z) : door.X == Bounds.MaxX ? new GridPoint(door.X + 1, door.Z) :
+            door.Z == Bounds.MinZ ? new GridPoint(door.X, door.Z - 1) : new GridPoint(door.X, door.Z + 1);
     }
 
     public sealed class LayoutCorridor
@@ -387,7 +403,8 @@ namespace RealisticBases.Planning
 
         public IReadOnlyList<LayoutPortal> Portals => new ReadOnlyCollection<LayoutPortal>(
             Gates.Select((g, i) => new LayoutPortal(LayoutPortalKind.Gate, g.Cell, g.Inside, "gate-" + i))
-                .Concat(Rooms.Select(r => new LayoutPortal(LayoutPortalKind.RoomDoor, r.Door, r.DoorOutside, r.Id))).ToList());
+                .Concat(Rooms.Select(r => new LayoutPortal(LayoutPortalKind.RoomDoor, r.Door, r.DoorOutside, r.Id)))
+                .Concat(Rooms.SelectMany(r => r.SideDoors.Select(d => new LayoutPortal(LayoutPortalKind.RoomDoor, d, r.OutsideOf(d), r.Id)))).ToList());
 
         public GridRect BoundingRect
         {
@@ -484,6 +501,7 @@ namespace RealisticBases.Planning
                 hash = StableHash.Add(hash, room.Bounds.Width);
                 hash = StableHash.Add(hash, room.Bounds.Height);
                 hash = Point(hash, room.Door);
+                foreach (GridPoint door in room.SideDoors) hash = Point(hash, door);
                 hash = StableHash.Add(hash, room.Capacity);
                 foreach (LayoutFixture fixture in room.Fixtures) hash = Fixture(hash, fixture);
             }
@@ -1232,6 +1250,8 @@ namespace RealisticBases.Planning
             public string Id;
             public bool Main;
             public bool Retain;
+            // Sections that trimming keeps, such as a corridor loop's sides.
+            public int Keep;
             public GridPoint Axis;
             public GridPoint Root;
             public List<List<GridPoint>> Sections = new List<List<GridPoint>>();
@@ -1777,7 +1797,7 @@ namespace RealisticBases.Planning
                 generators = Math.Max(generators, needed);
                 batteries = Math.Max(batteries, bridge);
             }
-            if (!PlaceWithRepairs(demand)) return false;
+            if (!(Style.Kind == LayoutStyleKind.Mountain ? PlaceWithRepairs(demand) : PlaceLate(demand))) return false;
             power = new LayoutPowerPlan(critical, nonCritical, kit.Generator, generators, batteries, yards, kit.GeneratorFuel,
                 LayoutPowerModel.FuelStock(kit.Generator, generators), powerDiagnostics, reserve,
                 Math.Max(0, generators - LayoutPowerModel.Generators(critical, nonCritical + ownLoad, renewable, kit.GeneratorWatts)));
@@ -1872,6 +1892,8 @@ namespace RealisticBases.Planning
                 reservedCompoundGate = new GridPoint(terminal.X + outward.X * (setback + 1),
                     terminal.Z + outward.Z * (setback + 1));
                 notes.Add("fieldApproachReserved=" + option.InnerGate + " terminal=" + terminal);
+                fieldTip = new KeyValuePair<GridPoint, GridPoint>(terminal, tangent);
+                fieldHalfTip = halfTip;
                 return true;
             }
             Fail("field_approach_unavailable", string.Join(" ", why.Take(6)));
@@ -1888,6 +1910,19 @@ namespace RealisticBases.Planning
             GridPoint width = vertical ? new GridPoint(1, 0) : new GridPoint(0, 1);
             double[] factors = { 1.0, 1.25, 1.5 };
             int target = Math.Max(10, Math.Min(70, (int)Math.Round(Math.Sqrt(demand.MinimumRoomArea) * factors[LayoutSeed.Roll(seed, "length", 3)])));
+            // Open ground: room for the dining hub and one rib slot either side
+            // of it. A field counts as spine length; its wall ribs are the
+            // slot on that side.
+            if (Style.Kind != LayoutStyleKind.Mountain)
+            {
+                LayoutRoomDemand dining = demand.Rooms.FirstOrDefault(r => r.Kind == LayoutRoomKind.Dining);
+                int hub = dining == null ? 1 : dining.CandidateSizes.Max(z => z.Width) + 4;
+                int slot = 2 * (LayoutClusters.TypicalDepth(demand.Rooms) + 2);
+                target = Math.Max(target, hub + 2 * slot + 2);
+                if (jointSite != null && jointSite.Wall.Count > 0)
+                    target = Math.Max(hub + slot + 2, target - FieldLength(axis));
+                target = Math.Min(70, target);
+            }
             Func<int, List<GridPoint>> section = t => Enumerable.Range(0, MainWidth)
                 .Select(k => new GridPoint(anchor.X + t * axis.X + k * width.X, anchor.Z + t * axis.Z + k * width.Z)).ToList();
             List<int> positions = new List<int>();
@@ -1941,6 +1976,7 @@ namespace RealisticBases.Planning
             List<GridPoint> cells = segment.Cells.ToList();
             int newDig = cells.Count(c => grid.At(c) == LayoutCellClass.Rock);
             if (dug.Count + newDig > Budget && newDig > 0) return false;
+            streetVersion++;
             foreach (GridPoint c in cells)
             {
                 occ[grid.Index(c)] = Street;
@@ -2128,7 +2164,7 @@ namespace RealisticBases.Planning
                 int distance = Manhattan(outside, partner.DoorOutside);
                 score += rel.Kind == LayoutRelationKind.Near ? rel.Weight * distance : -rel.Weight * Math.Min(distance, 20);
             }
-            double? clustered = ClusterScore(room, bounds, door, sharedWith, furnish);
+            double? clustered = ClusterScore(room, bounds, outside, sharedWith);
             if (!clustered.HasValue) return null;
             score += clustered.Value;
             if (doctrine == LayoutDoctrine.RockProtected) score += dig.Count - 4.0 * protectedCells;
@@ -2339,7 +2375,7 @@ namespace RealisticBases.Planning
             while (changed)
             {
                 changed = false;
-                HashSet<GridPoint> used = new HashSet<GridPoint>(rooms.Select(r => r.DoorOutside));
+                HashSet<GridPoint> used = new HashSet<GridPoint>(rooms.SelectMany(r => r.Doors.Select(r.OutsideOf)));
                 foreach (LayoutFixture f in rooms.SelectMany(r => r.Fixtures).Where(f => f.Exhaust.HasValue)) used.Add(f.Exhaust.Value);
                 used.UnionWith(courts.SelectMany(c => c.Access));
                 foreach (LayoutPowerYard yard in yards)
@@ -2351,9 +2387,9 @@ namespace RealisticBases.Planning
                 foreach (Segment segment in segments)
                 {
                     if (segment.Main || segment.Retain) continue;
-                    while (segment.Sections.Count > 1 && !segment.Sections[segment.Sections.Count - 1].Any(used.Contains))
+                    while (segment.Sections.Count > Math.Max(1, segment.Keep) && !segment.Sections[segment.Sections.Count - 1].Any(used.Contains))
                     { Release(segment.Sections[segment.Sections.Count - 1]); segment.Sections.RemoveAt(segment.Sections.Count - 1); changed = true; }
-                    if (segment.Sections.Count == 1 && !segment.Sections[0].Any(used.Contains))
+                    if (segment.Sections.Count == 1 && segment.Keep == 0 && !segment.Sections[0].Any(used.Contains))
                     { Release(segment.Sections[0]); segment.Sections.Clear(); changed = true; }
                 }
                 segments.RemoveAll(s => s.Sections.Count == 0);

@@ -76,7 +76,7 @@ namespace RealisticBases.Generation
                 .Concat(layout.OuterWalls)
                 .Concat(layout.ExhaustPocketWalls));
             HashSet<GridPoint> doors = new HashSet<GridPoint>(layout.Gates.Select(g => g.Cell)
-                .Concat(layout.Gates.SelectMany(g => g.BandDoors)).Concat(layout.Rooms.Select(r => r.Door))
+                .Concat(layout.Gates.SelectMany(g => g.BandDoors)).Concat(layout.Rooms.SelectMany(r => r.Doors))
                 .Concat(approachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0]));
             foreach (LayoutRoom room in layout.Rooms)
                 foreach (GridPoint c in room.Bounds.Points())

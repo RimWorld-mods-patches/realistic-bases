@@ -19,7 +19,7 @@ namespace RealisticBases.Integration
                 .Concat(layout.Corridors.SelectMany(c => c.Cells))
                 .Concat(layout.Gates.SelectMany(g => g.InnerVestibule.Concat(g.OuterVestibule)
                     .Concat(g.BandDoors).Concat(new[] { g.Inside, g.Cell })))
-                .Concat(layout.Rooms.SelectMany(r => new[] { r.Door, r.DoorOutside }))
+                .Concat(layout.Rooms.SelectMany(r => r.Doors.SelectMany(d => new[] { d, r.OutsideOf(d) })))
                 .Concat(layout.FieldWall == null ? Enumerable.Empty<GridPoint>() :
                     layout.FieldWall.ArrivalRoute.TakeWhile(c => !c.Equals(layout.FieldWall.OuterGate))
                         .Concat(new[] { layout.FieldWall.OuterGate })

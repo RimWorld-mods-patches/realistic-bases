@@ -192,6 +192,7 @@ internal static partial class Program
         public int Shared;
         public double Overhead;
         public double Walled;
+        public int FoodWalk;
         public long Ms;
         public string Failure;
     }
@@ -228,6 +229,7 @@ internal static partial class Program
                 run.Shared = SharedWallCells(result.Layout);
                 run.Overhead = V2Overhead(result.Layout);
                 run.Walled = V2Walled(result.Layout, input.Terrain);
+                run.FoodWalk = LayoutCandidateScore.WalkToFood(input, result.Layout);
                 if (run.Seed == 1) ExportLayout("v2m-" + run.Case.Name, result, input.Terrain);
             }
             else run.Failure = run.Seed + ":" + (result.RejectionCode ?? "validator") + ":" +
@@ -251,6 +253,7 @@ internal static partial class Program
                 " shared=" + (ok.Count == 0 ? 0 : ok.Average(r => r.Shared)).ToString("F0") +
                 " overhead=" + (ok.Count == 0 ? 0 : ok.Average(r => r.Overhead)).ToString("F2") +
                 " walled=" + (ok.Count == 0 ? 0 : ok.Average(r => r.Walled)).ToString("F2") +
+                " foodWalk=" + (ok.Count == 0 ? 0 : ok.Average(r => r.FoodWalk)).ToString("F0") +
                 " ms/plan=" + (long)list.Average(r => r.Ms) +
                 (ok.Count == list.Count ? string.Empty : " fail=" + string.Join(" ; ", list.Where(r => !r.Ok).Select(r => r.Failure))));
         }

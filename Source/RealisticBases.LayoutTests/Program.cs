@@ -111,7 +111,7 @@ internal static partial class Program
         Run("P4B joint reservation constrains detailed room packing", P4BJointPackingCases, 75);
         Run("P4B approach defense covers exposed sides and respects terrain", P4BApproachDefenseCases, 35);
         Run("P4B public frontages repair weak sides without moving rooms or fields", P4BAccessFrontageCases, 185);
-        Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck, 15);
+        Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck, 20);
         Run("tech stage is stable per faction", TechStageStablePerFaction);
         Run("tech stage respects every faction band", TechStageBands);
         Run("tech stage research sets are monotonic", TechStageMonotonic);
@@ -513,7 +513,10 @@ internal static partial class Program
         foreach (LayoutRoom room in result.Layout.Rooms)
         {
             True(!room.Bounds.Points().Any(circulation.Contains), room.Id + " not in public circulation");
-            Equal(1, room.Bounds.Points().Count(c => room.IsEdge(c) && result.Layout.Portals.Any(p => p.Cell.Equals(c))), room.Id + " single portal");
+            // Only the dining hall opens onto its corridor loop through more than one door.
+            Equal(1 + room.SideDoors.Count, room.Bounds.Points().Count(c => room.IsEdge(c) && result.Layout.Portals.Any(p => p.Cell.Equals(c))),
+                room.Id + " portals are its doors");
+            if (room.Kind != LayoutRoomKind.Dining) Equal(0, room.SideDoors.Count, room.Id + " single door");
             True(circulation.Contains(room.DoorOutside), room.Id + " door reachable publicly");
         }
         foreach (LayoutGate gate in result.Layout.Gates) True(circulation.Contains(gate.Inside), "gate endpoint in the one public component");
@@ -1580,7 +1583,7 @@ internal static partial class Program
     {
         int compatible = 0, total = 0;
         foreach (int layers in new[] { 1, 2, 3 })
-            foreach (ulong seed in new ulong[] { 1, 2, 3, 4, 5, 6, 7, 8 })
+            foreach (ulong seed in Enumerable.Range(1, 40).Select(x => (ulong)x))
             {
                 TerrainSnapshot terrain = Plains(120);
                 ProceduralLayoutInput input = Input(terrain, LayoutRequirements.FromPopulation(6, Industrial, Temperate), seed,

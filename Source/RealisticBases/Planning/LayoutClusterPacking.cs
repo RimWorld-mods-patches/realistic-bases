@@ -29,15 +29,23 @@ namespace RealisticBases.Planning
             branchSpacing = 2 * (depth + 2);
             notes.Add("engine=Clusters style=" + Style.Kind + " typicalDepth=" + depth + " branchSpacing=" + branchSpacing +
                 " front=" + frontPoint);
-            // Mountain bases lay out their comb up front; the others add a
-            // branch only when a room finds no frontage (PlaceWithRepairs).
+            // Mountain bases lay out their comb up front and let rock shape
+            // the clusters; open-ground bases lay corridors first (LayoutRibs).
             if (Style.Kind == LayoutStyleKind.Mountain)
             {
                 int combs = Math.Max(1, demand.Rooms.Count / 4);
                 for (int i = 0; i < combs; i++) AddCombBranch("comb-" + i, anchor);
+                foreach (LayoutRoomDemand room in LayoutClusters.Order(demand.Rooms))
+                    if (!PlaceWithRepairs(room)) return false;
+                return true;
             }
+            LayCorridors(out LayoutRoomDemand hub);
             foreach (LayoutRoomDemand room in LayoutClusters.Order(demand.Rooms))
-                if (!PlaceWithRepairs(room)) return false;
+            {
+                if (hub != null && room.Id == hub.Id) continue;
+                if (!PlaceInBlocks(room)) { ReleaseReserves(); return false; }
+            }
+            ReleaseReserves();
             return true;
         }
 
@@ -110,6 +118,9 @@ namespace RealisticBases.Planning
 
         private List<GridPoint> ClusterFrontage(LayoutRoomDemand room)
         {
+            if (Style.Kind != LayoutStyleKind.Mountain)
+                return segments.SelectMany(s => s.Cells).Distinct().OrderBy(WalkCost)
+                    .ThenBy(c => LayoutSeed.Key(LayoutSeed.Sub(seed, room.Id), c.X, c.Z, growths)).ToList();
             GridPoint target = ClusterTarget(room);
             return segments.SelectMany(s => s.Cells).Distinct()
                 .OrderBy(c => Manhattan(c, target))
@@ -122,16 +133,18 @@ namespace RealisticBases.Planning
         private void RecordClusterRoom(LayoutRoom room, List<string> sharedWith)
         {
             foreach (GridPoint c in room.Bounds.Points())
-                if (room.IsEdge(c) && !c.Equals(room.Door) && !wallOwner.ContainsKey(c)) wallOwner[c] = room.Id;
+                if (room.IsEdge(c) && !room.IsDoor(c) && !wallOwner.ContainsKey(c)) wallOwner[c] = room.Id;
             foreach (LayoutFixture cooler in room.Fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind))) coolerCells.UnionWith(cooler.Cells);
             if (sharedWith != null && sharedWith.Count > 0)
                 ProceduralLayoutPlanner.Note(diagnostics, "cluster", "shared_walls", room.Id + " cells=" + sharedWith.Count +
                     " with=" + string.Join("+", sharedWith.Distinct().OrderBy(s => s, StringComparer.Ordinal)));
         }
 
-        // Clusters engine placement score (lower is better): stay with the
-        // cluster, reuse walls, and keep housing away from the arrival front.
-        private double? ClusterScore(LayoutRoomDemand room, GridRect bounds, GridPoint door, List<string> sharedWith, LayoutFurnishResult furnish)
+        // Clusters engine placement score (lower is better): reuse walls and,
+        // on open ground, stay close to the dining hall over corridors and to
+        // cluster mates; mountain bases keep per-cluster targets and housing
+        // away from the arrival front.
+        private double? ClusterScore(LayoutRoomDemand room, GridRect bounds, GridPoint outside, List<string> sharedWith)
         {
             LayoutClusterKind kind = LayoutClusters.Of(room.Kind);
             int same = sharedWith.Count(o => ClusterOf(o) == kind);
@@ -146,12 +159,9 @@ namespace RealisticBases.Planning
                     score -= 0.3 * Math.Min(30, Manhattan(center, frontPoint));
                 return score;
             }
-            // Cluster mates still pull a little, and housing leans away from
-            // the arrival side only as a tie-breaker.
+            score = WalkCost(outside) - Style.SameClusterShare * same - Style.OtherClusterShare * other;
             GridPoint? mates = MatesCentre(room);
-            if (mates.HasValue) score += 0.3 * Manhattan(center, mates.Value);
-            if (kind == LayoutClusterKind.Living || room.Kind == LayoutRoomKind.Jail)
-                score -= 0.1 * Math.Min(10, Manhattan(center, frontPoint));
+            if (mates.HasValue) score += 0.2 * Manhattan(center, mates.Value);
             return score;
         }
 

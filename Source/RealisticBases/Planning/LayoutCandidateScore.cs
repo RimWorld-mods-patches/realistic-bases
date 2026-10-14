@@ -59,6 +59,37 @@ namespace RealisticBases.Planning
 
         private const int Unreachable = 200;
 
+        // Walking distance from every other room's door and every defense
+        // post to the nearest dining hall or freezer door, summed. Walls block;
+        // room, gate and sally doors pass.
+        public static int WalkToFood(ProceduralLayoutInput input, ProceduralLayout layout)
+        {
+            TerrainSnapshot terrain = input.Terrain;
+            HashSet<GridPoint> blocked = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.NaturalWalls).Concat(layout.OuterWalls)
+                .Concat(layout.Gates.SelectMany(g => g.BandWalls)));
+            foreach (LayoutRoom room in layout.Rooms)
+                foreach (GridPoint c in room.Bounds.Points())
+                    if (room.IsEdge(c) && !room.IsDoor(c)) blocked.Add(c);
+            if (layout.FieldWall != null) blocked.UnionWith(layout.FieldWall.Walls);
+            HashSet<GridPoint> dug = new HashSet<GridPoint>(layout.Excavation);
+            Func<GridPoint, bool> open = c => terrain.InBounds(c) && !blocked.Contains(c) &&
+                (dug.Contains(c) || LayoutExposure.Walkable(terrain[c]));
+            List<LayoutRoom> food = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Dining || r.Kind == LayoutRoomKind.Freezer).ToList();
+            if (food.Count == 0) return 0;
+            Dictionary<GridPoint, int> distance = new Dictionary<GridPoint, int>();
+            Queue<GridPoint> queue = new Queue<GridPoint>();
+            foreach (GridPoint door in food.SelectMany(r => r.Doors).Distinct()) { distance[door] = 0; queue.Enqueue(door); }
+            while (queue.Count > 0)
+            {
+                GridPoint c = queue.Dequeue();
+                foreach (GridPoint n in ProceduralLayoutValidator.Neighbors(c))
+                    if (!distance.ContainsKey(n) && open(n)) { distance[n] = distance[c] + 1; queue.Enqueue(n); }
+            }
+            IEnumerable<GridPoint> targets = layout.Rooms.Where(r => !food.Contains(r)).Select(r => r.Door)
+                .Concat(layout.ApproachDefense?.AllPosts ?? Enumerable.Empty<GridPoint>());
+            return targets.Sum(t => distance.TryGetValue(t, out int d) ? d : Unreachable);
+        }
+
         private static int Nearest(HashSet<GridPoint> walk, List<LayoutRoom> from, List<LayoutRoom> to)
         {
             if (from.Count == 0 || to.Count == 0) return 0;
