@@ -140,6 +140,50 @@ internal static partial class Program
         return Math.Max(0, l.Enclosure.Count - rooms.Count - yards) / (double)rooms.Count;
     }
 
+    // Cells inside the outermost wall (layer shells included) per room cell.
+    // Terrain is ignored, so rock-closed shells on mountain sites count low.
+    private static double V2Walled(ProceduralLayout l, TerrainSnapshot terrain)
+    {
+        HashSet<GridPoint> walls = new HashSet<GridPoint>(l.BuiltWalls.Concat(l.NaturalWalls).Concat(l.OuterWalls)
+            .Concat(l.Gates.SelectMany(g => g.BandDoors.Concat(g.BandWalls).Concat(new[] { g.Cell })))
+            .Concat(l.ApproachDefense?.SallyPorts.Select(s => s.Cell) ?? new GridPoint[0]));
+        if (l.FieldWall != null)
+        {
+            walls.UnionWith(l.FieldWall.Walls);
+            walls.Add(l.FieldWall.OuterGate);
+            if (l.FieldWall.InnerGate.HasValue) walls.Add(l.FieldWall.InnerGate.Value);
+        }
+        bool[] outside = new bool[terrain.Width * terrain.Height];
+        Queue<GridPoint> queue = new Queue<GridPoint>();
+        for (int x = 0; x < terrain.Width; x++)
+            for (int z = 0; z < terrain.Height; z++)
+                if ((x == 0 || z == 0 || x == terrain.Width - 1 || z == terrain.Height - 1) && !walls.Contains(new GridPoint(x, z)))
+                { outside[z * terrain.Width + x] = true; queue.Enqueue(new GridPoint(x, z)); }
+        while (queue.Count > 0)
+        {
+            GridPoint c = queue.Dequeue();
+            foreach (GridPoint n in ProceduralLayoutValidator.Neighbors(c))
+            {
+                if (!terrain.InBounds(n) || walls.Contains(n) || outside[n.Z * terrain.Width + n.X]) continue;
+                outside[n.Z * terrain.Width + n.X] = true;
+                queue.Enqueue(n);
+            }
+        }
+        // The attached field bailey is walled too, but it is not compound.
+        HashSet<GridPoint> bailey = new HashSet<GridPoint>();
+        if (l.JointSite != null)
+        {
+            Queue<GridPoint> fill = new Queue<GridPoint>(l.JointSite.Field.Points().Where(c => terrain.InBounds(c) &&
+                !walls.Contains(c) && !outside[c.Z * terrain.Width + c.X]));
+            bailey.UnionWith(fill);
+            while (fill.Count > 0)
+                foreach (GridPoint n in ProceduralLayoutValidator.Neighbors(fill.Dequeue()))
+                    if (terrain.InBounds(n) && !walls.Contains(n) && !outside[n.Z * terrain.Width + n.X] && bailey.Add(n)) fill.Enqueue(n);
+        }
+        int rooms = l.Rooms.SelectMany(r => r.Bounds.Points()).Distinct().Count();
+        return (outside.Count(o => !o) - bailey.Count) / (double)Math.Max(1, rooms);
+    }
+
     private sealed class V2MatrixRun
     {
         public V2MatrixCase Case;
@@ -147,6 +191,7 @@ internal static partial class Program
         public bool Ok;
         public int Shared;
         public double Overhead;
+        public double Walled;
         public long Ms;
         public string Failure;
     }
@@ -182,6 +227,7 @@ internal static partial class Program
                 run.Ok = true;
                 run.Shared = SharedWallCells(result.Layout);
                 run.Overhead = V2Overhead(result.Layout);
+                run.Walled = V2Walled(result.Layout, input.Terrain);
                 if (run.Seed == 1) ExportLayout("v2m-" + run.Case.Name, result, input.Terrain);
             }
             else run.Failure = run.Seed + ":" + (result.RejectionCode ?? "validator") + ":" +
@@ -204,6 +250,7 @@ internal static partial class Program
             Console.WriteLine("  " + list[0].Case.Name.PadRight(26) + " ok=" + ok.Count + "/" + list.Count +
                 " shared=" + (ok.Count == 0 ? 0 : ok.Average(r => r.Shared)).ToString("F0") +
                 " overhead=" + (ok.Count == 0 ? 0 : ok.Average(r => r.Overhead)).ToString("F2") +
+                " walled=" + (ok.Count == 0 ? 0 : ok.Average(r => r.Walled)).ToString("F2") +
                 " ms/plan=" + (long)list.Average(r => r.Ms) +
                 (ok.Count == list.Count ? string.Empty : " fail=" + string.Join(" ; ", list.Where(r => !r.Ok).Select(r => r.Failure))));
         }

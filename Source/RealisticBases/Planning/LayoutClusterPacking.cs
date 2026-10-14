@@ -29,8 +29,13 @@ namespace RealisticBases.Planning
             branchSpacing = 2 * (depth + 2);
             notes.Add("engine=Clusters style=" + Style.Kind + " typicalDepth=" + depth + " branchSpacing=" + branchSpacing +
                 " front=" + frontPoint);
-            int combs = Math.Max(1, demand.Rooms.Count / 4);
-            for (int i = 0; i < combs; i++) AddCombBranch("comb-" + i, anchor);
+            // Mountain bases lay out their comb up front; the others add a
+            // branch only when a room finds no frontage (PlaceWithRepairs).
+            if (Style.Kind == LayoutStyleKind.Mountain)
+            {
+                int combs = Math.Max(1, demand.Rooms.Count / 4);
+                for (int i = 0; i < combs; i++) AddCombBranch("comb-" + i, anchor);
+            }
             foreach (LayoutRoomDemand room in LayoutClusters.Order(demand.Rooms))
                 if (!PlaceWithRepairs(room)) return false;
             return true;
@@ -53,17 +58,44 @@ namespace RealisticBases.Planning
             return d == null ? LayoutClusterKind.Power : LayoutClusters.Of(d.Kind);
         }
 
-        // Where a room of this cluster should go: beside its placed cluster
-        // mates, otherwise a cluster-specific seed point around the anchor.
+        // Where a room should go. Superstructure and town bases grow as one
+        // building: the first room aims at the middle of the main hallway and
+        // every later room at the centre of all rooms placed so far.
+        // Mountain bases keep per-cluster seed points, since rock shapes them.
         private GridPoint ClusterTarget(LayoutRoomDemand room)
+        {
+            if (Style.Kind == LayoutStyleKind.Mountain) return MountainClusterTarget(room);
+            List<LayoutRoom> placedRooms = rooms.Where(r => r.Kind != LayoutRoomKind.MortarMagazine).ToList();
+            if (placedRooms.Count == 0) return SpineMiddle();
+            return Centre(placedRooms);
+        }
+
+        private GridPoint SpineMiddle()
+        {
+            Segment main = segments.First(s => s.Main);
+            return main.Sections[main.Sections.Count / 2][0];
+        }
+
+        private static GridPoint Centre(List<LayoutRoom> group) =>
+            new GridPoint((int)Math.Round(group.Average(r => r.Bounds.MinX + r.Bounds.Width / 2.0)),
+                (int)Math.Round(group.Average(r => r.Bounds.MinZ + r.Bounds.Height / 2.0)));
+
+        // Placed rooms of the same cluster, or null before the first one.
+        private GridPoint? MatesCentre(LayoutRoomDemand room)
+        {
+            LayoutClusterKind kind = LayoutClusters.Of(room.Kind);
+            List<LayoutRoom> mates = rooms.Where(r => r.Kind != LayoutRoomKind.MortarMagazine && LayoutClusters.Of(r.Kind) == kind).ToList();
+            return mates.Count == 0 ? (GridPoint?)null : Centre(mates);
+        }
+
+        // Beside placed cluster mates, otherwise a cluster-specific seed point around the anchor.
+        private GridPoint MountainClusterTarget(LayoutRoomDemand room)
         {
             LayoutClusterKind kind = LayoutClusters.Of(room.Kind);
             if (kind == LayoutClusterKind.Power)
                 kind = rooms.Any(r => LayoutClusters.Of(r.Kind) == LayoutClusterKind.Production) ? LayoutClusterKind.Production : kind;
             List<LayoutRoom> mates = rooms.Where(r => r.Kind != LayoutRoomKind.MortarMagazine && LayoutClusters.Of(r.Kind) == kind).ToList();
-            if (mates.Count > 0)
-                return new GridPoint((int)Math.Round(mates.Average(r => r.Bounds.MinX + r.Bounds.Width / 2.0)),
-                    (int)Math.Round(mates.Average(r => r.Bounds.MinZ + r.Bounds.Height / 2.0)));
+            if (mates.Count > 0) return Centre(mates);
             GridPoint away = new GridPoint(Math.Sign(anchor.X - frontPoint.X), Math.Sign(anchor.Z - frontPoint.Z));
             switch (kind)
             {
@@ -108,8 +140,18 @@ namespace RealisticBases.Planning
             GridPoint center = new GridPoint(bounds.MinX + bounds.Width / 2, bounds.MinZ + bounds.Height / 2);
             double score = 0.8 * Manhattan(center, ClusterTarget(room));
             score -= Style.SameClusterShare * same + Style.OtherClusterShare * other;
+            if (Style.Kind == LayoutStyleKind.Mountain)
+            {
+                if (kind == LayoutClusterKind.Living || room.Kind == LayoutRoomKind.Jail)
+                    score -= 0.3 * Math.Min(30, Manhattan(center, frontPoint));
+                return score;
+            }
+            // Cluster mates still pull a little, and housing leans away from
+            // the arrival side only as a tie-breaker.
+            GridPoint? mates = MatesCentre(room);
+            if (mates.HasValue) score += 0.3 * Manhattan(center, mates.Value);
             if (kind == LayoutClusterKind.Living || room.Kind == LayoutRoomKind.Jail)
-                score -= 0.3 * Math.Min(30, Manhattan(center, frontPoint));
+                score -= 0.1 * Math.Min(10, Manhattan(center, frontPoint));
             return score;
         }
 

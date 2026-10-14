@@ -30,7 +30,7 @@ namespace RealisticBases.Planning
         public double SameClusterShare { get; }
         public double OtherClusterShare { get; }
 
-        public static readonly LayoutStyle Superstructure = new LayoutStyle(LayoutStyleKind.Superstructure, false, 2.0, 1.5);
+        public static readonly LayoutStyle Superstructure = new LayoutStyle(LayoutStyleKind.Superstructure, false, 2.0, 2.0);
         public static readonly LayoutStyle Town = new LayoutStyle(LayoutStyleKind.Town, true, 2.0, 0);
         public static readonly LayoutStyle Mountain = new LayoutStyle(LayoutStyleKind.Mountain, false, 1.5, 1.0);
 

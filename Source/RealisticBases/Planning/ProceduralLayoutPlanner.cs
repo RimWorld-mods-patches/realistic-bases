@@ -2464,13 +2464,9 @@ namespace RealisticBases.Planning
             List<LayoutGate> gates = ChooseGates(inE, built, natural, streets, isPublic);
             if (gates == null) return null;
             foreach (LayoutGate gate in gates) built.Remove(gate.Cell);
-            List<LayoutWallSection> outerSections = ExtendGateBands(inE, built, natural, gates);
-            if (outerSections.Count != gates.Count * (input.Fortification.WallLayers - 1))
-            {
-                Fail("unreturned_outer_wall_section", "requestedLayers=" + input.Fortification.WallLayers +
-                    " gates=" + gates.Count + " returnedSections=" + outerSections.Count);
-                return null;
-            }
+            // The complete shells below enclose every side, gates included, so
+            // gate-adjacent wall sections are no longer built.
+            List<LayoutWallSection> outerSections = new List<LayoutWallSection>();
             IReadOnlyList<GridPoint> reinforcement = CompletePerimeter(enclosure, built, natural, gates, outerSections);
             if (reinforcement == null) return null;
 
@@ -2485,8 +2481,7 @@ namespace RealisticBases.Planning
             List<string> layoutNotes = new List<string>(notes);
             layoutNotes.Add("excavated=" + dug.Count + "/" + Budget + " retainedThickRoof=" + retained.Count);
             layoutNotes.Add("gates=" + gates.Count + " desired=" + input.Fortification.DesiredGates);
-            layoutNotes.Add("outerSections=" + outerSections.Count + "/" + (gates.Count * (input.Fortification.WallLayers - 1)) +
-                " outerWallCells=" + outerSections.Sum(section => section.Cells.Count()));
+            layoutNotes.Add("perimeterShellCells=" + reinforcement.Count);
             LayoutEquipment equipment = input.Equipment;
             List<LayoutExhaustPocket> exhaustPockets = pockets.Values.OrderBy(p => p.Cell)
                 .Select(p => new LayoutExhaustPocket(p.Cell, p.Walls, p.RoofCleared, p.Excavated, p.Rooms)).ToList();
@@ -2541,9 +2536,9 @@ namespace RealisticBases.Planning
             int layers = input.Fortification.WallLayers;
             if (layers == 1) return new GridPoint[0];
             // Chebyshev offsets close diagonal corners as well as straight
-            // frontages. Radius 1 is the existing boundary, 3 and 5 are the
-            // complete extra shells, aligned with the serial gate doors.
-            int radius = 2 * layers - 1;
+            // frontages. Radius 1 is the existing boundary; the extra shells
+            // stand directly outside it at radius 2..layers, with no lane.
+            int radius = layers;
             int[] distance = Enumerable.Repeat(int.MaxValue, occ.Length).ToArray();
             Queue<GridPoint> queue = new Queue<GridPoint>();
             foreach (GridPoint c in enclosure) { distance[grid.Index(c)] = 0; queue.Enqueue(c); }
@@ -2564,137 +2559,47 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> existing = new HashSet<GridPoint>(built.Concat(natural)
                 .Concat(sections.SelectMany(s => s.Cells)).Concat(gates.SelectMany(g =>
                     g.BandWalls.Concat(g.BandDoors).Concat(new[] { g.Cell }))));
+            // A gate's halls between its serial doors stay open; inside the
+            // shell band the shells themselves flank them.
+            HashSet<GridPoint> halls = new HashSet<GridPoint>(gates.SelectMany(g => g.OuterVestibule));
             HashSet<GridPoint> access = new HashSet<GridPoint>(gates.SelectMany(g =>
-                g.ExteriorRoute.Concat(g.OuterVestibule).Concat(new[] { g.Staging }))
-                .Concat(sections.SelectMany(s => s.ServiceLane(gates[s.GateIndex]))));
+                g.ExteriorRoute.Concat(new[] { g.Staging })));
             HashSet<GridPoint> field = new HashSet<GridPoint>(jointSite == null ? Enumerable.Empty<GridPoint>() :
                 jointSite.Field.Points().Concat(jointSite.AllPostClearance));
             List<GridPoint> cells = new List<GridPoint>();
             for (int i = 0; i < distance.Length; i++)
             {
-                if (distance[i] < 3 || distance[i] > radius || distance[i] % 2 == 0) continue;
+                if (distance[i] < 2 || distance[i] > radius) continue;
                 GridPoint c = new GridPoint(i % grid.Width, i / grid.Width);
-                if (existing.Contains(c)) continue;
+                if (existing.Contains(c) || halls.Contains(c)) continue;
                 if (grid.At(c) == LayoutCellClass.Rock && !dug.Contains(c)) continue;
                 if ((grid.At(c) != LayoutCellClass.Open && grid.At(c) != LayoutCellClass.Covered) ||
                     access.Contains(c) || field.Contains(c) || occ[i] == GeyserReserve)
-                { Fail("complete_perimeter_unavailable", "layer=" + ((distance[i] + 1) / 2) + " cell=" + c); return null; }
+                { Fail("complete_perimeter_unavailable", "layer=" + distance[i] + " cell=" + c); return null; }
                 cells.Add(c);
             }
-            return cells;
-        }
-
-        private List<LayoutWallSection> ExtendGateBands(bool[] inE, HashSet<GridPoint> built,
-            HashSet<GridPoint> natural, List<LayoutGate> gates)
-        {
-            // Only extend a straight, already enclosed wall run whose parallel
-            // exterior terrain is clear. A short band remains a band, not a
-            // declared layer section. One-cell lane spacing preserves the serial
-            // gate crossing, with bounded side arms for material discipline.
-            const int MaxArm = 8;
-            HashSet<GridPoint> baseline = new HashSet<GridPoint>(built.Concat(natural).Concat(gates.Select(g => g.Cell)));
-            HashSet<GridPoint> reserved = new HashSet<GridPoint>(gates.SelectMany(g => Footprint(g).Concat(g.ExteriorRoute)));
-            List<LayoutWallSection> result = new List<LayoutWallSection>();
-            for (int i = 0; i < gates.Count; i++)
+            // A hall beyond the shell band is closed on both sides, so the
+            // gatehouse stands out as a short walled passage.
+            HashSet<GridPoint> placed = new HashSet<GridPoint>(cells);
+            foreach (LayoutGate gate in gates)
             {
-                LayoutGate gate = gates[i];
-                GridPoint tangent = new GridPoint(gate.Outward.Z, gate.Outward.X);
-                for (int layer = 1; layer < input.Fortification.WallLayers; layer++)
+                GridPoint across = new GridPoint(gate.Outward.Z, gate.Outward.X);
+                foreach (GridPoint hall in gate.OuterVestibule)
                 {
-                    LayoutWallSection inner = layer > 1 ? result.FirstOrDefault(s => s.GateIndex == i && s.Layer == layer - 1) : null;
-                    if (layer > 1 && inner == null) break;
-                    List<GridPoint> left = Arm(-1), right = Arm(1);
-                    // A side with no straight arm still needs a short return
-                    // around the gate-band corner; otherwise it is a pier.
-                    if (left.Count + right.Count < 3) break;
-                    List<GridPoint> leftReturn = Return(-1, left), rightReturn = Return(1, right);
-                    if (input.Requirements.ReservePopulationCirculation)
+                    if (distance[grid.Index(hall)] <= radius) continue;
+                    foreach (int sign in new[] { -1, 1 })
                     {
-                        // A long run can finish beside an irregular baseline
-                        // corner. Shorten only that arm to the nearest legal
-                        // return instead of duplicating an existing wall or
-                        // discarding the entire populated settlement.
-                        while (leftReturn == null && left.Count > 0)
-                        { left.RemoveAt(left.Count - 1); leftReturn = Return(-1, left); }
-                        while (rightReturn == null && right.Count > 0)
-                        { right.RemoveAt(right.Count - 1); rightReturn = Return(1, right); }
-                        if (left.Count + right.Count < 3) break;
-                    }
-                    if (leftReturn == null || rightReturn == null) break;
-                    LayoutWallSection section = new LayoutWallSection(i, layer, left, right, leftReturn, rightReturn);
-                    result.Add(section);
-                    reserved.UnionWith(section.Cells);
-
-                    List<GridPoint> Arm(int sign)
-                    {
-                        List<GridPoint> cells = new List<GridPoint>();
-                        // The first two lane cells sit behind the gate-band
-                        // junction; without them the apparent arm has no
-                        // walkable access from its own crossing.
-                        if (!LaneClear(1) || !LaneClear(2)) return cells;
-                        for (int j = 3; j <= MaxArm + 2; j++)
-                        {
-                            // A farther-out run cannot extend beyond its inner run;
-                            // the intervening cell is its continuous service and
-                            // retreat lane back to the gate crossing.
-                            if (inner != null && j - 3 >= (sign < 0 ? inner.Left.Count : inner.Right.Count)) break;
-                            GridPoint baseCell = new GridPoint(gate.Cell.X + j * sign * tangent.X,
-                                gate.Cell.Z + j * sign * tangent.Z);
-                            GridPoint cell = new GridPoint(baseCell.X + 2 * layer * gate.Outward.X,
-                                baseCell.Z + 2 * layer * gate.Outward.Z);
-                            GridPoint inside = new GridPoint(baseCell.X - gate.Outward.X, baseCell.Z - gate.Outward.Z);
-                            if (!baseline.Contains(baseCell) || !grid.InBounds(inside) || !inE[grid.Index(inside)] ||
-                                !grid.InBounds(cell) || grid.At(cell) != LayoutCellClass.Open ||
-                                grid.Terrain[cell].Has(TerrainTraits.MapEdge) || reserved.Contains(cell) ||
-                                !LaneClear(j)) break;
-                            cells.Add(cell);
-                        }
-                        return cells;
-
-                        bool LaneClear(int distance)
-                        {
-                            GridPoint lane = new GridPoint(gate.Cell.X + distance * sign * tangent.X + (2 * layer - 1) * gate.Outward.X,
-                                gate.Cell.Z + distance * sign * tangent.Z + (2 * layer - 1) * gate.Outward.Z);
-                            return grid.InBounds(lane) && grid.At(lane) == LayoutCellClass.Open && grid.Passable(lane) &&
-                                !grid.Terrain[lane].Has(TerrainTraits.MapEdge) && !reserved.Contains(lane) && !inE[grid.Index(lane)];
-                        }
-                    }
-
-                    List<GridPoint> Return(int sign, List<GridPoint> arm)
-                    {
-                        List<GridPoint> path = new List<GridPoint>();
-                        if (arm.Count > 0)
-                        {
-                            GridPoint end = arm[arm.Count - 1];
-                            path.Add(new GridPoint(end.X - gate.Outward.X, end.Z - gate.Outward.Z));
-                        }
-                        else
-                        {
-                            // At the five-wide band's tip, layer 1 bends one
-                            // cell sideways to the known baseline wall at j=1.
-                            // Farther layers return to the preceding band at j=2.
-                            path.Add(new GridPoint(gate.Cell.X + 2 * sign * tangent.X + (2 * layer - 1) * gate.Outward.X,
-                                gate.Cell.Z + 2 * sign * tangent.Z + (2 * layer - 1) * gate.Outward.Z));
-                            if (layer == 1)
-                                path.Add(new GridPoint(gate.Cell.X + sign * tangent.X + gate.Outward.X,
-                                    gate.Cell.Z + sign * tangent.Z + gate.Outward.Z));
-                        }
-                        GridPoint terminal = path[path.Count - 1];
-                        GridPoint parent = new GridPoint(terminal.X - gate.Outward.X, terminal.Z - gate.Outward.Z);
-                        if (arm.Count == 0 && layer == 1)
-                            parent = new GridPoint(gate.Cell.X + sign * tangent.X, gate.Cell.Z + sign * tangent.Z);
-                        if (!(layer == 1 ? baseline.Contains(parent) :
-                            arm.Count == 0 ? gate.BandWalls.Contains(parent) :
-                            (sign < 0 ? inner.Left : inner.Right).Contains(parent))) return null;
-                        foreach (GridPoint c in path)
-                            if (!grid.InBounds(c) || grid.At(c) != LayoutCellClass.Open ||
-                                grid.Terrain[c].Has(TerrainTraits.MapEdge) || inE[grid.Index(c)] || reserved.Contains(c) ||
-                                (input.Requirements.ReservePopulationCirculation && baseline.Contains(c))) return null;
-                        return path;
+                        GridPoint side = new GridPoint(hall.X + sign * across.X, hall.Z + sign * across.Z);
+                        if (existing.Contains(side) || placed.Contains(side)) continue;
+                        if (!grid.InBounds(side) || (grid.At(side) != LayoutCellClass.Open && grid.At(side) != LayoutCellClass.Covered) ||
+                            access.Contains(side) || halls.Contains(side) || field.Contains(side) || occ[grid.Index(side)] == GeyserReserve)
+                        { Fail("gatehouse_side_unavailable", "cell=" + side); return null; }
+                        placed.Add(side);
+                        cells.Add(side);
                     }
                 }
             }
-            return result;
+            return cells;
         }
 
         private List<LayoutGate> ChooseGates(bool[] inE, HashSet<GridPoint> built, HashSet<GridPoint> natural,
@@ -2821,11 +2726,6 @@ namespace RealisticBases.Planning
                 if (route == null) continue;
                 LayoutGate routed = new LayoutGate(gate.Cell, gate.Inside, gate.Outward, gate.BandDoors, gate.BandWalls, gate.OuterVestibule,
                     gate.Staging, route, gate.InnerVestibule, gate.RockFace);
-                if (layers > 1 && input.Requirements.ReservePopulationCirculation)
-                {
-                    List<LayoutGate> proposed = chosen.Concat(new[] { routed }).ToList();
-                    if (ExtendGateBands(inE, built, natural, proposed).Count != proposed.Count * (layers - 1)) continue;
-                }
                 chosen.Add(routed);
                 reserved.UnionWith(Footprint(routed));
             }

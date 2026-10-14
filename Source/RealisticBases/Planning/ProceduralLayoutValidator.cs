@@ -271,7 +271,9 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> outerReserved = new HashSet<GridPoint>(exteriorReserved);
             outerReserved.UnionWith(layout.Gates.SelectMany(g => g.ExteriorRoute));
             HashSet<GridPoint> seenOuter = new HashSet<GridPoint>();
-            if (layout.OuterSections.Count != layout.Gates.Count * Math.Max(0, layers - 1) ||
+            // Complete adjacent shells replace gate-adjacent sections; layouts
+            // that still carry sections need one per gate and extra layer.
+            if ((layout.OuterSections.Count != 0 && layout.OuterSections.Count != layout.Gates.Count * Math.Max(0, layers - 1)) ||
                 layout.OuterSections.Select(s => (s.GateIndex, s.Layer)).Distinct().Count() != layout.OuterSections.Count)
                 errors.Add("outer_sections_missing_or_duplicate");
             foreach (LayoutWallSection section in layout.OuterSections)
