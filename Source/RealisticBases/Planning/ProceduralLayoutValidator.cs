@@ -264,7 +264,7 @@ namespace RealisticBases.Planning
                 for (int k = 0; k < route.Count; k++)
                 {
                     if (k > 0 && Math.Abs(route[k].X - route[k - 1].X) + Math.Abs(route[k].Z - route[k - 1].Z) != 1) { errors.Add(id + "_route_continuity"); break; }
-                    if (!grid.Passable(route[k]) || enclosure.Contains(route[k]) || boundary.Contains(route[k])) { errors.Add(id + "_route_reenters_or_impassable"); break; }
+                    if (!grid.Walkable(route[k]) || enclosure.Contains(route[k]) || boundary.Contains(route[k])) { errors.Add(id + "_route_reenters_or_impassable"); break; }
                 }
             }
             if (layout.Gates.Select(g => g.Cell).Distinct().Count() != layout.Gates.Count) errors.Add("duplicate_gate");

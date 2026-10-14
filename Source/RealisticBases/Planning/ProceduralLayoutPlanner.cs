@@ -699,6 +699,11 @@ namespace RealisticBases.Planning
             return (cell.Has(TerrainTraits.Standable) || cell.Has(TerrainTraits.ClearablePlant)) &&
                 !cell.HasAny(TerrainTraits.Water | TerrainTraits.Occupied | TerrainTraits.NaturalRock);
         }
+
+        // Pawn walking: like Passable, but shallow water counts. Arrivals and
+        // attackers wade it, so a site joined to the edge only through shallow
+        // water is still reachable.
+        public bool Walkable(GridPoint c) => InBounds(c) && LayoutExposure.Walkable(Terrain[c]);
     }
 
     // Layout engine v2 (docs/plans/2026-10-12-layout-engine-v2.md): a hallway
@@ -2701,19 +2706,24 @@ namespace RealisticBases.Planning
             int layers = input.Fortification.WallLayers;
             int s = input.Fortification.Setback;
             List<KeyValuePair<double, LayoutGate>> candidates = new List<KeyValuePair<double, LayoutGate>>();
+            int noPublicSide = 0, noFlankWalls = 0, farFromStreet = 0, blockedLine = 0, unreachable = 0;
             foreach (GridPoint g in built.OrderBy(c => c))
             {
                 List<GridPoint> inner = ProceduralLayoutPlanner.Cardinal.Select(d => new GridPoint(g.X + d.X, g.Z + d.Z)).Where(isPublic).ToList();
-                if (inner.Count != 1) continue;
+                if (inner.Count != 1) { noPublicSide++; continue; }
                 GridPoint inside = inner[0];
                 GridPoint outward = new GridPoint(g.X - inside.X, g.Z - inside.Z);
                 GridPoint perp = new GridPoint(outward.Z, outward.X);
-                if (!walls.Contains(new GridPoint(g.X + perp.X, g.Z + perp.Z)) || !walls.Contains(new GridPoint(g.X - perp.X, g.Z - perp.Z))) continue;
+                if (!walls.Contains(new GridPoint(g.X + perp.X, g.Z + perp.Z)) || !walls.Contains(new GridPoint(g.X - perp.X, g.Z - perp.Z)))
+                {
+                    noFlankWalls++;
+                    continue;
+                }
                 bool nearStreet = false;
                 for (int dz = -s; dz <= s && !nearStreet; dz++)
                     for (int dx = -s; dx <= s && !nearStreet; dx++)
                         nearStreet = streets.Contains(new GridPoint(inside.X + dx, inside.Z + dz));
-                if (!nearStreet) continue;
+                if (!nearStreet) { farFromStreet++; continue; }
                 List<GridPoint> line = new List<GridPoint>();
                 bool ok = true;
                 for (int k = 1; k <= 2 * layers - 1 && ok; k++)
@@ -2735,10 +2745,10 @@ namespace RealisticBases.Planning
                         bandWalls.Add(c);
                     }
                 }
-                if (!ok) continue;
+                if (!ok) { blockedLine++; continue; }
                 GridPoint staging = line[line.Count - 1];
                 int distance = reach[grid.Index(staging)];
-                if (distance == int.MaxValue) continue;
+                if (distance == int.MaxValue) { unreachable++; continue; }
                 bool rockFace = natural.Contains(new GridPoint(g.X + perp.X, g.Z + perp.Z)) || natural.Contains(new GridPoint(g.X - perp.X, g.Z - perp.Z));
                 double score = distance + (streets.Contains(inside) ? 0 : 3) + (doctrine == LayoutDoctrine.RockProtected && rockFace ? -20 : 0) +
                     (int)(LayoutSeed.Key(LayoutSeed.Sub(seed, "gate"), g.X, g.Z) % 6);
@@ -2821,7 +2831,9 @@ namespace RealisticBases.Planning
             }
             if (chosen.Count < input.Fortification.MinimumGates)
             {
-                Fail("no_gate_candidate", "candidates=" + candidates.Count);
+                Fail("no_gate_candidate", "candidates=" + candidates.Count + " noPublicSide=" + noPublicSide +
+                    " noFlankWalls=" + noFlankWalls + " farFromStreet=" + farFromStreet + " blockedLine=" + blockedLine +
+                    " unreachable=" + unreachable);
                 return null;
             }
             return chosen;
@@ -2837,7 +2849,7 @@ namespace RealisticBases.Planning
             for (int i = 0; i < occ.Length; i++)
             {
                 GridPoint c = new GridPoint(i % grid.Width, i / grid.Width);
-                if (grid.Terrain[c].Has(TerrainTraits.MapEdge) && grid.Passable(c) && exteriorFree(c)) { distance[i] = 0; queue.Enqueue(c); }
+                if (grid.Terrain[c].Has(TerrainTraits.MapEdge) && grid.Walkable(c) && exteriorFree(c)) { distance[i] = 0; queue.Enqueue(c); }
             }
             // One linear flood, each cell at most once: a distance transform
             // bounded by the map, not a search. The 40k search budget left
@@ -2850,7 +2862,7 @@ namespace RealisticBases.Planning
                 foreach (GridPoint step in ProceduralLayoutPlanner.Cardinal)
                 {
                     GridPoint n = new GridPoint(c.X + step.X, c.Z + step.Z);
-                    if (!exteriorFree(n) || !grid.Passable(n)) continue;
+                    if (!exteriorFree(n) || !grid.Walkable(n)) continue;
                     int ni = grid.Index(n);
                     if (distance[ni] != int.MaxValue) continue;
                     distance[ni] = distance[grid.Index(c)] + 1;
@@ -2884,7 +2896,7 @@ namespace RealisticBases.Planning
                 foreach (GridPoint step in ProceduralLayoutPlanner.Cardinal)
                 {
                     GridPoint n = new GridPoint(c.X + step.X, c.Z + step.Z);
-                    if (previous.ContainsKey(n) || blocked.Contains(n) || !exteriorFree(n) || !grid.Passable(n)) continue;
+                    if (previous.ContainsKey(n) || blocked.Contains(n) || !exteriorFree(n) || !grid.Walkable(n)) continue;
                     previous[n] = c;
                     queue.Enqueue(n);
                 }

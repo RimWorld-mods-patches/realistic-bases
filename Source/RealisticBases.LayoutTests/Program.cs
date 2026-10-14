@@ -68,6 +68,7 @@ internal static partial class Program
         RunP5BTests();
         Run("natural barriers: shallow water walks, deep water and rock block", ExposureRules);
         Run("joint sites prefer natural barriers on beach and lakeshore maps", BarrierSiting, 95);
+        Run("GL peninsula captured tile places a joint settlement", GlPeninsulaTile);
         Run("inner yards become crop patches without touching circulation", InnerYardCrops, 70);
         Run("P5A: fueled generator rooms vent to outdoor air", GeneratorRoomVents);
         Run("P5A: shelves face into their rooms", ShelvesFaceTheRoom);
