@@ -58,24 +58,15 @@ python3 .shared/rimworld-dev-skills/scripts/setup-dev.py --apply  # fix it
 
 `--apply` creates an isolated game profile under `.runtime/` (never your normal profile), enables exactly
 the baseline mods from `.rimworld-dev.json` there, links this checkout and the test mods into the game's
-`Mods` folder as `dev-<packageId>`, and downloads RIMAPI Debug Actions. Run it again whenever it reports
-something; it changes nothing that is already in place.
+`Mods` folder as `dev-<packageId>`, and downloads RIMAPI Debug Actions. Finally it creates the baseline
+save, the untouched quick-test colony every live test starts from: it launches the disposable profile with
+`-quicktest`, saves the new colony as `RealisticBases-P0-Disposable` and closes the game again (about a
+minute). Close any other RimWorld first; it refuses to run while another game answers on the RIMAPI port.
+Run it again whenever it reports something; it changes nothing that is already in place.
 
-The last item it reports is the baseline save, an untouched quick-test colony that every live test starts
-from. Create it once:
-
-1. Launch the disposable profile (keep Steam closed, so Workshop mods are not loaded twice):
-
-   ```sh
-   eval "$(python3 .shared/rimworld-dev-skills/scripts/dev-env.py --shell)"
-   "$RW_RIMWORLD_APP/Contents/MacOS/RimWorld by Ludeon Studios" \
-     -savedatafolder="$RW_PROFILE_DIR" -logFile "$RW_LOG_FILE"
-   ```
-
-2. In the main menu (developer mode is on in this profile), choose **Dev quicktest**.
-3. When the colony has loaded, save it as `RealisticBases-P0-Disposable` and quit.
-
-`setup-dev.py` should now report everything as `ok`.
+Keep Steam closed while running the disposable profile, so Workshop mods are not loaded twice. To create
+the baseline by hand instead, launch the profile as in the next section without an `autostart.rws`, choose
+**Dev quicktest** in the main menu, save as `RealisticBases-P0-Disposable` and quit.
 
 ### First live test
 
