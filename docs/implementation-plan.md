@@ -105,7 +105,7 @@ Run battles from multiple approaches, at night, under long-range harassment, aft
 
 ### P4 — Terrain variety and environmental integration
 
-**Depends on:** P3, plus P0 terrain evidence.
+**Depends on:** P3, plus P0 terrain evidence. **Status:** complete for the scoped contracts (closed 2026-10-14); water-terrain limits are in [progress](progress.md#known-limits-carried-forward).
 
 **2026-09-24 scope update:** Continue P4 terrain/environment work on the P4A procedural generator. Move coordinated exterior-wall layers, turret/cover placement and their defensive validation into P4B. Existing gate-band and baseline enclosure evidence is retained but does not establish layered exterior walls. The separate fixed-compound matrix remains superseded.
 
@@ -117,7 +117,7 @@ Integrate Geological Landforms through generated terrain first; add metadata/per
 
 ### P4A — Procedural settlement layouts
 
-**Depends on:** P3 and the reusable P4 terrain/mutation contracts. P4 and P4A now proceed together under the user's authorization of 2026-09-23.
+**Depends on:** P3 and the reusable P4 terrain/mutation contracts. **Status:** complete (closed 2026-10-14) on the clusters engine (`966d7a3`, legacy removed `51ade54`). P4 and P4A now proceed together under the user's authorization of 2026-09-23.
 
 Replace the fixed whole-settlement compound with a bounded, seeded planner that
 derives facility capacities from the profile/population, packs terrain-legal room
@@ -155,7 +155,7 @@ Landforms normal/rejection/recovery, save/reload, and visual/path/job evidence.
 
 ### P4B — Defensive layout planner
 
-**Depends on:** P4 terrain contracts and P4A procedural layout. **Status:** active; P4B.0 baseline recorded, implementation/live evidence pending. Detailed steps and evidence: [P4B defensive layout plan](p4b-defense-plan.md) and [findings](p4b-findings.md).
+**Depends on:** P4 terrain contracts and P4A procedural layout. **Status:** complete for the scoped contracts (closed 2026-10-14); merged `49da3a4`, posts and cover `0f85d1a`. Remaining gaps moved to P6. Detailed steps and evidence: [P4B defensive layout plan](p4b-defense-plan.md) and [findings](p4b-findings.md).
 
 Add 1–3 physical exterior-wall layers along declared eligible sections, coherent materials/import budgets, connected crossings through every layer, defender firing/retreat positions, sandbags/barricades and powered turrets. Include uranium slug turrets (`Turret_Sniper`, research `SniperTurret`) from IndustrialLate, with prerequisite closure, finite uranium rearming, effective range/line-of-fire, power, service and threat-budget checks. Availability is conditional on resources and viable geometry, not guaranteed for every settlement.
 
@@ -169,7 +169,7 @@ Borrow only lightweight fortification ideas: coverage of approaches, reduced bli
 
 ### P4C — Visually realistic bases
 
-**Depends on:** the production P4/P4A layout and P4B's final geometry/route contracts. **Status:** planned and authorized as the next assignment after P4B; preserve its completed implementation and behavior. Detailed scope and checkpoints: [P4C visual plan](p4c-visual-plan.md).
+**Depends on:** the production P4/P4A layout and P4B's final geometry/route contracts. **Status:** complete (closed 2026-10-14); merged `76006e9`. Detailed scope and checkpoints: [P4C visual plan](p4c-visual-plan.md).
 
 Add a bounded finishing pass: coherent floors by room function, a small faction/stage/local-material/wealth palette, selected existing circulation paths and thresholds, and safe smoothing of eligible retained rock walls and floors inside excavated rooms. Prioritize practical interiors before optional domestic accents; sterile floors and luxury finishes require actual legality and budget. Keep crops, water, exterior mountain faces and unrelated terrain intact. Preserve generated geometry, population, equipment, defenses, roof support and job/public/service access.
 
@@ -227,7 +227,7 @@ The defense-budget increase is explicitly authorized here; choose a bounded docu
 
 ### P5 — Encounter supplies, trade stock, and persistent consequences
 
-**Status:** authorized and in progress (2026-10-12), from completed P4E `be39af9`.
+**Status:** complete for the scoped contracts (2026-10-13); merged `850beb8`. Long three-day horizons are deferred to post-release live testing.
 See [P5 checkpoint plan](p5-encounter-plan.md) and [P5 findings](p5-findings.md).
 
 **Depends on:** P3, P4, P4A and P4B. Revised by the user on 2026-09-20; [supply and MVP scope](supply-and-mvp-scope.md) defines the detailed contract.
@@ -255,7 +255,7 @@ Retain loaded-map serialization and unloaded damage/depletion/casualty reconcili
 5. We still have no floors in some rooms.
 6. The wealthiest spacer settlements can have uranium/plasteel walls.
 
-**Status (2026-10-13, branch `claude/p5a-improvements`):** implemented; pure tests and the layout matrix pass, live checks pending.
+**Status (2026-10-13):** implemented and merged (`9b09530`); pure tests and the layout matrix pass, no separate live check.
 1. Power rooms with fueled generators get one vanilla `Vent` per two generators (`LayoutFixtureKind.WallVent`). The vents reuse the cooler exhaust path (street or sealed vent shaft), and the validator and spawner audit check that each one opens to outdoor air.
 2. Generators spawn with full tanks. `LayoutPowerPlan.FuelStock` = full tanks + the three-day warehouse stock, and storage space is sized from the warehouse part only.
 3. 30 HE + 10 incendiary per mortar. One magazine shelf cell holds exactly those three stacks. The import budget is still charged only the declared six-hour duty (12 HE + 2 incendiary); the larger reserve is operating stock.
@@ -264,6 +264,8 @@ Retain loaded-map serialization and unloaded damage/depletion/casualty reconcili
 6. Spacer-stage settlements with 11+ residents (the 165–180% wealth rolls) build their perimeter, outer-layer and gate-band walls from plasteel or uranium. This is logged with its value and kept apart from the import budget (`PROCEDURAL_PERIMETER_STUFF`).
 
 ### P5B — Better management
+
+**Status:** complete (2026-10-13); items 1–7 live-checked and merged (`b53d509`).
 
 1. All the defenders shouldn't sleep at the same time, they should have some rotation.
 2. The defenders should have different states of the threat: 
@@ -287,7 +289,9 @@ Retain loaded-map serialization and unloaded damage/depletion/casualty reconcili
 
 ### P6 — Balance, specialized tactics, and release
 
-**Depends on:** P5, P4B defenses and supported P4 terrain coverage.
+**Depends on:** P5, P4B defenses and supported P4 terrain coverage. **Status:** next.
+
+**Carried from P4/P4B (2026-10-14):** find the cause of the clean Geological Landforms mountain rejection (`field_approach_unavailable`) by replaying the captured terrain offline; observe uranium turret firing, depletion and rearm live; run the adopted P4B matched fixed-budget comparisons and the live feint/split-front, sniper, long-range harassment and reinforcement-under-fire cases.
 
 Add bounded special-shell selection and targeting, and verify actual EMP/smoke use rather than just stock presence. Keep these disabled for profiles without validated behavior. Calibrate faction capabilities, resident/defense caps, reserve horizons, material imports, loot, threat presentation, and generation/runtime cost. Complete the mod's settings, user documentation, debug reporting, and supported-version matrix.
 
@@ -384,7 +388,7 @@ For qualitative comparison, score coherent routes, realistic landform preservati
 
 ## 5. Dependencies, estimates, and remaining decisions
 
-The remaining MVP path is **P4/P4A procedural terrain and facilities → P4B defensive layout → P5 bounded supplies, safe stock placement, trade consistency and persistence → P6 route/encounter tuning and release validation**. **P7 settlement specialization follows the MVP, beginning with agriculture/industry and evaluating the additional candidate profiles; P8 off-map recovery is the last planned item.** P0–P3 are recorded complete; the progress tracker is authoritative for status. Full sustainability remains a separate unsequenced post-MVP backlog, not a prerequisite for P7.
+The remaining MVP path is **P6 route/encounter tuning and release validation**. **P7 settlement specialization follows the MVP, beginning with agriculture/industry and evaluating the additional candidate profiles; P8 off-map recovery is the last planned item.** P0–P5 and P5B are recorded complete; the progress tracker is authoritative for status. Full sustainability remains a separate unsequenced post-MVP backlog, not a prerequisite for P7.
 
 The original effort estimate is superseded by completed P0–P2 work and this scope revision. Re-estimate remaining work after the P5 trade ownership/restock spike: shorter sustainability validation removes work, while faithful trade-stock reconciliation adds a distinct integration risk. No replacement schedule is claimed without that evidence.
 
