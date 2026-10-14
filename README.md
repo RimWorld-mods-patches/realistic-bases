@@ -5,9 +5,9 @@ defended garrisons with finite supplies, physical trade stock and trap-free defe
 by default and can be turned off in the mod settings; it changes newly generated ordinary hostile
 settlements and supported quest sites only.
 
-Status (2026-10-13): P0–P3, P4D, P4E and P5 are complete for their scoped contracts; P4/P4A/P4B are in
-progress and P6–P8 are planned. Baseline: RimWorld 1.6, Core without DLC. Multiplayer is a requirement; see the
-[Multiplayer audit](docs/multiplayer-audit.md).
+Status (2026-10-14): P0–P5 and P5B are complete for their scoped contracts, P5A is merged, and P6–P8
+are planned; see the [progress tracker](docs/progress.md). Baseline: RimWorld 1.6, Core without DLC.
+Multiplayer is a requirement; see the [Multiplayer audit](docs/multiplayer-audit.md).
 
 ## Install
 

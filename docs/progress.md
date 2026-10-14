@@ -1,74 +1,39 @@
 # Realistic Bases: progress tracker
 
-Updated: 2026-10-13
+Updated: 2026-10-14
 
 ## Current state
 
-**2026-10-13 P5B management (items 1–7):**
-- **Branches:** `claude/p5b-lights-shelves` (wall lights, Neolithic shelves),
-  then `claude/p5b-garrison-states` (threat states, sleep rotation,
-  redeploy, off-duty wander).
-- **Evidence (pure):** PlannerTests, including a three-day rest simulation.
-- **Evidence (live):** watch on arrival, the night sleep cap, the alarm with
-  sleepers woken, the side change after the dwell, the latch, save/reload,
-  the first mortar shell starting the assault, and wall lights and wooden
-  shelves in industrial and Neolithic bases.
-- **Item 7** (`claude/p5b-turret-rescue`): the turret-guarded rescue
-  quest builds exactly the advertised guns, with the native guard and crew;
-  rescue, death, departure, reload and late fallback checked live.
-- **Details:** [garrison plan](plans/2026-10-13-p5b-garrison-states.md),
-  [turret rescue plan](plans/2026-10-13-p5b-turret-rescue.md),
-  [P5 findings](p5-findings.md#p5b-garrison-states-live-2026-10-13) and
-  [P4D findings](p4d-findings.md#p5b-turret-guarded-rescue-2026-10-13).
+- **Code:** everything is merged into `main` (`171abed`, version 0.1.0). Feature branches are deleted
+  after their merge, so this tracker names merge commits, not branches.
+- **Complete for their scoped contracts:** design, P0–P5 and P5B. P5A is merged with pure evidence.
+- **Next milestone:** P6, balance, specialized tactics and release.
+- **Generator:** on by default (`9f9c85c`); the switch is saved with the game for Multiplayer
+  (`13b4acf`, [audit](multiplayer-audit.md)).
+- **Tooling:** CI with rolling `main-latest` and tagged releases (PR #1), and the one-command
+  development setup with automatic baseline save (PR #4).
 
-**2026-10-13 defense posts and cover (before P5B):**
-- **Branch:** `claude/defense-posts-cover`.
-- **Change:**
-  - Gate and field-wall posts are one type, wrapped in cover on every side
-    that faces a threat.
-  - Every exposed side can hold the whole ranged pack.
-  - The legacy layout engine was removed first (`51ade54`).
-- **Evidence (pure):** LayoutTests 142/142, PlannerTests, V2 matrix
-  120/120, flat clutter 12/12.
-- **Evidence (live):** flat (measured cover on nearly every slot),
-  save/reload, a one-side probe, tribal and the P4D bandit quest.
-- **Pending:** a Geological Landforms smoke test, the supported rescue
-  variant and a live mountain site.
-- **Details:** [plan](plans/2026-10-13-defense-posts-cover.md) and
-  [findings](p4b-findings.md#unified-posts-and-threat-arc-cover-2026-10-13).
+### Known limits carried forward
 
-**P5 complete for the scoped contracts (2026-10-13).** Native trade→attack,
-physical sale stock, emergency allocation, rollback/overflow, NPC tending and
-the P5.4 encounter archive/restore were verified live. Revisits keep survivors,
-needs, inventory, damage, destroyed buildings, fuel, charge and loaded shells,
-with casualties and captives not replaced. Off-map expiry and removal and native
-defeat pass. Six-hour outage passes with batteries sized for the whole rated
-load. Six-hour combat passes on IndustrialMid (flat and native terrain) and
-Neolithic, including field tending, tend-capable support and self-tend. The P4D
-rescue/bandit regression and Geological Landforms compatibility pass. Long
-three-day horizons under the new rules are deferred to post-release live
-testing. See [closeout](p5-findings.md#2026-10-13-p5-closeout-work-outage-combat-medical-care-destroyed-buildings-expiry).
-
-Design, source review, P0–P3, bounded P4D and P4E are complete. P5 is now authorized and active from P4E `be39af9`; see [checkpoint plan](p5-encounter-plan.md) and [findings](p5-findings.md). Earlier P4/P4A/P4B/C tracker rows and fixed-compound observations are historical and are not new closeout claims. P5A remains separate.
-
-Specification: [design and feasibility](design-feasibility.md). Delivery gates: [implementation plan](implementation-plan.md). Detailed evidence: [P0 findings](p0-findings.md).
-
-The 2026-09-29 ordinary-population update implements stable budget-funded rosters (expected average seven, low wealth four, rich cap twelve) and upfront facility/circulation/field-gate reservations. Already-generated legacy settlements retain their four-resident profile. Runtime supplies now pool all split rooms and fill legal shelves first, preserving finite counts and walkways. P4D was planning-only at that checkpoint; its bounded Core quest adapters are now complete (see the checklist below). See [population policy and verification evidence](ordinary-settlement-population.md); six-resident Core spawning and active save/reload were observed, while legacy save migration remains synthetic-only and the current P4/P4A/P4B milestones remain open.
-
-Verification: complete LayoutTests (132,637 ms) and PlannerTests suites pass with zero failures; Docker Release mod build has zero warnings/errors. The original 12/12 high-industrial clutter matrix and four/six-turret fixtures remain passing. New four/seven/twelve-resident attached-field fixtures, the original-bound clutter/fallback matrix, clear two/three-layer rich fixtures and four/seven/eight/twelve-resident pooled-storage regressions pass. A real obstacle on a protected shared crossing still rejects. Disposable Core runtime accepted a six-resident/two-layer base with 210 unroofed crops and eight stocked shelves, then preserved wealth/layout/pawn IDs/shelves/steel across active save/reload. The initial `Steel:10` stock-placement failure rolled back cleanly and was fixed. **An additional flat tile still rejects during rock-protected power-room packing/open-ground anchor selection** (seed `4C75E5314725D2A4`, zero mutations); capture a synthetic terrain fixture and fix this in the next placement pass. This checkpoint is not a P4 closeout or a claim of universal flat-map acceptance; no merge is performed by this verification request.
-
-**2026-10-12 layout engine v2:** the clusters engine (hallway comb, room clusters with shared walls, superstructure/town/mountain styles, a pre-defense candidate pool) is the default planner on branch `claude/layout-engine-v2`. Pure evidence: 72/72 valid on the comparison matrix (legacy 71/72) and the full LayoutTests suite passes under the new default. Live checks are pending. See the [v2 plan and results](plans/2026-10-12-layout-engine-v2.md).
-
-**2026-10-12 P5 stock live verification:** full-offer generation/active reload and two real unload/re-entry cycles observed; all127 layout tests passed in ten parallel shards, PlannerTests and Release clean. Carried operating medicine was ignored by emergency allocation; fixed and live-replayed in `f7f4708`. A separate conservation failure remains: legitimate emergency sale→reserve transfers do not update the persisted reserve allowance (three released sale barrels become a zero-barrel unload ledger). Broader verification stopped with logs/saves preserved; native trade/attack, full-materialization rollback/overflow, expiry/defeat and the complete V2.6 matrix are not closed. See [live verification](p5-findings.md#live-verification--2026-10-12-stock-completion-branch). No merge or push.
+These are recorded gaps, not open milestones. P6 takes the first three with its encounter-quality
+review.
+- **GL mountain rejection:** one mountainous Geological Landforms tile rejected cleanly with
+  `field_approach_unavailable`. Whether this is a regression is open; replaying the captured terrain
+  offline would settle it. See [posts and cover live checks](p4b-findings.md#live-checks-2026-10-13-core--rimapi-disposable-profile).
+- **Uranium turret operation:** placement, power and finite loaded/reserve uranium are shown live.
+  Live firing, depletion and rearm are shown for autocannons and mini turrets (P4E.4), not for
+  `Turret_Sniper`.
+- **Adopted P4B review cases:** matched fixed-budget comparisons and live feint/split-front, sniper
+  and reinforcement-under-fire cases were not run. The one-side probe and the P5B alarm/redeploy
+  checks cover single-front assaults.
+- **Water terrain:** lakeshore and beach siting are pure-matrix cases; live coast evidence is the
+  Mountain/Coast forced rollback (P4B.1) and an accepted `GL_CoastCorner` tile. Inaccessible islands
+  reject by design; peninsulas have no separate live case.
+- **P5:** long three-day horizons are deferred to post-release live testing; see
+  [P5 findings](p5-findings.md).
+- **P5A:** implemented and pure-tested; no separate live check is recorded.
 
 ## Milestones
-
-**2026-10-13 P5.3c:** the emergency-item loss above is now fixed with a sole-owner
-off-map holder for actual allocated Things, separate from the base count ledger.
-Real rollback, off-map save/reload, repeated entry, partial consumption, raw-food
-HP/rot/type preservation and native barrel use pass. Full127-case layout shards,
-PlannerTests and clean Release builds pass. Broader P5 remains open; see
-[P5.3c evidence](p5-findings.md#p53c--exact-emergency-allocation-handoff-and-retained-operating-goods).
 
 | Milestone | Status | Completion evidence / next action |
 |---|---|---|
@@ -77,15 +42,16 @@ PlannerTests and clean Release builds pass. Broader P5 remains open; see
 | P1 — Planner and validation harness | Complete | Fixed-input determinism, invalid-terrain rejection, bounded termination, required property cases, read-only planning, diagnostics, and Core/GL integration passed; see [P1 findings](p1-findings.md) |
 | P2 — First complete physical settlement | Complete | Industrial/tribal profiles, full plan-driven spawning, real power/freezer/outage behavior, Core recovery, and GL + Map Preview normal/recovery matrices passed; see [P2 findings](p2-findings.md) |
 | P3 — Playable defensive encounter | Complete | Bounded local garrison, physical mortar supply, save/reload, full failure matrix, tribal exclusions, and Core/GL regression passed; see [P3 findings](p3-findings.md) |
-| P4 — Terrain variety and environmental integration | In progress | Finish terrain/environment checks on the P4A procedural generator; defensive layout moves to P4B |
-| P4A — Procedural settlement layouts | In progress | Core flat/mountain/foothill, three-layer gate bands (not complete exterior layers), forced rollback, cooler-room audit, and P3 save/reload pass; lakeshore, climate, tribal, and optional-mod matrix remain |
-| P4B — Defensive layout planner | In progress | All four exposed sides have live placement/access evidence for short gate-side projections/shared corners. A Core live run accepted four turrets in two supported groups with shared power, finite stocks and legal pawn/service paths; pure richer fixtures select six guns. Both suites pass, retaining 12/12 flat-clutter acceptance. Actual mutual support, measured cover, protected maintenance and the full live matrix remain open. See [P4B findings](p4b-findings.md) |
-| P4C — Visually realistic bases | Planned; implementation authorized | Coherent room/path finishes and selected interior rock smoothing, bounded materials, transactional terrain/rock recovery, visual and live validation. See [P4C visual plan](p4c-visual-plan.md); no implementation evidence yet |
+| P4 — Terrain variety and environmental integration | Complete for scoped contracts (closed 2026-10-14) | Flat, foothill and mountain live generation with rollback; coast rollback and GL coast tile; hot/cold climate matrix and live HeatWave cooling (P4E.1); Core/GL compatibility through P4D, P4E and P5. Water-terrain limits above. See [P4 findings](p4-findings.md) |
+| P4A — Procedural settlement layouts | Complete (closed 2026-10-14) | The clusters engine (`966d7a3`, legacy removed `51ade54`) replays identically, varies by seed and demand, and passes the 120-case V2 matrix. Live flat, Neolithic town, foothill and mountain spawns, save/reload and forced rollback ran on it during P5 and the posts work. See [layout engine v2](plans/2026-10-12-layout-engine-v2.md) |
+| P4B — Defensive layout planner | Complete for scoped contracts (closed 2026-10-14) | Connected 1–3-layer walls (P4B.1), unified posts with measured cover on every exposed side (`0f85d1a`), live firing, mortars, one-side assault, save/reload, foothill/mountain/tribal/GL runs, and turret networks with finite stock (P4E.4). Limits above. See [P4B findings](p4b-findings.md) |
+| P4C — Visually realistic bases | Complete (closed 2026-10-14) | Merged `76006e9`. Live finish floors, smoothed walls and paved routes; forced rollback restores terrain layers (P4E.3/P4E.5); finishes and smoothed walls survive active reload (P4D mountain rescue). See [P4C findings](p4c-findings.md) |
 | P4D — Quest-location support | Complete for bounded Core contracts | Exact bandit/rescue strategies, authoritative native content, original prisoner/join, native reward/expiry/death/departure/reload and verified late recovery; Core terrain/tech and GL-native compatibility matrix, complete suites/build. GL competing pipelines remain native. See [P4D findings](p4d-findings.md) |
 | P4E — Facility and defense adjustments | Complete (2026-10-12) | Climate/decorative labs, seats/medicine, compact magazines/up to three funded crews, budgeted autocannon defense, finite warehouse fetching, refund-/delayed-collapse-free rollback, Core/GL compatibility and full regression verified. See [P4E findings](p4e-findings.md) |
-| P5 — Encounter supplies, trade stock, and persistent consequences | Complete for scoped contracts (2026-10-13) | Trade→attack, physical stock, emergency allocation, rollback/overflow, NPC tending, encounter archive/restore (survivors, damage, destroyed, fuel/charge/shells), off-map expiry/removal, native defeat/capture, six-hour outage and combat on two profiles, P4D regression and GL compatibility verified. Long three-day horizons deferred to post-release live testing; known limits in [P5 findings](p5-findings.md) |
-| P5A — Additional improvements | Planned, separate from P5 | Generator ventilation/fill, shell minimums, cabinets/floors and richest-spacer wall materials retained from main |
-| P6 — Balance, specialized tactics, and release | Not started | Requires P5 and supported terrain coverage; add route diagnostics, evidence-driven soft-preference tuning, reproducibility and encounter-quality review |
+| P5 — Encounter supplies, trade stock, and persistent consequences | Complete for scoped contracts (2026-10-13) | Merged `850beb8`. Trade→attack, physical stock, emergency allocation, rollback/overflow, NPC tending, encounter archive/restore (survivors, damage, destroyed, fuel/charge/shells), off-map expiry/removal, native defeat/capture, six-hour outage and combat on two profiles, P4D regression and GL compatibility verified. Long three-day horizons deferred to post-release live testing; see [P5 findings](p5-findings.md) |
+| P5A — Additional improvements | Merged (`9b09530`), pure evidence | Generator vents and full tanks, 30 HE + 10 incendiary per mortar, perishable-only freezer shelves, floors in every room, spacer wall materials. Pure tests and the layout matrix pass; no separate live check |
+| P5B — Better management | Complete (merged `b53d509`, 2026-10-13) | Better barricades (`0f85d1a`), garrison watch/alarm/sleep rotation/redeploy, wall lights, Neolithic wooden shelves and the turret-guarded rescue quest, all live-checked. See [garrison plan](plans/2026-10-13-p5b-garrison-states.md), [turret rescue plan](plans/2026-10-13-p5b-turret-rescue.md), [P5 findings](p5-findings.md#p5b-garrison-states-live-2026-10-13) and [P4D findings](p4d-findings.md#p5b-turret-guarded-rescue-2026-10-13) |
+| P6 — Balance, specialized tactics, and release | Next | Add route diagnostics, evidence-driven soft-preference tuning, reproducibility and encounter-quality review; take the known limits above |
 | P7 — Settlement specialization | Not started (post-MVP) | Agriculture/industry first; evaluate mining, ranching, forestry, trading, military, medical and research profiles; verify trade-product influence feasibility |
 | P8 — Off-map recovery | Not started (last planned item) | After 30 days off-map a settlement recovers (repairs, rebuilds, refuels, restocks reserves); casualties stay; earlier revisits keep the P5 frozen state. See [plan](implementation-plan.md#p8--off-map-recovery-last-planned-item) |
 
@@ -168,9 +134,9 @@ P0–P3 findings remain historical evidence; no completed checks were rewritten.
 | P4.0 | Terrain-archetype scope, mutation/recovery contract, live matrix, evidence policy, and explicit P5/P6 boundary | Documentation review; standalone checkpoint commit | Complete |
 | P4.1 | Immutable terrain analysis and deterministic bounded archetype selection/rejection | 47/47 combined pure tests and Docker Release build 0 warnings/errors; standalone feature commit | Complete |
 | P4.2 | Foothill/excavated-mountain layouts, roof/support/mutation recovery, and P3 geometry adaptation | Pure/build suite passed; accepted Core 160×160 mountain and deep rollback passed. A Core foothill generated with 12/12 facilities, two-layer gates, P3/mortar, and player arrival. | Complete |
-| P4.3 | Lakeshore/peninsula/supported-island layouts with legal approach, bridge, gate, and circulation constraints | Versioned preserved-water footprint plus dry-route pure case passed; Core water/rejection cases remain. | In progress |
-| P4.4 | Climate alternatives, baseline enclosure/material legality, P3/save-reload and Core/GL terrain matrix; coordinated layers/defenses moved to P4B | Actual runtime/recovery evidence and closeout commit | Pending |
-| P4/P4A integration | In progress | ProceduralLayout is the production plan and validator. Build runtime catalog/resources, stable seed/stage, transactional spawn, geometry-based P3, fixtures/utilities/fields, terrain/baseline enclosure and live matrix; reserve/expose geometry for P4B. Commit each validated checkpoint. |
+| P4.3 | Lakeshore/peninsula/supported-island layouts with legal approach, bridge, gate, and circulation constraints | Versioned preserved-water footprint plus dry-route pure case passed; Core water/rejection cases remain. | Complete for scoped contracts: pure lakeshore/beach siting in the V2 matrix, live Mountain/Coast forced rollback (P4B.1) and an accepted `GL_CoastCorner` tile; inaccessible islands reject; no separate live peninsula case |
+| P4.4 | Climate alternatives, baseline enclosure/material legality, P3/save-reload and Core/GL terrain matrix; coordinated layers/defenses moved to P4B | Actual runtime/recovery evidence and closeout commit | Complete: hot/cold V2 matrix, live HeatWave cooling (P4E.1), P3 save/reload on procedural maps, and Core/GL runs through P4D, P4E and P5 |
+| P4/P4A integration | Clusters engine production path: catalog/resources, stable seed/stage, transactional spawn, geometry-based P3, fixtures/utilities/fields, enclosure and live matrix | Pure suites, V2 matrix and live Core/GL generation, save/reload and rollback | Complete (`966d7a3`, `51ade54`) |
 
 The 2026-09-23 scope change supersedes the earlier ordering that deferred P4A until P4 closeout. Do not count fixed-compound passes as procedural runtime evidence. P4 and P4A exit only after the new path passes their pure, build, Core, GL, and recovery gates. The later 2026-09-24 P4B split moves coordinated defensive layout out of that closeout without weakening baseline access, terrain or recovery checks.
 
@@ -180,9 +146,9 @@ The 2026-09-23 scope change supersedes the earlier ordering that deferred P4A un
 |---|---|---|---|
 | P4B.0 | Record existing gate-band/defense behavior, ownership, interfaces and evidence policy | Baseline code inspected; separate [findings](p4b-findings.md) established without relabeling historical evidence | Complete |
 | P4B.1 | Physical 1–3-layer eligible exterior sections, material ledger, serial gate crossings and public/service routes | Pure geometry/terrain/occupancy/property matrix plus final-map path and layer audit | Complete: connected wall returns and corner-replan regression; flat and mountain Core wall/path/roof-preservation audits plus mountain forced rollback pass. GL remains in P4B.4. |
-| P4B.2 | Enclose the unroofed main field; select exterior posts/cover on each attackable perimeter face and rank turrets against actual approaches | Pure field/wall/gate/route, exposure, range/line-of-fire, cover, access and fallback checks; live firing/cover observations | In progress: all four exposed sides have live posts, adjacent screens, connected returns and short gate routes, including a shared East/North corner; every distinct post has two real P3-legal paths. Pure shoreline and perpendicular-gate cases pass; P3 prioritizes intact threatened fronts. Alternate-front fire, measured cover and protected movement remain open. |
-| P4B.3 | P3 positions, power, finite turret reloads and budget integration | Stage legality; runtime fire, outage, depletion/rearm, breach/fallback and reload evidence | In progress: the one-group cap is replaced with a bounded coordinated network sharing power/construction/loaded-ammunition/reserve budgets and preserving earlier paths/lanes. Pure default/rich fixtures select four/six guns; a Core live run accepted four guns on one power net with finite stocks and legal pawn/service routes. Final path-data synchronization and shared field-conduit reservation are in place; exact earlier-rejection replay remains unproved. Firing, cover, outage, depletion/rearm, breach/fallback and save/reload remain open. |
-| P4B.4 | Core/GL terrain, player raid and recovery closeout | Representative live matrix, forced rollback, no traps/IEDs, separate remaining P4/P4A gates | Pending |
+| P4B.2 | Enclose the unroofed main field; select exterior posts/cover on each attackable perimeter face and rank turrets against actual approaches | Pure field/wall/gate/route, exposure, range/line-of-fire, cover, access and fallback checks; live firing/cover observations | Complete: unified posts with threat-arc cover on every exposed side; `PROCEDURAL_DIRECTIONAL_COVER_AUDIT` measured nearly every slot with zero uncovered samples (`0f85d1a`) |
+| P4B.3 | P3 positions, power, finite turret reloads and budget integration | Stage legality; runtime fire, outage, depletion/rearm, breach/fallback and reload evidence | Complete for scoped contracts: live post firing, mortars in a one-side assault, autocannon/mini-turret fire, routed finite rearm and power loss (P4E.4), save/reload of assignments and mortars. Uranium turret firing/rearm not observed live |
+| P4B.4 | Core/GL terrain, player raid and recovery closeout | Representative live matrix, forced rollback, no traps/IEDs, separate remaining P4/P4A gates | Complete for scoped contracts: flat, foothill, mountain, tribal and GL live runs, forced rollbacks (P4B.1, P4E.5), no traps/IEDs. One GL mountain rejection cause remains open |
 
 ### P4B adopted review tasks — 2026-09-30
 
@@ -195,8 +161,8 @@ The [simulation-review additions](p4b-defense-plan.md#adopted-simulation-review-
 | P4B.2–P4B.3 | Allocate actual compatible defenders, mortar crew and reserve; distinguish concurrent staffing from alternative posts and handle staff loss | Pure/runtime checkpoint: one compatible funded operator is reserved for a usable mortar, one separate mobile reserve is selected only if staffing permits, and every post/role has one pawn. Loss recomputes from living candidates. The exposed three-cell barricade screens now supply distinct covered posts, existing saves reconstruct them from exact geometry, inner gate posts precede idle defenders, and a reserve stages away from the gate. A saved stacked encounter replay reached 7/7 assigned posts with one reserve; a fresh 12-resident Core map reached 11/11 assigned posts, one reserve and a manned, loaded mortar. This is arrival/staffing evidence, not mortar firing, casualty recovery or raid closeout. |
 | P4B.2 | Rank turret groups by staffed mutual support and vulnerable approaches; compare concentration/spread at fixed budget without weakening blast/path rules | Pure checkpoint: generated Core weapon ranges and actual funded loadout limit concurrent sniper/line support; unstaffable networks reject, combined approach/overlap response replaces new-front-first ranking. Fixed four-resident flat fixture changes from four groups/five guns on three fronts to two groups/three guns on one supported front, with all four pawn fronts retained. Turret live fire and broader matched comparisons remain open. |
 | P4B.2–P4B.4 | Provide field-to-compound fallback and report field penetration, compound penetration and garrison defeat separately | Pure/runtime checkpoint: generated compound gate posts are selected only with a firing lane through their breached crossing; field intrusion activates local gate defense while other exterior positions remain eligible, compound intrusion activates inner fallback. Saved runtime audit/events distinguish field, compound and garrison outcomes. Live breach, gate-state and reload evidence remain open. |
-| P4B.3–P4B.4 | Validate staffed mortar/long-range support against stationary attackers, finite stocks and operator loss | Pending |
-| P4B.4 | Run matched comparisons and live wall-assault, feint/split-front, sniper, reinforcement-under-fire and fallback/reload cases | Pending |
+| P4B.3–P4B.4 | Validate staffed mortar/long-range support against stationary attackers, finite stocks and operator loss | Partly covered: mortars engaged in the live one-side probe (HE 87/90) and multi-crew loading/loss passed (P4E.3); long-range harassment not run. Carried to P6 |
+| P4B.4 | Run matched comparisons and live wall-assault, feint/split-front, sniper, reinforcement-under-fire and fallback/reload cases | Partly covered: one-side assault and P5B alarm/redeploy live; matched comparisons, feint/split-front, sniper and reinforcement-under-fire not run. Carried to P6 |
 
 Preserve the population policy and existing resource limits. The simulation's eight-gun threshold, blanket spending increase, unlimited intercept walks and reduced shell reserves are not adopted. P5/P6 retain supply sizing and balance; simulator expansion is not a new P4B release prerequisite.
 
@@ -208,8 +174,8 @@ Detailed requirements and acceptance: [P4C visual plan](p4c-visual-plan.md). Thi
 |---|---|---|---|
 | P4C.0 | Resolve Core finish/smoothing definitions and transaction/ownership contract | Supported palette, legality/cost assumptions, baseline and recovery design documented | Complete; see [findings](p4c-findings.md) |
 | P4C.1 | Deterministic room/path palette, smoothing selections and bounded finish accounting | Focused pure replay/ownership/budget/stage tests pass; runtime definition capture remains P4C.2 | Complete; see [findings](p4c-findings.md) |
-| P4C.2 | Transactional terrain-layer/rock mutations and final audits | Relevant pure suites/build; exact forced rollback after floors and smoothing, successful retry; paths/roofs/crops preserved | Pending |
-| P4C.3 | Visual/live/reload/compatibility closeout | Industrial flat, mountain and tribal examples; crop/water boundary, screenshots, active reload and representative available GL evidence | Pending |
+| P4C.2 | Transactional terrain-layer/rock mutations and final audits | Relevant pure suites/build; exact forced rollback after floors and smoothing, successful retry; paths/roofs/crops preserved | Complete: live 378 finish floors and 45 smoothed walls; forced rollbacks after finishes restore top/under terrain (P4E.3, P4E.5) |
+| P4C.3 | Visual/live/reload/compatibility closeout | Industrial flat, mountain and tribal examples; crop/water boundary, screenshots, active reload and representative available GL evidence | Complete: flat, mountain and tribal finished bases live; finish digest and 151 smoothed walls survived active reload (P4D mountain rescue); GL runs through P4D/P4E. Screenshot evidence is the mountain overview only |
 
 ## P4D committed checklist
 
@@ -246,14 +212,6 @@ P7 is the final planned milestone, after the P6 MVP release: agriculture/industr
 
 | Date | Update |
 |---|---|
-| 2026-10-01 | Expanded and authorized P4E's six facility/defense requests, with staged implementation, real room/seat/storage checks, compact magazine interpretation, multi-mortar save/crew handling and an explicit ordinary defense-budget increase. P4D quest budgets remain authoritative; no implementation success is claimed yet. |
-| 2026-10-01 | Expanded and authorized P4D after P4C merge `76006e9`: Core bandit elimination then guarded prisoner rescue, exact site-part allowlists, authoritative quest inputs, protected-object recovery and real lifecycle acceptance. Updated grand plan/tracker; implementation delegated separately. |
-| 2026-09-30 | Expanded and authorized P4C: coherent room and path finishes, small legal material palettes, selected interior rock smoothing, explicit terrain/rock ownership and rollback, visual/live/reload acceptance and separate commit checkpoints. P4E facility changes remain separate; the user reports P4B done and its implementation is merged at `49da3a4`, making P4C the next assignment. |
-| 2026-09-30 | Added field-to-compound fallback using existing accessible main-gate posts, with a pure firing-lane check through the opened crossing. P3 distinguishes present field and compound intruders, assigns short-range defenders to the relevant compound gate after field entry without abandoning other viable outer posts, and enters inner fallback only after compound entry or loss of outer posts. It persists and logs field penetration, compound penetration and garrison defeat as separate outcomes. Synthetic doctrine and real generated-layout fallback fixtures, full PlannerTests and Docker Release build pass; live gate/raid/reload evidence remains open. |
-| 2026-09-30 | P4B turret scoring now accounts for actual resident weapon ranges and exclusive staffed sniper/line posts. The bounded candidate sort values useful uncovered and overlapping shots, exposure and gate response before a new-front tie break; the existing budget, blast, power, path, cover and heavy blind-zone checks still run. On the same four-resident IndustrialLate flat fixture, the old four-group/five-gun plan required one marksman at separate east, south and north posts; the new two-group/three-gun plan shares one eastern marksman position and passes concurrent guard/close-support checks. It spends 3364 rather than 4580 import value, covers fewer approach samples (318 uncovered versus 160), and leaves south/north/west to their pawn posts. This is an honest staffing tradeoff, not a stronger overall defense claim. Focused placement/network/high-industrial flat-clutter tests and Docker Release build pass. |
-| 2026-09-30 | Added a route-wide reinforcement audit with 100-cell total, 12-cell exterior and eight-cell hostile-exposure limits, including opened gates on the route. P3 now stages one funded mobile reserve near an internal gate when staffing permits, sends it to a free threatened post after observed wall pressure and a safe route check, and reserves a separate compatible mortar operator. Persisted assignment destinations fix reserve and fallback hold jobs; retained assignments keep their original cooldown tick. Pure route/staffing/casualty fixtures and Docker Release build pass; live movement and mortar operation remain open. |
-| 2026-09-30 | Began adopted P4B segment threat response. The P4 procedural spawner now passes planned field/compound wall and gate cells to the saved P3 controller. At each duty refresh it observes structural HP loss and missing edifices, ranks recent damage/breaches ahead of nearby undamaging hostiles, and prefers compatible covered posts with a clear weapon-range lane. Assignment timestamps remain stable when posts are retained. Three focused pure fixtures, the full PlannerTests suite, and Docker Release build pass. Live wall assault/decoy behavior remains unverified. |
-| 2026-09-30 | Adopted the bounded defense-simulation review ideas into P4B.2–P4B.4: segment threats, mobile reserve, actual staffing, supporting-group scoring, compound fallback and live long-range validation. Added pending tracker tasks and matched/live acceptance checks; no implementation or completion claim, population/budget change or new simulator prerequisite. |
 | 2026-09-14 | Completed design/feasibility work and started P0 on baseline `0f12114`. |
 | 2026-09-14 | Added the P0 scaffold and probes; Docker build and isolated startup smoke tests passed. |
 | 2026-09-19 | Corrected the Harmony reference to the installed 2.4.1 runtime; observed hostile work, save/load, Core generation, recovery, re-entry, and defeat behavior. |
@@ -302,3 +260,29 @@ P7 is the final planned milestone, after the P6 MVP release: agriculture/industr
 | 2026-09-27 | Began P4B.3's optional single-turret integration. The high-industrial pure fixture accepts finite-loaded uranium turret placement while lower tiers and blocked placements reject. A disposable Core flat run placed `Turret_Sniper` on a power net with fuel 30/30 and 60 reserve uranium item units, a reachable service cell, 130 unroofed crops and 90/90 field walls. The debug placement action revealed all fog. Docker Release and the full deterministic suite pass after removing temporary RIMAPI diagnostics. The companion debug-action extension was rebuilt for RimWorld 1.6's `LudeonTK.DebugActionAttribute`; its 43 Realistic Bases actions and method invocation were verified over HTTP. No turret combat/reload or P4B closeout is claimed. |
 | 2026-09-27 | Three additional live high-industrial flat tiles rejected before mutation during room packing. A synthetic flat-clutter regression with comparable obstacle densities reproduced only 1/3 acceptance using the former 38-cell compound reservation; increasing the high-demand reservation to 46 cells yielded 2/3 in that fixture. The captured older flat tile, full suite and Docker Release pass. The exact live tiles still need retesting; a separate normal-profile game process precludes relaunching the disposable test game concurrently. |
 | 2026-09-27 | Added `SniperTurret` research to the high-industrial stage and made `Turret_Sniper` a legal defense-role candidate only from that stage. Core fixture prerequisite, lower-tier exclusion and role-selection tests pass. No spawned turret or finite uranium operation is claimed yet. |
+| 2026-09-28 | Added coordinated P4B defenses: a bounded network of supported turret groups sharing power, construction, loaded-ammunition and reserve budgets (`940841a`). A Core live run accepted four guns on one power net with finite stocks and legal pawn/service routes. |
+| 2026-09-29 | Ordinary populations are now funded by a stable per-settlement wealth roll (average seven, low wealth four, rich cap twelve), with upfront facility, circulation and field-gate reservations (`ce6cbe4`). Legacy four-resident settlements keep their profile. A Core six-resident base with 210 crops and eight stocked shelves survived active save/reload. See [population policy](ordinary-settlement-population.md). Exposed defense fronts were repaired and turrets kept near pawn support (`0e9c535`). |
+| 2026-09-30 | Adopted the bounded defense-simulation review ideas into P4B.2–P4B.4: segment threats, mobile reserve, actual staffing, supporting-group scoring, compound fallback and live long-range validation. Added pending tracker tasks and matched/live acceptance checks; no implementation or completion claim, population/budget change or new simulator prerequisite. |
+| 2026-09-30 | Began adopted P4B segment threat response. The P4 procedural spawner now passes planned field/compound wall and gate cells to the saved P3 controller. At each duty refresh it observes structural HP loss and missing edifices, ranks recent damage/breaches ahead of nearby undamaging hostiles, and prefers compatible covered posts with a clear weapon-range lane. Assignment timestamps remain stable when posts are retained. Three focused pure fixtures, the full PlannerTests suite, and Docker Release build pass. Live wall assault/decoy behavior remains unverified. |
+| 2026-09-30 | Added a route-wide reinforcement audit with 100-cell total, 12-cell exterior and eight-cell hostile-exposure limits, including opened gates on the route. P3 now stages one funded mobile reserve near an internal gate when staffing permits, sends it to a free threatened post after observed wall pressure and a safe route check, and reserves a separate compatible mortar operator. Persisted assignment destinations fix reserve and fallback hold jobs; retained assignments keep their original cooldown tick. Pure route/staffing/casualty fixtures and Docker Release build pass; live movement and mortar operation remain open. |
+| 2026-09-30 | P4B turret scoring now accounts for actual resident weapon ranges and exclusive staffed sniper/line posts. The bounded candidate sort values useful uncovered and overlapping shots, exposure and gate response before a new-front tie break; the existing budget, blast, power, path, cover and heavy blind-zone checks still run. On the same four-resident IndustrialLate flat fixture, the old four-group/five-gun plan required one marksman at separate east, south and north posts; the new two-group/three-gun plan shares one eastern marksman position and passes concurrent guard/close-support checks. It spends 3364 rather than 4580 import value, covers fewer approach samples (318 uncovered versus 160), and leaves south/north/west to their pawn posts. This is an honest staffing tradeoff, not a stronger overall defense claim. Focused placement/network/high-industrial flat-clutter tests and Docker Release build pass. |
+| 2026-09-30 | Added field-to-compound fallback using existing accessible main-gate posts, with a pure firing-lane check through the opened crossing. P3 distinguishes present field and compound intruders, assigns short-range defenders to the relevant compound gate after field entry without abandoning other viable outer posts, and enters inner fallback only after compound entry or loss of outer posts. It persists and logs field penetration, compound penetration and garrison defeat as separate outcomes. Synthetic doctrine and real generated-layout fallback fixtures, full PlannerTests and Docker Release build pass; live gate/raid/reload evidence remains open. |
+| 2026-09-30 | Expanded and authorized P4C: coherent room and path finishes, small legal material palettes, selected interior rock smoothing, explicit terrain/rock ownership and rollback, visual/live/reload acceptance and separate commit checkpoints. P4E facility changes remain separate; the user reports P4B done and its implementation is merged at `49da3a4`, making P4C the next assignment. |
+| 2026-09-30 | Merged P4B coordinated defense into main (`49da3a4`). |
+| 2026-10-01 | Expanded and authorized P4D after P4C merge `76006e9`: Core bandit elimination then guarded prisoner rescue, exact site-part allowlists, authoritative quest inputs, protected-object recovery and real lifecycle acceptance. Updated grand plan/tracker; implementation delegated separately. |
+| 2026-10-01 | Expanded and authorized P4E's six facility/defense requests, with staged implementation, real room/seat/storage checks, compact magazine interpretation, multi-mortar save/crew handling and an explicit ordinary defense-budget increase. P4D quest budgets remain authoritative; no implementation success is claimed yet. |
+| 2026-10-01 | Merged P4C transactional finishes and enclosed paths (`76006e9`). A live flat run laid 378 finish floors and 45 smoothed walls with a continuous concrete route through both gates. |
+| 2026-10-01 | Merged completed P4D and the shared development skills (`b84df07`). |
+| 2026-10-03 | P4E.3 compact magazines with up to three funded mortar crews passed loading, reload, loss and forced rollback with terrain layers restored. |
+| 2026-10-12 | P4E complete (`be39af9`): P4E.4 autocannon defense passed live fire, routed finite rearm and power loss, and P4E.5 passed the integrated recovery and Core/GL closeout. Merged P4E completion and the P5 encounter-stock work (`a8a0b48`). |
+| 2026-10-12 | Merged the clusters layout engine as the default (`966d7a3`): LayoutTests and the comparison matrix pass, 72/72 valid against legacy 71/72. Merged natural-barrier siting and inner-yard crops (`5746b65`). |
+| 2026-10-12 | P5 stock live verification: full-offer generation, active reload and two unload/re-entry cycles observed. Carried operating medicine was ignored by emergency allocation and fixed (`f7f4708`). A reserve conservation failure remained open; see [live verification](p5-findings.md#live-verification--2026-10-12-stock-completion-branch). |
+| 2026-10-13 | P5.3c fixed that loss with a sole-owner off-map holder for allocated Things. Rollback, off-map save/reload, repeated entry, partial consumption and raw-food preservation pass; see [P5.3c](p5-findings.md#p53c--exact-emergency-allocation-handoff-and-retained-operating-goods). |
+| 2026-10-13 | Merged racked warehouses and freezers (`d6a2aef`) and P5A additional improvements (`9b09530`). |
+| 2026-10-13 | P5 complete for its scoped contracts and merged (`850beb8`); see [closeout](p5-findings.md#2026-10-13-p5-closeout-work-outage-combat-medical-care-destroyed-buildings-expiry). Removed the legacy layout engine (`51ade54`). |
+| 2026-10-13 | Merged unified defense posts with threat-arc cover nests (`0f85d1a`): flat, save/reload, one-side assault, tribal, foothill, mountain, P4D bandit and GL runs live. See [findings](p4b-findings.md#unified-posts-and-threat-arc-cover-2026-10-13). |
+| 2026-10-13 | Merged P5B management (`b53d509`): garrison watch, alarm, sleep rotation, redeploy, wall lights, Neolithic wooden shelves and the turret-guarded rescue quest, all live-checked. |
+| 2026-10-13 | The generator is on by default (`9f9c85c`). Multiplayer audit (`13b4acf`): the switch is saved with the game, force flags are no longer saved, and retry timers are persisted. Version 0.1.0 (`085fd61`). |
+| 2026-10-13 | Added CI: pull-request checks on Linux, Windows and macOS, the rolling `main-latest` pre-release and tagged releases (PR #1, `8ab7ef3`). |
+| 2026-10-14 | Merged the one-command development setup with automatic baseline save (PR #4, `67cf6c7`) and removed Dependabot (PR #5, `171abed`). |
+| 2026-10-14 | Closed P4, P4A, P4B and P4C for their scoped contracts. Their remaining gates were met by later P4C–P5B live work; the gaps that remain are listed under known limits. |
