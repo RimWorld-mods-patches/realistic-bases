@@ -511,12 +511,12 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> roomWalls = new HashSet<GridPoint>();
             foreach (LayoutRoom room in list)
             {
-                HashSet<GridPoint> excluded = new HashSet<GridPoint>(room.NaturalWalls) { room.Door };
+                HashSet<GridPoint> excluded = new HashSet<GridPoint>(room.NaturalWalls.Concat(room.Doors));
                 foreach (LayoutFixture f in room.Fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind))) excluded.UnionWith(f.Cells);
                 roomWalls.UnionWith(room.Bounds.Points().Where(p => room.IsEdge(p) && !excluded.Contains(p)));
             }
             wallCells += roomWalls.Count;
-            int doors = list.Count + gates;
+            int doors = list.Sum(r => 1 + r.SideDoors.Count) + gates;
             IEnumerable<KeyValuePair<string, SettlementRole?>> fixtures = list.SelectMany(r => r.Fixtures)
                 .Select(f => new KeyValuePair<string, SettlementRole?>(f.DefName, f.Role))
                 .Concat((power == null ? Enumerable.Empty<LayoutPowerYard>() : power.Yards).Select(y => new KeyValuePair<string, SettlementRole?>(y.DefName, null)))

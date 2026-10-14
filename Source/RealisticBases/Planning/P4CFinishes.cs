@@ -268,6 +268,8 @@ namespace RealisticBases.Planning
                 routes.AddRange(layout.Rooms.OrderBy(r => r.Id, StringComparer.Ordinal).Select(r =>
                     new KeyValuePair<string, IReadOnlyList<GridPoint>>("threshold:" + r.Id,
                         new[] { r.DoorOutside, r.Door })));
+                routes.AddRange(layout.Rooms.OrderBy(r => r.Id, StringComparer.Ordinal).SelectMany(r => r.SideDoors.Select(d =>
+                    new KeyValuePair<string, IReadOnlyList<GridPoint>>("threshold:" + r.Id + ":" + d, new[] { r.OutsideOf(d), d }))));
                 if (fieldRoute.Count != 0)
                     routes.Insert(0, new KeyValuePair<string, IReadOnlyList<GridPoint>>("field:arrival", fieldRoute));
                 foreach (KeyValuePair<string, IReadOnlyList<GridPoint>> route in routes)

@@ -192,14 +192,12 @@ internal static partial class Program
             ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
             Accepted(result);
             Equal(12, result.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.Bed), "layered frontage does not shrink population");
-            Equal(result.Layout.Gates.Count * (layers - 1), result.Layout.OuterSections.Count,
-                "every selected gate has connected returning layers");
+            True(P4BPerimeterDepth.Minimum(Plains(180), result.Layout) >= layers, "every breach route crosses all layers");
             Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count, "layered public/service/field paths remain legal");
             True(result.Layout.Notes.Any(n => n.StartsWith("fieldApproachReserved=")), "frontage was reserved before packing");
-            GridPoint[] service = result.Layout.OuterSections.SelectMany(s => s.ServiceLane(result.Layout.Gates[s.GateIndex])).ToArray();
             GridPoint[] occupied = result.Layout.Enclosure.Concat(result.Layout.Rooms.SelectMany(r => r.Bounds.Points()))
                 .Concat(result.Layout.PowerYards.SelectMany(y => y.Cells))
-                .Concat(result.Layout.AllFixtures.SelectMany(f => f.Cells)).Concat(service).ToArray();
+                .Concat(result.Layout.AllFixtures.SelectMany(f => f.Cells)).ToArray();
             string diagnostic;
             True(P4BFieldWallPlanner.PlanJoint(input, result.Layout, occupied, out diagnostic) != null,
                 "reserved walking lanes are not physical crossing obstacles: " + diagnostic);

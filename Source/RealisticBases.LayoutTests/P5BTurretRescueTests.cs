@@ -79,10 +79,10 @@ internal static partial class Program
     private static void TurretRescueCramped()
     {
         P4DQuestContract contract = QuestContract(TurretRescueFacts(11, 1));
-        // A 36-cell buildable square in walkable marsh: the camp fits, eleven
+        // A 32-cell buildable square in walkable marsh: the camp fits, eleven
         // covered turrets do not.
         ProceduralLayoutInput input = TurretRescueInput(contract, Build(120, 120, (x, z) =>
-            x >= 42 && x < 78 && z >= 42 && z < 78 ? Ground : TerrainTraits.Standable));
+            x >= 44 && x < 76 && z >= 44 && z < 76 ? Ground : TerrainTraits.Standable));
         string before = input.Digest;
         ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
         True(!result.Success, "advertised guns that cannot fit fall back to native");

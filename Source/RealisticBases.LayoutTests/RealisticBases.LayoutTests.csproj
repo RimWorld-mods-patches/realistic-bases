@@ -12,6 +12,7 @@
     <Content Include="p4e-ten-rejected-traits.rle" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="p4e-flat-cooler-traits.rle" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="p5-native-trade-rejected-traits.rle" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="gl-peninsula-rejected-traits.rle" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="../RealisticBases/Planning/P1Model.cs" Link="Planning/P1Model.cs" />
     <Compile Include="../RealisticBases/Planning/P1Planner.cs" Link="Planning/P1Planner.cs" />
     <Compile Include="../RealisticBases/Planning/P2Profiles.cs" Link="Planning/P2Profiles.cs" />
@@ -24,6 +25,7 @@
     <Compile Include="../RealisticBases/Planning/ProceduralLayoutPlanner.cs" Link="Planning/ProceduralLayoutPlanner.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutStyle.cs" Link="Planning/LayoutStyle.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutClusterPacking.cs" Link="Planning/LayoutClusterPacking.cs" />
+    <Compile Include="../RealisticBases/Planning/LayoutRibs.cs" Link="Planning/LayoutRibs.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutCandidateScore.cs" Link="Planning/LayoutCandidateScore.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutExposure.cs" Link="Planning/LayoutExposure.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutBonusFields.cs" Link="Planning/LayoutBonusFields.cs" />

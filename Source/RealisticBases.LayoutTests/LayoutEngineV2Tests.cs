@@ -12,6 +12,7 @@ internal static partial class Program
         Run("V2 shared walls are built and charged once", V2SharedWallLedger);
         Run("V2 clusters is the default engine; an injected engine plans and keys the digest", V2EngineInjection);
         Run("V2 clusters engine plans superstructure, town and mountain styles", V2ClusterStyles, 70);
+        Run("V2 open-ground dining hall sits on a corridor loop", V2DiningLoop, 40);
         Run("V2 candidate pool is bounded, deterministic and keeps the best score", V2CandidatePool);
     }
 
@@ -104,6 +105,26 @@ internal static partial class Program
             Equal(0, ProceduralLayoutValidator.Validate(input, v2.Layout).Count, c.Name + " validator");
             True(v2.Layout.Notes.Any(n => n.Contains("style=" + c.Style)), c.Name + " style " + c.Style);
             True(SharedWallCells(v2.Layout) > 0, c.Name + " rooms share walls");
+        }
+    }
+
+    // Every open-ground style lays the dining hall on the main hallway with a
+    // corridor on its other three sides, so the hall closes a walking cycle.
+    private static void V2DiningLoop()
+    {
+        foreach (V2Case c in V2StyleCases().Where(x => x.Style != LayoutStyleKind.Mountain))
+        {
+            ProceduralLayoutResult result = V2Plan(c);
+            Accepted(result);
+            LayoutRoom dining = result.Layout.Rooms.Single(r => r.Kind == LayoutRoomKind.Dining);
+            HashSet<GridPoint> corridors = new HashSet<GridPoint>(result.Layout.Corridors.SelectMany(k => k.Cells));
+            GridRect b = dining.Bounds;
+            List<GridPoint> ring = new GridRect(b.MinX - 1, b.MinZ - 1, b.Width + 2, b.Height + 2).Points()
+                .Where(p => !b.Contains(p)).ToList();
+            Equal(0, ring.Count(p => !corridors.Contains(p)), c.Name + " ring cells off a corridor");
+            True(result.Layout.Corridors.Any(k => k.Id == "hub-back"), c.Name + " back corridor");
+            HashSet<GridPoint> roomCells = new HashSet<GridPoint>(result.Layout.Rooms.SelectMany(r => r.Bounds.Points()));
+            Equal(0, corridors.Count(roomCells.Contains), c.Name + " room cells on a corridor");
         }
     }
 

@@ -121,6 +121,71 @@ namespace RealisticBases.Diagnostics
             GenerateIsolatedHostileSettlement(movePlayerColonist: true, requireFlat: true);
         }
 
+        [DebugAction(Category, "Generate playable Core coast P4 settlement", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void GeneratePlayableCoastP4Settlement() => GenerateOnLandform("Coast");
+
+        [DebugAction(Category, "Generate playable Core river P4 settlement", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void GeneratePlayableRiverP4Settlement() => GenerateOnLandform("River");
+
+        [DebugAction(Category, "Generate playable GL lake P4 settlement", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void GeneratePlayableLakeP4Settlement() => GenerateOnLandform("GL_Lake");
+
+        [DebugAction(Category, "Generate playable GL lake island P4 settlement", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void GeneratePlayableLakeIslandP4Settlement() => GenerateOnLandform("GL_LakeWithIsland");
+
+        [DebugAction(Category, "Generate playable GL peninsula P4 settlement", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void GeneratePlayablePeninsulaP4Settlement() => GenerateOnLandform("GL_Peninsula");
+
+        [DebugAction(Category, "Generate playable GL cove P4 settlement", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void GeneratePlayableCoveP4Settlement() => GenerateOnLandform("GL_Cove");
+
+        [DebugAction(Category, "Generate playable GL coast corner P4 settlement", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void GeneratePlayableCoastCornerP4Settlement() => GenerateOnLandform("GL_CoastCorner");
+
+        [DebugAction(Category, "Generate playable GL island P4 settlement", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void GeneratePlayableIslandP4Settlement() => GenerateOnLandform("GL_Island");
+
+        // Water landforms are rare in any one biome, so every buildable non-mountain
+        // tile carrying the mutator is a candidate; temperate forest is preferred.
+        private static void GenerateOnLandform(string mutator)
+        {
+            PlanetLayer surface = Find.WorldGrid.Surface;
+            List<PlanetTile> candidates = new List<PlanetTile>();
+            for (int i = 0; i < surface.TilesCount; i++)
+            {
+                Tile tile = surface[i];
+                if (!tile.PrimaryBiome.canBuildBase || !tile.PrimaryBiome.canAutoChoose ||
+                    tile.hilliness == Hilliness.Mountainous || tile.hilliness == Hilliness.Impassable ||
+                    !tile.Mutators.Any(m => m.defName == mutator) ||
+                    !TileFinder.IsValidTileForNewSettlement(tile.tile))
+                {
+                    continue;
+                }
+                candidates.Add(tile.tile);
+            }
+            List<PlanetTile> temperate = candidates
+                .Where(c => Find.WorldGrid[c].PrimaryBiome == BiomeDefOf.TemperateForest).ToList();
+            List<PlanetTile> pool = temperate.Count > 0 ? temperate : candidates;
+            P0Log.Message("DEBUG_LANDFORM_TILES", "mutator=" + mutator + " candidates=" + candidates.Count +
+                " temperate=" + temperate.Count);
+            if (pool.Count == 0)
+            {
+                Messages.Message("No settleable tile has the " + mutator + " landform.",
+                    MessageTypeDefOf.RejectInput, false);
+                return;
+            }
+            PlanetTile chosen = pool.RandomElement();
+            GenerateIsolatedHostileSettlement(movePlayerColonist: true, pickTile: () => chosen);
+        }
+
         [DebugAction(Category, "Capture next flat P4 terrain fixture", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.Playing)]
         private static void CaptureNextFlatTerrainFixture()
@@ -130,7 +195,7 @@ namespace RealisticBases.Diagnostics
         }
 
         private static void GenerateIsolatedHostileSettlement(bool movePlayerColonist, bool requireMountainous = false,
-            bool requireFoothill = false, bool requireFlat = false)
+            bool requireFoothill = false, bool requireFlat = false, Func<PlanetTile> pickTile = null)
         {
             Pawn arrivalPawn = movePlayerColonist
                 ? Find.Maps.Where(m => m.IsPlayerHome)
@@ -157,7 +222,7 @@ namespace RealisticBases.Diagnostics
             }
 
             GeneratorSwitch.Set(true);
-            PlanetTile tile = TileFinder.RandomSettlementTileFor(Faction.OfPlayer, mustBeAutoChoosable: true,
+            PlanetTile tile = pickTile != null ? pickTile() : TileFinder.RandomSettlementTileFor(Faction.OfPlayer, mustBeAutoChoosable: true,
                 extraValidator: candidate => Find.WorldGrid[candidate].PrimaryBiome == BiomeDefOf.TemperateForest &&
                     (requireMountainous
                         ? Find.WorldGrid[candidate].hilliness == Hilliness.Mountainous
@@ -175,7 +240,9 @@ namespace RealisticBases.Diagnostics
             // The complete P2 footprint is intentionally larger than a compact
             // test outpost. Give the mountainous P4 harness enough generated
             // terrain to find a real legal footprint rather than weakening it.
-            IntVec3 mapSize = requireMountainous || requireFoothill || requireFlat ? new IntVec3(160, 1, 160) : new IntVec3(80, 1, 80);
+            IntVec3 mapSize = requireMountainous || requireFoothill || requireFlat || pickTile != null
+                ? new IntVec3(160, 1, 160)
+                : new IntVec3(80, 1, 80);
             Map map = GetOrGenerateMapUtility.GetOrGenerateMap(tile, mapSize, null);
             if (requireFlat && captureNextFlatTerrain)
             {
@@ -218,7 +285,9 @@ namespace RealisticBases.Diagnostics
                     " currentMap=" + (Current.Game.CurrentMap == map));
             }
             P0Log.Message("DEBUG_SETTLEMENT_READY", "settlement=" + settlement.ID + " map=" + map.uniqueID +
-                " tile=" + tile + " faction=" + faction.def.defName + " generator=" + map.generatorDef?.defName);
+                " tile=" + tile + " faction=" + faction.def.defName + " generator=" + map.generatorDef?.defName +
+                " biome=" + Find.WorldGrid[tile].PrimaryBiome.defName + " hilliness=" + Find.WorldGrid[tile].hilliness +
+                " mutators=" + string.Join(",", Find.WorldGrid[tile].Mutators.Select(m => m.defName)));
         }
 
         [DebugAction(Category, "Reopen last isolated P0 settlement", actionType = DebugActionType.Action,

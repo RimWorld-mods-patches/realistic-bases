@@ -264,14 +264,16 @@ namespace RealisticBases.Planning
                 for (int k = 0; k < route.Count; k++)
                 {
                     if (k > 0 && Math.Abs(route[k].X - route[k - 1].X) + Math.Abs(route[k].Z - route[k - 1].Z) != 1) { errors.Add(id + "_route_continuity"); break; }
-                    if (!grid.Passable(route[k]) || enclosure.Contains(route[k]) || boundary.Contains(route[k])) { errors.Add(id + "_route_reenters_or_impassable"); break; }
+                    if (!grid.Walkable(route[k]) || enclosure.Contains(route[k]) || boundary.Contains(route[k])) { errors.Add(id + "_route_reenters_or_impassable"); break; }
                 }
             }
             if (layout.Gates.Select(g => g.Cell).Distinct().Count() != layout.Gates.Count) errors.Add("duplicate_gate");
             HashSet<GridPoint> outerReserved = new HashSet<GridPoint>(exteriorReserved);
             outerReserved.UnionWith(layout.Gates.SelectMany(g => g.ExteriorRoute));
             HashSet<GridPoint> seenOuter = new HashSet<GridPoint>();
-            if (layout.OuterSections.Count != layout.Gates.Count * Math.Max(0, layers - 1) ||
+            // Complete adjacent shells replace gate-adjacent sections; layouts
+            // that still carry sections need one per gate and extra layer.
+            if ((layout.OuterSections.Count != 0 && layout.OuterSections.Count != layout.Gates.Count * Math.Max(0, layers - 1)) ||
                 layout.OuterSections.Select(s => (s.GateIndex, s.Layer)).Distinct().Count() != layout.OuterSections.Count)
                 errors.Add("outer_sections_missing_or_duplicate");
             foreach (LayoutWallSection section in layout.OuterSections)
@@ -391,7 +393,7 @@ namespace RealisticBases.Planning
         }
 
         internal static bool IsSharableWall(LayoutRoom room, GridPoint cell) =>
-            room.IsEdge(cell) && !cell.Equals(room.Door) &&
+            room.IsEdge(cell) && !room.IsDoor(cell) &&
             !room.Fixtures.Any(f => LayoutFixtureKinds.ThroughWall(f.Kind) && f.Cells.Contains(cell));
 
         // Loadout rules (plan step 6): catalog legality and no prohibited content for every item and
@@ -510,13 +512,22 @@ namespace RealisticBases.Planning
             if (!interior.Contains(new GridPoint(room.Door.X + room.Facing.X, room.Door.Z + room.Facing.Z)) || room.Bounds.Contains(room.DoorOutside))
                 errors.Add("door_facing_" + id);
             if (extra.Contains(room.Door) || !reach.Contains(room.DoorOutside)) errors.Add("room_door_disconnected_" + id);
+            if (room.SideDoors.Count > 0 && room.Kind != LayoutRoomKind.Dining) errors.Add("side_doors_not_dining_" + id);
+            foreach (GridPoint door in room.SideDoors)
+            {
+                bool sideCorner = (door.X == room.Bounds.MinX || door.X == room.Bounds.MaxX) && (door.Z == room.Bounds.MinZ || door.Z == room.Bounds.MaxZ);
+                if (!room.IsEdge(door) || sideCorner || door.Equals(room.Door)) errors.Add("side_door_not_on_wall_" + id);
+                if (extra.Contains(door) || !reach.Contains(room.OutsideOf(door))) errors.Add("side_door_disconnected_" + id);
+                GridPoint inside = new GridPoint(2 * door.X - room.OutsideOf(door).X, 2 * door.Z - room.OutsideOf(door).Z);
+                if (room.Fixtures.Any(f => f.Cells.Contains(inside) || f.Cells.Contains(door))) errors.Add("side_door_blocked_" + id);
+            }
             if (room.Capacity < room.DemandedCapacity) errors.Add("room_capacity_" + id);
             foreach (GridPoint c in room.Bounds.Points())
             {
                 LayoutCellClass cls = grid.At(c);
                 bool edge = room.IsEdge(c);
                 if (cls == LayoutCellClass.Bad) errors.Add("room_on_illegal_terrain_" + id);
-                else if (cls == LayoutCellClass.Rock && !excavation.Contains(c) && (!edge || c.Equals(room.Door))) errors.Add("room_unexcavated_rock_" + id);
+                else if (cls == LayoutCellClass.Rock && !excavation.Contains(c) && (!edge || room.IsDoor(c))) errors.Add("room_unexcavated_rock_" + id);
             }
             if (room.ProtectedByRock && interior.Points().Any(c => !retained.Contains(c) && grid.At(c) != LayoutCellClass.Covered)) errors.Add("protection_claim_" + id);
 
@@ -531,7 +542,7 @@ namespace RealisticBases.Planning
                     GridPoint cell = fixture.Cells[0];
                     bool coolerCorner = (cell.X == room.Bounds.MinX || cell.X == room.Bounds.MaxX) && (cell.Z == room.Bounds.MinZ || cell.Z == room.Bounds.MaxZ);
                     GridPoint exhaust = new GridPoint(cell.X - fixture.Facing.X, cell.Z - fixture.Facing.Z);
-                    if (!room.IsEdge(cell) || coolerCorner || cell.Equals(room.Door)) errors.Add("cooler_not_in_wall_" + label);
+                    if (!room.IsEdge(cell) || coolerCorner || room.IsDoor(cell)) errors.Add("cooler_not_in_wall_" + label);
                     // Recomputed from the rotation string with vanilla's formula, independently of Facing.
                     GridPoint hotStep = VanillaNorthRotatedBy(fixture.Rotation);
                     GridPoint vanillaHot = new GridPoint(cell.X + hotStep.X, cell.Z + hotStep.Z);
@@ -572,7 +583,7 @@ namespace RealisticBases.Planning
         {
             if (wallLight == null) return;
             HashSet<GridPoint> openings = new HashSet<GridPoint>(layout.Gates.Select(g => g.Cell)
-                .Concat(layout.Gates.SelectMany(g => g.BandDoors)).Concat(layout.Rooms.Select(r => r.Door))
+                .Concat(layout.Gates.SelectMany(g => g.BandDoors)).Concat(layout.Rooms.SelectMany(r => r.Doors))
                 .Concat(layout.ApproachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0])
                 .Concat(layout.Rooms.SelectMany(r => r.Fixtures).Where(f => LayoutFixtureKinds.ThroughWall(f.Kind)).SelectMany(f => f.Cells)));
             HashSet<KeyValuePair<GridPoint, string>> mounts = new HashSet<KeyValuePair<GridPoint, string>>();
@@ -627,8 +638,8 @@ namespace RealisticBases.Planning
                     if (!partition.IsOutdoor(cooler.HotCell.Value)) errors.Add("cooler_exhaust_not_outdoor_" + label);
                     if (roomCells.Contains(cooler.HotCell.Value)) errors.Add("cooler_exhaust_into_room_" + label);
                 }
-            HashSet<GridPoint> roomWalls = new HashSet<GridPoint>(layout.Rooms.SelectMany(r => r.Bounds.Points().Where(c => r.IsEdge(c) && !c.Equals(r.Door))));
-            HashSet<GridPoint> doors = new HashSet<GridPoint>(layout.Rooms.Select(r => r.Door).Concat(layout.Gates.Select(g => g.Cell)));
+            HashSet<GridPoint> roomWalls = new HashSet<GridPoint>(layout.Rooms.SelectMany(r => r.Bounds.Points().Where(c => r.IsEdge(c) && !r.IsDoor(c))));
+            HashSet<GridPoint> doors = new HashSet<GridPoint>(layout.Rooms.SelectMany(r => r.Doors).Concat(layout.Gates.Select(g => g.Cell)));
             HashSet<GridPoint> excavation = new HashSet<GridPoint>(layout.Excavation);
             HashSet<GridPoint> retained = new HashSet<GridPoint>(layout.RetainedThickRoof);
             HashSet<GridPoint> constructed = new HashSet<GridPoint>(layout.ConstructedRoof);
@@ -936,7 +947,7 @@ namespace RealisticBases.Planning
             foreach (LayoutRoom room in layout.Rooms)
             {
                 foreach (GridPoint c in room.Bounds.Points()) map[c] = room.NaturalWalls.Contains(c) ? '^' : room.IsEdge(c) ? '#' : '.';
-                map[room.Door] = 'D';
+                foreach (GridPoint door in room.Doors) map[door] = 'D';
             }
             foreach (LayoutFixture fixture in layout.AllFixtures)
             {

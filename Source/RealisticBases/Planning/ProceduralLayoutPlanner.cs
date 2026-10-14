@@ -100,7 +100,8 @@ namespace RealisticBases.Planning
     public sealed class LayoutRoom
     {
         internal LayoutRoom(LayoutRoomDemand demand, GridRect bounds, GridPoint door, GridPoint facing, int capacity,
-            IEnumerable<LayoutFixture> fixtures, bool protectedByRock, IEnumerable<GridPoint> naturalWalls)
+            IEnumerable<LayoutFixture> fixtures, bool protectedByRock, IEnumerable<GridPoint> naturalWalls,
+            IEnumerable<GridPoint> sideDoors = null)
         {
             Id = demand.Id;
             Kind = demand.Kind;
@@ -113,7 +114,14 @@ namespace RealisticBases.Planning
             Fixtures = new ReadOnlyCollection<LayoutFixture>(fixtures.ToList());
             ProtectedByRock = protectedByRock;
             NaturalWalls = new ReadOnlyCollection<GridPoint>(naturalWalls.OrderBy(c => c).ToList());
+            SideDoors = new ReadOnlyCollection<GridPoint>((sideDoors ?? Enumerable.Empty<GridPoint>()).OrderBy(c => c).ToList());
+            demandSource = demand;
         }
+
+        private readonly LayoutRoomDemand demandSource;
+
+        internal LayoutRoom WithSideDoors(IEnumerable<GridPoint> sideDoors) =>
+            new LayoutRoom(demandSource, Bounds, Door, Facing, Capacity, Fixtures, ProtectedByRock, NaturalWalls, sideDoors);
 
         public string Id { get; }
         public LayoutRoomKind Kind { get; }
@@ -131,6 +139,14 @@ namespace RealisticBases.Planning
         public IReadOnlyList<GridPoint> NaturalWalls { get; }
         public GridRect Interior => new GridRect(Bounds.MinX + 1, Bounds.MinZ + 1, Bounds.Width - 2, Bounds.Height - 2);
         public bool IsEdge(GridPoint c) => Bounds.Contains(c) && (c.X == Bounds.MinX || c.X == Bounds.MaxX || c.Z == Bounds.MinZ || c.Z == Bounds.MaxZ);
+        // Further doors of a dining hall onto the corridor loop around it.
+        public IReadOnlyList<GridPoint> SideDoors { get; }
+        public IEnumerable<GridPoint> Doors => new[] { Door }.Concat(SideDoors);
+        public bool IsDoor(GridPoint c) => c.Equals(Door) || SideDoors.Contains(c);
+        // The public cell in front of a door cell on this room's wall.
+        public GridPoint OutsideOf(GridPoint door) =>
+            door.X == Bounds.MinX ? new GridPoint(door.X - 1, door.Z) : door.X == Bounds.MaxX ? new GridPoint(door.X + 1, door.Z) :
+            door.Z == Bounds.MinZ ? new GridPoint(door.X, door.Z - 1) : new GridPoint(door.X, door.Z + 1);
     }
 
     public sealed class LayoutCorridor
@@ -387,7 +403,8 @@ namespace RealisticBases.Planning
 
         public IReadOnlyList<LayoutPortal> Portals => new ReadOnlyCollection<LayoutPortal>(
             Gates.Select((g, i) => new LayoutPortal(LayoutPortalKind.Gate, g.Cell, g.Inside, "gate-" + i))
-                .Concat(Rooms.Select(r => new LayoutPortal(LayoutPortalKind.RoomDoor, r.Door, r.DoorOutside, r.Id))).ToList());
+                .Concat(Rooms.Select(r => new LayoutPortal(LayoutPortalKind.RoomDoor, r.Door, r.DoorOutside, r.Id)))
+                .Concat(Rooms.SelectMany(r => r.SideDoors.Select(d => new LayoutPortal(LayoutPortalKind.RoomDoor, d, r.OutsideOf(d), r.Id)))).ToList());
 
         public GridRect BoundingRect
         {
@@ -484,6 +501,7 @@ namespace RealisticBases.Planning
                 hash = StableHash.Add(hash, room.Bounds.Width);
                 hash = StableHash.Add(hash, room.Bounds.Height);
                 hash = Point(hash, room.Door);
+                foreach (GridPoint door in room.SideDoors) hash = Point(hash, door);
                 hash = StableHash.Add(hash, room.Capacity);
                 foreach (LayoutFixture fixture in room.Fixtures) hash = Fixture(hash, fixture);
             }
@@ -699,6 +717,11 @@ namespace RealisticBases.Planning
             return (cell.Has(TerrainTraits.Standable) || cell.Has(TerrainTraits.ClearablePlant)) &&
                 !cell.HasAny(TerrainTraits.Water | TerrainTraits.Occupied | TerrainTraits.NaturalRock);
         }
+
+        // Pawn walking: like Passable, but shallow water counts. Arrivals and
+        // attackers wade it, so a site joined to the edge only through shallow
+        // water is still reachable.
+        public bool Walkable(GridPoint c) => InBounds(c) && LayoutExposure.Walkable(Terrain[c]);
     }
 
     // Layout engine v2 (docs/plans/2026-10-12-layout-engine-v2.md): a hallway
@@ -1227,6 +1250,8 @@ namespace RealisticBases.Planning
             public string Id;
             public bool Main;
             public bool Retain;
+            // Sections that trimming keeps, such as a corridor loop's sides.
+            public int Keep;
             public GridPoint Axis;
             public GridPoint Root;
             public List<List<GridPoint>> Sections = new List<List<GridPoint>>();
@@ -1772,7 +1797,7 @@ namespace RealisticBases.Planning
                 generators = Math.Max(generators, needed);
                 batteries = Math.Max(batteries, bridge);
             }
-            if (!PlaceWithRepairs(demand)) return false;
+            if (!(Style.Kind == LayoutStyleKind.Mountain ? PlaceWithRepairs(demand) : PlaceLate(demand))) return false;
             power = new LayoutPowerPlan(critical, nonCritical, kit.Generator, generators, batteries, yards, kit.GeneratorFuel,
                 LayoutPowerModel.FuelStock(kit.Generator, generators), powerDiagnostics, reserve,
                 Math.Max(0, generators - LayoutPowerModel.Generators(critical, nonCritical + ownLoad, renewable, kit.GeneratorWatts)));
@@ -1867,6 +1892,8 @@ namespace RealisticBases.Planning
                 reservedCompoundGate = new GridPoint(terminal.X + outward.X * (setback + 1),
                     terminal.Z + outward.Z * (setback + 1));
                 notes.Add("fieldApproachReserved=" + option.InnerGate + " terminal=" + terminal);
+                fieldTip = new KeyValuePair<GridPoint, GridPoint>(terminal, tangent);
+                fieldHalfTip = halfTip;
                 return true;
             }
             Fail("field_approach_unavailable", string.Join(" ", why.Take(6)));
@@ -1883,6 +1910,19 @@ namespace RealisticBases.Planning
             GridPoint width = vertical ? new GridPoint(1, 0) : new GridPoint(0, 1);
             double[] factors = { 1.0, 1.25, 1.5 };
             int target = Math.Max(10, Math.Min(70, (int)Math.Round(Math.Sqrt(demand.MinimumRoomArea) * factors[LayoutSeed.Roll(seed, "length", 3)])));
+            // Open ground: room for the dining hub and one rib slot either side
+            // of it. A field counts as spine length; its wall ribs are the
+            // slot on that side.
+            if (Style.Kind != LayoutStyleKind.Mountain)
+            {
+                LayoutRoomDemand dining = demand.Rooms.FirstOrDefault(r => r.Kind == LayoutRoomKind.Dining);
+                int hub = dining == null ? 1 : dining.CandidateSizes.Max(z => z.Width) + 4;
+                int slot = 2 * (LayoutClusters.TypicalDepth(demand.Rooms) + 2);
+                target = Math.Max(target, hub + 2 * slot + 2);
+                if (jointSite != null && jointSite.Wall.Count > 0)
+                    target = Math.Max(hub + slot + 2, target - FieldLength(axis));
+                target = Math.Min(70, target);
+            }
             Func<int, List<GridPoint>> section = t => Enumerable.Range(0, MainWidth)
                 .Select(k => new GridPoint(anchor.X + t * axis.X + k * width.X, anchor.Z + t * axis.Z + k * width.Z)).ToList();
             List<int> positions = new List<int>();
@@ -1936,6 +1976,7 @@ namespace RealisticBases.Planning
             List<GridPoint> cells = segment.Cells.ToList();
             int newDig = cells.Count(c => grid.At(c) == LayoutCellClass.Rock);
             if (dug.Count + newDig > Budget && newDig > 0) return false;
+            streetVersion++;
             foreach (GridPoint c in cells)
             {
                 occ[grid.Index(c)] = Street;
@@ -2123,7 +2164,7 @@ namespace RealisticBases.Planning
                 int distance = Manhattan(outside, partner.DoorOutside);
                 score += rel.Kind == LayoutRelationKind.Near ? rel.Weight * distance : -rel.Weight * Math.Min(distance, 20);
             }
-            double? clustered = ClusterScore(room, bounds, door, sharedWith, furnish);
+            double? clustered = ClusterScore(room, bounds, outside, sharedWith);
             if (!clustered.HasValue) return null;
             score += clustered.Value;
             if (doctrine == LayoutDoctrine.RockProtected) score += dig.Count - 4.0 * protectedCells;
@@ -2334,7 +2375,7 @@ namespace RealisticBases.Planning
             while (changed)
             {
                 changed = false;
-                HashSet<GridPoint> used = new HashSet<GridPoint>(rooms.Select(r => r.DoorOutside));
+                HashSet<GridPoint> used = new HashSet<GridPoint>(rooms.SelectMany(r => r.Doors.Select(r.OutsideOf)));
                 foreach (LayoutFixture f in rooms.SelectMany(r => r.Fixtures).Where(f => f.Exhaust.HasValue)) used.Add(f.Exhaust.Value);
                 used.UnionWith(courts.SelectMany(c => c.Access));
                 foreach (LayoutPowerYard yard in yards)
@@ -2346,9 +2387,9 @@ namespace RealisticBases.Planning
                 foreach (Segment segment in segments)
                 {
                     if (segment.Main || segment.Retain) continue;
-                    while (segment.Sections.Count > 1 && !segment.Sections[segment.Sections.Count - 1].Any(used.Contains))
+                    while (segment.Sections.Count > Math.Max(1, segment.Keep) && !segment.Sections[segment.Sections.Count - 1].Any(used.Contains))
                     { Release(segment.Sections[segment.Sections.Count - 1]); segment.Sections.RemoveAt(segment.Sections.Count - 1); changed = true; }
-                    if (segment.Sections.Count == 1 && !segment.Sections[0].Any(used.Contains))
+                    if (segment.Sections.Count == 1 && segment.Keep == 0 && !segment.Sections[0].Any(used.Contains))
                     { Release(segment.Sections[0]); segment.Sections.Clear(); changed = true; }
                 }
                 segments.RemoveAll(s => s.Sections.Count == 0);
@@ -2459,13 +2500,9 @@ namespace RealisticBases.Planning
             List<LayoutGate> gates = ChooseGates(inE, built, natural, streets, isPublic);
             if (gates == null) return null;
             foreach (LayoutGate gate in gates) built.Remove(gate.Cell);
-            List<LayoutWallSection> outerSections = ExtendGateBands(inE, built, natural, gates);
-            if (outerSections.Count != gates.Count * (input.Fortification.WallLayers - 1))
-            {
-                Fail("unreturned_outer_wall_section", "requestedLayers=" + input.Fortification.WallLayers +
-                    " gates=" + gates.Count + " returnedSections=" + outerSections.Count);
-                return null;
-            }
+            // The complete shells below enclose every side, gates included, so
+            // gate-adjacent wall sections are no longer built.
+            List<LayoutWallSection> outerSections = new List<LayoutWallSection>();
             IReadOnlyList<GridPoint> reinforcement = CompletePerimeter(enclosure, built, natural, gates, outerSections);
             if (reinforcement == null) return null;
 
@@ -2480,8 +2517,7 @@ namespace RealisticBases.Planning
             List<string> layoutNotes = new List<string>(notes);
             layoutNotes.Add("excavated=" + dug.Count + "/" + Budget + " retainedThickRoof=" + retained.Count);
             layoutNotes.Add("gates=" + gates.Count + " desired=" + input.Fortification.DesiredGates);
-            layoutNotes.Add("outerSections=" + outerSections.Count + "/" + (gates.Count * (input.Fortification.WallLayers - 1)) +
-                " outerWallCells=" + outerSections.Sum(section => section.Cells.Count()));
+            layoutNotes.Add("perimeterShellCells=" + reinforcement.Count);
             LayoutEquipment equipment = input.Equipment;
             List<LayoutExhaustPocket> exhaustPockets = pockets.Values.OrderBy(p => p.Cell)
                 .Select(p => new LayoutExhaustPocket(p.Cell, p.Walls, p.RoofCleared, p.Excavated, p.Rooms)).ToList();
@@ -2536,9 +2572,9 @@ namespace RealisticBases.Planning
             int layers = input.Fortification.WallLayers;
             if (layers == 1) return new GridPoint[0];
             // Chebyshev offsets close diagonal corners as well as straight
-            // frontages. Radius 1 is the existing boundary, 3 and 5 are the
-            // complete extra shells, aligned with the serial gate doors.
-            int radius = 2 * layers - 1;
+            // frontages. Radius 1 is the existing boundary; the extra shells
+            // stand directly outside it at radius 2..layers, with no lane.
+            int radius = layers;
             int[] distance = Enumerable.Repeat(int.MaxValue, occ.Length).ToArray();
             Queue<GridPoint> queue = new Queue<GridPoint>();
             foreach (GridPoint c in enclosure) { distance[grid.Index(c)] = 0; queue.Enqueue(c); }
@@ -2559,137 +2595,47 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> existing = new HashSet<GridPoint>(built.Concat(natural)
                 .Concat(sections.SelectMany(s => s.Cells)).Concat(gates.SelectMany(g =>
                     g.BandWalls.Concat(g.BandDoors).Concat(new[] { g.Cell }))));
+            // A gate's halls between its serial doors stay open; inside the
+            // shell band the shells themselves flank them.
+            HashSet<GridPoint> halls = new HashSet<GridPoint>(gates.SelectMany(g => g.OuterVestibule));
             HashSet<GridPoint> access = new HashSet<GridPoint>(gates.SelectMany(g =>
-                g.ExteriorRoute.Concat(g.OuterVestibule).Concat(new[] { g.Staging }))
-                .Concat(sections.SelectMany(s => s.ServiceLane(gates[s.GateIndex]))));
+                g.ExteriorRoute.Concat(new[] { g.Staging })));
             HashSet<GridPoint> field = new HashSet<GridPoint>(jointSite == null ? Enumerable.Empty<GridPoint>() :
                 jointSite.Field.Points().Concat(jointSite.AllPostClearance));
             List<GridPoint> cells = new List<GridPoint>();
             for (int i = 0; i < distance.Length; i++)
             {
-                if (distance[i] < 3 || distance[i] > radius || distance[i] % 2 == 0) continue;
+                if (distance[i] < 2 || distance[i] > radius) continue;
                 GridPoint c = new GridPoint(i % grid.Width, i / grid.Width);
-                if (existing.Contains(c)) continue;
+                if (existing.Contains(c) || halls.Contains(c)) continue;
                 if (grid.At(c) == LayoutCellClass.Rock && !dug.Contains(c)) continue;
                 if ((grid.At(c) != LayoutCellClass.Open && grid.At(c) != LayoutCellClass.Covered) ||
                     access.Contains(c) || field.Contains(c) || occ[i] == GeyserReserve)
-                { Fail("complete_perimeter_unavailable", "layer=" + ((distance[i] + 1) / 2) + " cell=" + c); return null; }
+                { Fail("complete_perimeter_unavailable", "layer=" + distance[i] + " cell=" + c); return null; }
                 cells.Add(c);
             }
-            return cells;
-        }
-
-        private List<LayoutWallSection> ExtendGateBands(bool[] inE, HashSet<GridPoint> built,
-            HashSet<GridPoint> natural, List<LayoutGate> gates)
-        {
-            // Only extend a straight, already enclosed wall run whose parallel
-            // exterior terrain is clear. A short band remains a band, not a
-            // declared layer section. One-cell lane spacing preserves the serial
-            // gate crossing, with bounded side arms for material discipline.
-            const int MaxArm = 8;
-            HashSet<GridPoint> baseline = new HashSet<GridPoint>(built.Concat(natural).Concat(gates.Select(g => g.Cell)));
-            HashSet<GridPoint> reserved = new HashSet<GridPoint>(gates.SelectMany(g => Footprint(g).Concat(g.ExteriorRoute)));
-            List<LayoutWallSection> result = new List<LayoutWallSection>();
-            for (int i = 0; i < gates.Count; i++)
+            // A hall beyond the shell band is closed on both sides, so the
+            // gatehouse stands out as a short walled passage.
+            HashSet<GridPoint> placed = new HashSet<GridPoint>(cells);
+            foreach (LayoutGate gate in gates)
             {
-                LayoutGate gate = gates[i];
-                GridPoint tangent = new GridPoint(gate.Outward.Z, gate.Outward.X);
-                for (int layer = 1; layer < input.Fortification.WallLayers; layer++)
+                GridPoint across = new GridPoint(gate.Outward.Z, gate.Outward.X);
+                foreach (GridPoint hall in gate.OuterVestibule)
                 {
-                    LayoutWallSection inner = layer > 1 ? result.FirstOrDefault(s => s.GateIndex == i && s.Layer == layer - 1) : null;
-                    if (layer > 1 && inner == null) break;
-                    List<GridPoint> left = Arm(-1), right = Arm(1);
-                    // A side with no straight arm still needs a short return
-                    // around the gate-band corner; otherwise it is a pier.
-                    if (left.Count + right.Count < 3) break;
-                    List<GridPoint> leftReturn = Return(-1, left), rightReturn = Return(1, right);
-                    if (input.Requirements.ReservePopulationCirculation)
+                    if (distance[grid.Index(hall)] <= radius) continue;
+                    foreach (int sign in new[] { -1, 1 })
                     {
-                        // A long run can finish beside an irregular baseline
-                        // corner. Shorten only that arm to the nearest legal
-                        // return instead of duplicating an existing wall or
-                        // discarding the entire populated settlement.
-                        while (leftReturn == null && left.Count > 0)
-                        { left.RemoveAt(left.Count - 1); leftReturn = Return(-1, left); }
-                        while (rightReturn == null && right.Count > 0)
-                        { right.RemoveAt(right.Count - 1); rightReturn = Return(1, right); }
-                        if (left.Count + right.Count < 3) break;
-                    }
-                    if (leftReturn == null || rightReturn == null) break;
-                    LayoutWallSection section = new LayoutWallSection(i, layer, left, right, leftReturn, rightReturn);
-                    result.Add(section);
-                    reserved.UnionWith(section.Cells);
-
-                    List<GridPoint> Arm(int sign)
-                    {
-                        List<GridPoint> cells = new List<GridPoint>();
-                        // The first two lane cells sit behind the gate-band
-                        // junction; without them the apparent arm has no
-                        // walkable access from its own crossing.
-                        if (!LaneClear(1) || !LaneClear(2)) return cells;
-                        for (int j = 3; j <= MaxArm + 2; j++)
-                        {
-                            // A farther-out run cannot extend beyond its inner run;
-                            // the intervening cell is its continuous service and
-                            // retreat lane back to the gate crossing.
-                            if (inner != null && j - 3 >= (sign < 0 ? inner.Left.Count : inner.Right.Count)) break;
-                            GridPoint baseCell = new GridPoint(gate.Cell.X + j * sign * tangent.X,
-                                gate.Cell.Z + j * sign * tangent.Z);
-                            GridPoint cell = new GridPoint(baseCell.X + 2 * layer * gate.Outward.X,
-                                baseCell.Z + 2 * layer * gate.Outward.Z);
-                            GridPoint inside = new GridPoint(baseCell.X - gate.Outward.X, baseCell.Z - gate.Outward.Z);
-                            if (!baseline.Contains(baseCell) || !grid.InBounds(inside) || !inE[grid.Index(inside)] ||
-                                !grid.InBounds(cell) || grid.At(cell) != LayoutCellClass.Open ||
-                                grid.Terrain[cell].Has(TerrainTraits.MapEdge) || reserved.Contains(cell) ||
-                                !LaneClear(j)) break;
-                            cells.Add(cell);
-                        }
-                        return cells;
-
-                        bool LaneClear(int distance)
-                        {
-                            GridPoint lane = new GridPoint(gate.Cell.X + distance * sign * tangent.X + (2 * layer - 1) * gate.Outward.X,
-                                gate.Cell.Z + distance * sign * tangent.Z + (2 * layer - 1) * gate.Outward.Z);
-                            return grid.InBounds(lane) && grid.At(lane) == LayoutCellClass.Open && grid.Passable(lane) &&
-                                !grid.Terrain[lane].Has(TerrainTraits.MapEdge) && !reserved.Contains(lane) && !inE[grid.Index(lane)];
-                        }
-                    }
-
-                    List<GridPoint> Return(int sign, List<GridPoint> arm)
-                    {
-                        List<GridPoint> path = new List<GridPoint>();
-                        if (arm.Count > 0)
-                        {
-                            GridPoint end = arm[arm.Count - 1];
-                            path.Add(new GridPoint(end.X - gate.Outward.X, end.Z - gate.Outward.Z));
-                        }
-                        else
-                        {
-                            // At the five-wide band's tip, layer 1 bends one
-                            // cell sideways to the known baseline wall at j=1.
-                            // Farther layers return to the preceding band at j=2.
-                            path.Add(new GridPoint(gate.Cell.X + 2 * sign * tangent.X + (2 * layer - 1) * gate.Outward.X,
-                                gate.Cell.Z + 2 * sign * tangent.Z + (2 * layer - 1) * gate.Outward.Z));
-                            if (layer == 1)
-                                path.Add(new GridPoint(gate.Cell.X + sign * tangent.X + gate.Outward.X,
-                                    gate.Cell.Z + sign * tangent.Z + gate.Outward.Z));
-                        }
-                        GridPoint terminal = path[path.Count - 1];
-                        GridPoint parent = new GridPoint(terminal.X - gate.Outward.X, terminal.Z - gate.Outward.Z);
-                        if (arm.Count == 0 && layer == 1)
-                            parent = new GridPoint(gate.Cell.X + sign * tangent.X, gate.Cell.Z + sign * tangent.Z);
-                        if (!(layer == 1 ? baseline.Contains(parent) :
-                            arm.Count == 0 ? gate.BandWalls.Contains(parent) :
-                            (sign < 0 ? inner.Left : inner.Right).Contains(parent))) return null;
-                        foreach (GridPoint c in path)
-                            if (!grid.InBounds(c) || grid.At(c) != LayoutCellClass.Open ||
-                                grid.Terrain[c].Has(TerrainTraits.MapEdge) || inE[grid.Index(c)] || reserved.Contains(c) ||
-                                (input.Requirements.ReservePopulationCirculation && baseline.Contains(c))) return null;
-                        return path;
+                        GridPoint side = new GridPoint(hall.X + sign * across.X, hall.Z + sign * across.Z);
+                        if (existing.Contains(side) || placed.Contains(side)) continue;
+                        if (!grid.InBounds(side) || (grid.At(side) != LayoutCellClass.Open && grid.At(side) != LayoutCellClass.Covered) ||
+                            access.Contains(side) || halls.Contains(side) || field.Contains(side) || occ[grid.Index(side)] == GeyserReserve)
+                        { Fail("gatehouse_side_unavailable", "cell=" + side); return null; }
+                        placed.Add(side);
+                        cells.Add(side);
                     }
                 }
             }
-            return result;
+            return cells;
         }
 
         private List<LayoutGate> ChooseGates(bool[] inE, HashSet<GridPoint> built, HashSet<GridPoint> natural,
@@ -2701,19 +2647,24 @@ namespace RealisticBases.Planning
             int layers = input.Fortification.WallLayers;
             int s = input.Fortification.Setback;
             List<KeyValuePair<double, LayoutGate>> candidates = new List<KeyValuePair<double, LayoutGate>>();
+            int noPublicSide = 0, noFlankWalls = 0, farFromStreet = 0, blockedLine = 0, unreachable = 0;
             foreach (GridPoint g in built.OrderBy(c => c))
             {
                 List<GridPoint> inner = ProceduralLayoutPlanner.Cardinal.Select(d => new GridPoint(g.X + d.X, g.Z + d.Z)).Where(isPublic).ToList();
-                if (inner.Count != 1) continue;
+                if (inner.Count != 1) { noPublicSide++; continue; }
                 GridPoint inside = inner[0];
                 GridPoint outward = new GridPoint(g.X - inside.X, g.Z - inside.Z);
                 GridPoint perp = new GridPoint(outward.Z, outward.X);
-                if (!walls.Contains(new GridPoint(g.X + perp.X, g.Z + perp.Z)) || !walls.Contains(new GridPoint(g.X - perp.X, g.Z - perp.Z))) continue;
+                if (!walls.Contains(new GridPoint(g.X + perp.X, g.Z + perp.Z)) || !walls.Contains(new GridPoint(g.X - perp.X, g.Z - perp.Z)))
+                {
+                    noFlankWalls++;
+                    continue;
+                }
                 bool nearStreet = false;
                 for (int dz = -s; dz <= s && !nearStreet; dz++)
                     for (int dx = -s; dx <= s && !nearStreet; dx++)
                         nearStreet = streets.Contains(new GridPoint(inside.X + dx, inside.Z + dz));
-                if (!nearStreet) continue;
+                if (!nearStreet) { farFromStreet++; continue; }
                 List<GridPoint> line = new List<GridPoint>();
                 bool ok = true;
                 for (int k = 1; k <= 2 * layers - 1 && ok; k++)
@@ -2735,10 +2686,10 @@ namespace RealisticBases.Planning
                         bandWalls.Add(c);
                     }
                 }
-                if (!ok) continue;
+                if (!ok) { blockedLine++; continue; }
                 GridPoint staging = line[line.Count - 1];
                 int distance = reach[grid.Index(staging)];
-                if (distance == int.MaxValue) continue;
+                if (distance == int.MaxValue) { unreachable++; continue; }
                 bool rockFace = natural.Contains(new GridPoint(g.X + perp.X, g.Z + perp.Z)) || natural.Contains(new GridPoint(g.X - perp.X, g.Z - perp.Z));
                 double score = distance + (streets.Contains(inside) ? 0 : 3) + (doctrine == LayoutDoctrine.RockProtected && rockFace ? -20 : 0) +
                     (int)(LayoutSeed.Key(LayoutSeed.Sub(seed, "gate"), g.X, g.Z) % 6);
@@ -2811,17 +2762,14 @@ namespace RealisticBases.Planning
                 if (route == null) continue;
                 LayoutGate routed = new LayoutGate(gate.Cell, gate.Inside, gate.Outward, gate.BandDoors, gate.BandWalls, gate.OuterVestibule,
                     gate.Staging, route, gate.InnerVestibule, gate.RockFace);
-                if (layers > 1 && input.Requirements.ReservePopulationCirculation)
-                {
-                    List<LayoutGate> proposed = chosen.Concat(new[] { routed }).ToList();
-                    if (ExtendGateBands(inE, built, natural, proposed).Count != proposed.Count * (layers - 1)) continue;
-                }
                 chosen.Add(routed);
                 reserved.UnionWith(Footprint(routed));
             }
             if (chosen.Count < input.Fortification.MinimumGates)
             {
-                Fail("no_gate_candidate", "candidates=" + candidates.Count);
+                Fail("no_gate_candidate", "candidates=" + candidates.Count + " noPublicSide=" + noPublicSide +
+                    " noFlankWalls=" + noFlankWalls + " farFromStreet=" + farFromStreet + " blockedLine=" + blockedLine +
+                    " unreachable=" + unreachable);
                 return null;
             }
             return chosen;
@@ -2837,7 +2785,7 @@ namespace RealisticBases.Planning
             for (int i = 0; i < occ.Length; i++)
             {
                 GridPoint c = new GridPoint(i % grid.Width, i / grid.Width);
-                if (grid.Terrain[c].Has(TerrainTraits.MapEdge) && grid.Passable(c) && exteriorFree(c)) { distance[i] = 0; queue.Enqueue(c); }
+                if (grid.Terrain[c].Has(TerrainTraits.MapEdge) && grid.Walkable(c) && exteriorFree(c)) { distance[i] = 0; queue.Enqueue(c); }
             }
             // One linear flood, each cell at most once: a distance transform
             // bounded by the map, not a search. The 40k search budget left
@@ -2850,7 +2798,7 @@ namespace RealisticBases.Planning
                 foreach (GridPoint step in ProceduralLayoutPlanner.Cardinal)
                 {
                     GridPoint n = new GridPoint(c.X + step.X, c.Z + step.Z);
-                    if (!exteriorFree(n) || !grid.Passable(n)) continue;
+                    if (!exteriorFree(n) || !grid.Walkable(n)) continue;
                     int ni = grid.Index(n);
                     if (distance[ni] != int.MaxValue) continue;
                     distance[ni] = distance[grid.Index(c)] + 1;
@@ -2884,7 +2832,7 @@ namespace RealisticBases.Planning
                 foreach (GridPoint step in ProceduralLayoutPlanner.Cardinal)
                 {
                     GridPoint n = new GridPoint(c.X + step.X, c.Z + step.Z);
-                    if (previous.ContainsKey(n) || blocked.Contains(n) || !exteriorFree(n) || !grid.Passable(n)) continue;
+                    if (previous.ContainsKey(n) || blocked.Contains(n) || !exteriorFree(n) || !grid.Walkable(n)) continue;
                     previous[n] = c;
                     queue.Enqueue(n);
                 }
