@@ -8,8 +8,27 @@
     "Source/RealisticBases.PlannerTests/RealisticBases.PlannerTests.csproj",
     "Source/RealisticBases.LayoutTests/RealisticBases.LayoutTests.csproj"
   ],
-  "output_dlls": ["RealisticBases.dll"],
+  "output_dlls": [
+    "RealisticBases.dll"
+  ],
   "baseline_save": "RealisticBases-P0-Disposable",
   "runtime_notes": ".rimworld-dev.md",
-  "baseline_mods": ["brrainz.harmony", "ludeon.rimworld", "RedEyeDev.RIMAPI", "roman.rimapi.debugactions", "romangr.realisticbases"]
+  "baseline_mods": [
+    "brrainz.harmony",
+    "ludeon.rimworld",
+    "RedEyeDev.RIMAPI",
+    "roman.rimapi.debugactions",
+    "romangr.realisticbases"
+  ],
+  "mod_sources": {
+    "brrainz.harmony": {
+      "workshop": "2009463077"
+    },
+    "RedEyeDev.RIMAPI": {
+      "workshop": "3593423732"
+    },
+    "roman.rimapi.debugactions": {
+      "github_release": "RimWorld-mods-patches/rimapi-debug-actions"
+    }
+  }
 }
