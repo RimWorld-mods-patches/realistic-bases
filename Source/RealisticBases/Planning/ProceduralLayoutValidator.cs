@@ -186,7 +186,8 @@ namespace RealisticBases.Planning
             // Turret.ImportValue contains its construction and finite fuel.
             // The stored materials ledger already contains construction, so
             // budget from the pre-turret ledger to avoid charging it twice.
-            if (baseMaterials.ImportValue + (layout.Turret?.ImportValue ?? 0) > requirements.ImportValueLimit)
+            if (baseMaterials.OrdinaryImportValue > requirements.BaseImportValueLimit ||
+                baseMaterials.ImportValue + (layout.Turret?.ImportValue ?? 0) > requirements.ImportValueLimit)
                 errors.Add(LayoutEquipment.MaterialBudgetExceeded);
             if (layout.Turret != null)
                 foreach (string turretError in P4BTurretPlanner.Validate(input, layout, layout.Turret))
@@ -213,7 +214,9 @@ namespace RealisticBases.Planning
                 ValidateRoom(room, requirements, grid, excavation, retained, extra, reach, errors, wallLight?.DefName);
                 ValidateSeatsAndMedicalShelf(input, room, errors);
                 if (room.Kind == LayoutRoomKind.Power && input.Equipment.Kit.Vent != null &&
-                    !room.Fixtures.Any(f => f.Kind == LayoutFixtureKind.WallVent)) errors.Add("generator_vent_" + room.Id);
+                    room.Fixtures.Count(f => f.Kind == LayoutFixtureKind.WallVent) <
+                    (room.Fixtures.Count(f => f.Kind == LayoutFixtureKind.Generator) + 1) / 2)
+                    errors.Add("generator_vent_" + room.Id);
             }
             ValidateCoolersAndPockets(input, layout, grid, enclosure, roomCells, reach, errors);
 
@@ -369,6 +372,7 @@ namespace RealisticBases.Planning
                 LayoutRoom realized = layout.Rooms.FirstOrDefault(r => r.Id == room.Id);
                 // The power room is sized per attempt: it must hold the layout's own generator count.
                 int needed = room.Kind == LayoutRoomKind.Power && layout.Power != null ? layout.Power.Generators : room.Capacity;
+                if (room.Kind == LayoutRoomKind.Storage) needed = Math.Max(0, needed - (realized?.ReleasedCapacity ?? 0));
                 if (realized == null || realized.Capacity < needed) errors.Add("capacity_" + room.Id);
             }
             if (layout.Rooms.Count(r => r.Kind != LayoutRoomKind.MortarMagazine) != demand.Rooms.Count) errors.Add("room_count");
@@ -476,16 +480,31 @@ namespace RealisticBases.Planning
             int critical, nonCritical;
             LayoutPowerModel.Loads(layout.Rooms, out critical, out nonCritical);
             int renewable = layout.PowerYards.Sum(y => y.EffectiveWatts);
+            int turretWatts = layout.Turret?.TotalWatts ?? 0;
             if (generators != plan.Generators || plan.GeneratorDef != (kit.Generator == null ? string.Empty : kit.Generator.DefName) ||
                 fixtures.Any(f => f.Kind == LayoutFixtureKind.Generator && f.DefName != plan.GeneratorDef)) errors.Add("power_generator_mismatch");
-            if ((long)generators * kit.GeneratorWatts < critical) errors.Add("power_critical_uncovered");
-            if ((long)generators * kit.GeneratorWatts + renewable < critical + nonCritical) errors.Add("power_generation_below_load");
-            if (batteries != plan.Batteries || batteries < LayoutPowerModel.Batteries(critical + nonCritical)) errors.Add("power_battery_count");
+            if ((long)generators * kit.GeneratorWatts + plan.FirmWatts < critical + turretWatts) errors.Add("power_critical_uncovered");
+            if ((long)generators * kit.GeneratorWatts + plan.FirmWatts < critical + nonCritical + turretWatts) errors.Add("power_generation_below_load");
+            if (batteries != plan.Batteries || batteries < LayoutPowerModel.Batteries(critical + nonCritical + turretWatts) + plan.RenewableStorageBatteries) errors.Add("power_battery_count");
+            int directFirm = LayoutPowerModel.FirmWatts(plan.Yards.Where(y =>
+                y.DefName == LayoutPowerModel.Geothermal || y.DefName == LayoutPowerModel.Watermill));
+            if (critical + turretWatts > directFirm && plan.RenewableStorageBatteries > 0 && generators == 0)
+                errors.Add("power_buffered_critical_without_fuel_backup");
+            if (layout.Rooms.Sum(r => r.ReleasedCapacity) != plan.ReleasedFuelStorageCells)
+                errors.Add("power_fuel_storage_trim");
+            int fuelStackLimit = Math.Max(1, kit.GeneratorFuel?.StackLimit ?? 1);
+            int reservedFuelCells = (LayoutPowerModel.WarehouseFuel(kit.Generator, plan.ReservedGenerators) + fuelStackLimit - 1) / fuelStackLimit;
+            int keptFuelCells = (LayoutPowerModel.WarehouseFuel(kit.Generator, generators) + fuelStackLimit - 1) / fuelStackLimit;
+            if (plan.ReleasedFuelStorageCells < 0 || plan.ReleasedFuelStorageCells > reservedFuelCells - keptFuelCells ||
+                layout.Rooms.Any(r => r.ReleasedCapacity < 0 || r.ReleasedCapacity > 0 && r.Kind != LayoutRoomKind.Storage))
+                errors.Add("power_fuel_storage_trim_bound");
             if (fixtures.Any(f => f.Kind == LayoutFixtureKind.Battery && !layout.Rooms.Any(r => r.Kind == LayoutRoomKind.Power && r.Id == f.RoomId)))
                 errors.Add("battery_outdoors");
             if (plan.FuelStock != LayoutPowerModel.FuelStock(kit.Generator, generators)) errors.Add("power_fuel_stock");
             if (layout.Doctrine == LayoutDoctrine.RockProtected && plan.Yards.Count > 0) errors.Add("power_yard_under_rock_doctrine");
             HashSet<GridPoint> geysers = new HashSet<GridPoint>(input.Resources.GeyserFootprints());
+            HashSet<GridPoint> solarCells = new HashSet<GridPoint>(layout.PowerYards
+                .Where(y => y.DefName == LayoutPowerModel.Solar).SelectMany(y => y.Cells));
             foreach (LayoutPowerYard yard in plan.Yards)
             {
                 CatalogDef def;
@@ -503,7 +522,7 @@ namespace RealisticBases.Planning
                     List<GridPoint> zone = LayoutAttempt.WindZone(new GridPoint(minX + 3, minZ));
                     if (!zone.OrderBy(c => c).SequenceEqual(yard.ZoneCells)) errors.Add("wind_zone_geometry");
                     if (zone.Any(c => !enclosure.Contains(c) || grid.At(c) != LayoutCellClass.Open || roomCells.Contains(c) || courtCells.Contains(c) ||
-                        yardCells.Contains(c) || built.Contains(c) || geysers.Contains(c))) errors.Add("wind_zone_obstructed");
+                        (yardCells.Contains(c) && !solarCells.Contains(c)) || built.Contains(c) || geysers.Contains(c))) errors.Add("wind_zone_obstructed");
                 }
             }
         }
@@ -514,8 +533,10 @@ namespace RealisticBases.Planning
             string id = room.Id;
             GridRect interior = room.Interior;
             int minimum = room.Kind == LayoutRoomKind.MortarMagazine ? 1 : LayoutDemandModel.MinInterior;
+            int maximum = room.Kind == LayoutRoomKind.Power ? LayoutDemandModel.MaxPowerInteriorLength : LayoutDemandModel.MaxInterior;
             if (interior.Width < minimum || interior.Height < minimum ||
-                Math.Max(interior.Width, interior.Height) > LayoutDemandModel.MaxInterior) errors.Add("room_size_" + id);
+                Math.Max(interior.Width, interior.Height) > maximum ||
+                Math.Min(interior.Width, interior.Height) > LayoutDemandModel.MaxInterior) errors.Add("room_size_" + id);
             bool corner = (room.Door.X == room.Bounds.MinX || room.Door.X == room.Bounds.MaxX) && (room.Door.Z == room.Bounds.MinZ || room.Door.Z == room.Bounds.MaxZ);
             if (!room.IsEdge(room.Door) || corner) errors.Add("door_not_on_wall_" + id);
             if (!interior.Contains(new GridPoint(room.Door.X + room.Facing.X, room.Door.Z + room.Facing.Z)) || room.Bounds.Contains(room.DoorOutside))

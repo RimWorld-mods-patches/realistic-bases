@@ -119,6 +119,12 @@ namespace RealisticBases.Planning
         public static IReadOnlyList<string> Validate(ProceduralLayoutInput input, ProceduralLayout layout,
             P4BTurretPlan turret, IEnumerable<GridPoint> additionalBlocked = null,
             SettlementLoadout loadout = null)
+            => ValidateInternal(input, layout, turret, additionalBlocked, loadout);
+
+        private static IReadOnlyList<string> ValidateInternal(ProceduralLayoutInput input, ProceduralLayout layout,
+            P4BTurretPlan turret, IEnumerable<GridPoint> additionalBlocked,
+            SettlementLoadout loadout, P4BTurretPlan onlyGroup = null,
+            bool includeNetworkChecks = true)
         {
             if (input == null || layout == null || turret == null ||
                 layout.FieldWall == null && input.QuestContract == null) return new[] { "missing_plan" };
@@ -128,6 +134,7 @@ namespace RealisticBases.Planning
                 guns.Any(g => g.Support?.AdditionalGroups.Count > 0)) errors.Add("nested_groups");
             foreach (P4BTurretPlan group in turret.Groups)
             {
+                if (onlyGroup != null && !ReferenceEquals(group, onlyGroup)) continue;
                 List<P4BTurretPlan> others = guns.Except(new[] { group, group.Support }).ToList();
                 errors.AddRange(ValidateGroup(input, layout, group,
                     (additionalBlocked ?? Enumerable.Empty<GridPoint>()).Concat(others.SelectMany(t =>
@@ -159,18 +166,24 @@ namespace RealisticBases.Planning
                     errors.Add("turret_obstructs_defender_frontage");
             }
             finalOpaque.UnionWith(guns.SelectMany(t => t.Footprint));
+            if (!includeNetworkChecks) return errors.Distinct().ToList();
             // A quest camp's guns are the native advertised threat: its one guard
             // cannot staff them, so the garrison support rules below are for
             // settlements only. Geometry, cover, service and power still apply.
             if (input.QuestContract != null) return errors.Distinct().ToList();
             IEnumerable<GridPoint> posts = layout.ApproachDefense?.AllPosts ?? new GridPoint[0];
+            List<GridPoint> approachTargets = ApproachTargets(input, layout).ToList();
+            Dictionary<P4BTurretPlan, HashSet<GridPoint>> gunShots = guns.ToDictionary(g => g,
+                g => new HashSet<GridPoint>(approachTargets.Where(c => CanShoot(g, c, finalOpaque))));
+            HashSet<GridPoint> postShots = new HashSet<GridPoint>(approachTargets.Where(c =>
+                posts.Any(p => P4BFireLane.CanEngage(p, c, 0, 25, finalOpaque))));
             foreach (P4BTurretPlan group in turret.Groups)
             {
                 // A projecting group must share actual reachable approach targets with another
                 // gun or an adjacent-cover pawn post. Proximity alone is not mutual support.
-                int sharedShots = ApproachTargets(input, layout).Count(c => CanShoot(group, c, finalOpaque) &&
-                    (guns.Any(t => !ReferenceEquals(t, group) && CanShoot(t, c, finalOpaque)) ||
-                     posts.Any(p => P4BFireLane.CanEngage(p, c, 0, 25, finalOpaque))));
+                HashSet<GridPoint> groupShots = gunShots[group];
+                int sharedShots = groupShots.Count(c => postShots.Contains(c) ||
+                    guns.Any(t => !ReferenceEquals(t, group) && gunShots[t].Contains(c)));
                 if (sharedShots < 4) errors.Add("network_isolated_group");
             }
             // Interlocking gun fire is not enough: attackers can close on an
@@ -180,17 +193,27 @@ namespace RealisticBases.Planning
             if (layout.ApproachDefense != null && guns.Any(g =>
                 !NearbyPawnSupport(layout.ApproachDefense, g, finalOpaque)))
                 errors.Add("turret_without_nearby_pawn_support");
-            if (layout.ApproachDefense != null && guns.Any(g =>
-            {
-                int threats, answered;
-                SniperGuardCoverage(layout.ApproachDefense, g, finalOpaque, out threats, out answered, out _);
-                return threats == 0 || answered * 10 < threats * 9;
-            })) errors.Add("turret_exposed_to_unanswered_sniper_fire");
             if (layout.ApproachDefense != null)
             {
                 P4BStaffingAudit staffing = P4BStaffing.Audit(input, layout, turret, loadout);
-                if (staffing.GuardedGuns < staffing.Guns) errors.Add("network_concurrent_sniper_staffing");
                 if (staffing.CloseSupportedGuns < staffing.Guns) errors.Add("network_concurrent_close_staffing");
+                foreach (IGrouping<GridPoint?, P4BTurretPlan> crossing in turret.Groups
+                    .GroupBy(g => g.AccessGate).OrderBy(g => g.Key))
+                {
+                    List<P4BTurretPlan> battery = crossing.SelectMany(g => g.All).ToList();
+                    List<GridPoint> guards = staffing.SniperPosts.Where(post => battery.Any(g =>
+                        staffing.GuardOptions.TryGetValue(g, out IReadOnlyCollection<GridPoint> options) &&
+                        options.Contains(post))).ToList();
+                    bool slugSelected = battery.Any(g => g.DefName == "Turret_Sniper");
+                    if ((slugSelected || guards.Count > 0) &&
+                        battery.Count(g => g.DefName == "Turret_MiniTurret") >= 3)
+                    {
+                        ExposureCoverage(layout, input.Terrain, battery, guns, guards,
+                            out int threats, out int answered);
+                        if (threats == 0 || answered != threats)
+                            errors.Add("crossing_hard_exposure_coverage");
+                    }
+                }
             }
             return errors.Distinct().ToList();
         }
@@ -202,6 +225,91 @@ namespace RealisticBases.Planning
             return side != null && side.Positions.Any(post => gun.Footprint.Min(c => Distance(post, c)) <= 14 &&
                 side.Samples.Count(target => gun.Footprint.Min(c => Distance(c, target)) <= 18 &&
                     P4BFireLane.CanEngage(post, target, 0, 25, opaque)) >= 2);
+        }
+
+        private static void ExposureCoverage(ProceduralLayout layout, TerrainSnapshot terrain,
+            IReadOnlyList<P4BTurretPlan> battery, IReadOnlyList<P4BTurretPlan> network,
+            IReadOnlyList<GridPoint> guards, out int threats, out int answered)
+        {
+            threats = 0; answered = 0;
+            HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, terrain);
+            HashSet<GridPoint> exposure = new HashSet<GridPoint>();
+            foreach (P4BTurretPlan gun in battery)
+            {
+                HashSet<GridPoint> incoming = new HashSet<GridPoint>(opaque);
+                incoming.ExceptWith(gun.Footprint);
+                for (int x = 0; x < terrain.Width; x += 2)
+                    for (int z = 0; z < terrain.Height; z += 2)
+                    {
+                        GridPoint cell = new GridPoint(x, z);
+                        if (layout.ApproachDefense.AttackerCanReach(cell) && Distance(gun.Origin, cell) <= 44.9 &&
+                            P4BFireLane.CanEngage(cell, gun.Origin, 0, 45, incoming)) exposure.Add(cell);
+                    }
+            }
+            threats = exposure.Count;
+            foreach (GridPoint cell in exposure)
+            {
+                bool slugBlind = battery.Where(g => g.DefName == "Turret_Sniper")
+                    .Any(slug => Distance(slug.Origin, cell) < slug.MinimumRange);
+                if (slugBlind)
+                {
+                    IEnumerable<P4BTurretPlan> batteryMinis = battery.Where(g =>
+                        g.DefName == "Turret_MiniTurret");
+                    if (batteryMinis.Any(mini => Distance(mini.Origin, cell) <= mini.MaximumRange &&
+                        P4BFireLane.CanEngage(mini.Origin, cell, 0,
+                            (int)Math.Floor(mini.MaximumRange), opaque))) answered++;
+                    continue;
+                }
+                bool answeredHere = guards.Any(post => Distance(post, cell) <= 44.9 &&
+                    P4BFireLane.CanEngage(post, cell, 0, 45, opaque));
+                if (!answeredHere)
+                    answeredHere = network.Where(g => g.DefName == "Turret_Sniper").Any(slug =>
+                    {
+                        double distance = Distance(slug.Origin, cell);
+                        HashSet<GridPoint> blockers = new HashSet<GridPoint>(opaque);
+                        blockers.ExceptWith(slug.Footprint);
+                        return distance >= slug.MinimumRange && distance <= slug.MaximumRange &&
+                            P4BFireLane.CanEngage(slug.Origin, cell, 12, 46, blockers);
+                    });
+                if (!answeredHere)
+                {
+                    IEnumerable<P4BTurretPlan> minis = network.Where(g => g.DefName == "Turret_MiniTurret");
+                    answeredHere = minis.Any(mini => Distance(mini.Origin, cell) <= mini.MaximumRange &&
+                        P4BFireLane.CanEngage(mini.Origin, cell, 0, (int)Math.Floor(mini.MaximumRange), opaque));
+                }
+                if (answeredHere) answered++;
+            }
+        }
+
+        private static int UnansweredExposure(ProceduralLayoutInput input, ProceduralLayout layout,
+            GridPoint origin, CatalogDef candidate, IReadOnlyList<P4BTurretPlan> previous,
+            IReadOnlyList<GridPoint> staffedPosts, HashSet<GridPoint> opaque)
+        {
+            if (layout.ApproachDefense == null) return 0;
+            int unanswered = 0;
+            for (int x = 0; x < input.Terrain.Width; x += 2)
+                for (int z = 0; z < input.Terrain.Height; z += 2)
+                {
+                    GridPoint cell = new GridPoint(x, z);
+                    if (!layout.ApproachDefense.AttackerCanReach(cell) || Distance(origin, cell) > 44.9 ||
+                        !P4BFireLane.CanEngage(cell, origin, 0, 45, opaque)) continue;
+                    bool answered = staffedPosts.Any(post => Distance(post, cell) <= 44.9 &&
+                        P4BFireLane.CanEngage(post, cell, 0, 45, opaque));
+                    if (!answered)
+                        answered = previous.Any(g =>
+                        {
+                            double distance = Distance(g.Origin, cell);
+                            if (distance < g.MinimumRange || distance > g.MaximumRange) return false;
+                            return P4BFireLane.CanEngage(g.Origin, cell,
+                                (int)Math.Ceiling(g.MinimumRange), (int)Math.Floor(g.MaximumRange), opaque);
+                        });
+                    if (!answered && candidate.DefName == "Turret_MiniTurret" &&
+                        Distance(origin, cell) <= candidate.MaximumRange)
+                        answered = P4BFireLane.CanEngage(origin, cell, 0,
+                            (int)Math.Floor(candidate.MaximumRange), opaque);
+                    if (!answered) unanswered++;
+                }
+            return unanswered;
         }
 
         // Core 1.6 sniper rifles have 44.9 range. The check is geometric: it
@@ -326,8 +434,8 @@ namespace RealisticBases.Planning
                 (int)Math.Ceiling(def.MinimumRange), (int)Math.Floor(def.MaximumRange), opaque));
             if (usefulTargets < 4) errors.Add("fire_lane");
             if (layout.Power == null ||
-                layout.Power.Generators * layout.Power.GeneratorWatts - layout.Power.CriticalWatts < turret.TotalWatts ||
-                layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.RenewableWatts -
+                layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.FirmWatts - layout.Power.CriticalWatts < turret.TotalWatts ||
+                layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.FirmWatts -
                     layout.Power.CriticalWatts - layout.Power.NonCriticalWatts < turret.TotalWatts ||
                 turret.Watts != def.BasePowerConsumption) errors.Add("power_budget");
             if (turret.LoadedFuelUnits != (int)Math.Ceiling(def.FuelCapacity * def.InitialFuelPercent / def.FuelMultiplier) ||
@@ -372,23 +480,99 @@ namespace RealisticBases.Planning
         {
             if (input == null || layout == null || fieldWall == null) throw new ArgumentNullException();
             SettlementLoadout garrison = LayoutLoadoutModel.Build(input, layout);
-            if (!garrison.Success || !garrison.Residents.Any(r => r.Weapon?.DefName == "Gun_SniperRifle"))
-            {
-                diagnostic = "unplaced: no_equipped_sniper_guard";
-                return null;
-            }
+            if (!garrison.Success)
+            { diagnostic = "unplaced: garrison_unavailable"; return null; }
             List<P4BTurretPlan> groups = new List<P4BTurretPlan>();
             List<string> decisions = new List<string>();
-            int fronts = layout.ApproachDefense?.Sides.Count(s => s.Exposed) ?? 1;
-            // The exposed-face count bounds group count; no fixed turret count or random field.
-            for (int i = 0; i < Math.Min(4, fronts); i++)
+            List<P4BPost> posts = (layout.ApproachDefense?.Posts ?? new P4BPost[0]).ToList();
+            var crossings = posts.GroupBy(p => p.AccessGate)
+                .Select(g =>
+                {
+                    P4BAttackSide side = layout.ApproachDefense.Sides.Where(s => g.Any(p => p.Side == s.Id))
+                        .OrderByDescending(s => s.Samples.Count).ThenBy(s => s.Id, StringComparer.Ordinal).First();
+                    return new { AccessGate = g.Key, Outward = side.Outward, Side = side.Id,
+                        Exposure = side.Samples.Count, Posts = g.Count() };
+                })
+                .OrderByDescending(c => c.Exposure).ThenBy(c => c.AccessGate).ThenBy(c => c.Outward).ToList();
+            if (crossings.Count == 0 && layout.ApproachDefense == null)
+                crossings.Add(new { AccessGate = fieldWall.OuterGate, Outward = new GridPoint(
+                    Math.Sign(fieldWall.OuterGate.X - fieldWall.InnerGate.Value.X),
+                    Math.Sign(fieldWall.OuterGate.Z - fieldWall.InnerGate.Value.Z)), Side = "field", Exposure = 1, Posts = 1 });
+            bool fullCountDefenseReserve = input.Requirements.DefenseReserveWatts >=
+                OrdinarySettlementPopulation.EstimateDefenseReserveWatts(input.Requirements.Stage);
+            P4BTurretPlan TryPlanGroup(string side, GridPoint? gate, bool miniOnly, bool heavyOnly,
+                out string reason)
             {
-                P4BTurretPlan next = PlanGroup(input, layout, fieldWall, occupied, groups, garrison, out string reason);
-                decisions.Add(reason);
-                if (next == null) break;
-                groups.Add(next);
+                return PlanGroup(input, layout, fieldWall, occupied, groups, garrison,
+                    side, gate, miniOnly, heavyOnly, fullCountDefenseReserve, out reason);
+            }
+            // Complete minimum batteries before any crossing receives a heavy or extra mini.
+            foreach (var crossing in crossings)
+            {
+                int crossingStart = groups.Count;
+                int count = 0;
+                while (count < 3)
+                {
+                    P4BTurretPlan next = TryPlanGroup(crossing.Side, crossing.AccessGate,
+                        true, false, out string reason);
+                    decisions.Add(crossing.AccessGate + "/" + crossing.Side + ":" + reason);
+                    if (next == null) break;
+                    groups.Add(next); count++;
+                }
+                if (count < 3)
+                {
+                    groups.RemoveRange(crossingStart, groups.Count - crossingStart);
+                    decisions.Add(crossing.AccessGate + "/" + crossing.Side + ":incomplete_battery_removed");
+                }
+            }
+            foreach (var crossing in crossings)
+            {
+                int miniCount = groups.SelectMany(g => g.All).Count(g => g.AccessGate.HasValue &&
+                    g.AccessGate.Value.Equals(crossing.AccessGate) && g.DefName == "Turret_MiniTurret");
+                if (miniCount < 3) continue;
+                for (int heavyIndex = 0; heavyIndex < 3 && miniCount < 6; heavyIndex++)
+                {
+                    P4BTurretPlan heavy = TryPlanGroup(crossing.Side, crossing.AccessGate,
+                        false, true, out string reason);
+                    decisions.Add(crossing.AccessGate + "/" + crossing.Side + ":heavy:" + reason);
+                    if (heavy == null) break;
+                    groups.Add(heavy);
+                    miniCount++;
+                }
+            }
+            foreach (var crossing in crossings)
+            {
+                int count = groups.SelectMany(g => g.All).Count(g => g.AccessGate.HasValue &&
+                    g.AccessGate.Value.Equals(crossing.AccessGate) && g.DefName == "Turret_MiniTurret");
+                while (count >= 3 && count < 6)
+                {
+                    P4BTurretPlan next = TryPlanGroup(crossing.Side, crossing.AccessGate,
+                        true, false, out string reason);
+                    decisions.Add(crossing.AccessGate + "/" + crossing.Side + ":" + reason);
+                    if (next == null) break;
+                    groups.Add(next); count++;
+                }
             }
             P4BTurretPlan network = Combine(input.Catalog, groups);
+            while (network != null)
+            {
+                List<string> finalErrors = Validate(input, layout, network, null, garrison).ToList();
+                if (finalErrors.Count == 0)
+                    finalErrors.AddRange(P4BApproachDefensePlanner.Validate(input,
+                        layout.WithTurret(input, network)));
+                if (finalErrors.Count == 0) break;
+                GridPoint? removedGate = groups[groups.Count - 1].AccessGate;
+                decisions.Add("final_validation_removed=" + removedGate + ":" + finalErrors[0]);
+                groups.RemoveAt(groups.Count - 1);
+                if (removedGate.HasValue && groups.SelectMany(g => g.All).Count(g =>
+                    g.AccessGate.HasValue && g.AccessGate.Value.Equals(removedGate.Value) &&
+                    g.DefName == "Turret_MiniTurret") < 3)
+                {
+                    groups.RemoveAll(g => g.AccessGate.HasValue && g.AccessGate.Value.Equals(removedGate.Value));
+                    decisions.Add("final_validation_removed_incomplete_battery=" + removedGate);
+                }
+                network = Combine(input.Catalog, groups);
+            }
             HashSet<GridPoint> finalOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
             finalOpaque.UnionWith(network?.All.SelectMany(t => t.Footprint) ?? Enumerable.Empty<GridPoint>());
             List<int> coverage = ApproachTargets(input, layout).Select(c => network?.All.Count(t =>
@@ -409,7 +593,9 @@ namespace RealisticBases.Planning
 
         private static P4BTurretPlan PlanGroup(ProceduralLayoutInput input, ProceduralLayout layout,
             P4BFieldWallPlan fieldWall, IEnumerable<GridPoint> occupied, List<P4BTurretPlan> groups,
-            SettlementLoadout garrison, out string diagnostic)
+            SettlementLoadout garrison, string onlySide, GridPoint? onlyGate, bool miniOnly, bool heavyOnly,
+            bool fullCountDefenseReserve,
+            out string diagnostic)
         {
             if (input == null || layout == null || fieldWall == null) throw new ArgumentNullException();
             if (!fieldWall.InnerGate.HasValue)
@@ -443,8 +629,10 @@ namespace RealisticBases.Planning
             if (layout.ApproachDefense != null)
                 // One frame per post facing a side: its slots stand side by side,
                 // so further slots would only repeat the same turret search.
-                frames.AddRange(layout.ApproachDefense.Sides.Where(s => s.Exposed).SelectMany(s =>
-                    layout.ApproachDefense.Posts.Select(p => new { Post = p, Slot = p.Slots.Cast<GridPoint?>()
+                frames.AddRange(layout.ApproachDefense.Sides.Where(s => s.Exposed &&
+                    (onlySide == null || s.Id == onlySide)).SelectMany(s =>
+                    layout.ApproachDefense.Posts.Where(p => !onlyGate.HasValue || p.AccessGate.Equals(onlyGate.Value))
+                    .Select(p => new { Post = p, Slot = p.Slots.Cast<GridPoint?>()
                         .FirstOrDefault(c => s.Positions.Contains(c.Value)) })
                     .Where(x => x.Slot.HasValue).Select(x => new Frame { Anchor = x.Slot.Value,
                         Gate = x.Post.AccessGate, Outward = s.Outward, Side = s.Id })));
@@ -455,13 +643,26 @@ namespace RealisticBases.Planning
                 P4BStaffing.Audit(input, layout, Combine(input.Catalog, groups), garrison);
             List<GridPoint> staffedPosts = currentStaffing == null ? new List<GridPoint>() :
                 currentStaffing.SniperPosts.Concat(currentStaffing.LinePosts).ToList();
+            Dictionary<GridPoint, int> exposureScores = new Dictionary<GridPoint, int>();
             Dictionary<string, int> rejected = new Dictionary<string, int>(StringComparer.Ordinal);
             input.Catalog.TryGet("Turret_Autocannon", out CatalogDef autocannon);
             input.Catalog.TryGet("Turret_Sniper", out CatalogDef slug);
-            IReadOnlyList<string> order = HeavyWeaponOrder(targets, frames.Select(f => f.Anchor),
+            if (onlySide != null && layout.ApproachDefense != null)
+                targets = layout.ApproachDefense.Sides.Where(s => s.Id == onlySide)
+                    .SelectMany(s => s.Samples).Distinct().OrderBy(c => c).ToList();
+            bool crossingHasStaffedSniper = currentStaffing != null && currentStaffing.SniperPosts.Any(post =>
+                layout.ApproachDefense?.Sides.Where(s => s.Id == onlySide).Any(s => s.Positions.Any(p =>
+                    Distance(p, post) <= 14 && s.Samples.Count(target =>
+                        P4BFireLane.CanEngage(post, target, 8, 44, opaque)) >= 4)) == true);
+            IReadOnlyList<string> order = miniOnly ? new[] { "Turret_MiniTurret" } : heavyOnly
+                ? (crossingHasStaffedSniper ? new[] { "Turret_Autocannon", "Turret_Sniper" } :
+                    new[] { "Turret_Sniper", "Turret_Autocannon" }) : HeavyWeaponOrder(targets, frames.Select(f => f.Anchor),
                 previous.Select(g => g.DefName), autocannon?.MaximumRange ?? 0, slug?.MaximumRange ?? 0);
             foreach (string name in order)
             {
+                int existingAtCrossing = previous.Count(g => g.AccessGate.HasValue && onlyGate.HasValue &&
+                    g.AccessGate.Value.Equals(onlyGate.Value) && g.DefName == name);
+                if (heavyOnly && existingAtCrossing >= (name == "Turret_Autocannon" ? 2 : 1)) continue;
                 if (!input.Catalog.TryGet(name, out CatalogDef def) ||
                     !input.Catalog.IsLegal(def, input.Equipment.Kit.Stage)) continue;
                 if (!def.AutonomousTurret || def.Fuel.Count != 1 || def.FuelCapacity <= 0 ||
@@ -485,9 +686,12 @@ namespace RealisticBases.Planning
                 // A deterministic bounded candidate set replaces the old
                 // field-gate-first rule. No gun is needed on every side.
                 var candidates = frames.SelectMany(frame => new[] { -1, 1 }.SelectMany(side =>
-                    new[] { 1, 2, 3, 4, 5, 7, 9, 11, 13, 15 }.SelectMany(forward => new[] { 8, 11, 14, 17, 20 }.Select(lateral => new
+                    new[] { 1, 2, 3, 4, 5, 7, 9, 11, 13, 15 }.SelectMany(forward =>
+                        new[] { 0, 2, 4, 6, 8, 10, 12, 14 }.Select(lateral => new
                     { Frame = frame, Side = side, Origin = At(frame.Anchor, frame.Outward,
                         new GridPoint(-frame.Outward.Z, frame.Outward.X), forward, side * lateral) }))))
+                    .Where(c => Distance(c.Frame.Anchor, c.Origin) >= def.ExplosionRadius + 2 &&
+                        Distance(c.Frame.Anchor, c.Origin) <= 14)
                     .Select(c => new { c.Frame, c.Side, c.Origin,
                         Gain = targets.Where(t => coverage[t] < 2 && P4BFireLane.CanEngage(c.Origin, t,
                             (int)Math.Ceiling(def.MinimumRange), (int)Math.Floor(def.MaximumRange), opaque))
@@ -513,14 +717,21 @@ namespace RealisticBases.Planning
                     .Where(c => c.Shots >= 4 && c.FrontShots >= 4 && c.Gain >= 4)
                     .Where(c => layout.ApproachDefense == null || layout.ApproachDefense.Sides.Any(s =>
                         s.Id == c.Frame.Side && s.Positions.Any(p => Distance(p, c.Origin) <= 14)))
-                    .OrderByDescending(c => c.Gain + c.MutualShots * 3 + c.FrontOpenGround / 8 -
+                    .OrderBy(c =>
+                    {
+                        if (!exposureScores.TryGetValue(c.Origin, out int score))
+                            exposureScores[c.Origin] = score = UnansweredExposure(input, layout, c.Origin,
+                                def, previous, staffedPosts, opaque);
+                        return score;
+                    })
+                    .ThenByDescending(c => c.Gain + c.MutualShots * 3 + c.FrontOpenGround / 8 -
                         Manhattan(c.Origin, c.Frame.Gate) / 4)
                     .ThenByDescending(c => c.FrontShots).ThenByDescending(c => c.Gain)
                     .ThenByDescending(c => c.FrontExposure)
                     .ThenByDescending(c => c.Sides).ThenByDescending(c => c.Shots)
                     .ThenByDescending(c => c.NewFront)
                     .ThenBy(c => Manhattan(c.Origin, c.Frame.Gate))
-                    .ThenBy(c => c.Frame.Side, StringComparer.Ordinal).ThenBy(c => c.Origin).ThenBy(c => c.Side);
+                    .ThenBy(c => c.Frame.Side, StringComparer.Ordinal).ThenBy(c => c.Origin).ThenBy(c => c.Side).ToList();
                 foreach (var candidate in candidates)
                         {
                             Frame frame = candidate.Frame;
@@ -541,17 +752,20 @@ namespace RealisticBases.Planning
                                 previous.Any(t => footprint.Any(f => t.Footprint.Any(c =>
                                     Distance(f, c) < Math.Max(def.ExplosionRadius, t.ExplosionRadius) + 2))))
                             { Reject("blast_clearance"); continue; }
-                            foreach (GridPoint service in footprint.SelectMany(c => Cardinal.Select(d =>
-                                new GridPoint(c.X + d.X, c.Z + d.Z))).Distinct()
-                                .OrderBy(c => Manhattan(c, frame.Gate)).ThenBy(c => c))
+                List<GridPoint> cover = CoverFor(input.Terrain, layout, footprint, blocked, opaque,
+                    facing, across, side);
+                if (cover == null) { Reject("turret_cover"); continue; }
+                List<GridPoint> services = footprint.SelectMany(c => Cardinal.Select(d =>
+                    new GridPoint(c.X + d.X, c.Z + d.Z))).Distinct()
+                    .Where(service => !footprint.Contains(service) && !blocked.Contains(service) &&
+                        Walkable(input.Terrain, service))
+                    .OrderBy(c => Manhattan(c, frame.Gate)).ThenBy(c => c).ToList();
+                Dictionary<GridPoint, List<GridPoint>> serviceRoutes = Routes(input.Terrain,
+                    frame.Gate, services, blocked, footprint);
+                foreach (GridPoint service in services)
                             {
-                                if (footprint.Contains(service) || blocked.Contains(service) || !Walkable(input.Terrain, service))
-                                    continue;
-                                List<GridPoint> route = Route(input.Terrain, frame.Gate, service, blocked, footprint);
-                                if (route == null) continue;
-                                List<GridPoint> cover = CoverFor(input.Terrain, layout, footprint, route,
-                                    blocked, opaque, facing, across, side);
-                                if (cover == null || previous.Any(t => t.ServiceRoute.Intersect(cover).Any()))
+                    if (!serviceRoutes.TryGetValue(service, out List<GridPoint> route)) continue;
+                    if (route.Intersect(cover).Any() || previous.Any(t => t.ServiceRoute.Intersect(cover).Any()))
                                 { Reject("turret_cover"); continue; }
                                 int coverValue = CoverImportValue(input, P4BCoverNest.CoverDefName(input), cover.Count);
                                 if (coverValue == int.MaxValue || baseValue + spentValue + value + coverValue >
@@ -567,16 +781,25 @@ namespace RealisticBases.Planning
                                     loadedUnits, reserveUnits, value + coverValue, support, cover,
                                     frame.Gate, facing, frame.Side);
                                 P4BTurretPlan network = Combine(input.Catalog, groups.Concat(new[] { proposed }));
-                                IReadOnlyList<string> networkErrors = Validate(input, layout, network, null, garrison);
-                                if (networkErrors.Count > 0) { Reject("network_" + networkErrors[0]); continue; }
-                                ProceduralLayout armed = layout.WithTurret(input, network);
-                                if (P4BApproachDefensePlanner.Validate(input, armed).Count > 0)
+                                IReadOnlyList<string> networkErrors = ValidateInternal(input, layout, network,
+                                    null, garrison,
+                                    onlyGroup: fullCountDefenseReserve ? proposed : null,
+                                    includeNetworkChecks: !fullCountDefenseReserve);
+                                if (networkErrors.Count > 0)
+                                {
+                                    Reject("network_" + networkErrors[0]); continue;
+                                }
+                                if (!P4BApproachDefensePlanner.TurretsPreserveAttackSlots(
+                                    layout, network.All.SelectMany(g => g.Footprint)))
                                 { Reject("post_lane_obstructed"); continue; }
-                                diagnostic = "accepted " + name + " side=" + frame.Side + " gain=" + candidate.Gain +
+                                diagnostic = "accepted " + name + " side=" + frame.Side + " gain=" + candidate.Gain + " gain>=4" +
                                     " staffedMutual=" + candidate.MutualShots + " approachSides=" + candidate.Sides +
                                     " approachSamples=" + candidate.Shots + " at=" + origin + " value=" + value +
                                     " loaded=" + loadedUnits + " reserve=" + reserveUnits +
-                                    (support == null ? string.Empty : " supportedBy=" + support.DefName);
+                                    (support == null ? string.Empty : " supportedBy=" + support.DefName) +
+                                    (rejected.Count == 0 ? string.Empty : " rejectedBefore=[" + string.Join(",",
+                                        rejected.OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                                            .Select(kv => kv.Key + ":" + kv.Value)) + "]");
                                 return proposed;
                             }
                             Reject("service_route");
@@ -683,14 +906,19 @@ namespace RealisticBases.Planning
                 if (DefendedAssets(layout).Any(c => footprint.Any(f => Distance(f, c) < mini.ExplosionRadius + 2)) ||
                     guns.Any(t => footprint.Any(f => t.Footprint.Any(c => Distance(f, c) < mini.ExplosionRadius + 2))))
                 { Reject("blast_clearance"); continue; }
-                foreach (GridPoint service in footprint.SelectMany(c => Cardinal.Select(d => new GridPoint(c.X + d.X, c.Z + d.Z)))
-                    .Distinct().OrderBy(c => Manhattan(c, frame.Gate)).ThenBy(c => c))
+                List<GridPoint> cover = CoverFor(input.Terrain, layout, footprint, blocked, opaque,
+                    facing, across, 1);
+                if (cover == null) { Reject("turret_cover"); continue; }
+                List<GridPoint> services = footprint.SelectMany(c => Cardinal.Select(d => new GridPoint(c.X + d.X, c.Z + d.Z)))
+                    .Distinct().Where(service => !footprint.Contains(service) && !blocked.Contains(service) &&
+                        Walkable(input.Terrain, service))
+                    .OrderBy(c => Manhattan(c, frame.Gate)).ThenBy(c => c).ToList();
+                Dictionary<GridPoint, List<GridPoint>> serviceRoutes = Routes(input.Terrain,
+                    frame.Gate, services, blocked, footprint);
+                foreach (GridPoint service in services)
                 {
-                    if (footprint.Contains(service) || blocked.Contains(service) || !Walkable(input.Terrain, service)) continue;
-                    List<GridPoint> route = Route(input.Terrain, frame.Gate, service, blocked, footprint);
-                    if (route == null) continue;
-                    List<GridPoint> cover = CoverFor(input.Terrain, layout, footprint, route, blocked, opaque, facing, across, 1);
-                    if (cover == null || guns.Any(t => t.ServiceRoute.Intersect(cover).Any()))
+                    if (!serviceRoutes.TryGetValue(service, out List<GridPoint> route)) continue;
+                    if (route.Intersect(cover).Any() || guns.Any(t => t.ServiceRoute.Intersect(cover).Any()))
                     { Reject("turret_cover"); continue; }
                     int coverValue = CoverImportValue(input, P4BCoverNest.CoverDefName(input), cover.Count);
                     if (coverValue == int.MaxValue) { Reject("cover_value"); continue; }
@@ -735,18 +963,19 @@ namespace RealisticBases.Planning
             if (value == int.MaxValue || baseValue + spentValue + heavyValue + value >
                 input.Requirements.ImportValueLimit) return null;
             int watts = spentWatts + heavyDef.BasePowerConsumption + mini.BasePowerConsumption;
-            if (layout.Power.Generators * layout.Power.GeneratorWatts - layout.Power.CriticalWatts < watts ||
-                layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.RenewableWatts -
+            if (layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.FirmWatts - layout.Power.CriticalWatts < watts ||
+                layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.FirmWatts -
                     layout.Power.CriticalWatts - layout.Power.NonCriticalWatts < watts) return null;
             GridPoint outer = frame.Anchor, outward = frame.Outward,
                 tangent = new GridPoint(-outward.Z, outward.X);
             HashSet<GridPoint> supportBlocked = new HashSet<GridPoint>(blocked);
             supportBlocked.UnionWith(heavy);
             supportBlocked.UnionWith(heavyCover);
-            foreach (int forward in new[] { 6, 7, 5, 8, 4, 3 })
-                for (int lateral = 5; lateral <= 19; lateral += 2)
+            foreach (int forward in new[] { 1, 2, 3, 4, 5, 7, 9, 11, 13, 15 })
+                foreach (int lateral in new[] { 0, 2, 4, 6, 8, 10, 12, 14 })
                 {
                     GridPoint origin = At(outer, outward, tangent, forward, -heavySide * lateral);
+                    if (Distance(outer, origin) < mini.ExplosionRadius + 2 || Distance(outer, origin) > 14) continue;
                     List<GridPoint> footprint = Enumerable.Range(0, mini.SizeX).SelectMany(x =>
                         Enumerable.Range(0, mini.SizeZ).Select(z =>
                             new GridPoint(origin.X + x, origin.Z + z))).ToList();
@@ -766,18 +995,21 @@ namespace RealisticBases.Planning
                             Distance(f, c) < Math.Max(mini.ExplosionRadius, t.ExplosionRadius) + 2)))) continue;
                     if (!CloseSupport(input.Terrain, layout, heavy, heavyDef.MinimumRange,
                         footprint, mini.MaximumRange, opaque)) continue;
-                    foreach (GridPoint service in footprint.SelectMany(c => Cardinal.Select(d =>
+                    List<GridPoint> cover = CoverFor(input.Terrain, layout, footprint, supportBlocked,
+                        opaque, outward, tangent, -heavySide);
+                    if (cover == null || cover.Intersect(heavyRoute).Any() ||
+                        previous.Any(t => t.ServiceRoute.Intersect(cover).Any())) continue;
+                    List<GridPoint> services = footprint.SelectMany(c => Cardinal.Select(d =>
                         new GridPoint(c.X + d.X, c.Z + d.Z))).Distinct()
-                        .OrderBy(c => Manhattan(c, frame.Gate)).ThenBy(c => c))
+                        .Where(service => !footprint.Contains(service) && !supportBlocked.Contains(service) &&
+                            Walkable(input.Terrain, service))
+                        .OrderBy(c => Manhattan(c, frame.Gate)).ThenBy(c => c).ToList();
+                    Dictionary<GridPoint, List<GridPoint>> serviceRoutes = Routes(input.Terrain,
+                        frame.Gate, services, supportBlocked, footprint);
+                    foreach (GridPoint service in services)
                     {
-                        if (footprint.Contains(service) || supportBlocked.Contains(service) ||
-                            !Walkable(input.Terrain, service)) continue;
-                        List<GridPoint> route = Route(input.Terrain, frame.Gate, service, supportBlocked, footprint);
-                        if (route == null || route.Intersect(heavy).Any()) continue;
-                        List<GridPoint> cover = CoverFor(input.Terrain, layout, footprint, route,
-                            supportBlocked, opaque, outward, tangent, -heavySide);
-                        if (cover == null || cover.Intersect(heavyRoute).Any() ||
-                            previous.Any(t => t.ServiceRoute.Intersect(cover).Any())) continue;
+                        if (!serviceRoutes.TryGetValue(service, out List<GridPoint> route) ||
+                            route.Intersect(heavy).Any() || route.Intersect(cover).Any()) continue;
                         int coverValue = CoverImportValue(input, P4BCoverNest.CoverDefName(input), cover.Count);
                         if (coverValue == int.MaxValue || baseValue + spentValue + heavyValue + value +
                             coverValue > input.Requirements.ImportValueLimit) continue;
@@ -822,8 +1054,7 @@ namespace RealisticBases.Planning
         }
 
         private static List<GridPoint> CoverFor(TerrainSnapshot terrain, ProceduralLayout layout,
-            IReadOnlyCollection<GridPoint> footprint, IReadOnlyCollection<GridPoint> serviceRoute,
-            HashSet<GridPoint> blocked, HashSet<GridPoint> opaque,
+            IReadOnlyCollection<GridPoint> footprint, HashSet<GridPoint> blocked, HashSet<GridPoint> opaque,
             GridPoint outward, GridPoint tangent, int side)
         {
             P4BFieldWallPlan fieldWall = layout.FieldWall;
@@ -831,7 +1062,7 @@ namespace RealisticBases.Planning
                 c.X + outward.X, c.Z + outward.Z))).Select(c => new GridPoint(
                 c.X + outward.X, c.Z + outward.Z)).Distinct().ToList();
             bool legal(GridPoint c) => !footprint.Contains(c) && !blocked.Contains(c) &&
-                !opaque.Contains(c) && !serviceRoute.Contains(c) && !Arrival(layout).Contains(c) &&
+                !opaque.Contains(c) && !Arrival(layout).Contains(c) &&
                 (fieldWall == null || !fieldWall.ExteriorPosts.Contains(c)) && Buildable(terrain, c);
             if (front.Count == 0 || front.Any(c => !legal(c))) return null;
             List<GridPoint> cover = new List<GridPoint>(front);
@@ -872,21 +1103,25 @@ namespace RealisticBases.Planning
         private static bool Buildable(TerrainSnapshot terrain, GridPoint c) => Walkable(terrain, c) &&
             terrain[c].Has(TerrainTraits.Buildable) && !terrain[c].Has(TerrainTraits.Roofed);
 
-        private static List<GridPoint> Route(TerrainSnapshot terrain, GridPoint start, GridPoint goal,
-            HashSet<GridPoint> blocked, IReadOnlyCollection<GridPoint> footprint)
+        private static Dictionary<GridPoint, List<GridPoint>> Routes(TerrainSnapshot terrain, GridPoint start,
+            IEnumerable<GridPoint> goals, HashSet<GridPoint> blocked, IReadOnlyCollection<GridPoint> footprint)
         {
+            HashSet<GridPoint> unresolved = new HashSet<GridPoint>(goals ?? Enumerable.Empty<GridPoint>());
+            Dictionary<GridPoint, List<GridPoint>> routes = new Dictionary<GridPoint, List<GridPoint>>();
+            if (unresolved.Count == 0) return routes;
             Queue<GridPoint> queue = new Queue<GridPoint>();
             Dictionary<GridPoint, GridPoint> previous = new Dictionary<GridPoint, GridPoint>();
             queue.Enqueue(start); previous[start] = start;
             while (queue.Count > 0 && previous.Count < 4096)
             {
                 GridPoint here = queue.Dequeue();
-                if (here.Equals(goal))
+                if (unresolved.Remove(here))
                 {
                     List<GridPoint> route = new List<GridPoint>();
-                    for (GridPoint c = goal; !c.Equals(start); c = previous[c]) route.Add(c);
+                    for (GridPoint c = here; !c.Equals(start); c = previous[c]) route.Add(c);
                     route.Add(start); route.Reverse();
-                    return route.Count <= 160 ? route : null;
+                    if (route.Count <= 160) routes.Add(here, route);
+                    if (unresolved.Count == 0) break;
                 }
                 foreach (GridPoint d in Cardinal)
                 {
@@ -897,7 +1132,7 @@ namespace RealisticBases.Planning
                     previous[next] = here; queue.Enqueue(next);
                 }
             }
-            return null;
+            return routes;
         }
 
         private static IEnumerable<GridPoint> Arrival(ProceduralLayout layout) => layout.Gates.SelectMany(g => g.ExteriorRoute);
@@ -939,9 +1174,9 @@ namespace RealisticBases.Planning
         }
 
         private static int Manhattan(GridPoint a, GridPoint b) => Math.Abs(a.X - b.X) + Math.Abs(a.Z - b.Z);
-        private static int AvailableWatts(ProceduralLayout layout) => layout.Power == null ? 0 : Math.Min(
-            layout.Power.Generators * layout.Power.GeneratorWatts - layout.Power.CriticalWatts,
-            layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.RenewableWatts -
+        internal static int AvailableWatts(ProceduralLayout layout) => layout.Power == null ? 0 : Math.Min(
+            layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.FirmWatts - layout.Power.CriticalWatts,
+            layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.FirmWatts -
                 layout.Power.CriticalWatts - layout.Power.NonCriticalWatts);
 
         // Shared wiring reservation: the field's inner gate/lane is a real

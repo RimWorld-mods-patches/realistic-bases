@@ -502,8 +502,8 @@ namespace RealisticBases.Planning
                     HashSet<GridPoint> newCompound = compoundCoverage(post);
                     if (Materials(input, layout, posts.Concat(new[] { post }), ports.Concat(
                         option.Gate.Port == null || ports.Any(p => p.Cell.Equals(option.Gate.Port.Cell))
-                            ? Enumerable.Empty<P4BSallyPort>() : new[] { option.Gate.Port })).ImportValue >
-                        input.Requirements.ImportValueLimit) continue;
+                            ? Enumerable.Empty<P4BSallyPort>() : new[] { option.Gate.Port })).OrdinaryImportValue >
+                        input.Requirements.BaseImportValueLimit) continue;
                     if (post.Side != side.Id)
                         post = new P4BPost(side.Id, post.Outward, post.AccessGate, post.Route, post.Slots,
                             post.CoverCells, post.WallReturn);
@@ -927,6 +927,31 @@ namespace RealisticBases.Planning
                     !Walkable(input.Terrain, c))))
                 errors.Add("perimeter_transit_occupancy");
             return errors;
+        }
+
+        internal static bool TurretsPreserveAttackSlots(ProceduralLayout layout,
+            IEnumerable<GridPoint> turretFootprints)
+        {
+            P4BApproachDefensePlan plan = layout?.ApproachDefense;
+            if (plan == null) return true;
+            HashSet<GridPoint> opaque = Opaque(layout);
+            opaque.UnionWith(turretFootprints ?? Enumerable.Empty<GridPoint>());
+            HashSet<GridPoint> firing = new HashSet<GridPoint>();
+            foreach (P4BPost post in plan.Posts)
+            {
+                int before = firing.Count;
+                firing.UnionWith(FiringSlots(post, plan.Sides, opaque));
+                if (firing.Count == before) return false;
+            }
+            foreach (P4BAttackSide side in plan.Sides)
+            {
+                if (side.Post.HasValue && side.Samples.Count(c =>
+                    P4BFireLane.CanEngage(side.Post.Value, c, 8, 25, opaque)) < 4) return false;
+                if (side.Positions.Any(p => !firing.Contains(p) ||
+                    !side.Faces.Any(face => Math.Abs(face.X - p.X) + Math.Abs(face.Z - p.Z) <= 6) ||
+                    side.Samples.Count(c => P4BFireLane.CanEngage(p, c, 8, 25, opaque)) < 4)) return false;
+            }
+            return true;
         }
 
         // An existing arrival route may share only the two outward gate-axis

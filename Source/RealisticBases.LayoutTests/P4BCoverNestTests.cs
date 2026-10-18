@@ -189,8 +189,13 @@ internal static partial class Program
     {
         ProceduralLayoutInput input = Input(Plains(180), LayoutRequirements.FromPopulation(12, Industrial, Temperate), seed,
             new LayoutFortificationReservation(1));
+        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
         ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+        watch.Stop();
         Accepted(result);
+        PrintTurretBatteryDiagnostics(input, result.Layout, "total12-seed" + seed,
+            watch.ElapsedMilliseconds, result.Diagnostics);
+        PrintPowerLedgerDiagnostics(input, result.Layout, "total12-seed" + seed);
         AssertCapacityDiagnostics(result, "flat-12-seed" + seed);
         PrintCapacityByWallScope(input, result, "flat-12-seed" + seed);
         if (seed == 1)

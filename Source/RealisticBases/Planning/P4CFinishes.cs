@@ -99,12 +99,11 @@ namespace RealisticBases.Planning
             if (input == null || layout == null || site == null) throw new ArgumentNullException();
             Dictionary<string, P4CFloorDef> defs = (available ?? Enumerable.Empty<P4CFloorDef>())
                 .ToDictionary(d => d.DefName, StringComparer.Ordinal);
-            int baseSpend = P4BApproachDefensePlanner.Materials(input, layout).ImportValue +
-                (layout.Turret?.ImportValue ?? 0);
+            int baseSpend = Math.Max(0, layout.Materials.OrdinaryImportValue);
             // This cap limits decorative wealth even on rich sites. Existing
             // defense and facility commitments have first claim on imports.
-            int allowance = Math.Max(0, Math.Min(input.Requirements.ImportValueLimit - baseSpend,
-                input.Requirements.ImportValueLimit * 35 / 100));
+            int allowance = Math.Max(0, Math.Min(input.Requirements.BaseImportValueLimit - baseSpend,
+                input.Requirements.BaseImportValueLimit * 35 / 100));
             int localWoodLeft = input.Resources.LocalWoodYield == int.MaxValue ? 0 :
                 Math.Max(0, input.Resources.LocalWoodYield - layout.Materials.LocalWoodUsed);
             int localWood = 0, spent = 0;

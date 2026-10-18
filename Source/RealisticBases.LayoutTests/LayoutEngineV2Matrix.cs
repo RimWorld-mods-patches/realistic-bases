@@ -243,6 +243,9 @@ internal static partial class Program
             {
                 run.Ok = true;
                 run.Coverage = WallCoverageMetrics.Measure(input, result.Layout);
+                if (run.Case.Name == "lakeshore-joint" && run.Seed == 1)
+                    PrintTurretBatteryDiagnostics(input, result.Layout, "shoreline-lakeshore-seed1", run.Ms,
+                        result.Diagnostics);
                 run.GateDetails = string.Join(";", result.Layout.Gates.Select((g, i) =>
                     i + "=" + g.Cell + "/" + g.Outward + "/route=" + g.ExteriorRoute.Count)) +
                     " field=" + (result.Layout.FieldWall == null ? "none" : result.Layout.FieldWall.GateIndex + ":" +

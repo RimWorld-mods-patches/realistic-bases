@@ -221,8 +221,9 @@ namespace RealisticBases.Planning
     {
         internal LayoutMaterialLedger(int wallCells, int doors, IDictionary<string, int> stuff, int constructionWood, int fuelWood,
             int localWoodUsed, int importedWood, int importValue, IEnumerable<string> unaccounted, IDictionary<string, int> costList,
-            string generatorFuelDef, int generatorFuel, int generatorFuelImported)
+            string generatorFuelDef, int generatorFuel, int generatorFuelImported, int defensePowerImportValue = 0)
         {
+            DefensePowerImportValue = defensePowerImportValue;
             GeneratorFuelDef = generatorFuelDef ?? string.Empty;
             GeneratorFuel = generatorFuel;
             GeneratorFuelImported = generatorFuelImported;
@@ -254,6 +255,8 @@ namespace RealisticBases.Planning
         // All imported wood, including wood generator fuel.
         public int ImportedWood { get; }
         // Market value of imported wood plus imported non-wood generator fuel.
+        public int DefensePowerImportValue { get; }
+        public int OrdinaryImportValue => Math.Max(0, ImportValue - DefensePowerImportValue);
         public int ImportValue { get; }
         // Stuffable defs whose stuff is neither the construction stuff nor wood (not charged here).
         public IReadOnlyList<string> UnaccountedStuffDefs { get; }
@@ -280,6 +283,7 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, GeneratorFuel);
             hash = StableHash.Add(hash, GeneratorFuelImported);
             hash = StableHash.Add(hash, ImportedWood);
+            hash = StableHash.Add(hash, DefensePowerImportValue);
             return StableHash.Add(hash, ImportValue);
         }
     }
@@ -376,17 +380,10 @@ namespace RealisticBases.Planning
             string stuff = ChooseConstructionStuff(kit, resources, seed);
             if (kit.Powered && kit.DispatchableOptions.Count > 0 && demand.Rejections.Count == 0)
             {
-                // Dispatchable fuel: wood when the local yield covers the stock after construction and
-                // other fuel, otherwise chemfuel when legal (imported), otherwise imported wood.
-                LayoutMaterialLedger withoutGenerators = EstimateLedger(kit, requirements, demand, resources, stuff, adapted, desiredGates, 0);
+                // Prefer legal chemfuel; use wood only when the chemfuel generator is unavailable.
+                CatalogDef chemfuel = kit.DispatchableOptions.FirstOrDefault(d => d.DefName == LayoutPowerModel.ChemfuelGenerator);
                 CatalogDef wood = kit.DispatchableOptions.FirstOrDefault(d => d.Fuel.Contains(Wood));
-                CatalogDef other = kit.DispatchableOptions.FirstOrDefault(d => !d.Fuel.Contains(Wood));
-                CatalogDef chosen = wood ?? other;
-                if (wood != null && other != null)
-                {
-                    long spare = (long)resources.LocalWoodYield - withoutGenerators.ConstructionWood - withoutGenerators.FuelWood;
-                    if (spare < LayoutPowerModel.FuelStock(wood, demand.PowerGenerators)) chosen = other;
-                }
+                CatalogDef chosen = chemfuel ?? wood ?? kit.DispatchableOptions.FirstOrDefault();
                 generatorChoice = chosen.DefName;
                 if (kit.Generator == null || kit.Generator.DefName != generatorChoice)
                 {
@@ -410,7 +407,7 @@ namespace RealisticBases.Planning
             else if (requirements.Climate.CoolingRequired && !kit.Resolved(SettlementRole.Cool)) rejection = ClimateControlUnresolved + ":Cool";
             else if (offset != null) rejection = InteractionOffsetUnsupported + ":" + offset;
             else if (kit.Powered && (kit.Generator == null || kit.Battery == null)) rejection = PowerEquipmentUnresolved;
-            else if (estimate.ImportValue > requirements.ImportValueLimit) rejection = MaterialBudgetExceeded;
+            else if (estimate.OrdinaryImportValue > requirements.BaseImportValueLimit || estimate.ImportValue > requirements.ImportValueLimit) rejection = MaterialBudgetExceeded;
             string perimeter = ChoosePerimeterStuff(kit, requirements, seed);
             if (perimeter != null) notes.Add("perimeter_stuff:" + perimeter);
             return new LayoutEquipment(kit, demand, resources, stuff, adapted, estimate, rejection, notes, perimeter);
@@ -433,7 +430,7 @@ namespace RealisticBases.Planning
             LayoutRoomDemand demand;
             if (!powerRooms.TryGetValue(key, out demand))
             {
-                demand = generators < 1 || generators > LayoutDemandModel.MaxSplit ? null
+                demand = generators < 0 ? null
                     : LayoutDemandModel.BuildPowerRoom(requirements, Kit, generators, batteries, LayoutSeed.Sub(seed, "rooms"));
                 powerRooms[key] = demand;
             }
@@ -528,11 +525,12 @@ namespace RealisticBases.Planning
                 P4EArtillery.ConstructionValue(Kit.Catalog, power.GeneratorDef);
             if (defensePower != int.MaxValue) defensePower *= power?.DefenseGenerators ?? 0;
             return Ledger(Kit, Resources, ConstructionStuff, StonecuttingAdapted, wallCells, doors, fixtures,
-                power == null ? 0 : power.FuelStock, defensePower);
+                power == null ? 0 : power.FuelStock, defensePower,
+                LayoutPowerModel.FuelStock(Kit.Generator, power?.DefenseGenerators ?? 0));
         }
 
         private static LayoutMaterialLedger Ledger(LayoutKit kit, LayoutLocalResources resources, string stuff, bool adapted, int wallCells,
-            int doors, IEnumerable<KeyValuePair<string, SettlementRole?>> fixtures, int generatorFuel, int defensePowerImports = 0)
+            int doors, IEnumerable<KeyValuePair<string, SettlementRole?>> fixtures, int generatorFuel, int defensePowerImports = 0, int defenseGeneratorFuel = 0)
         {
             TechCatalog catalog = kit.Catalog;
             Dictionary<string, int> stuffs = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -581,7 +579,9 @@ namespace RealisticBases.Planning
                     otherFuelImported * (generatorFuelDef == null ? 0 : generatorFuelDef.MarketValue));
             return new LayoutMaterialLedger(wallCells, doors, stuffs, constructionWood, fuelWood,
                 (int)(constructionWood + allFuelWood - imported), (int)imported, importValue, unaccounted, costs,
-                generatorFuelDef == null ? null : generatorFuelDef.DefName, generatorFuel, generatorImported);
+                generatorFuelDef == null ? null : generatorFuelDef.DefName, generatorFuel, generatorImported,
+                defensePowerImports + (int)Math.Ceiling(Math.Min(generatorImported, defenseGeneratorFuel) *
+                    (generatorFuelDef?.MarketValue ?? 0)));
         }
 
         // Fuel horizon covers fire pits (1x1 cooking campfires), torches, heat campfires and

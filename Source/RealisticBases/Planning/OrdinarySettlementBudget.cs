@@ -8,7 +8,8 @@ namespace RealisticBases.Planning
     public sealed class OrdinarySettlementBudget
     {
         internal OrdinarySettlementBudget(int wealthPercent, int equipmentValue, int importValue, int residentCost,
-            int defenseAllowancePercent = 100, int baseImportValue = -1)
+            int defenseAllowancePercent = 100, int baseImportValue = -1,
+            int defenseImportReserveValue = 0, int defenseReserveWatts = 0)
         {
             WealthPercent = wealthPercent;
             EquipmentValue = equipmentValue;
@@ -16,6 +17,8 @@ namespace RealisticBases.Planning
             StandardResidentCost = residentCost;
             DefenseAllowancePercent = defenseAllowancePercent;
             BaseImportValue = baseImportValue < 0 ? importValue : baseImportValue;
+            DefenseImportReserveValue = defenseImportReserveValue;
+            DefenseReserveWatts = defenseReserveWatts;
             Residents = OrdinarySettlementPopulation.AffordableResidents(equipmentValue, residentCost);
         }
 
@@ -26,6 +29,8 @@ namespace RealisticBases.Planning
         public int Residents { get; }
         public int DefenseAllowancePercent { get; }
         public int BaseImportValue { get; }
+        public int DefenseImportReserveValue { get; }
+        public int DefenseReserveWatts { get; }
     }
 
     public static class OrdinarySettlementPopulation
@@ -37,7 +42,12 @@ namespace RealisticBases.Planning
         public const int MaximumWealthPercent = 180;
         public const string Version = "ordinary-population.1";
         public const int P4EDefenseAllowancePercent = 125;
-        public const int P4EDefenseReserveWatts = 960;
+        public const int P4EMaxDefenseCrossings = 16;
+        public const int P4EMiniImportValue = 608;
+        public const int P4EAutocannonImportValue = 1937;
+        public const int P4ESlugImportValue = 2868;
+        // Approved ceiling relative to the wealth-scaled base import allowance.
+        public const int P4ETurretImportReservePercent = 1100;
 
         // Provisional relative-budget distribution. With the affordability rule,
         // these weights give populations 4..12 and an exact expected mean of 7.
@@ -86,7 +96,30 @@ namespace RealisticBases.Planning
                 stage.Level >= SettlementTechStageLevel.IndustrialMid;
             int allowance = industrialDefense ? (defenseAllowancePercent < 0 ? P4EDefenseAllowancePercent : defenseAllowancePercent) : 100;
             if (allowance < 100 || allowance > 150) throw new ArgumentOutOfRangeException(nameof(defenseAllowancePercent));
-            return new OrdinarySettlementBudget(wealthPercent, equipment, Scale(baseImports, allowance), residentCost, allowance, baseImports);
+            int defenseReserveWatts = industrialDefense ? EstimateDefenseReserveWatts(stage) : 0;
+            int fullDefenseImports = industrialDefense ? EstimateDefenseImportValue(stage) : 0;
+            int wealthCap = industrialDefense
+                ? Scale(baseImports, P4ETurretImportReservePercent) : 0;
+            int defenseImportReserve = Math.Min(fullDefenseImports, wealthCap);
+            int importValue = checked(Scale(baseImports, allowance) + defenseImportReserve);
+            return new OrdinarySettlementBudget(wealthPercent, equipment, importValue, residentCost,
+                allowance, baseImports, defenseImportReserve, defenseReserveWatts);
+        }
+
+        public static int EstimateDefenseReserveWatts(SettlementTechStage stage)
+        {
+            if (stage == null || stage.Level < SettlementTechStageLevel.IndustrialMid) return 0;
+            int heavies = stage.Level >= SettlementTechStageLevel.IndustrialLate ? 3 : 2;
+            return P4EMaxDefenseCrossings * (6 * 80 + heavies * 150);
+        }
+
+        public static int EstimateDefenseImportValue(SettlementTechStage stage)
+        {
+            if (stage == null || stage.Level < SettlementTechStageLevel.IndustrialMid) return 0;
+            int heavyImportPerCrossing = 2 * P4EAutocannonImportValue +
+                (stage.Level >= SettlementTechStageLevel.IndustrialLate ? P4ESlugImportValue : 0);
+            int miniImportPerCrossing = 6 * P4EMiniImportValue;
+            return checked(P4EMaxDefenseCrossings * (miniImportPerCrossing + heavyImportPerCrossing));
         }
 
         private static int Scale(int value, int percent) =>
