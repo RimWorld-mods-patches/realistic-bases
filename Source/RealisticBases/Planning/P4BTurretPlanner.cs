@@ -134,7 +134,9 @@ namespace RealisticBases.Planning
                 guns.Any(g => g.Support?.AdditionalGroups.Count > 0)) errors.Add("nested_groups");
             foreach (P4BTurretPlan group in turret.Groups)
             {
-                if (onlyGroup != null && !ReferenceEquals(group, onlyGroup)) continue;
+                if (onlyGroup != null && !ReferenceEquals(group, onlyGroup) &&
+                    (group.DefName != onlyGroup.DefName || !group.Origin.Equals(onlyGroup.Origin) ||
+                     !Nullable.Equals(group.AccessGate, onlyGroup.AccessGate))) continue;
                 List<P4BTurretPlan> others = guns.Except(new[] { group, group.Support }).ToList();
                 errors.AddRange(ValidateGroup(input, layout, group,
                     (additionalBlocked ?? Enumerable.Empty<GridPoint>()).Concat(others.SelectMany(t =>
@@ -752,9 +754,6 @@ namespace RealisticBases.Planning
                                 previous.Any(t => footprint.Any(f => t.Footprint.Any(c =>
                                     Distance(f, c) < Math.Max(def.ExplosionRadius, t.ExplosionRadius) + 2))))
                             { Reject("blast_clearance"); continue; }
-                List<GridPoint> cover = CoverFor(input.Terrain, layout, footprint, blocked, opaque,
-                    facing, across, side);
-                if (cover == null) { Reject("turret_cover"); continue; }
                 List<GridPoint> services = footprint.SelectMany(c => Cardinal.Select(d =>
                     new GridPoint(c.X + d.X, c.Z + d.Z))).Distinct()
                     .Where(service => !footprint.Contains(service) && !blocked.Contains(service) &&
@@ -763,11 +762,14 @@ namespace RealisticBases.Planning
                 Dictionary<GridPoint, List<GridPoint>> serviceRoutes = Routes(input.Terrain,
                     frame.Gate, services, blocked, footprint);
                 foreach (GridPoint service in services)
-                            {
+                {
                     if (!serviceRoutes.TryGetValue(service, out List<GridPoint> route)) continue;
+                    List<GridPoint> cover = CoverFor(input.Terrain, layout, footprint, blocked, opaque,
+                        facing, across, side, route);
+                    if (cover == null) { Reject("turret_cover"); continue; }
                     if (route.Intersect(cover).Any() || previous.Any(t => t.ServiceRoute.Intersect(cover).Any()))
-                                { Reject("turret_cover"); continue; }
-                                int coverValue = CoverImportValue(input, P4BCoverNest.CoverDefName(input), cover.Count);
+                    { Reject("turret_cover"); continue; }
+                    int coverValue = CoverImportValue(input, P4BCoverNest.CoverDefName(input), cover.Count);
                                 if (coverValue == int.MaxValue || baseValue + spentValue + value + coverValue >
                                     input.Requirements.ImportValueLimit) { Reject("cover_budget"); continue; }
                                 P4BTurretPlan support = null;
@@ -782,9 +784,7 @@ namespace RealisticBases.Planning
                                     frame.Gate, facing, frame.Side);
                                 P4BTurretPlan network = Combine(input.Catalog, groups.Concat(new[] { proposed }));
                                 IReadOnlyList<string> networkErrors = ValidateInternal(input, layout, network,
-                                    null, garrison,
-                                    onlyGroup: fullCountDefenseReserve ? proposed : null,
-                                    includeNetworkChecks: !fullCountDefenseReserve);
+                                    null, garrison, onlyGroup: proposed);
                                 if (networkErrors.Count > 0)
                                 {
                                     Reject("network_" + networkErrors[0]); continue;
@@ -1055,14 +1055,16 @@ namespace RealisticBases.Planning
 
         private static List<GridPoint> CoverFor(TerrainSnapshot terrain, ProceduralLayout layout,
             IReadOnlyCollection<GridPoint> footprint, HashSet<GridPoint> blocked, HashSet<GridPoint> opaque,
-            GridPoint outward, GridPoint tangent, int side)
+            GridPoint outward, GridPoint tangent, int side,
+            IReadOnlyCollection<GridPoint> serviceRoute = null)
         {
             P4BFieldWallPlan fieldWall = layout.FieldWall;
             List<GridPoint> front = footprint.Where(c => !footprint.Contains(new GridPoint(
                 c.X + outward.X, c.Z + outward.Z))).Select(c => new GridPoint(
                 c.X + outward.X, c.Z + outward.Z)).Distinct().ToList();
             bool legal(GridPoint c) => !footprint.Contains(c) && !blocked.Contains(c) &&
-                !opaque.Contains(c) && !Arrival(layout).Contains(c) &&
+                !opaque.Contains(c) && (serviceRoute == null || !serviceRoute.Contains(c)) &&
+                !Arrival(layout).Contains(c) &&
                 (fieldWall == null || !fieldWall.ExteriorPosts.Contains(c)) && Buildable(terrain, c);
             if (front.Count == 0 || front.Any(c => !legal(c))) return null;
             List<GridPoint> cover = new List<GridPoint>(front);
@@ -1134,6 +1136,11 @@ namespace RealisticBases.Planning
             }
             return routes;
         }
+
+        private static List<GridPoint> Route(TerrainSnapshot terrain, GridPoint start, GridPoint goal,
+            HashSet<GridPoint> blocked, IReadOnlyCollection<GridPoint> footprint) =>
+            Routes(terrain, start, new[] { goal }, blocked, footprint).TryGetValue(goal, out List<GridPoint> route)
+                ? route : null;
 
         private static IEnumerable<GridPoint> Arrival(ProceduralLayout layout) => layout.Gates.SelectMany(g => g.ExteriorRoute);
         private static IEnumerable<GridPoint> FieldContent(P4BFieldWallPlan fieldWall) => fieldWall == null
