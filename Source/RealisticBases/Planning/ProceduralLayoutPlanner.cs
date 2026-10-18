@@ -359,7 +359,10 @@ namespace RealisticBases.Planning
         public IReadOnlyList<GridPoint> BuiltWalls { get; }
         public IReadOnlyList<LayoutWallSection> OuterSections { get; }
         public IReadOnlyList<GridPoint> PerimeterReinforcement { get; }
-        public IEnumerable<GridPoint> OuterWalls => OuterSections.SelectMany(s => s.Cells).Concat(PerimeterReinforcement).Distinct();
+        public IEnumerable<GridPoint> OuterWalls => OuterSections.SelectMany(s => s.Cells)
+            .Concat(PerimeterReinforcement)
+            .Except(ApproachDefense?.SallyPorts.Where(p => !p.Field).SelectMany(p => p.Band) ?? Enumerable.Empty<GridPoint>())
+            .Distinct();
         public IReadOnlyList<GridPoint> NaturalWalls { get; }
         public IReadOnlyList<LayoutGate> Gates { get; }
         public IReadOnlyList<GridPoint> Excavation { get; }
@@ -431,20 +434,44 @@ namespace RealisticBases.Planning
         public ProceduralLayout WithFieldWall(ProceduralLayoutInput input, P4BFieldWallPlan fieldWall)
         {
             if (input == null || fieldWall == null) throw new ArgumentNullException(nameof(fieldWall));
-            List<LayoutGate> gates = Gates.Select((g, index) => index == fieldWall.GateIndex
-                ? new LayoutGate(g.Cell, g.Inside, g.Outward, g.BandDoors, g.BandWalls, g.OuterVestibule,
-                    g.Staging, fieldWall.ArrivalRoute, g.InnerVestibule, g.RockFace)
-                : g).ToList();
+            HashSet<int> retired = new HashSet<int>(fieldWall.RetiredGateIndices);
+            Dictionary<int, int> indexMap = new Dictionary<int, int>();
+            List<LayoutGate> gates = new List<LayoutGate>();
+            for (int index = 0; index < Gates.Count; index++)
+            {
+                if (retired.Contains(index)) continue;
+                LayoutGate g = Gates[index];
+                IReadOnlyList<GridPoint> route = index == fieldWall.GateIndex ? fieldWall.ArrivalRoute :
+                    fieldWall.OtherGateRoutes.TryGetValue(index, out IReadOnlyList<GridPoint> alternate) ? alternate : g.ExteriorRoute;
+                indexMap[index] = gates.Count;
+                gates.Add(new LayoutGate(g.Cell, g.Inside, g.Outward, g.BandDoors, g.BandWalls, g.OuterVestibule,
+                    g.Staging, route, g.InnerVestibule, g.RockFace));
+            }
+            if (!indexMap.TryGetValue(fieldWall.GateIndex, out int fieldGateIndex))
+                throw new InvalidOperationException("The field wall cannot retire its compound gate");
+            P4BFieldWallPlan adjustedFieldWall = fieldWall.RemapGates(fieldGateIndex, indexMap);
+            List<LayoutWallSection> outerSections = OuterSections.Where(s => !retired.Contains(s.GateIndex))
+                .Select(s => new LayoutWallSection(indexMap[s.GateIndex], s.Layer, s.Left, s.Right,
+                    s.LeftReturn, s.RightReturn)).ToList();
+            List<GridPoint> restoredOuter = OuterSections.Where(s => retired.Contains(s.GateIndex))
+                .SelectMany(s => s.Cells.Concat(s.LeftReturn).Concat(s.RightReturn)).ToList();
+            List<GridPoint> closedGateWalls = retired.SelectMany(i => Gates[i].BandDoors.Concat(Gates[i].BandWalls))
+                .Concat(restoredOuter).ToList();
+            List<GridPoint> builtWalls = BuiltWalls.Concat(retired.Select(i => Gates[i].Cell)).ToList();
+            List<GridPoint> perimeterReinforcement = PerimeterReinforcement.Concat(closedGateWalls).Distinct().ToList();
             LayoutMaterialLedger materials = input.Equipment.Count(Rooms,
-                BuiltWalls.Concat(gates.SelectMany(g => g.BandWalls)).Concat(OuterWalls)
-                    .Concat(ExhaustPocketWalls).Concat(fieldWall.Walls),
-                gates.Sum(g => 1 + g.BandDoors.Count) + 2 + (ApproachDefense?.SallyPorts.Count ?? 0), Power);
+                builtWalls.Concat(gates.SelectMany(g => g.BandWalls)).Concat(outerSections.SelectMany(s => s.Cells))
+                    .Concat(perimeterReinforcement).Concat(ExhaustPocketWalls).Concat(adjustedFieldWall.Walls),
+                gates.Sum(g => 1 + g.BandDoors.Count) + 2 + adjustedFieldWall.AccessPorts.Sum(p => p.Doors.Count) +
+                    (ApproachDefense?.SallyPorts.Sum(p => p.Doors.Count) ?? 0), Power);
             return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court,
-                Enclosure, BuiltWalls, NaturalWalls, gates, Excavation, RetainedThickRoof, ConstructedRoof,
+                Enclosure, builtWalls, NaturalWalls, gates, Excavation, RetainedThickRoof, ConstructedRoof,
                 WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
-                Notes.Concat(new[] { "fieldWall=" + fieldWall.Digest + " materials " + materials }),
+                Notes.Concat(new[] { "fieldWall=" + adjustedFieldWall.Digest + " retiredGates=" +
+                    string.Join(",", retired.OrderBy(i => i)) + " materials " + materials }),
                 TechStage, RolesDigest, EquipmentDigest, WallStuff, materials, Power,
-                ExhaustPockets, OuterSections, JointSite, fieldWall, Turret, ApproachDefense, PerimeterReinforcement, Courts, BonusFields);
+                ExhaustPockets, outerSections, JointSite, adjustedFieldWall, Turret, ApproachDefense,
+                perimeterReinforcement, Courts, BonusFields);
         }
 
         public ProceduralLayout WithApproachDefense(ProceduralLayoutInput input, P4BApproachDefensePlan defense)
@@ -452,13 +479,15 @@ namespace RealisticBases.Planning
             if (input == null || defense == null || Turret != null) throw new ArgumentException("Defense precedes turret selection");
             LayoutMaterialLedger materials = P4BApproachDefensePlanner.Materials(input, this,
                 defense.Posts, defense.SallyPorts);
-            P4BFieldWallPlan fieldWall = FieldWall?.WithoutWalls(defense.SallyPorts.Where(p => p.Field).Select(p => p.Cell));
+            P4BFieldWallPlan fieldWall = FieldWall?.WithoutWalls(defense.SallyPorts.Where(p => p.Field)
+                .SelectMany(p => p.Doors));
             return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court,
-                Enclosure, BuiltWalls.Except(defense.SallyPorts.Select(p => p.Cell)).Concat(defense.WallReturns),
+                Enclosure, BuiltWalls.Except(defense.SallyPorts.Where(p => !p.Field).Select(p => p.Cell)).Concat(defense.WallReturns),
                 NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof,
                 WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
                 Notes.Concat(new[] { "approachDefense=" + defense.Digest }), TechStage, RolesDigest,
-                EquipmentDigest, WallStuff, materials, Power, ExhaustPockets, OuterSections, JointSite, fieldWall, null, defense, PerimeterReinforcement, Courts, BonusFields);
+                EquipmentDigest, WallStuff, materials, Power, ExhaustPockets, OuterSections, JointSite, fieldWall, null, defense,
+                PerimeterReinforcement, Courts, BonusFields);
         }
 
         public ProceduralLayout WithTurret(ProceduralLayoutInput input, P4BTurretPlan turret)
@@ -996,7 +1025,8 @@ namespace RealisticBases.Planning
                     .Concat(layout.PowerYards.SelectMany(y => y.Cells))
                     .Concat(layout.AllFixtures.SelectMany(f => f.Cells))
                     .Concat(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex]))));
-                layout = layout.WithApproachDefense(input, P4BApproachDefensePlanner.Plan(input, layout));
+                P4BApproachDefensePlan defense = P4BApproachDefensePlanner.Plan(input, layout);
+                layout = layout.WithApproachDefense(input, defense);
                 fieldWall = layout.FieldWall;
                 violations = ProceduralLayoutValidator.Validate(input, layout);
                 if (violations.Count != 0)

@@ -229,7 +229,7 @@ namespace RealisticBases.Integration
                 Map.GetComponent<P4DMapState>().Clear();
             });
             controller.Initialize(Site, layout.Gates.Select(g => g.Cell)
-                .Concat(layout.ApproachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0]),
+                .Concat(layout.ApproachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? new GridPoint[0]),
                 encounter, Roster, tx.OwnedThings.Concat(Roster).Concat(Loot), artillery.FirstOrDefault(), combatStocks,
                 P4ProceduralSpawner.PerimeterSegments(layout, encounter.SupportCenter),
                 layout.Enclosure, compoundRegion: layout.Enclosure, artillery: artillery);

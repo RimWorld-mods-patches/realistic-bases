@@ -76,7 +76,7 @@ namespace RealisticBases.Planning
             Minimum(terrain, layout.Enclosure, layout.BuiltWalls.Concat(layout.OuterWalls)
                 .Concat(layout.NaturalWalls).Concat(layout.Gates.SelectMany(g =>
                     g.BandWalls.Concat(g.BandDoors).Concat(new[] { g.Cell })))
-                .Concat(layout.ApproachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0]),
+                .Concat(layout.ApproachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? new GridPoint[0]),
                 layout.Excavation, layout.WallLayers);
     }
 }

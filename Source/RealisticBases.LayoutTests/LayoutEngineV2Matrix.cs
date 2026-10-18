@@ -195,6 +195,11 @@ internal static partial class Program
         public int FoodWalk;
         public long Ms;
         public string Failure;
+        public WallCoverageMetrics Coverage;
+        public string Work;
+        public string FailureDetails;
+        public string GateDetails;
+        public string InputDetails;
     }
 
     // Plans are pure and independent, so the matrix runs them in parallel and
@@ -220,21 +225,42 @@ internal static partial class Program
             new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, run =>
         {
             ProceduralLayoutInput input = run.Case.Input(run.Seed);
+            string gateOverride = Environment.GetEnvironmentVariable("V2_GATES");
+            if (!string.IsNullOrEmpty(gateOverride))
+            {
+                LayoutFortificationReservation f = input.Fortification;
+                input = new ProceduralLayoutInput(input.Requirements, input.Terrain, input.Seed, input.Catalog,
+                    new LayoutFortificationReservation(f.WallLayers, f.Setback, f.OuterClearance, f.VestibuleDepth,
+                        int.Parse(gateOverride), f.MinimumGates), input.Budget, input.Resources, input.QuestContract, input.Engine);
+            }
+            run.InputDetails = "digest=" + input.Digest + " fortification=" + input.Fortification.WallLayers + "/" +
+                input.Fortification.DesiredGates + "/" + input.Fortification.MinimumGates;
             Stopwatch watch = Stopwatch.StartNew();
             ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: run.Case.JointSite);
             run.Ms = watch.ElapsedMilliseconds;
+            run.Work = result.Stats.ToString();
             if (result.Success && ProceduralLayoutValidator.Validate(input, result.Layout).Count == 0)
             {
                 run.Ok = true;
+                run.Coverage = WallCoverageMetrics.Measure(input, result.Layout);
+                run.GateDetails = string.Join(";", result.Layout.Gates.Select((g, i) =>
+                    i + "=" + g.Cell + "/" + g.Outward + "/route=" + g.ExteriorRoute.Count)) +
+                    " field=" + (result.Layout.FieldWall == null ? "none" : result.Layout.FieldWall.GateIndex + ":" +
+                        result.Layout.FieldWall.InnerGate + "->" + result.Layout.FieldWall.OuterGate);
                 run.Shared = SharedWallCells(result.Layout);
                 run.Overhead = V2Overhead(result.Layout);
                 run.Walled = V2Walled(result.Layout, input.Terrain);
                 run.FoodWalk = LayoutCandidateScore.WalkToFood(input, result.Layout);
                 if (run.Seed == 1) ExportLayout("v2m-" + run.Case.Name, result, input.Terrain);
             }
-            else run.Failure = run.Seed + ":" + (result.RejectionCode ?? "validator") + ":" +
-                string.Join("|", result.Diagnostics.Where(d => d.Stage == "attempt" || d.Stage == "validate" || d.Stage == "joint_site")
-                    .Select(d => d.Code).GroupBy(x => x).OrderByDescending(g => g.Count()).Take(3).Select(g => g.Key + "x" + g.Count()));
+            else
+            {
+                run.Failure = run.Seed + ":" + (result.RejectionCode ?? "validator") + ":" +
+                    string.Join("|", result.Diagnostics.Where(d => d.Stage == "attempt" || d.Stage == "validate" || d.Stage == "joint_site")
+                        .Select(d => d.Code).GroupBy(x => x).OrderByDescending(g => g.Count()).Take(3).Select(g => g.Key + "x" + g.Count()));
+                run.FailureDetails = string.Join("\n", result.Diagnostics.Where(d => d.Code.Contains("rejected") ||
+                    d.Code.Contains("unavailable") || d.Stage == "validate").Take(12).Select(d => "    " + d));
+            }
             // One progress line per finished plan; Console.WriteLine is thread-safe.
             int finished = System.Threading.Interlocked.Increment(ref done);
             int failures = run.Ok ? System.Threading.Volatile.Read(ref failed) : System.Threading.Interlocked.Increment(ref failed);
@@ -242,6 +268,13 @@ internal static partial class Program
                 (run.Case.Name + " seed" + run.Seed).PadRight(34) + (run.Ok ? " ok  " : " FAIL") + " " + run.Ms / 1000 + "s" +
                 " elapsed=" + wall.ElapsedMilliseconds / 1000 + "s failed=" + failures);
         });
+        foreach (V2MatrixRun run in runs.Where(r => r.Ok))
+            Console.WriteLine("  COVERAGE " + run.Case.Name + " seed=" + run.Seed + " " + run.Coverage +
+                " gates=" + run.GateDetails + " " + run.Work);
+        foreach (V2MatrixRun run in runs.Where(r => !r.Ok))
+            Console.WriteLine("  FAILUREDETAIL " + run.Case.Name + " seed=" + run.Seed + "\n" + run.FailureDetails);
+        foreach (V2MatrixRun run in runs)
+            Console.WriteLine("  INPUT " + run.Case.Name + " seed=" + run.Seed + " " + run.InputDetails);
         int[] totals = new int[2];
         foreach (IGrouping<string, V2MatrixRun> group in runs.GroupBy(r => r.Case.Name))
         {

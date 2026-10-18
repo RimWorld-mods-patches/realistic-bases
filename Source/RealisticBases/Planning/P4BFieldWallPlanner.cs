@@ -10,7 +10,9 @@ namespace RealisticBases.Planning
         internal P4BFieldWallPlan(int gateIndex, IEnumerable<GridPoint> fields,
             IEnumerable<GridPoint> walls, GridPoint outerGate, IEnumerable<GridPoint> exteriorPosts,
             GridPoint? innerGate = null, IEnumerable<GridPoint> access = null,
-            IEnumerable<GridPoint> arrivalRoute = null)
+            IEnumerable<GridPoint> arrivalRoute = null,
+            IEnumerable<KeyValuePair<int, IEnumerable<GridPoint>>> otherGateRoutes = null,
+            IEnumerable<P4BSallyPort> accessPorts = null, IEnumerable<int> retiredGateIndices = null)
         {
             GateIndex = gateIndex;
             Fields = new ReadOnlyCollection<GridPoint>(fields.OrderBy(c => c).ToList());
@@ -20,13 +22,30 @@ namespace RealisticBases.Planning
             InnerGate = innerGate;
             Access = new ReadOnlyCollection<GridPoint>((access ?? Enumerable.Empty<GridPoint>()).Distinct().OrderBy(c => c).ToList());
             ArrivalRoute = new ReadOnlyCollection<GridPoint>((arrivalRoute ?? Enumerable.Empty<GridPoint>()).ToList());
+            OtherGateRoutes = new System.Collections.ObjectModel.ReadOnlyDictionary<int, IReadOnlyList<GridPoint>>(
+                (otherGateRoutes ?? Enumerable.Empty<KeyValuePair<int, IEnumerable<GridPoint>>>())
+                    .OrderBy(pair => pair.Key).ToDictionary(pair => pair.Key,
+                        pair => (IReadOnlyList<GridPoint>)new ReadOnlyCollection<GridPoint>(pair.Value.ToList())));
+            AccessPorts = new ReadOnlyCollection<P4BSallyPort>((accessPorts ?? Enumerable.Empty<P4BSallyPort>())
+                .OrderBy(port => port.Cell).ToList());
+            RetiredGateIndices = new ReadOnlyCollection<int>((retiredGateIndices ?? Enumerable.Empty<int>())
+                .Distinct().OrderBy(index => index).ToList());
             ulong hash = StableHash.Add(StableHash.Start, "p4b-field-wall-3");
             hash = StableHash.Add(hash, gateIndex);
             hash = StableHash.Add(hash, outerGate.X); hash = StableHash.Add(hash, outerGate.Z);
             hash = StableHash.Add(hash, innerGate.HasValue ? innerGate.Value.X : -1);
             hash = StableHash.Add(hash, innerGate.HasValue ? innerGate.Value.Z : -1);
-            foreach (GridPoint c in Fields.Concat(Walls).Concat(ExteriorPosts).Concat(Access).Concat(ArrivalRoute))
+            foreach (GridPoint c in Fields.Concat(Walls).Concat(ExteriorPosts).Concat(Access).Concat(ArrivalRoute)
+                .Concat(OtherGateRoutes.OrderBy(pair => pair.Key).SelectMany(pair => pair.Value)))
             { hash = StableHash.Add(hash, c.X); hash = StableHash.Add(hash, c.Z); }
+            foreach (int otherGateIndex in OtherGateRoutes.Keys.OrderBy(index => index)) hash = StableHash.Add(hash, otherGateIndex);
+            foreach (P4BSallyPort port in AccessPorts)
+            {
+                hash = StableHash.Add(hash, port.Field ? 1 : 0);
+                foreach (GridPoint c in new[] { port.Inside, port.Outward }.Concat(port.Doors).Concat(port.InteriorRoute))
+                { hash = StableHash.Add(hash, c.X); hash = StableHash.Add(hash, c.Z); }
+            }
+            foreach (int retiredGateIndex in RetiredGateIndices) hash = StableHash.Add(hash, retiredGateIndex);
             Digest = hash.ToString("X16");
         }
 
@@ -38,11 +57,21 @@ namespace RealisticBases.Planning
         public GridPoint? InnerGate { get; }
         public IReadOnlyList<GridPoint> Access { get; }
         public IReadOnlyList<GridPoint> ArrivalRoute { get; }
+        public IReadOnlyDictionary<int, IReadOnlyList<GridPoint>> OtherGateRoutes { get; }
+        public IReadOnlyList<P4BSallyPort> AccessPorts { get; }
+        public IReadOnlyList<int> RetiredGateIndices { get; }
         public string Digest { get; }
 
         internal P4BFieldWallPlan WithoutWalls(IEnumerable<GridPoint> cells) =>
             new P4BFieldWallPlan(GateIndex, Fields, Walls.Except(cells), OuterGate, ExteriorPosts,
-                InnerGate, Access, ArrivalRoute);
+                InnerGate, Access, ArrivalRoute, OtherGateRoutes.Select(pair =>
+                    new KeyValuePair<int, IEnumerable<GridPoint>>(pair.Key, pair.Value)), AccessPorts, RetiredGateIndices);
+
+        internal P4BFieldWallPlan RemapGates(int gateIndex, IReadOnlyDictionary<int, int> mapping) =>
+            new P4BFieldWallPlan(gateIndex, Fields, Walls, OuterGate, ExteriorPosts, InnerGate, Access, ArrivalRoute,
+                OtherGateRoutes.Where(pair => mapping.ContainsKey(pair.Key)).Select(pair =>
+                    new KeyValuePair<int, IEnumerable<GridPoint>>(mapping[pair.Key], pair.Value)), AccessPorts,
+                Enumerable.Empty<int>());
     }
 
     // A small, bounded field bailey: two stepped returns join a gatehouse's
@@ -71,6 +100,11 @@ namespace RealisticBases.Planning
                 .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
                 .Concat(layout.PowerYards.SelectMany(y => y.Cells))
                 .Concat(layout.AllFixtures.SelectMany(f => f.Cells)));
+            // New field-wall connectors may run across an existing exterior
+            // route; that route is recomputed after the final connector. They
+            // cannot close gate doors or the vestibule between serial layers.
+            HashSet<GridPoint> connectorBlocked = new HashSet<GridPoint>(blocked.Concat(layout.Gates.SelectMany(g =>
+                g.OuterVestibule)));
             HashSet<GridPoint> baseline = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.NaturalWalls)
                 .Concat(layout.OuterWalls).Concat(layout.Gates.SelectMany(g => g.BandWalls)));
             HashSet<GridPoint> doors = new HashSet<GridPoint>(layout.Gates.Select(g => g.Cell)
@@ -114,13 +148,13 @@ namespace RealisticBases.Planning
                     if (leftArc.SetEquals(rightArc)) { rejected.Add("field_ring_not_split"); continue; }
                     if (!TouchesBaseline(leftArc, baseline))
                     {
-                        List<GridPoint> left = Connector(leftAnchor, edge[0], gate.Outward, tangent, blocked, baseline, field, input.Terrain);
+                        List<GridPoint> left = Connector(leftAnchor, edge[0], gate.Outward, tangent, connectorBlocked, baseline, field, input.Terrain);
                         if (left == null) { rejected.Add("connector_terrain_or_occupancy"); continue; }
                         connectors.AddRange(left);
                     }
                     if (!TouchesBaseline(rightArc, baseline))
                     {
-                        List<GridPoint> right = Connector(rightAnchor, edge[edge.Count - 1], gate.Outward, tangent, blocked, baseline, field, input.Terrain);
+                        List<GridPoint> right = Connector(rightAnchor, edge[edge.Count - 1], gate.Outward, tangent, connectorBlocked, baseline, field, input.Terrain);
                         if (right == null) { rejected.Add("connector_terrain_or_occupancy"); continue; }
                         connectors.AddRange(right);
                     }
@@ -129,6 +163,50 @@ namespace RealisticBases.Planning
                     if (wall.Overlaps(doors) || wall.Overlaps(option.Lane) || wall.Overlaps(option.Crops) ||
                         wall.Contains(option.InnerGate) || wall.Contains(option.OuterGate))
                     { rejected.Add("wall_overlap"); continue; }
+                    List<P4BSallyPort> accessPorts = new List<P4BSallyPort>();
+                    List<int> retiredGateIndices = new List<int>();
+                    foreach (var secondary in layout.Gates.Select((value, index) => new { Gate = value, Index = index })
+                        .Where(item => item.Index != gateIndex))
+                    {
+                        if (!wall.Contains(secondary.Gate.Staging)) continue;
+                        P4BSallyPort port = FieldPortAtStaging(input, site, option, wall, secondary.Gate);
+                        if (port == null)
+                        {
+                            if (layout.Gates.Count - retiredGateIndices.Count - 1 < input.Fortification.MinimumGates)
+                            { accessPorts.Clear(); retiredGateIndices.Clear(); break; }
+                            retiredGateIndices.Add(secondary.Index);
+                            continue;
+                        }
+                        accessPorts.Add(port);
+                    }
+                    if (layout.Gates.Count - retiredGateIndices.Count < input.Fortification.MinimumGates)
+                    { rejected.Add("field_wall_gate_minimum"); continue; }
+                    if (wall.Overlaps(layout.Gates.Select((g, index) => new { Gate = g, Index = index })
+                            .Where(item => !retiredGateIndices.Contains(item.Index)).SelectMany(item => item.Gate.OuterVestibule)) ||
+                        wall.Overlaps(layout.OuterSections.Where(s => !retiredGateIndices.Contains(s.GateIndex))
+                            .SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex]))))
+                    { rejected.Add("secondary_gate_staging_blocked"); continue; }
+                    if (layout.Gates.Select((g, index) => new { Gate = g, Index = index })
+                        .Where(item => !retiredGateIndices.Contains(item.Index) && item.Index != gateIndex)
+                        .Any(item => wall.Contains(item.Gate.Staging)) && accessPorts.Count == 0)
+                    { rejected.Add("secondary_gate_staging_field_inside_unavailable"); continue; }
+                    foreach (P4BSallyPort port in accessPorts)
+                    {
+                        int side = P4BApproachDefensePlanner.SideIndex(port.Outward);
+                        int[] sideCounts = new int[4];
+                        sideCounts[P4BApproachDefensePlanner.SideIndex(new GridPoint(-gate.Outward.X, -gate.Outward.Z))]++;
+                        sideCounts[P4BApproachDefensePlanner.SideIndex(gate.Outward)]++;
+                        if (side < 0 || sideCounts[side] >= P4BApproachDefensePlanner.MaxFieldGateCrossingsPerSide ||
+                            accessPorts.Count(p => P4BApproachDefensePlanner.SideIndex(p.Outward) == side) > 1)
+                        { accessPorts.Clear(); break; }
+                    }
+                    if (layout.Gates.Select((g, index) => new { Gate = g, Index = index })
+                        .Where(item => !retiredGateIndices.Contains(item.Index) && item.Index != gateIndex)
+                        .Any(item => wall.Contains(item.Gate.Staging)) &&
+                        accessPorts.Count == 0)
+                    { rejected.Add("field_gate_side_cap_or_interior_route"); continue; }
+                    wall.ExceptWith(accessPorts.SelectMany(port => port.Doors));
+                    doors.UnionWith(accessPorts.SelectMany(port => port.Doors));
                     if (Enumerable.Range(1, forward - 1).Any(k =>
                     {
                         GridPoint c = At(gate, tangent, 0, k);
@@ -157,6 +235,10 @@ namespace RealisticBases.Planning
                         baseline.Contains(c) || (blocked.Contains(c) && !c.Equals(gate.Staging))))
                     { rejected.Add("field_arrival_route"); continue; }
                     arrival.AddRange(outside);
+                    Dictionary<int, List<GridPoint>> otherGateRoutes = ReconnectSecondaryGates(input, layout,
+                        gateIndex, wall, arrival, retiredGateIndices);
+                    if (otherGateRoutes == null)
+                    { rejected.Add("secondary_gate_route_unavailable"); continue; }
                     HashSet<GridPoint> opaque = new HashSet<GridPoint>(baseline.Concat(wall).Concat(doors))
                         { option.InnerGate, option.OuterGate };
                     List<GridPoint> targets = Enumerable.Range(2, 20).Select(k => new GridPoint(
@@ -176,7 +258,9 @@ namespace RealisticBases.Planning
                     diagnostic = "accepted gate=" + gateIndex + " forward=" + forward + " inner=" + option.InnerGate;
                     return new P4BFieldWallPlan(gateIndex, option.Crops, wall, option.OuterGate,
                         option.PostClearance, option.InnerGate,
-                        option.Lane.Concat(option.PostAccess).Except(wall), arrival);
+                        option.Lane.Concat(option.PostAccess).Except(wall), arrival,
+                        otherGateRoutes.Select(pair => new KeyValuePair<int, IEnumerable<GridPoint>>(pair.Key, pair.Value)),
+                        accessPorts, retiredGateIndices);
                 }
             }
             diagnostic = "bestGateDistance=" + (bestDistance == int.MaxValue ? -1 : bestDistance) +
@@ -240,6 +324,71 @@ namespace RealisticBases.Planning
             return null;
         }
 
+        private static Dictionary<int, List<GridPoint>> ReconnectSecondaryGates(ProceduralLayoutInput input,
+            ProceduralLayout layout, int fieldGateIndex, HashSet<GridPoint> fieldWalls, List<GridPoint> fieldArrival,
+            IReadOnlyCollection<int> retiredGateIndices)
+        {
+            HashSet<GridPoint> blocked = new HashSet<GridPoint>(layout.Enclosure.Concat(layout.BuiltWalls)
+                .Concat(layout.NaturalWalls).Concat(layout.OuterWalls).Concat(layout.ExhaustPocketWalls)
+                .Concat(layout.Gates.SelectMany(g => g.BandDoors.Concat(g.BandWalls).Concat(g.OuterVestibule)
+                    .Concat(new[] { g.Cell })))
+                .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points())).Concat(layout.PowerYards.SelectMany(y => y.Cells))
+                .Concat(layout.AllFixtures.SelectMany(f => f.Cells)).Concat(layout.ExtraObstacles)
+                .Concat(layout.FieldWall?.Fields ?? Enumerable.Empty<GridPoint>())
+                .Concat(layout.FieldWall?.ExteriorPosts ?? Enumerable.Empty<GridPoint>())
+                .Concat(layout.JointSite?.AllPostClearance ?? Enumerable.Empty<GridPoint>())
+                .Concat(fieldWalls));
+            Dictionary<int, List<GridPoint>> routes = new Dictionary<int, List<GridPoint>>();
+            HashSet<GridPoint> usedRoutes = new HashSet<GridPoint>();
+            for (int index = 0; index < layout.Gates.Count; index++)
+            {
+                if (index == fieldGateIndex || retiredGateIndices.Contains(index)) continue;
+                LayoutGate gate = layout.Gates[index];
+                if (!gate.ExteriorRoute.Any(fieldWalls.Contains))
+                {
+                    usedRoutes.UnionWith(gate.ExteriorRoute);
+                    continue;
+                }
+                HashSet<GridPoint> routeBlocked = new HashSet<GridPoint>(blocked.Concat(usedRoutes));
+                routeBlocked.Remove(gate.Staging);
+                List<GridPoint> route = RouteFromStagingToEdge(input.Terrain, gate.Staging, routeBlocked,
+                    input.Budget.MaxRouteNodes);
+                if (route == null) return null;
+                routes[index] = route;
+                usedRoutes.UnionWith(route);
+            }
+            return routes;
+        }
+
+        private static List<GridPoint> RouteFromStagingToEdge(TerrainSnapshot terrain, GridPoint staging,
+            HashSet<GridPoint> blocked, int maxNodes)
+        {
+            if (!terrain.InBounds(staging) || !Walkable(terrain, staging) || blocked.Contains(staging)) return null;
+            Dictionary<GridPoint, GridPoint> previous = new Dictionary<GridPoint, GridPoint> { [staging] = staging };
+            Queue<GridPoint> queue = new Queue<GridPoint>();
+            queue.Enqueue(staging);
+            int visited = 0;
+            GridPoint? edge = null;
+            while (queue.Count > 0 && visited++ < maxNodes)
+            {
+                GridPoint here = queue.Dequeue();
+                if (terrain[here].Has(TerrainTraits.MapEdge)) { edge = here; break; }
+                foreach (GridPoint step in ProceduralLayoutPlanner.Cardinal)
+                {
+                    GridPoint next = new GridPoint(here.X + step.X, here.Z + step.Z);
+                    if (!terrain.InBounds(next) || blocked.Contains(next) || previous.ContainsKey(next) ||
+                        !Walkable(terrain, next)) continue;
+                    previous[next] = here; queue.Enqueue(next);
+                }
+            }
+            if (!edge.HasValue) return null;
+            List<GridPoint> route = new List<GridPoint>();
+            for (GridPoint c = edge.Value; ; c = previous[c])
+            { route.Add(c); if (c.Equals(staging)) break; }
+            route.Reverse();
+            return route;
+        }
+
         private static bool Walkable(TerrainSnapshot terrain, GridPoint c) => terrain.InBounds(c) &&
             (terrain[c].Has(TerrainTraits.Standable) || terrain[c].Has(TerrainTraits.ClearablePlant)) &&
             !terrain[c].HasAny(TerrainTraits.Water | TerrainTraits.NaturalRock | TerrainTraits.Occupied);
@@ -248,8 +397,8 @@ namespace RealisticBases.Planning
             GridPoint tangent, HashSet<GridPoint> occupied, HashSet<GridPoint> baseline,
             HashSet<GridPoint> field, TerrainSnapshot terrain)
         {
-            int minX = Math.Min(anchor.X, corner.X) - 4, maxX = Math.Max(anchor.X, corner.X) + 4;
-            int minZ = Math.Min(anchor.Z, corner.Z) - 4, maxZ = Math.Max(anchor.Z, corner.Z) + 4;
+            int minX = Math.Min(anchor.X, corner.X) - 8, maxX = Math.Max(anchor.X, corner.X) + 8;
+            int minZ = Math.Min(anchor.Z, corner.Z) - 8, maxZ = Math.Max(anchor.Z, corner.Z) + 8;
             Queue<GridPoint> queue = new Queue<GridPoint>();
             Dictionary<GridPoint, GridPoint> previous = new Dictionary<GridPoint, GridPoint>();
             queue.Enqueue(anchor);
@@ -281,6 +430,52 @@ namespace RealisticBases.Planning
                     }
                     previous[next] = here;
                     queue.Enqueue(next);
+                }
+            }
+            return null;
+        }
+
+        private static P4BSallyPort FieldPortAtStaging(ProceduralLayoutInput input, P4BJointSite site,
+            P4BFieldInterface fieldInterface, HashSet<GridPoint> wall, LayoutGate gate)
+        {
+            GridPoint cell = gate.Staging;
+            foreach (GridPoint outward in ProceduralLayoutPlanner.Cardinal)
+            {
+                GridPoint inside = new GridPoint(cell.X - outward.X, cell.Z - outward.Z);
+                if (!site.Field.Contains(inside) || !Walkable(input.Terrain, cell) ||
+                    !Walkable(input.Terrain, inside) || !input.Terrain[cell].Has(TerrainTraits.Buildable)) continue;
+                List<GridPoint> route = RouteFieldInterior(input.Terrain, site.Field, fieldInterface.InnerGate,
+                    inside, wall, fieldInterface.Crops);
+                if (route != null) return new P4BSallyPort(cell, inside, outward, true, route);
+            }
+            return null;
+        }
+
+        private static List<GridPoint> RouteFieldInterior(TerrainSnapshot terrain, GridRect field,
+            GridPoint entry, GridPoint target, HashSet<GridPoint> walls, IReadOnlyCollection<GridPoint> crops)
+        {
+            HashSet<GridPoint> blocked = new HashSet<GridPoint>(walls.Concat(crops ?? Array.Empty<GridPoint>()));
+            Dictionary<GridPoint, GridPoint> previous = new Dictionary<GridPoint, GridPoint> { [entry] = entry };
+            Queue<GridPoint> queue = new Queue<GridPoint>();
+            queue.Enqueue(entry);
+            int visited = 0;
+            while (queue.Count > 0 && visited++ < 2000)
+            {
+                GridPoint here = queue.Dequeue();
+                if (here.Equals(target))
+                {
+                    List<GridPoint> path = new List<GridPoint>();
+                    for (GridPoint c = target; ; c = previous[c])
+                    { path.Add(c); if (c.Equals(entry)) break; }
+                    path.Reverse();
+                    return path.Count <= 32 ? path : null;
+                }
+                foreach (GridPoint d in ProceduralLayoutPlanner.Cardinal)
+                {
+                    GridPoint next = new GridPoint(here.X + d.X, here.Z + d.Z);
+                    if (!field.Contains(next) || previous.ContainsKey(next) || blocked.Contains(next) ||
+                        !Walkable(terrain, next)) continue;
+                    previous[next] = here; queue.Enqueue(next);
                 }
             }
             return null;

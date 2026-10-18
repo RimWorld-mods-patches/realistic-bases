@@ -110,7 +110,7 @@ internal static partial class Program
         Run("P4B high-industrial settlement tolerates live-density flat clutter", P4BHighIndustrialFlatDensity, 75);
         Run("P4B joint reservation constrains detailed room packing", P4BJointPackingCases, 75);
         Run("P4B approach defense covers exposed sides and respects terrain", P4BApproachDefenseCases, 35);
-        Run("P4B public frontages repair weak sides without moving rooms or fields", P4BAccessFrontageCases, 185);
+        Run("P4B public frontages preserve useful arcs, field caps and compound fire", P4BAccessFrontageCases, 185);
         Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck, 20);
         Run("tech stage is stable per faction", TechStageStablePerFaction);
         Run("tech stage respects every faction band", TechStageBands);
@@ -976,6 +976,17 @@ internal static partial class Program
         P4BTurretPlan blocked = P4BTurretPlanner.Plan(input, layout, layout.FieldWall,
             terrain.Points(), out diagnostic);
         True(blocked == null, "occupied exterior rejects the optional turret");
+        GridPoint protectedSlot = layout.ApproachDefense.Posts.SelectMany(post => post.Slots).First();
+        List<GridPoint> laneFootprint = Enumerable.Range(0, turretDef.SizeX).SelectMany(dx =>
+            Enumerable.Range(0, turretDef.SizeZ).Select(dz => new GridPoint(protectedSlot.X + dx, protectedSlot.Z + dz)))
+            .OrderBy(c => c).ToList();
+        P4BTurretPlan laneBlocked = new P4BTurretPlan(turretDef, protectedSlot, laneFootprint,
+            turret.ServiceCell, turret.ServiceRoute, turret.FuelDefName, turret.LoadedFuelUnits,
+            turret.ReserveFuelUnits, turret.ImportValue, coverCells: turret.CoverCells,
+            accessGate: turret.AccessGate, outward: turret.Outward, side: turret.Side);
+        True(P4BApproachDefensePlanner.Validate(input, layout.WithTurret(input, laneBlocked))
+            .Contains("perimeter_post_access"),
+            "an occupied turret footprint cannot replace a connected defensive post slot");
         Equal(terrain.Digest, input.Terrain.Digest, "emplacement leaves terrain unchanged");
     }
 
@@ -1459,6 +1470,8 @@ internal static partial class Program
         P4BApproachDefensePlan rockDefense = P4BApproachDefensePlanner.Plan(rockInput, rectangle);
         True(!rockDefense.Sides.Single(s => s.Id == "west").Exposed,
             "solid rock blocks the conventional western approach and sightline");
+        True(rockDefense.SallyPorts.All(port => port.Outward.X != -1),
+            "a rock-backed west front gets no west crossing");
         True(rockDefense.Sides.Where(s => s.Id != "west").All(s => s.Exposed && s.Post.HasValue),
             "blocked west does not suppress the other attackable fronts");
         TerrainSnapshot lake = Build(160, 160, (x, z) => x >= 36 && x < 50 ? DeepWater : Ground);
@@ -1466,7 +1479,17 @@ internal static partial class Program
         P4BApproachDefensePlan lakeDefense = P4BApproachDefensePlanner.Plan(lakeInput, rectangle);
         P4BAttackSide west = lakeDefense.Sides.Single(s => s.Id == "west");
         True(west.Exposed, "reachable firing ground across water is not mistaken for an immune side");
+        HashSet<GridPoint> lakeOpaque = P4BApproachDefensePlanner.Opaque(rectangle, lake);
+        GridPoint[] westTargets = west.Faces.Select(face => new GridPoint(face.X + west.Outward.X,
+            face.Z + west.Outward.Z)).ToArray();
+        GridPoint[] westCompoundThreats = lakeDefense.Sides.SelectMany(s => s.Samples).Distinct().Where(sample =>
+            westTargets.Any(target => P4BFireLane.CanEngage(target, sample, 0, P4BCoverNest.ThreatRange, lakeOpaque))).ToArray();
         True(west.Post.HasValue, "dry corner shoulder supplies the threatened shoreline post: " + west.OmissionReason);
+        True(westCompoundThreats.Length > 0, "reachable ranged samples can see the west compound wall across water");
+        True(lakeDefense.Posts.Where(p => p.Side == "west").SelectMany(p => p.Slots).Any(slot =>
+            westCompoundThreats.Any(sample => P4BFireLane.CanEngage(slot, sample,
+                P4BCoverNest.MinimumRange, P4BCoverNest.MaximumRange, lakeOpaque))),
+            "the dry west shoulder has a defender with a useful ranged shot on a compound threat");
         True(lakeDefense.Posts.All(p => p.CoverCells.Concat(p.Route.Skip(1)).All(c => !lake[c].Has(TerrainTraits.Water))),
             "defenses and access do not assume bridges or water construction");
     }
@@ -1522,18 +1545,40 @@ internal static partial class Program
         ProceduralLayout fieldLayout = DefenseRectangle(input, fieldSite).WithFieldWall(input, fieldPlan)
             .WithAddedObstacles(new[] { new GridPoint(91, 60) });
         P4BApproachDefensePlan fieldDefense = P4BApproachDefensePlanner.Plan(input, fieldLayout);
-        True(fieldDefense.SallyPorts.Any(p => p.Field), "a field flank gets a sally port when the far arrival gate is blocked");
+        True(fieldDefense.CompoundTargetsCovered > 0,
+            "the blocked-field case retains useful compound-wall fire");
         ProceduralLayout fieldDefended = fieldLayout.WithApproachDefense(input, fieldDefense);
-        Equal(0, P4BApproachDefensePlanner.Validate(input, fieldDefended).Count,
-            "field sally gates have legal interior and exterior routes");
+        IReadOnlyList<string> fieldPortErrors = P4BApproachDefensePlanner.Validate(input, fieldDefended);
+        Equal(0, fieldPortErrors.Count,
+            "field access remains valid when no extra field opening improves compound coverage");
         Equal(string.Join(";", crops.OrderBy(c => c)), string.Join(";", fieldDefended.FieldWall.Fields),
-            "field sally access does not remove crops");
-        True(fieldDefense.SallyPorts.Where(p => p.Field).All(p => !fieldDefended.FieldWall.Walls.Contains(p.Cell) &&
-            p.InteriorRoute.First().Equals(fieldPlan.InnerGate.Value) && p.InteriorRoute.Last().Equals(p.Inside)),
-            "field sally port replaces a wall and routes from the existing compound entrance");
-        P4BSallyPort fieldPort = fieldDefense.SallyPorts.First(p => p.Field);
-        Contains(P4BApproachDefensePlanner.Validate(input, fieldDefended.WithAddedObstacles(new[] { fieldPort.Inside })),
-            "sally_port_public_connection");
+            "optional field-side defense access does not remove crops");
+        int[] fieldCounts = P4BApproachDefensePlanner.FieldGateCrossings(fieldDefended);
+        True(fieldCounts.All(count => count <= P4BApproachDefensePlanner.MaxFieldGateCrossingsPerSide),
+            "existing inner and outer field crossings remain within one per side");
+        int eastFieldSide = P4BApproachDefensePlanner.SideIndex(new GridPoint(1, 0));
+        True(fieldCounts[eastFieldSide] == 1, "the fixture begins with its required east-side field entrance");
+        P4BSallyPort overCapFieldPort = new P4BSallyPort(new GridPoint(95, 64), new GridPoint(94, 64),
+            new GridPoint(1, 0), field: true, interiorRoute: new[] { fieldPlan.InnerGate.Value, new GridPoint(94, 64) });
+        P4BApproachDefensePlan overCapFieldPlan = new P4BApproachDefensePlan(new GridPoint[0], fieldDefense.Sides,
+            fieldDefense.Posts, fieldDefense.TransitCells, fieldDefense.SallyPorts.Concat(new[] { overCapFieldPort }),
+            fieldDefense.CoverDefName, fieldDefense.Pack, fieldDefense.CompoundTargets,
+            fieldDefense.CompoundTargetsCovered, fieldDefense.CompoundGateCandidates);
+        ProceduralLayout overCapFieldLayout = fieldLayout.WithApproachDefense(input, overCapFieldPlan);
+        Contains(P4BApproachDefensePlanner.ValidateGateCaps(overCapFieldLayout), "field_gate_side_cap_east");
+        P4BSallyPort[] fieldPorts = fieldDefense.SallyPorts.Where(p => p.Field).ToArray();
+        if (fieldPorts.Length > 0)
+        {
+            True(fieldPorts.All(p => !fieldDefended.FieldWall.Walls.Contains(p.Cell) &&
+                p.InteriorRoute.First().Equals(fieldPlan.InnerGate.Value) && p.InteriorRoute.Last().Equals(p.Inside)),
+                "selected field sally ports replace a wall and route from the existing compound entrance");
+            foreach (P4BSallyPort fieldPort in fieldPorts)
+                Contains(P4BApproachDefensePlanner.Validate(input,
+                    fieldDefended.WithAddedObstacles(new[] { fieldPort.Inside })), "sally_port_public_connection");
+        }
+        else
+            True(fieldDefense.SallyPorts.All(port => !port.Field),
+                "the planner does not add a field-only opening after compound coverage is served");
         int repaired = 0;
         foreach (ulong seed in new ulong[] { 1, 2, 3, 4, 5, 6 })
         {
@@ -1547,30 +1592,57 @@ internal static partial class Program
             True(extensions.SelectMany(c => c.Cells).All(c => !result.Layout.Rooms.Any(r => r.Bounds.Contains(c)) &&
                 !result.Layout.JointSite.Field.Contains(c)), "access extensions preserve room and field reservations");
             HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(result.Layout, terrain);
+            HashSet<GridPoint> beforeTurrets = new HashSet<GridPoint>(opaque);
             opaque.UnionWith(result.Layout.Turret?.All.SelectMany(t => t.Footprint) ?? new GridPoint[0]);
             Console.WriteLine("  frontage seed=" + seed + " extensions=" + extensions.Length +
                 " fieldPorts=" + result.Layout.ApproachDefense.SallyPorts.Count(p => p.Field) + " sides=" +
                 string.Join(";", result.Layout.ApproachDefense.Sides.Select(s => s.Id + ":" +
                     P4BApproachDefensePlanner.CoveredSamples(s, opaque) +
                     "/" + s.Samples.Count)) + " decisions=" + string.Join(";", result.Diagnostics.Where(d => d.Stage == "defense_access")));
-            True(result.Layout.ApproachDefense.Sides.Where(s => s.Exposed).All(s =>
-                P4BApproachDefensePlanner.CoveredSamples(s, opaque) >= P4BApproachDefensePlanner.UsefulArc(s.Samples.Count)),
-                "every exposed flat side has a useful combined firing arc after final turret occupancy");
+            Console.WriteLine("  frontage-occupancy seed=" + seed + " turretSide=" +
+                (result.Layout.Turret?.Side ?? "none") + " sides=" + string.Join(";",
+                    result.Layout.ApproachDefense.Sides.Where(s => s.Exposed).Select(s => s.Id + ":" +
+                        P4BApproachDefensePlanner.CoveredSamples(s, beforeTurrets) + "/" + s.Samples.Count +
+                        "->" + P4BApproachDefensePlanner.CoveredSamples(s, opaque) + "/" + s.Samples.Count)) +
+                " turretFootprint=" + string.Join(",", result.Layout.Turret?.All.SelectMany(t => t.Footprint) ?? Enumerable.Empty<GridPoint>()));
+            foreach (P4BAttackSide side in result.Layout.ApproachDefense.Sides.Where(s => s.Exposed))
+            {
+                int before = P4BApproachDefensePlanner.CoveredSamples(side, beforeTurrets);
+                int after = P4BApproachDefensePlanner.CoveredSamples(side, opaque);
+                int threshold = P4BApproachDefensePlanner.UsefulArc(side.Samples.Count);
+                if (before >= threshold)
+                    True(after >= threshold, "turret preserves the already-useful " + side.Id + " approach arc");
+                bool gapReported = result.Diagnostics.Any(d => d.Stage == "defense_front" && d.Code == "gap" &&
+                    d.Detail.StartsWith(side.Id + " posts=", StringComparison.Ordinal));
+                bool usefulReported = result.Diagnostics.Any(d => d.Stage == "defense_front" && d.Code == "useful" &&
+                    d.Detail.StartsWith(side.Id + " posts=", StringComparison.Ordinal));
+                Equal(after < threshold, gapReported,
+                    "final " + side.Id + " geometric shortfall is reported accurately");
+                Equal(after >= threshold, usefulReported,
+                    "final " + side.Id + " useful arc is reported accurately");
+            }
         }
         True(repaired > 0, "flat packing corpus exercises actual frontage or field-side access repair");
     }
 
     private static ProceduralLayout DefenseRectangle(ProceduralLayoutInput input, P4BJointSite jointSite = null,
-        GridRect? boundsOverride = null)
+        GridRect? boundsOverride = null, GridPoint? gateOutwardOverride = null)
     {
         GridRect bounds = boundsOverride ?? new GridRect(50, 50, 21, 21);
+        GridPoint outward = gateOutwardOverride ?? new GridPoint(1, 0);
+        int middleX = (bounds.MinX + bounds.MaxX) / 2;
         int middleZ = (bounds.MinZ + bounds.MaxZ) / 2;
-        GridPoint gateCell = new GridPoint(bounds.MaxX, middleZ);
+        GridPoint gateCell = outward.X > 0 ? new GridPoint(bounds.MaxX, middleZ) :
+            outward.X < 0 ? new GridPoint(bounds.MinX, middleZ) : outward.Z > 0 ?
+                new GridPoint(middleX, bounds.MaxZ) : new GridPoint(middleX, bounds.MinZ);
         List<GridPoint> walls = bounds.Points().Where(c => c.X == bounds.MinX || c.Z == bounds.MinZ || c.X == bounds.MaxX || c.Z == bounds.MaxZ)
             .Where(c => !c.Equals(gateCell)).ToList();
-        LayoutGate gate = new LayoutGate(gateCell, new GridPoint(bounds.MaxX - 1, middleZ), new GridPoint(1, 0),
-            new GridPoint[0], new GridPoint[0], new GridPoint[0], new GridPoint(bounds.MaxX + 1, middleZ),
-            Enumerable.Range(1, 3).Select(d => new GridPoint(bounds.MaxX + d, middleZ)), new GridPoint[0], false);
+        GridPoint inside = new GridPoint(gateCell.X - outward.X, gateCell.Z - outward.Z);
+        GridPoint outer = new GridPoint(gateCell.X + outward.X, gateCell.Z + outward.Z);
+        LayoutGate gate = new LayoutGate(gateCell, inside, outward,
+            new GridPoint[0], new GridPoint[0], new GridPoint[0], outer,
+            Enumerable.Range(1, 3).Select(d => new GridPoint(gateCell.X + d * outward.X,
+                gateCell.Z + d * outward.Z)), new GridPoint[0], false);
         return new ProceduralLayout(input.Digest, input.Seed, LayoutDoctrine.OpenGround, false,
             new GridPoint(60, 60), new LayoutRoom[0], new LayoutCorridor[0], null,
             new GridRect(bounds.MinX + 1, bounds.MinZ + 1, bounds.Width - 2, bounds.Height - 2).Points(), walls, new GridPoint[0], new[] { gate },
@@ -2416,9 +2488,13 @@ internal static partial class Program
 
     private static void ExportLayout(string name, ProceduralLayoutResult result, bool roof = false)
     {
+        ExportLayout(name, result, TerrainFor(name), roof);
+    }
+
+    private static void ExportLayout(string name, ProceduralLayoutResult result, TerrainSnapshot terrain, bool roof = false)
+    {
         if (exportDir == null || !result.Success) return;
         Directory.CreateDirectory(exportDir);
-        TerrainSnapshot terrain = TerrainFor(name);
         string text = "# " + name + " (synthetic terrain; planner evidence only, not a live map)\n" + LayoutAsciiExport.Legend + "\n\n" +
             LayoutAsciiExport.Render(terrain, result.Layout);
         if (roof) text += "\nroof view:\n" + LayoutAsciiExport.RenderRoof(terrain, result.Layout);

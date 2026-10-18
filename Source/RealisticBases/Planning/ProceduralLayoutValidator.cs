@@ -27,7 +27,7 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> outer = new HashSet<GridPoint>(layout.OuterWalls);
             HashSet<GridPoint> natural = new HashSet<GridPoint>(layout.NaturalWalls);
             HashSet<GridPoint> gateCells = new HashSet<GridPoint>(layout.Gates.Select(g => g.Cell)
-                .Concat(layout.ApproachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0]));
+                .Concat(layout.ApproachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? new GridPoint[0]));
             HashSet<GridPoint> excavation = new HashSet<GridPoint>(layout.Excavation);
             HashSet<GridPoint> retained = new HashSet<GridPoint>(layout.RetainedThickRoof);
             HashSet<GridPoint> extra = new HashSet<GridPoint>(layout.ExtraObstacles);
@@ -48,7 +48,9 @@ namespace RealisticBases.Planning
                     .Concat(layout.Gates.Select(g => g.Cell))
                     .Concat(layout.Gates.SelectMany(g => g.BandDoors.Concat(g.BandWalls)))
                     .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
-                    .Concat(layout.PowerYards.SelectMany(y => y.Cells));
+                    .Concat(layout.PowerYards.SelectMany(y => y.Cells))
+                    .Concat(layout.ApproachDefense?.SallyPorts.Where(p => !p.Field)
+                        .SelectMany(p => p.Doors) ?? new GridPoint[0]);
                 if (compoundFootprint.Any(fieldReserve.Contains) ||
                     layout.ConstructedRoof.Any(fieldReserve.Contains))
                     errors.Add("joint_compound_consumes_field_or_defense");
@@ -72,15 +74,24 @@ namespace RealisticBases.Planning
                     IReadOnlyList<string> fieldErrors = P4BFieldWall.Validate(terrain, fieldWall.Fields,
                         baselineWalls, fieldWall.Walls,
                         layout.Gates.Select(g => g.Cell).Concat(layout.Gates.SelectMany(g => g.BandDoors))
-                            .Concat(layout.ApproachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0])
+                            .Concat(fieldWall.AccessPorts.SelectMany(p => p.Doors))
+                            .Concat(layout.ApproachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? new GridPoint[0])
                             .Concat(new[] { fieldEntry, fieldWall.OuterGate }),
                         fieldWall.ExteriorPosts, layout.Gates[fieldWall.GateIndex].Inside, layout.ConstructedRoof);
                     foreach (string error in fieldErrors) errors.Add("joint_" + error);
-                    if (!layout.Gates[fieldWall.GateIndex].ExteriorRoute.SequenceEqual(fieldWall.ArrivalRoute) ||
-                        layout.Gates.Any(g => g.ExteriorRoute.Any(fieldWall.Walls.Contains)) ||
-                        !fieldWall.ArrivalRoute.Contains(fieldEntry) ||
-                        !fieldWall.ArrivalRoute.Contains(fieldWall.OuterGate))
-                        errors.Add("joint_arrival_route_blocked_or_misaligned");
+                    if (!layout.Gates[fieldWall.GateIndex].ExteriorRoute.SequenceEqual(fieldWall.ArrivalRoute))
+                        errors.Add("joint_arrival_route_not_registered_on_compound_gate");
+                    string[] fieldWallCrossings = layout.Gates.Select((g, index) => new { Gate = g, Index = index })
+                        .Where(item => item.Index != fieldWall.GateIndex)
+                        .SelectMany(item => item.Gate.ExteriorRoute.Where(fieldWall.Walls.Contains)
+                            .Select(cell => item.Index + "@" + item.Gate.Cell + "/" + item.Gate.Outward + "/" + cell +
+                                "/rerouted=" + fieldWall.OtherGateRoutes.ContainsKey(item.Index) +
+                                "/route=" + string.Join(";", item.Gate.ExteriorRoute)))
+                        .ToArray();
+                    if (fieldWallCrossings.Length > 0)
+                        errors.Add("joint_other_gate_route_crosses_field_wall:" + string.Join(",", fieldWallCrossings));
+                    if (!fieldWall.ArrivalRoute.Contains(fieldEntry) || !fieldWall.ArrivalRoute.Contains(fieldWall.OuterGate))
+                        errors.Add("joint_arrival_route_missing_field_gate");
                     if (fieldWall.Walls.Any(c => enclosure.Contains(c) ||
                         layout.Rooms.Any(r => r.Bounds.Contains(c)) ||
                         layout.PowerYards.Any(y => y.Cells.Contains(c)) ||
@@ -92,6 +103,7 @@ namespace RealisticBases.Planning
 
             if (layout.ApproachDefense != null)
                 foreach (string error in P4BApproachDefensePlanner.Validate(input, layout)) errors.Add(error);
+            foreach (string error in P4BApproachDefensePlanner.ValidateGateCaps(layout)) errors.Add(error);
 
             // Terrain legality and the excavation ledger.
             if (built.Any(c => grid.At(c) != LayoutCellClass.Open && grid.At(c) != LayoutCellClass.Covered)) errors.Add("built_wall_illegal_terrain");
@@ -163,7 +175,7 @@ namespace RealisticBases.Planning
                     .Concat(layout.ExhaustPocketWalls).Concat(layout.FieldWall == null
                         ? Enumerable.Empty<GridPoint>() : layout.FieldWall.Walls),
                 layout.Gates.Sum(g => 1 + g.BandDoors.Count) + (layout.FieldWall == null ? 0 : 2) +
-                    (layout.ApproachDefense?.SallyPorts.Count ?? 0), layout.Power,
+                    (layout.ApproachDefense?.SallyPorts.Sum(p => p.Doors.Count) ?? 0), layout.Power,
                 layout.Turret == null ? Enumerable.Empty<string>() :
                     Enumerable.Repeat(P4BCoverNest.CoverDefName(input), layout.Turret.All.Sum(t => t.CoverCells.Count))
                         .Concat(layout.Turret.All.Select(t => t.DefName)));
@@ -173,7 +185,7 @@ namespace RealisticBases.Planning
                     layout.BuiltWalls.Concat(layout.Gates.SelectMany(g => g.BandWalls)).Concat(layout.OuterWalls)
                         .Concat(layout.ExhaustPocketWalls).Concat(layout.FieldWall?.Walls ?? Enumerable.Empty<GridPoint>()),
                     layout.Gates.Sum(g => 1 + g.BandDoors.Count) + (layout.FieldWall == null ? 0 : 2) +
-                        (layout.ApproachDefense?.SallyPorts.Count ?? 0), layout.Power);
+                        (layout.ApproachDefense?.SallyPorts.Sum(p => p.Doors.Count) ?? 0), layout.Power);
             // Turret.ImportValue contains its construction and finite fuel.
             // The stored materials ledger already contains construction, so
             // budget from the pre-turret ledger to avoid charging it twice.
@@ -584,7 +596,7 @@ namespace RealisticBases.Planning
             if (wallLight == null) return;
             HashSet<GridPoint> openings = new HashSet<GridPoint>(layout.Gates.Select(g => g.Cell)
                 .Concat(layout.Gates.SelectMany(g => g.BandDoors)).Concat(layout.Rooms.SelectMany(r => r.Doors))
-                .Concat(layout.ApproachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0])
+                .Concat(layout.ApproachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? new GridPoint[0])
                 .Concat(layout.Rooms.SelectMany(r => r.Fixtures).Where(f => LayoutFixtureKinds.ThroughWall(f.Kind)).SelectMany(f => f.Cells)));
             HashSet<KeyValuePair<GridPoint, string>> mounts = new HashSet<KeyValuePair<GridPoint, string>>();
             foreach (LayoutRoom room in layout.Rooms)
@@ -695,7 +707,8 @@ namespace RealisticBases.Planning
             return touchesWall && fixture.Cells.Any(c => new GridPoint(c.X + fixture.Facing.X, c.Z + fixture.Facing.Z).Equals(access));
         }
 
-        public static IReadOnlyCollection<GridPoint> PublicCirculation(ProceduralLayoutInput input, ProceduralLayout layout)
+        public static IReadOnlyCollection<GridPoint> PublicCirculation(ProceduralLayoutInput input, ProceduralLayout layout,
+            bool includeDefenseConnectors = true)
         {
             LayoutTerrainGrid grid = LayoutTerrainGrid.Build(input.Terrain, 0, input.Resources.GeyserFootprints());
             HashSet<GridPoint> enclosure = new HashSet<GridPoint>(layout.Enclosure);
@@ -704,8 +717,12 @@ namespace RealisticBases.Planning
                 .Concat(layout.Courts.SelectMany(c => c.Cells))
                 .Concat(layout.ExhaustPockets.Select(p => p.Cell)).Concat(layout.ExhaustPocketWalls));
             if (layout.Gates.Count == 0) return new GridPoint[0];
-            return Flood(layout.Gates[0].Inside, c => enclosure.Contains(c) && !blocked.Contains(c) &&
+            HashSet<GridPoint> result = Flood(layout.Gates[0].Inside, c => enclosure.Contains(c) && !blocked.Contains(c) &&
                 (excavation.Contains(c) || grid.At(c) == LayoutCellClass.Open || grid.At(c) == LayoutCellClass.Covered));
+            if (includeDefenseConnectors)
+                result.UnionWith(layout.ApproachDefense?.SallyPorts.Where(p => !p.Field)
+                    .SelectMany(p => p.InteriorRoute) ?? Enumerable.Empty<GridPoint>());
+            return P4BAttackSide.Copy(result);
         }
 
         public static IReadOnlyList<GridPoint> MagazineLoadingRoute(ProceduralLayoutInput input, ProceduralLayout layout, LayoutFixture court = null)
@@ -915,7 +932,7 @@ namespace RealisticBases.Planning
     public static class LayoutAsciiExport
     {
         public const string Legend =
-            "legend: '#' built wall  '^' intact rock  'G' gate  'D' door  '=' street  ',' public yard  '.' room floor  'i' interaction/access\n" +
+            "legend: '#' built wall  '^' intact rock  'G' compound arrival gate  'Q' compound defense crossing  'q' field crossing  'D' room door  '=' street  ',' public yard  '.' room floor  'i' interaction/access\n" +
             "        B bed  P prison bed  H medical bed  S stove  W workbench  T table  c chair  R recreation  _ stockpile  h heater\n" +
             "        f campfire  C wall cooler  p passive cooler  L lamp  t torch  E generator  A battery  M mortar court  V vitals monitor  k shelf\n" +
             "        Y power yard (solar/wind/geothermal)  w wind clear zone  x cooler exhaust pocket (sealed, unroofed)\n" +
@@ -965,14 +982,17 @@ namespace RealisticBases.Planning
                 foreach (GridPoint c in layout.FieldWall.Fields) map[c] = 'F';
                 foreach (GridPoint c in layout.FieldWall.Walls) map[c] = '#';
                 foreach (GridPoint c in new[] { layout.FieldWall.OuterGate }.Concat(layout.FieldWall.InnerGate.HasValue
-                    ? new[] { layout.FieldWall.InnerGate.Value } : new GridPoint[0])) map[c] = 'G';
+                    ? new[] { layout.FieldWall.InnerGate.Value } : new GridPoint[0])) map[c] = 'q';
+                foreach (P4BSallyPort port in layout.FieldWall.AccessPorts)
+                    foreach (GridPoint door in port.Doors) map[door] = 'q';
             }
             foreach (P4BPost post in layout.ApproachDefense?.Posts ?? Enumerable.Empty<P4BPost>())
             {
                 foreach (GridPoint c in post.CoverCells) map[c] = 'b';
                 foreach (GridPoint c in post.Slots) map[c] = '@';
             }
-            foreach (P4BSallyPort port in layout.ApproachDefense?.SallyPorts ?? Enumerable.Empty<P4BSallyPort>()) map[port.Cell] = 'G';
+            foreach (P4BSallyPort port in layout.ApproachDefense?.SallyPorts ?? Enumerable.Empty<P4BSallyPort>())
+                foreach (GridPoint door in port.Doors) map[door] = port.Field ? 'q' : 'Q';
             foreach (P4BTurretPlan turret in layout.Turret?.All ?? Enumerable.Empty<P4BTurretPlan>())
             {
                 foreach (GridPoint c in turret.CoverCells) map[c] = 'b';

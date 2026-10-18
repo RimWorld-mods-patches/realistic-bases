@@ -77,7 +77,7 @@ namespace RealisticBases.Generation
                 .Concat(layout.ExhaustPocketWalls));
             HashSet<GridPoint> doors = new HashSet<GridPoint>(layout.Gates.Select(g => g.Cell)
                 .Concat(layout.Gates.SelectMany(g => g.BandDoors)).Concat(layout.Rooms.SelectMany(r => r.Doors))
-                .Concat(approachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0]));
+                .Concat(approachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? new GridPoint[0]));
             foreach (LayoutRoom room in layout.Rooms)
                 foreach (GridPoint c in room.Bounds.Points())
                     if (room.IsEdge(c) && !natural.Contains(c) && !doors.Contains(c) && !coolers.Contains(c)) walls.Add(c);
@@ -189,7 +189,8 @@ namespace RealisticBases.Generation
             foreach (P4BSallyPort port in approachDefense?.SallyPorts ?? Enumerable.Empty<P4BSallyPort>())
                 P2Log.Message("PROCEDURAL_SALLY_PORT_PLAN", "map=" + map.uniqueID + " gate=" + port.Cell +
                     " inside=" + port.Inside + " outward=" + port.Outward + " field=" + port.Field +
-                    " interiorRouteCells=" + port.InteriorRoute.Count + " reinforced=false");
+                    " interiorRouteCells=" + port.InteriorRoute.Count + " reinforced=" + (port.Band.Count > 0) +
+                    " doors=" + port.Doors.Count + " outer=" + port.Outer);
             foreach (GridPoint c in structures.Concat(fields).Concat(serviceCells)
                 .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() : fieldWall.ExteriorPosts).Distinct())
             {
@@ -718,7 +719,7 @@ namespace RealisticBases.Generation
                                     int completeLength = 0;
                                     var waypoint = P3DefenderRoute.NextWaypoint(new GridPoint(pawn.Position.x, pawn.Position.z),
                                         post, encounter.SupportCenter, gate,
-                                        layout.Gates.Select(g => g.Cell).Concat(approachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0])
+                                        layout.Gates.Select(g => g.Cell).Concat(approachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? new GridPoint[0])
                                             .Concat(new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }), NativeRoute,
                                         encounter.DefendedCells,
                                         P4BPerimeterDepth.Envelope(input.Terrain, layout).Concat(layout.JointSite.Compound.Points())
@@ -784,8 +785,8 @@ namespace RealisticBases.Generation
                             " reachable=true exposedCrossingCells=2 routeFullyCovered=false");
                     }
                     foreach (P4BSallyPort port in approachDefense.SallyPorts)
-                        if (!(ToCell(port.Cell).GetEdifice(map) is Building_Door) || !map.reachability.CanReach(
-                            ToCell(port.Inside), ToCell(port.Cell), PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)))
+                        if (port.Doors.Any(d => !(ToCell(d).GetEdifice(map) is Building_Door)) || !map.reachability.CanReach(
+                            ToCell(port.Inside), ToCell(port.Outer), PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)))
                             throw new InvalidOperationException("Defense sally port realization failed: " + port.Cell);
                 }
                 P4BRealizedCoverAudit.Run(map, approachDefense, turrets);
@@ -825,9 +826,14 @@ namespace RealisticBases.Generation
                 int realizedGateDoors = layout.Gates.SelectMany(g => new[] { g.Cell }.Concat(g.BandDoors))
                     .Count(c => ToCell(c).GetEdifice(map) is Building_Door);
                 int plannedGateDoors = layout.Gates.Sum(g => 1 + g.BandDoors.Count);
+                int realizedSallyDoors = layout.ApproachDefense?.SallyPorts.SelectMany(p => p.Doors)
+                    .Count(c => ToCell(c).GetEdifice(map) is Building_Door) ?? 0;
+                int plannedSallyDoors = layout.ApproachDefense?.SallyPorts.Sum(p => p.Doors.Count) ?? 0;
                 int reachableGates = layout.Gates.Count(g => map.reachability.CanReach(
                     ToCell(g.ExteriorRoute[g.ExteriorRoute.Count - 1]), ToCell(g.Inside), PathEndMode.OnCell,
                     TraverseParms.For(TraverseMode.PassDoors)));
+                int reachableSallyPorts = layout.ApproachDefense?.SallyPorts.Count(p => map.reachability.CanReach(
+                    ToCell(p.Inside), ToCell(p.Outer), PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) ?? 0;
                 List<KeyValuePair<GridPoint, GridPoint>> serviceTermini = layout.OuterSections
                     .SelectMany(section => section.ServiceTermini(layout.Gates[section.GateIndex])
                         .Select(cell => new KeyValuePair<GridPoint, GridPoint>(layout.Gates[section.GateIndex].Inside, cell))).ToList();
@@ -837,14 +843,18 @@ namespace RealisticBases.Generation
                 if (realizedOuterWalls != plannedOuterWalls || realizedReturnCells != plannedReturnCells ||
                     realizedAnchoredReturns != plannedAnchoredReturns ||
                     realizedBandWalls != plannedBandWalls ||
-                    realizedGateDoors != plannedGateDoors || reachableGates != layout.Gates.Count ||
+                    realizedGateDoors != plannedGateDoors || realizedSallyDoors != plannedSallyDoors ||
+                    reachableGates != layout.Gates.Count ||
+                    reachableSallyPorts != (layout.ApproachDefense?.SallyPorts.Count ?? 0) ||
                     clearServiceCells != layerServiceCells.Count || reachableServiceTermini != serviceTermini.Count)
                     throw new InvalidOperationException("Realized layered-wall or gate audit failed: outer=" + realizedOuterWalls +
                         "/" + plannedOuterWalls + " returnCells=" + realizedReturnCells + "/" + plannedReturnCells +
                         " anchoredReturns=" + realizedAnchoredReturns + "/" + plannedAnchoredReturns +
                         " bands=" + realizedBandWalls + "/" + plannedBandWalls +
                         " doors=" + realizedGateDoors + "/" + plannedGateDoors +
+                        " sallyDoors=" + realizedSallyDoors + "/" + plannedSallyDoors +
                         " reachable=" + reachableGates + "/" + layout.Gates.Count +
+                        " reachableSallyPorts=" + reachableSallyPorts + "/" + (layout.ApproachDefense?.SallyPorts.Count ?? 0) +
                         " clearService=" + clearServiceCells + "/" + layerServiceCells.Count +
                         " reachableService=" + reachableServiceTermini + "/" + serviceTermini.Count);
                 int breachDepth = P4BPerimeterDepth.Minimum(input.Terrain, layout.Enclosure,
@@ -859,7 +869,9 @@ namespace RealisticBases.Generation
                     " anchoredReturns=" + realizedAnchoredReturns + "/" + plannedAnchoredReturns +
                     " bandWalls=" + realizedBandWalls + "/" + plannedBandWalls +
                     " gateDoors=" + realizedGateDoors + "/" + plannedGateDoors +
+                    " sallyDoors=" + realizedSallyDoors + "/" + plannedSallyDoors +
                     " reachableGates=" + reachableGates + "/" + layout.Gates.Count +
+                    " reachableSallyPorts=" + reachableSallyPorts + "/" + (layout.ApproachDefense?.SallyPorts.Count ?? 0) +
                     " clearService=" + clearServiceCells + "/" + layerServiceCells.Count +
                     " reachableService=" + reachableServiceTermini + "/" + serviceTermini.Count);
                 int outdoorExhausts = AuditCoolerExhaust(map, layout);
@@ -874,7 +886,7 @@ namespace RealisticBases.Generation
                 else
                 {
                 map.GetComponent<P3GarrisonController>().Initialize(settlement, layout.Gates.Select(g => g.Cell)
-                    .Concat(approachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0])
+                    .Concat(approachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? new GridPoint[0])
                     .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() :
                         new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }), encounter,
                     defenders, tx.OwnedThings.Concat(retainedOperating), mortars.FirstOrDefault(), combatStocks, PerimeterSegments(layout, encounter.SupportCenter),
@@ -1169,7 +1181,7 @@ namespace RealisticBases.Generation
             HashSet<GridPoint> field = new HashSet<GridPoint>(layout.FieldWall?.Walls ?? new GridPoint[0]);
             HashSet<GridPoint> gates = new HashSet<GridPoint>(layout.Gates.SelectMany(g =>
                 new[] { g.Cell }.Concat(g.BandDoors)));
-            gates.UnionWith(layout.ApproachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0]);
+            gates.UnionWith(layout.ApproachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? new GridPoint[0]);
             if (layout.FieldWall != null)
             {
                 field.Add(layout.FieldWall.InnerGate.Value);
@@ -1187,7 +1199,7 @@ namespace RealisticBases.Generation
         // Posts reached through the field: its outer gate or a field sally port.
         private static bool FieldAccess(ProceduralLayout layout, GridPoint gate) =>
             layout.FieldWall != null && (gate.Equals(layout.FieldWall.OuterGate) ||
-                (layout.ApproachDefense?.SallyPorts.Any(p => p.Field && p.Cell.Equals(gate)) ?? false));
+                (layout.ApproachDefense?.SallyPorts.Any(p => p.Field && p.Outer.Equals(gate)) ?? false));
 
         private static string Sector(GridPoint cell, GridPoint center)
         {
