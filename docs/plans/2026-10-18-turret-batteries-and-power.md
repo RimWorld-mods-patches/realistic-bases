@@ -1,6 +1,6 @@
 # Plan: turret batteries per defense crossing, and power for them
 
-2026-10-18 · Status: **T4 cap locked at 1,100%; T0–T4A/perf committed; T4B next.** Builds on `codex/wall-coverage-experiments`
+2026-10-18 · Status: **T4 cap locked at 1,100%; T4A exact-plan parity open; corrected-validator T4B run complete, review pending.** Builds on `codex/wall-coverage-experiments`
 at `62ab734` (cleanup over `876719f`). Implementation is delegated to Luna; Claude reviews.
 
 ## Goal
@@ -384,16 +384,17 @@ Decision 9's wind-plus-solar fixture averaged 1,770 W and supplied 1,179 W firm,
 additional off-share battery, one retained fuel generator and 44 fuel units. Focused budget
 and renewable tests passed. Logs are listed in the T4A investigation report.
 
-### T4A-perf Planner-time regression (complete)
+### T4A-perf Planner-time regression and result parity (parity open)
 
 The 262/146/144 s reports came from the four-way outcome sweep. Serial measurements separated
 contention from the remaining regression. Candidate placement spent only 16 ms routing in
 seed 1, but repeated per-service-cell BFS, crossfire scans and full network checks multiplied
-work over hundreds of proposals. Cover is now checked before route search; one multi-target
-BFS serves all service cells for a candidate. Crossfire shots and sniper guard options are
-shared within each audit. Full-count-reserve layouts run cheap candidate checks while filling,
-then perform the complete network audit once and roll back any final-invalid placement. Fixtures
-without the full-count reserve keep full per-proposal checks.
+work over hundreds of proposals. The saved perf path checked cover before route search and
+used candidate-local validation, then ran one final network audit and removed invalid placements.
+The final-removal diagnostics cite concurrent close staffing and hard exposure coverage; removing
+the candidate-local shortcut restores these network checks during placement. Cover generation is
+route-aware because the service route affects legal cover cells. A candidate-only local geometry
+check with full network checks remains in place to avoid rechecking old groups.
 
 | Base | T4 baseline | Serial before fix | Final serial | Ratio |
 |---|---:|---:|---:|---:|
@@ -401,17 +402,36 @@ without the full-count reserve keep full per-proposal checks.
 | Total-12 seed 7, wealth 180 | 25.229 s | 18.2 s | 16.035 s | 0.64× |
 | Broad-flat, wealth 100 | 19.028 s | 11.0 s | 9.524 s | 0.50× |
 
-The targeted wealth-60 broad-flat regression remains accepted after the vent fix. A serial run
-measured 15.6 s. The final full outcome sweep passed all 14 bases in 1/1; the heavy-support
-test passed 1/1 with a CloseSupport mini. `git diff --check` passed. T0–T4A and this performance
-fix are committed together; there was no push or version bump. T4B and T5 have not started.
+The 14-case T4A fixed run passed, but exact plans still differ from T4A-pre: total-twelve seeds
+1 and 7 have different layout/turret outcomes, and seed 8 has a different layout digest despite
+matching logged turret positions. Total-twelve totals are 143 turrets/6 autocannons/32 batteries
+pre-fix and 149/8/32 with the current validator. Broad-flat wealth 60 now accepts, where the
+saved pre-run exhausted its search budget. The latest planner time is 23–34 s on the perf probes,
+so the prior 1.5× target is not established. T4A exact-plan parity remains open; per-base digests
+are in `REPORT.md`.
+
+T0–T4A and the original perf path remain in `d7c78d0`; no new commit or push was made. The
+original T4B report used that same perf path and is superseded by the corrected-validator rerun.
 
 ### T4B Realistic power reserve (decision 10)
-- Derive the power reserve from the T4A measurements: battery crossings per base and turret
-  watts per battery, by stage and wealth, with a stated margin. Keep the full-count import
-  reserve and trimming.
-- Report per base: generators and batteries reserved vs kept, power-room size before and
-  after, and any change in batteries, turrets or crossings.
+
+Power reserve is now 2,500 W at IndustrialMid and 3,000 W at IndustrialLate, based on the
+measured three-mini batteries, several heavy-gun slots and a safety margin. The full-count
+turret import reserve and post-placement trimming remain unchanged. The initial 14-case T4B
+output was generated on the broken deferred-check path; the corrected-validator rerun passed all
+14 cases and is the current T4B measurement. See the side-by-side per-base comparison in
+`REPORT.md`.
+
+The total-12 Late fixtures now pack five generators and five batteries, keeping two or three
+generators and four batteries. Broad-flat wealth 60/100 packs four generators and five
+batteries, keeping one generator and three batteries; wealth 180 packs five and five, keeping
+three generators and four batteries. Turret and crossing outcomes sometimes change because
+the smaller reserved power room changes the packed room geometry. The T4B investigation report
+has the per-base T4A-to-T4B turrets/crossings comparison, reserved and kept generator/battery
+counts, and power-room interior dimensions before and after trim. Room shells remain unchanged
+during trimming.
+
+T4B results are uncommitted for review. T5 has not started.
 
 ### T5 Composition limits and spacing
 - **Failure maps first.** Render two bases (total-twelve seed 1 and broad-flat wealth 180)

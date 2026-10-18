@@ -109,8 +109,11 @@ namespace RealisticBases.Planning
         public static int EstimateDefenseReserveWatts(SettlementTechStage stage)
         {
             if (stage == null || stage.Level < SettlementTechStageLevel.IndustrialMid) return 0;
-            int heavies = stage.Level >= SettlementTechStageLevel.IndustrialLate ? 3 : 2;
-            return P4EMaxDefenseCrossings * (6 * 80 + heavies * 150);
+            // Measured networks generally complete a handful of three-mini
+            // batteries. Reserve six such crossings plus several heavy guns
+            // and a margin; the full 16-crossing composition remains an import
+            // ceiling rather than a power-room footprint.
+            return stage.Level >= SettlementTechStageLevel.IndustrialLate ? 3000 : 2500;
         }
 
         public static int EstimateDefenseImportValue(SettlementTechStage stage)

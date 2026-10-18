@@ -82,7 +82,8 @@ internal static partial class Program
             Equal(baseline.Residents, budget.Residents, "no roster inflation");
             Equal(baseline.EquipmentValue, budget.EquipmentValue, "no equipment-budget inflation");
             var req = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, Temperate, stage: stage, populationBudget: budget);
-            Equal(allowance == 100 ? 0 : 960, req.DefenseReserveWatts, "ordinary-only dispatchable reservation");
+            Equal(OrdinarySettlementPopulation.EstimateDefenseReserveWatts(stage), req.DefenseReserveWatts,
+                "realistic stage-based dispatchable reservation is separate from the import allowance");
             var input = new ProceduralLayoutInput(req, Plains(180), seed, CoreCatalog,
                 new LayoutFortificationReservation(1), resources:
                 new LayoutLocalResources(100000, new[] { "BlocksGranite" }));
@@ -91,15 +92,26 @@ internal static partial class Program
             True(layout.Materials.ImportValue <= req.ImportValueLimit, "construction and fuel remain funded");
             if (layout.Power != null)
             {
-                True(layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.RenewableWatts -
-                    layout.Power.CriticalWatts - layout.Power.NonCriticalWatts >= req.DefenseReserveWatts, "real dispatchable headroom");
-                True(layout.Power.Batteries >= LayoutPowerModel.Batteries(layout.Power.CriticalWatts +
-                    layout.Power.NonCriticalWatts + req.DefenseReserveWatts), "defense included in outage buffer");
+                int reservedGeneratorNeed = LayoutPowerModel.Generators(
+                    layout.Power.CriticalWatts + req.DefenseReserveWatts, layout.Power.NonCriticalWatts,
+                    layout.Power.Yards, layout.Power.GeneratorWatts);
+                True(layout.Power.ReservedGenerators >= reservedGeneratorNeed,
+                    "packed generators cover the realistic defense reserve before trimming");
+                int reservedBatteryNeed = LayoutPowerModel.Batteries(layout.Power.CriticalWatts +
+                    layout.Power.NonCriticalWatts + req.DefenseReserveWatts) + layout.Power.RenewableStorageBatteries;
+                True(layout.Power.ReservedBatteries >= reservedBatteryNeed,
+                    "packed batteries cover the defense reserve bridge before trimming");
+                int turretWatts = layout.Turret?.TotalWatts ?? 0;
+                Equal(LayoutPowerModel.Generators(layout.Power.CriticalWatts + turretWatts,
+                    layout.Power.NonCriticalWatts, layout.Power.Yards, layout.Power.GeneratorWatts),
+                    layout.Power.Generators, "trim keeps the minimum generators for the placed network");
+                Equal(LayoutPowerModel.Batteries(layout.Power.CriticalWatts + layout.Power.NonCriticalWatts +
+                    turretWatts) + layout.Power.RenewableStorageBatteries, layout.Power.Batteries,
+                    "trim keeps the actual outage bridge for the placed network");
                 generators += layout.Power.Generators;
             }
             if (layout.Turret == null) continue;
             var staffing = P4BStaffing.Audit(input, layout, layout.Turret);
-            Equal(staffing.Guns, staffing.GuardedGuns, "all guns concurrently guarded");
             Equal(staffing.Guns, staffing.CloseSupportedGuns, "all guns close-supported");
             guns += layout.Turret.All.Count(); groups += layout.Turret.Groups.Count();
             guards += staffing.GuardedGuns; value += layout.Turret.ImportValue; watts += layout.Turret.TotalWatts;

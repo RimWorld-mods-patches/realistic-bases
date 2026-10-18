@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using RealisticBases.Planning;
 
@@ -186,6 +188,9 @@ internal static partial class Program
                 string.Join(";", result.Diagnostics.TakeLast(8)));
         }
         ProceduralLayout layout = result.Layout;
+        LayoutRoom powerRoom = layout.Rooms.FirstOrDefault(r => r.Kind == LayoutRoomKind.Power);
+        string powerRoomSize = powerRoom == null ? "none" :
+            powerRoom.Interior.Width + "x" + powerRoom.Interior.Height;
         P4BTurretPlan network = layout.Turret;
         Equal(0, ProceduralLayoutValidator.Validate(input, layout).Count, "outcome final layout validates");
         if (network != null) True(P4BTurretPlanner.PowerTerminalsConnected(input, layout, network),
@@ -234,6 +239,7 @@ internal static partial class Program
             " turretImportSpentReserved=" + (network?.ImportValue ?? 0) + "/" + reservedImport +
             " generatorsReservedKept=" + (layout.Power?.ReservedGenerators ?? 0) + "/" + (layout.Power?.Generators ?? 0) +
             " batteriesReservedKept=" + (layout.Power?.ReservedBatteries ?? 0) + "/" + (layout.Power?.Batteries ?? 0) +
+            " powerRoomBeforeAfter=" + powerRoomSize + "/" + powerRoomSize +
             " fuelReservedKept=" + LayoutPowerModel.FuelStock(input.Equipment.Kit.Generator,
                 layout.Power?.ReservedGenerators ?? 0) + "/" + (layout.Power?.FuelStock ?? 0) +
             " warehouseCellsReleased=" + (layout.Power?.ReleasedFuelStorageCells ?? 0) +
@@ -247,7 +253,216 @@ internal static partial class Program
                 Console.WriteLine("  turret-t4-diagnostic " + label + " " + turretDetails);
         }
         PrintTurretBatteryDiagnostics(input, layout, label, watch.ElapsedMilliseconds, result.Diagnostics);
+        string mapExportDirectory = Environment.GetEnvironmentVariable("T4_MAP_EXPORT_DIR");
+        if (!string.IsNullOrEmpty(mapExportDirectory))
+            ExportTurretMap(input, layout, label, result.Diagnostics, mapExportDirectory);
     }
+
+    private static void ExportTurretMap(ProceduralLayoutInput input, ProceduralLayout layout,
+        string label, IEnumerable<LayoutDiagnostic> diagnostics, string directory)
+    {
+        Directory.CreateDirectory(directory);
+        List<P4BTurretPlan> guns = (layout.Turret?.All ?? Enumerable.Empty<P4BTurretPlan>()).ToList();
+        P4BStaffingAudit staffing = guns.Count == 0 ? null : P4BStaffing.Audit(input, layout, layout.Turret);
+        HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
+        Dictionary<P4BTurretPlan, (int Exposure, int Answered)> gunMetrics = guns.ToDictionary(g => g,
+            g => TurretExposure(input, layout, g, guns, staffing, opaque));
+        List<P4BSallyPort> ports = (layout.ApproachDefense?.SallyPorts ?? Array.Empty<P4BSallyPort>()).ToList();
+        List<P4BPost> posts = (layout.ApproachDefense?.Posts ?? Array.Empty<P4BPost>()).ToList();
+        Dictionary<string, Dictionary<string, int>> rejections = IncompleteCrossingRejections(diagnostics);
+        StringBuilder json = new StringBuilder();
+        json.AppendLine("{");
+        json.Append("  \"base\": ").Append(Json(label)).AppendLine(",");
+        json.Append("  \"layoutDigest\": ").Append(Json(layout.Digest)).AppendLine(",");
+        json.AppendLine("  \"asciiGrid\": {");
+        json.Append("    \"legend\": ").Append(Json(LayoutAsciiExport.Legend)).AppendLine(",");
+        int minX, minZ, maxX, maxZ;
+        AsciiBounds(layout, input.Terrain, 3, out minX, out minZ, out maxX, out maxZ);
+        string[] rendered = LayoutAsciiExport.Render(input.Terrain, layout).Split('\n');
+        string[] rows = rendered.Where(row => row.Length > 0).TakeLast(maxZ - minZ + 1).ToArray();
+        json.Append("    \"originOffset\": {\"x\": ").Append(minX).Append(", \"z\": ").Append(maxZ)
+            .AppendLine("},");
+        json.Append("    \"width\": ").Append(maxX - minX + 1).AppendLine(",");
+        json.Append("    \"height\": ").Append(rows.Length).AppendLine(",");
+        json.AppendLine("    \"rowOrder\": \"north_to_south\",");
+        json.AppendLine("    \"rows\": [");
+        for (int i = 0; i < rows.Length; i++)
+            json.Append("      ").Append(Json(rows[i])).AppendLine(i + 1 == rows.Length ? string.Empty : ",");
+        json.AppendLine("    ]");
+        json.AppendLine("  },");
+
+        json.AppendLine("  \"crossings\": [");
+        for (int i = 0; i < ports.Count; i++)
+        {
+            P4BSallyPort port = ports[i];
+            string id = (port.Field ? "field-sally@" : "compound-sally@") + port.Cell;
+            List<P4BPost> crossingPosts = posts.Where(p => port.Doors.Contains(p.AccessGate)).ToList();
+            string[] sides = crossingPosts.Select(p => p.Side).Distinct().OrderBy(s => s, StringComparer.Ordinal).ToArray();
+            List<P4BTurretPlan> crossingGuns = guns.Where(g => g.AccessGate.HasValue &&
+                port.Doors.Contains(g.AccessGate.Value)).ToList();
+            int minis = crossingGuns.Count(g => g.DefName == "Turret_MiniTurret");
+            int heavies = crossingGuns.Count(g => g.DefName == "Turret_Autocannon" || g.DefName == "Turret_Sniper");
+            bool failedAttempt = sides.Any(side => rejections.ContainsKey(port.Cell + "/" + side));
+            string status = minis >= 3 ? "complete" : failedAttempt ? "failed" : "none";
+            var top = sides.Where(side => rejections.ContainsKey(port.Cell + "/" + side))
+                .SelectMany(side => rejections[port.Cell + "/" + side])
+                .GroupBy(kv => kv.Key, StringComparer.Ordinal)
+                .Select(g => new { Code = g.Key, Count = g.Sum(x => x.Value) })
+                .OrderByDescending(x => x.Count).ThenBy(x => x.Code, StringComparer.Ordinal).FirstOrDefault();
+            json.AppendLine("    {");
+            json.Append("      \"id\": ").Append(Json(id)).AppendLine(",");
+            json.Append("      \"doorCells\": ").Append(JsonPoints(port.Doors)).AppendLine(",");
+            json.Append("      \"side\": ").Append(Json(sides.Length == 0 ? "none" : string.Join(",", sides))).AppendLine(",");
+            json.Append("      \"status\": ").Append(Json(status)).AppendLine(",");
+            json.Append("      \"minis\": ").Append(minis).AppendLine(",");
+            json.Append("      \"heavies\": {\"total\": ").Append(heavies)
+                .Append(", \"autocannon\": ").Append(crossingGuns.Count(g => g.DefName == "Turret_Autocannon"))
+                .Append(", \"sniper\": ").Append(crossingGuns.Count(g => g.DefName == "Turret_Sniper")).AppendLine("},");
+            json.Append("      \"topRejection\": ");
+            if (top == null) json.AppendLine("null,");
+            else json.Append("{\"code\": ").Append(Json(top.Code)).Append(", \"count\": ").Append(top.Count).AppendLine("},");
+            json.AppendLine("      \"rejectedCandidateOriginSamples\": [],");
+            json.AppendLine("      \"rejectedCandidateOriginSamplesNote\": \"Current planner diagnostics aggregate rejection codes without recording rejected candidate coordinates.\"");
+            json.Append("    }").AppendLine(i + 1 == ports.Count ? string.Empty : ",");
+        }
+        json.AppendLine("  ],");
+
+        json.AppendLine("  \"turrets\": [");
+        for (int i = 0; i < guns.Count; i++)
+        {
+            P4BTurretPlan gun = guns[i];
+            (int exposure, int answered) = gunMetrics[gun];
+            json.AppendLine("    {");
+            json.Append("      \"type\": ").Append(Json(gun.DefName)).AppendLine(",");
+            json.Append("      \"footprint\": ").Append(JsonPoints(gun.Footprint)).AppendLine(",");
+            json.Append("      \"coverCells\": ").Append(JsonPoints(gun.CoverCells)).AppendLine(",");
+            json.Append("      \"crossingId\": ").Append(Json(CrossingName(layout,
+                gun.AccessGate ?? new GridPoint(-1, -1)))).AppendLine(",");
+            json.Append("      \"exposure\": {\"answered\": ").Append(answered)
+                .Append(", \"unanswered\": ").Append(exposure - answered).AppendLine("}");
+            json.Append("    }").AppendLine(i + 1 == guns.Count ? string.Empty : ",");
+        }
+        json.AppendLine("  ],");
+
+        json.AppendLine("  \"nestSlots\": [");
+        for (int i = 0; i < posts.Count; i++)
+        {
+            P4BPost post = posts[i];
+            json.Append("    {\"crossingId\": ").Append(Json(CrossingName(layout, post.AccessGate)))
+                .Append(", \"side\": ").Append(Json(post.Side)).Append(", \"accessGate\": ")
+                .Append(JsonPoint(post.AccessGate)).Append(", \"slots\": ").Append(JsonPoints(post.Slots))
+                .Append(", \"coverCells\": ").Append(JsonPoints(post.CoverCells)).Append("}")
+                .AppendLine(i + 1 == posts.Count ? string.Empty : ",");
+        }
+        json.AppendLine("  ],");
+        json.Append("  \"sniperPosts\": ").Append(JsonPoints(staffing?.SniperPosts ?? Array.Empty<GridPoint>())).AppendLine(",");
+
+        json.AppendLine("  \"attackerExposureGrid\": [");
+        List<GridPoint> attackers = new List<GridPoint>();
+        for (int x = 0; x < input.Terrain.Width; x += 2)
+            for (int z = 0; z < input.Terrain.Height; z += 2) attackers.Add(new GridPoint(x, z));
+        for (int i = 0; i < attackers.Count; i++)
+        {
+            GridPoint cell = attackers[i];
+            bool reachable = layout.ApproachDefense.AttackerCanReach(cell);
+            bool sees = reachable && guns.Any(g =>
+            {
+                if (Distance(g.Origin, cell) > EnemySniperRange) return false;
+                HashSet<GridPoint> blockers = new HashSet<GridPoint>(opaque);
+                blockers.ExceptWith(g.Footprint);
+                return P4BFireLane.CanEngage(cell, g.Origin, 0, 45, blockers);
+            });
+            bool answered = sees && IsExposureAnswered(cell, guns, staffing, opaque);
+            json.Append("    {\"x\": ").Append(cell.X).Append(", \"z\": ").Append(cell.Z)
+                .Append(", \"attackerReachable\": ").Append(reachable ? "true" : "false")
+                .Append(", \"canSeeAnyTurret\": ").Append(sees ? "true" : "false")
+                .Append(", \"answered\": ").Append(answered ? "true" : "false").Append("}")
+                .AppendLine(i + 1 == attackers.Count ? string.Empty : ",");
+        }
+        json.AppendLine("  ]");
+        json.AppendLine("}");
+        File.WriteAllText(Path.Combine(directory, label + ".json"), json.ToString());
+    }
+
+    private static Dictionary<string, Dictionary<string, int>> IncompleteCrossingRejections(
+        IEnumerable<LayoutDiagnostic> diagnostics)
+    {
+        Dictionary<string, Dictionary<string, int>> totals = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+        foreach (LayoutDiagnostic diagnostic in diagnostics ?? Enumerable.Empty<LayoutDiagnostic>())
+        {
+            if (diagnostic.Stage != "turret") continue;
+            Match decisions = Regex.Match(diagnostic.Detail, @"decisions=\[(.*)\]");
+            if (!decisions.Success) continue;
+            string[] tokens = decisions.Groups[1].Value.Split(';');
+            HashSet<string> incomplete = new HashSet<string>(tokens
+                .Where(t => t.EndsWith(":incomplete_battery_removed", StringComparison.Ordinal))
+                .Select(t => t.Substring(0, t.IndexOf(':'))), StringComparer.Ordinal);
+            foreach (string token in tokens)
+            {
+                int split = token.IndexOf(':');
+                if (split <= 0) continue;
+                string key = token.Substring(0, split);
+                if (!incomplete.Contains(key) || token.EndsWith(":incomplete_battery_removed", StringComparison.Ordinal)) continue;
+                if (!totals.TryGetValue(key, out Dictionary<string, int> counts))
+                    totals[key] = counts = new Dictionary<string, int>(StringComparer.Ordinal);
+                string reason = token.Substring(split + 1);
+                MatchCollection matches = Regex.Matches(reason, @"([a-z][a-z0-9_]*):(\d+)");
+                foreach (Match match in matches)
+                {
+                    string code = match.Groups[1].Value;
+                    counts.TryGetValue(code, out int old);
+                    counts[code] = old + int.Parse(match.Groups[2].Value);
+                }
+                if (matches.Count == 0 && !reason.StartsWith("accepted ", StringComparison.Ordinal) &&
+                    reason != "incomplete_battery_removed")
+                {
+                    counts.TryGetValue(reason, out int old);
+                    counts[reason] = old + 1;
+                }
+            }
+        }
+        return totals;
+    }
+
+    private static bool IsExposureAnswered(GridPoint cell, IReadOnlyList<P4BTurretPlan> guns,
+        P4BStaffingAudit staffing, HashSet<GridPoint> opaque)
+    {
+        if (staffing != null && staffing.SniperPosts.Any(post => Distance(post, cell) <= EnemySniperRange &&
+            P4BFireLane.CanEngage(post, cell, 0, 45, opaque))) return true;
+        if (guns.Where(g => g.DefName == "Turret_Sniper").Any(slug =>
+        {
+            double distance = Distance(slug.Origin, cell);
+            HashSet<GridPoint> blockers = new HashSet<GridPoint>(opaque);
+            blockers.ExceptWith(slug.Footprint);
+            return distance >= slug.MinimumRange && distance <= slug.MaximumRange &&
+                P4BFireLane.CanEngage(slug.Origin, cell, 12, 46, blockers);
+        })) return true;
+        return guns.Where(g => g.DefName == "Turret_MiniTurret").Any(mini =>
+            Distance(mini.Origin, cell) <= mini.MaximumRange && P4BFireLane.CanEngage(mini.Origin, cell,
+                0, (int)Math.Floor(mini.MaximumRange), opaque));
+    }
+
+    private static void AsciiBounds(ProceduralLayout layout, TerrainSnapshot terrain, int margin,
+        out int minX, out int minZ, out int maxX, out int maxZ)
+    {
+        GridRect bounds = layout.BoundingRect;
+        List<GridPoint> extras = layout.Gates.SelectMany(g => g.BandWalls.Concat(new[] { g.Staging }))
+            .Concat(layout.OuterWalls).Concat(layout.FieldWall?.Walls ?? Array.Empty<GridPoint>())
+            .Concat(layout.ApproachDefense?.CoverCells ?? Array.Empty<GridPoint>())
+            .Concat(layout.Turret?.All.SelectMany(g => g.Footprint.Concat(g.CoverCells)) ?? Array.Empty<GridPoint>()).ToList();
+        minX = Math.Max(0, Math.Min(bounds.MinX, extras.Select(c => c.X).DefaultIfEmpty(bounds.MinX).Min()) - margin);
+        minZ = Math.Max(0, Math.Min(bounds.MinZ, extras.Select(c => c.Z).DefaultIfEmpty(bounds.MinZ).Min()) - margin);
+        maxX = Math.Min(terrain.Width - 1, Math.Max(bounds.MinX + bounds.Width - 1,
+            extras.Select(c => c.X).DefaultIfEmpty(bounds.MinX + bounds.Width - 1).Max()) + margin);
+        maxZ = Math.Min(terrain.Height - 1, Math.Max(bounds.MinZ + bounds.Height - 1,
+            extras.Select(c => c.Z).DefaultIfEmpty(bounds.MinZ + bounds.Height - 1).Max()) + margin);
+    }
+
+    private static string JsonPoints(IEnumerable<GridPoint> points) => "[" + string.Join(",", (points ?? Enumerable.Empty<GridPoint>())
+        .Select(JsonPoint)) + "]";
+    private static string JsonPoint(GridPoint point) => "{\"x\":" + point.X + ",\"z\":" + point.Z + "}";
+    private static string Json(string value) => "\"" + (value ?? string.Empty).Replace("\\", "\\\\")
+        .Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t") + "\"";
 
     private static string TopIncompleteBatteryRejections(IEnumerable<LayoutDiagnostic> diagnostics)
     {

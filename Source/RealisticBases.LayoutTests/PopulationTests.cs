@@ -8,10 +8,10 @@ internal static partial class Program
     {
         Equal(16, OrdinarySettlementPopulation.P4EMaxDefenseCrossings, "twelve compound plus four field crossings");
         Equal(1100, OrdinarySettlementPopulation.P4ETurretImportReservePercent, "approved wealth ceiling");
-        Equal(12480, OrdinarySettlementPopulation.EstimateDefenseReserveWatts(
-            TechStageModel.Create(SettlementTechStageLevel.IndustrialMid)), "full mid-stage composition watts");
-        Equal(14880, OrdinarySettlementPopulation.EstimateDefenseReserveWatts(
-            TechStageModel.Create(SettlementTechStageLevel.IndustrialLate)), "full late-stage composition watts");
+        Equal(2500, OrdinarySettlementPopulation.EstimateDefenseReserveWatts(
+            TechStageModel.Create(SettlementTechStageLevel.IndustrialMid)), "measured mid-stage power reserve with margin");
+        Equal(3000, OrdinarySettlementPopulation.EstimateDefenseReserveWatts(
+            TechStageModel.Create(SettlementTechStageLevel.IndustrialLate)), "measured late-stage power reserve with margin");
         Equal(120352, OrdinarySettlementPopulation.EstimateDefenseImportValue(
             TechStageModel.Create(SettlementTechStageLevel.IndustrialMid)), "full mid-stage composition import including cover");
         Equal(166240, OrdinarySettlementPopulation.EstimateDefenseImportValue(
