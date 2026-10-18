@@ -292,6 +292,8 @@ namespace RealisticBases.Planning
 
     public sealed class ProceduralLayout
     {
+        private readonly IReadOnlyList<GridPoint> outerWalls;
+
         internal ProceduralLayout(string inputDigest, ulong seed, LayoutDoctrine doctrine, bool mortarCapable, GridPoint anchor,
             IEnumerable<LayoutRoom> rooms, IEnumerable<LayoutCorridor> corridors, LayoutFixture court,
             IEnumerable<GridPoint> enclosure, IEnumerable<GridPoint> builtWalls, IEnumerable<GridPoint> naturalWalls,
@@ -313,6 +315,10 @@ namespace RealisticBases.Planning
             Power = power;
             OuterSections = new ReadOnlyCollection<LayoutWallSection>((outerSections ?? Enumerable.Empty<LayoutWallSection>())
                 .OrderBy(s => s.GateIndex).ThenBy(s => s.Layer).ToList());
+            outerWalls = new ReadOnlyCollection<GridPoint>(OuterSections.SelectMany(s => s.Cells)
+                .Concat(PerimeterReinforcement)
+                .Except(ApproachDefense?.SallyPorts.Where(p => !p.Field).SelectMany(p => p.Band) ?? Enumerable.Empty<GridPoint>())
+                .Distinct().ToList());
             ExhaustPockets = new ReadOnlyCollection<LayoutExhaustPocket>((exhaustPockets ?? Enumerable.Empty<LayoutExhaustPocket>())
                 .OrderBy(p => p.Cell).ToList());
             ExhaustRoofClearance = Sorted(ExhaustPockets.Where(p => p.RoofCleared).Select(p => p.Cell));
@@ -359,10 +365,7 @@ namespace RealisticBases.Planning
         public IReadOnlyList<GridPoint> BuiltWalls { get; }
         public IReadOnlyList<LayoutWallSection> OuterSections { get; }
         public IReadOnlyList<GridPoint> PerimeterReinforcement { get; }
-        public IEnumerable<GridPoint> OuterWalls => OuterSections.SelectMany(s => s.Cells)
-            .Concat(PerimeterReinforcement)
-            .Except(ApproachDefense?.SallyPorts.Where(p => !p.Field).SelectMany(p => p.Band) ?? Enumerable.Empty<GridPoint>())
-            .Distinct();
+        public IEnumerable<GridPoint> OuterWalls => outerWalls;
         public IReadOnlyList<GridPoint> NaturalWalls { get; }
         public IReadOnlyList<LayoutGate> Gates { get; }
         public IReadOnlyList<GridPoint> Excavation { get; }

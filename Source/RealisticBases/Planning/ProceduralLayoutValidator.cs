@@ -82,11 +82,8 @@ namespace RealisticBases.Planning
                     if (!layout.Gates[fieldWall.GateIndex].ExteriorRoute.SequenceEqual(fieldWall.ArrivalRoute))
                         errors.Add("joint_arrival_route_not_registered_on_compound_gate");
                     string[] fieldWallCrossings = layout.Gates.Select((g, index) => new { Gate = g, Index = index })
-                        .Where(item => item.Index != fieldWall.GateIndex)
-                        .SelectMany(item => item.Gate.ExteriorRoute.Where(fieldWall.Walls.Contains)
-                            .Select(cell => item.Index + "@" + item.Gate.Cell + "/" + item.Gate.Outward + "/" + cell +
-                                "/rerouted=" + fieldWall.OtherGateRoutes.ContainsKey(item.Index) +
-                                "/route=" + string.Join(";", item.Gate.ExteriorRoute)))
+                        .Where(item => item.Index != fieldWall.GateIndex && item.Gate.ExteriorRoute.Any(fieldWall.Walls.Contains))
+                        .Select(item => item.Index + "@" + item.Gate.ExteriorRoute.First(fieldWall.Walls.Contains))
                         .ToArray();
                     if (fieldWallCrossings.Length > 0)
                         errors.Add("joint_other_gate_route_crosses_field_wall:" + string.Join(",", fieldWallCrossings));
@@ -722,7 +719,7 @@ namespace RealisticBases.Planning
             if (includeDefenseConnectors)
                 result.UnionWith(layout.ApproachDefense?.SallyPorts.Where(p => !p.Field)
                     .SelectMany(p => p.InteriorRoute) ?? Enumerable.Empty<GridPoint>());
-            return P4BAttackSide.Copy(result);
+            return new ReadOnlyCollection<GridPoint>(result.OrderBy(c => c).ToList());
         }
 
         public static IReadOnlyList<GridPoint> MagazineLoadingRoute(ProceduralLayoutInput input, ProceduralLayout layout, LayoutFixture court = null)

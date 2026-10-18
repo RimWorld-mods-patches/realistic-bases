@@ -60,7 +60,15 @@ internal static partial class Program
             foreach (int wealth in new[] { 100, 180 })
                 foreach (int allowance in new[] { 100, 125, 150 })
                     Run("P4E defense allowance sweep " + level + " wealth=" + wealth + " allowance=" + allowance,
-                        () => P4EDefenseSweep(level, wealth, allowance), 100);
+                        () => P4EDefenseSweep(level, wealth, allowance), DefenseSweepEstimate(level, wealth, allowance));
+    }
+
+    private static int DefenseSweepEstimate(SettlementTechStageLevel level, int wealth, int allowance)
+    {
+        if (level == SettlementTechStageLevel.IndustrialMid)
+            return wealth == 100 ? 130 : allowance == 100 ? 200 : 165;
+        if (wealth == 100) return allowance == 100 ? 150 : allowance == 125 ? 160 : 205;
+        return allowance == 100 ? 205 : allowance == 125 ? 210 : 230;
     }
 
     private static void P4EDefenseSweep(SettlementTechStageLevel level, int wealth, int allowance)

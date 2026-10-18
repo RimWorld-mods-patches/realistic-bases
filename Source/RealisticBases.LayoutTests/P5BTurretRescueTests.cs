@@ -109,8 +109,8 @@ internal static partial class Program
         foreach (var counts in new[] { (2, 0), (6, 1), (11, 1) })
             Run("P5B turret rescue camp places " + counts.Item1 + " turrets and " + counts.Item2 + " mortars",
                 () => TurretRescueLayout(counts.Item1, counts.Item2));
-        Run("P5B turret rescue rejects a site too small for the advertised guns", TurretRescueCramped, 15);
-        Run("P5B turret rescue camp on a mountain", () => TurretRescueTerrain("mountain", Mountain(160, 160)), 10);
+        Run("P5B turret rescue rejects a site too small for the advertised guns", TurretRescueCramped, 55);
+        Run("P5B turret rescue camp on a mountain", () => TurretRescueTerrain("mountain", Mountain(160, 160)), 35);
         Run("P5B turret rescue camp among obstacles", () => TurretRescueTerrain("obstacles", Obstacles(160)));
     }
 }

@@ -80,6 +80,9 @@ namespace RealisticBases.Planning
     // This is a pure candidate generator, not yet a spawn authorization.
     public static class P4BFieldWallPlanner
     {
+        private const int MaxFieldInteriorRouteNodes = 2000;
+        private const int MaxFieldInteriorRouteCells = 32;
+
         // Consume the preselected field rather than searching for leftover
         // farmland after the compound has already packed its rooms. A pair is
         // rejected, without mutation, if its actual gate/perimeter cannot join.
@@ -186,25 +189,27 @@ namespace RealisticBases.Planning
                         wall.Overlaps(layout.OuterSections.Where(s => !retiredGateIndices.Contains(s.GateIndex))
                             .SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex]))))
                     { rejected.Add("secondary_gate_staging_blocked"); continue; }
-                    if (layout.Gates.Select((g, index) => new { Gate = g, Index = index })
+                    bool secondaryStagingInside = layout.Gates.Select((g, index) => new { Gate = g, Index = index })
                         .Where(item => !retiredGateIndices.Contains(item.Index) && item.Index != gateIndex)
-                        .Any(item => wall.Contains(item.Gate.Staging)) && accessPorts.Count == 0)
-                    { rejected.Add("secondary_gate_staging_field_inside_unavailable"); continue; }
+                        .Any(item => wall.Contains(item.Gate.Staging));
+                    bool accessPortsAvailableBeforeCap = accessPorts.Count > 0;
+                    int[] sideCounts = new int[4];
+                    sideCounts[P4BApproachDefensePlanner.SideIndex(new GridPoint(-gate.Outward.X, -gate.Outward.Z))]++;
+                    sideCounts[P4BApproachDefensePlanner.SideIndex(gate.Outward)]++;
                     foreach (P4BSallyPort port in accessPorts)
                     {
                         int side = P4BApproachDefensePlanner.SideIndex(port.Outward);
-                        int[] sideCounts = new int[4];
-                        sideCounts[P4BApproachDefensePlanner.SideIndex(new GridPoint(-gate.Outward.X, -gate.Outward.Z))]++;
-                        sideCounts[P4BApproachDefensePlanner.SideIndex(gate.Outward)]++;
                         if (side < 0 || sideCounts[side] >= P4BApproachDefensePlanner.MaxFieldGateCrossingsPerSide ||
                             accessPorts.Count(p => P4BApproachDefensePlanner.SideIndex(p.Outward) == side) > 1)
                         { accessPorts.Clear(); break; }
                     }
-                    if (layout.Gates.Select((g, index) => new { Gate = g, Index = index })
-                        .Where(item => !retiredGateIndices.Contains(item.Index) && item.Index != gateIndex)
-                        .Any(item => wall.Contains(item.Gate.Staging)) &&
-                        accessPorts.Count == 0)
-                    { rejected.Add("field_gate_side_cap_or_interior_route"); continue; }
+                    if (secondaryStagingInside && accessPorts.Count == 0)
+                    {
+                        rejected.Add(accessPortsAvailableBeforeCap
+                            ? "field_gate_side_cap_or_interior_route"
+                            : "secondary_gate_staging_field_inside_unavailable");
+                        continue;
+                    }
                     wall.ExceptWith(accessPorts.SelectMany(port => port.Doors));
                     doors.UnionWith(accessPorts.SelectMany(port => port.Doors));
                     if (Enumerable.Range(1, forward - 1).Any(k =>
@@ -445,21 +450,23 @@ namespace RealisticBases.Planning
                 if (!site.Field.Contains(inside) || !Walkable(input.Terrain, cell) ||
                     !Walkable(input.Terrain, inside) || !input.Terrain[cell].Has(TerrainTraits.Buildable)) continue;
                 List<GridPoint> route = RouteFieldInterior(input.Terrain, site.Field, fieldInterface.InnerGate,
-                    inside, wall, fieldInterface.Crops);
+                    inside, wall, fieldInterface.Crops, Math.Min(input.Budget.MaxRouteNodes,
+                        MaxFieldInteriorRouteNodes));
                 if (route != null) return new P4BSallyPort(cell, inside, outward, true, route);
             }
             return null;
         }
 
         private static List<GridPoint> RouteFieldInterior(TerrainSnapshot terrain, GridRect field,
-            GridPoint entry, GridPoint target, HashSet<GridPoint> walls, IReadOnlyCollection<GridPoint> crops)
+            GridPoint entry, GridPoint target, HashSet<GridPoint> walls, IReadOnlyCollection<GridPoint> crops,
+            int maxRouteNodes)
         {
             HashSet<GridPoint> blocked = new HashSet<GridPoint>(walls.Concat(crops ?? Array.Empty<GridPoint>()));
             Dictionary<GridPoint, GridPoint> previous = new Dictionary<GridPoint, GridPoint> { [entry] = entry };
             Queue<GridPoint> queue = new Queue<GridPoint>();
             queue.Enqueue(entry);
             int visited = 0;
-            while (queue.Count > 0 && visited++ < 2000)
+            while (queue.Count > 0 && visited++ < maxRouteNodes)
             {
                 GridPoint here = queue.Dequeue();
                 if (here.Equals(target))
@@ -468,7 +475,7 @@ namespace RealisticBases.Planning
                     for (GridPoint c = target; ; c = previous[c])
                     { path.Add(c); if (c.Equals(entry)) break; }
                     path.Reverse();
-                    return path.Count <= 32 ? path : null;
+                    return path.Count <= MaxFieldInteriorRouteCells ? path : null;
                 }
                 foreach (GridPoint d in ProceduralLayoutPlanner.Cardinal)
                 {

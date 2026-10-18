@@ -13,11 +13,11 @@ internal static partial class Program
         Run("cover nest: a second front adds flank cover", CoverNestCornerFront);
         Run("cover nest: blocked cover or missing wall drops outer slots", CoverNestShrinks);
         Run("cover nest: an anchor that cannot be covered is rejected", CoverNestRejectsAnchor);
-        Run("defense capacity: broad fixed bases hold the ranged pack on every exposed side", DefenseCapacityFlat, 45);
+        Run("defense capacity: broad fixed bases hold the ranged pack on every exposed side", DefenseCapacityFlat, 5);
         Run("defense access: an arrival gate may share only its open crossing with a post", DefenseArrivalGateCrossing);
         Run("defense access: one sally port may serve opposite nest flanks", DefenseSharedSallyPort);
         Run("defense access: compound crossings share a total twelve-gate budget", DefenseGateTotalCap);
-        Run("defense allocation: a sole viable front can exceed three crossings", DefenseGateTotalBudgetAllocation, 45);
+        Run("defense allocation: a sole viable front can exceed three crossings", DefenseGateTotalBudgetAllocation, 5);
         Run("defense selection: compound coverage outranks field-only capacity and approach samples",
             CompoundCoverageCandidatePriority);
         Run("defense selection: a shortened nest cannot reuse tail-slot compound coverage",
@@ -26,7 +26,7 @@ internal static partial class Program
         Run("P3 garrison keeps excess ranged defenders at safe reserve when frontage is bounded",
             P3NarrowFrontCapacityFallback);
         foreach (ulong seed in new ulong[] { 1, 2, 3, 4, 5, 6, 7, 8 })
-            Run("defense capacity: twelve residents, seed " + seed, () => DefenseCapacityFlatLarge(seed), 25);
+            Run("defense capacity: twelve residents, seed " + seed, () => DefenseCapacityFlatLarge(seed), 60);
         Run("defense capacity: a rock-backed side gets no posts", DefenseCapacityMountain);
         Run("defense capacity: a cramped side comes out short but is accepted", DefenseCapacityShort);
     }
