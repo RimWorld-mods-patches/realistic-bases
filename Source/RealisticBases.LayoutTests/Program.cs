@@ -75,6 +75,7 @@ internal static partial class Program
         Run("P5A: wealthiest spacer settlements get premium perimeter walls", PremiumPerimeterStuff);
         RunLayoutEngineV2Matrix();
         RunTurretBatteryT4OutcomeTests();
+        RunT5aPowerHeadroomTests();
         Run("T4A renewable fixtures", T4ARenewableFixtures, 10);
         Run("identical inputs replay identical layouts", Determinism);
         Run("seeds vary internal layout beyond translation and rotation", SeedVariation);

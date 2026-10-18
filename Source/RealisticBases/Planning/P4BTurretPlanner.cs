@@ -486,6 +486,10 @@ namespace RealisticBases.Planning
             { diagnostic = "unplaced: garrison_unavailable"; return null; }
             List<P4BTurretPlan> groups = new List<P4BTurretPlan>();
             List<string> decisions = new List<string>();
+            HashSet<GridPoint> powerLimitedGates = new HashSet<GridPoint>();
+            bool powerHeadroomStopped = false;
+            int minimumTurretWatts = input.Catalog.TryGet("Turret_MiniTurret", out CatalogDef minimumTurret)
+                ? minimumTurret.BasePowerConsumption : int.MaxValue;
             List<P4BPost> posts = (layout.ApproachDefense?.Posts ?? new P4BPost[0]).ToList();
             var crossings = posts.GroupBy(p => p.AccessGate)
                 .Select(g =>
@@ -505,12 +509,19 @@ namespace RealisticBases.Planning
             P4BTurretPlan TryPlanGroup(string side, GridPoint? gate, bool miniOnly, bool heavyOnly,
                 out string reason)
             {
-                return PlanGroup(input, layout, fieldWall, occupied, groups, garrison,
+                if (powerHeadroomStopped)
+                { reason = "power_headroom_stopped"; return null; }
+                P4BTurretPlan result = PlanGroup(input, layout, fieldWall, occupied, groups, garrison,
                     side, gate, miniOnly, heavyOnly, fullCountDefenseReserve, out reason);
+                if (result == null && reason.IndexOf("critical_power_headroom", StringComparison.Ordinal) >= 0 &&
+                    AvailableWatts(layout) - groups.SelectMany(g => g.All).Sum(g => g.Watts) < minimumTurretWatts)
+                    powerHeadroomStopped = true;
+                return result;
             }
             // Complete minimum batteries before any crossing receives a heavy or extra mini.
-            foreach (var crossing in crossings)
+            for (int crossingIndex = 0; crossingIndex < crossings.Count; crossingIndex++)
             {
+                var crossing = crossings[crossingIndex];
                 int crossingStart = groups.Count;
                 int count = 0;
                 while (count < 3)
@@ -521,6 +532,22 @@ namespace RealisticBases.Planning
                     if (next == null) break;
                     groups.Add(next); count++;
                 }
+                if (powerHeadroomStopped)
+                {
+                    int placedBeforeRemoval = count;
+                    groups.RemoveRange(crossingStart, groups.Count - crossingStart);
+                    for (int i = crossingIndex; i < crossings.Count; i++)
+                    {
+                        powerLimitedGates.Add(crossings[i].AccessGate);
+                        if (i > crossingIndex)
+                            decisions.Add(crossings[i].AccessGate + "/" + crossings[i].Side +
+                                ":power_headroom_shortfall=3_unattempted");
+                    }
+                    decisions.Add(crossing.AccessGate + "/" + crossing.Side +
+                        ":power_headroom_incomplete_battery_removed placed=" + placedBeforeRemoval +
+                        "/3 final=0/3 shortfall=3");
+                    break;
+                }
                 if (count < 3)
                 {
                     groups.RemoveRange(crossingStart, groups.Count - crossingStart);
@@ -529,6 +556,7 @@ namespace RealisticBases.Planning
             }
             foreach (var crossing in crossings)
             {
+                if (powerHeadroomStopped) break;
                 int miniCount = groups.SelectMany(g => g.All).Count(g => g.AccessGate.HasValue &&
                     g.AccessGate.Value.Equals(crossing.AccessGate) && g.DefName == "Turret_MiniTurret");
                 if (miniCount < 3) continue;
@@ -544,6 +572,7 @@ namespace RealisticBases.Planning
             }
             foreach (var crossing in crossings)
             {
+                if (powerHeadroomStopped) break;
                 int count = groups.SelectMany(g => g.All).Count(g => g.AccessGate.HasValue &&
                     g.AccessGate.Value.Equals(crossing.AccessGate) && g.DefName == "Turret_MiniTurret");
                 while (count >= 3 && count < 6)
@@ -564,11 +593,20 @@ namespace RealisticBases.Planning
                         layout.WithTurret(input, network)));
                 if (finalErrors.Count == 0) break;
                 GridPoint? removedGate = groups[groups.Count - 1].AccessGate;
-                decisions.Add("final_validation_removed=" + removedGate + ":" + finalErrors[0]);
+                bool powerValidationFailure = finalErrors.Any(e => e.Contains("power_budget") ||
+                    e.Contains("power_access") || e.Contains("power_generation") ||
+                    e.Contains("power_critical") || e.Contains("power_battery"));
+                decisions.Add((powerValidationFailure ? "power_validation_removed=" : "final_validation_removed=") +
+                    removedGate + ":" + finalErrors[0]);
+                if (powerValidationFailure)
+                {
+                    powerHeadroomStopped = true;
+                    if (removedGate.HasValue) powerLimitedGates.Add(removedGate.Value);
+                }
                 groups.RemoveAt(groups.Count - 1);
                 if (removedGate.HasValue && groups.SelectMany(g => g.All).Count(g =>
                     g.AccessGate.HasValue && g.AccessGate.Value.Equals(removedGate.Value) &&
-                    g.DefName == "Turret_MiniTurret") < 3)
+                    g.DefName == "Turret_MiniTurret") < 3 && !powerValidationFailure)
                 {
                     groups.RemoveAll(g => g.AccessGate.HasValue && g.AccessGate.Value.Equals(removedGate.Value));
                     decisions.Add("final_validation_removed_incomplete_battery=" + removedGate);
@@ -580,6 +618,12 @@ namespace RealisticBases.Planning
             List<int> coverage = ApproachTargets(input, layout).Select(c => network?.All.Count(t =>
                 CanShoot(t, c, finalOpaque)) ?? 0).ToList();
             P4BStaffingAudit staffed = network == null ? null : P4BStaffing.Audit(input, layout, network, garrison);
+            int powerShortfallMinis = powerLimitedGates.Sum(gate => Math.Max(0, 3 -
+                groups.SelectMany(g => g.All).Count(g => g.DefName == "Turret_MiniTurret" &&
+                    g.AccessGate.HasValue && g.AccessGate.Value.Equals(gate))));
+            int powerShortfallCrossings = powerLimitedGates.Count(gate =>
+                groups.SelectMany(g => g.All).Count(g => g.DefName == "Turret_MiniTurret" &&
+                    g.AccessGate.HasValue && g.AccessGate.Value.Equals(gate)) < 3);
             diagnostic = (network == null ? "unplaced" : "accepted") + " groups=" + groups.Count +
                 " turrets=" + (network?.All.Count() ?? 0) + " watts=" + (network?.TotalWatts ?? 0) +
                 " value=" + (network?.ImportValue ?? 0) + " uncovered=" + coverage.Count(n => n == 0) +
@@ -589,6 +633,9 @@ namespace RealisticBases.Planning
                 " sniperPosts=" + (staffed?.SniperPosts.Count ?? 0) +
                 " linePosts=" + (staffed?.LinePosts.Count ?? 0) +
                 " mortarCrew=" + (staffed?.MortarCrew ?? 0) + " mobileReserve=" + (staffed?.MobileReserve ?? 0) +
+                " powerHeadroomStopped=" + powerHeadroomStopped +
+                " powerLimitedCrossings=" + powerShortfallCrossings +
+                " batteryMiniShortfall=" + powerShortfallMinis +
                 " decisions=[" + string.Join(";", decisions) + "]";
             return network;
         }

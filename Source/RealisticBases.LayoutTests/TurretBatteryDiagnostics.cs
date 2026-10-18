@@ -128,6 +128,64 @@ internal static partial class Program
         Run("T4 outcome wealth sweep", TurretBatteryT4Outcomes, 400);
     }
 
+    private static void RunT5aPowerHeadroomTests()
+    {
+        if (only == null || only.IndexOf("T5a power headroom", StringComparison.OrdinalIgnoreCase) < 0) return;
+        Run("T5a power headroom removes partial batteries and preserves completed ones", T5aPowerHeadroom, 15);
+    }
+
+    private static void T5aPowerHeadroom()
+    {
+        SettlementTechStage late = TechStageModel.Create(SettlementTechStageLevel.IndustrialLate);
+        OrdinarySettlementBudget budget = OrdinarySettlementPopulation.Create(
+            P2ProfileCatalog.IndustrialTemperate, late, Temperate, 180);
+        LayoutRequirements requirements = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate,
+            Temperate, stage: late, populationBudget: budget);
+        ProceduralLayoutInput input = new ProceduralLayoutInput(requirements, Plains(180), 1, CoreCatalog,
+            new LayoutFortificationReservation(1));
+        ProceduralLayoutResult planned = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+        Accepted(planned);
+        ProceduralLayout source = planned.Layout;
+        LayoutPowerPlan originalPower = source.Power;
+        int critical = originalPower.CriticalWatts;
+        int available = 4 * 80;
+        int nonCritical = source.Power.Generators * source.Power.GeneratorWatts + source.Power.FirmWatts -
+            critical - available;
+        True(nonCritical >= 0, "headroom fixture leaves a nonnegative background load");
+        LayoutPowerPlan cappedPower = new LayoutPowerPlan(critical, nonCritical,
+            input.Equipment.Kit.Generator, originalPower.Generators, originalPower.Batteries,
+            originalPower.Yards, input.Equipment.Kit.GeneratorFuel, originalPower.FuelStock,
+            originalPower.Diagnostics, originalPower.DefenseReserveWatts, originalPower.DefenseGenerators,
+            originalPower.ReservedGenerators, originalPower.ReservedBatteries,
+            originalPower.ReleasedFuelStorageCells, originalPower.PackedMaterialImportValue);
+        ProceduralLayout layout = new ProceduralLayout(source.InputDigest, source.Seed, source.Doctrine,
+            source.MortarCapable, source.Anchor, source.Rooms, source.Corridors, source.Court,
+            source.Enclosure, source.BuiltWalls, source.NaturalWalls, source.Gates, source.Excavation,
+            source.RetainedThickRoof, source.ConstructedRoof, source.WallLayers, source.FieldCellsRequired,
+            source.Relationships, source.ExtraObstacles, source.Notes, source.TechStage, source.RolesDigest,
+            source.EquipmentDigest, source.WallStuff, source.Materials, cappedPower, source.ExhaustPockets,
+            source.OuterSections, source.JointSite, source.FieldWall, null, source.ApproachDefense,
+            source.PerimeterReinforcement, source.Courts, source.BonusFields);
+        HashSet<GridPoint> occupied = new HashSet<GridPoint>(layout.Enclosure
+            .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
+            .Concat(layout.PowerYards.SelectMany(y => y.Cells))
+            .Concat(layout.AllFixtures.SelectMany(f => f.Cells))
+            .Concat(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex]))));
+        P4BTurretPlan network = P4BTurretPlanner.Plan(input, layout, layout.FieldWall, occupied,
+            out string diagnostic);
+        True(network != null, "planner keeps turrets that fit the capped power headroom");
+        Equal(240, network.TotalWatts, "one complete three-mini battery fits under the power cap");
+        Equal(3, network.All.Count(g => g.DefName == "Turret_MiniTurret"),
+            "the completed battery remains after power stops the next crossing");
+        True(diagnostic.Contains("powerHeadroomStopped=True"), "planner stops when no mini headroom remains");
+        True(diagnostic.Contains("powerLimitedCrossings=10") && diagnostic.Contains("batteryMiniShortfall=30"),
+            "diagnostic reports the power limited crossings and missing minimum minis");
+        True(diagnostic.Contains("power_headroom_incomplete_battery_removed placed=1/3 final=0/3 shortfall=3"),
+            "incomplete battery is removed and its full shortfall is reported");
+        Console.WriteLine("  turret-t5a-power-headroom availableW=" +
+            P4BTurretPlanner.AvailableWatts(layout) + " plannedW=" + network.TotalWatts + " " + diagnostic);
+    }
+
     private static void TurretBatteryT4Outcomes()
     {
         string filter = Environment.GetEnvironmentVariable("T4_OUTCOME_FILTER");
@@ -253,6 +311,10 @@ internal static partial class Program
                 Console.WriteLine("  turret-t4-diagnostic " + label + " " + turretDetails);
         }
         PrintTurretBatteryDiagnostics(input, layout, label, watch.ElapsedMilliseconds, result.Diagnostics);
+        string turretDetailsForShortfall = string.Join(";", result.Diagnostics
+            .Where(d => d.Stage == "turret").Select(d => d.Detail));
+        if (turretDetailsForShortfall.Length > 0)
+            Console.WriteLine("  turret-t4-diagnostic " + label + " " + turretDetailsForShortfall);
         string mapExportDirectory = Environment.GetEnvironmentVariable("T4_MAP_EXPORT_DIR");
         if (!string.IsNullOrEmpty(mapExportDirectory))
             ExportTurretMap(input, layout, label, result.Diagnostics, mapExportDirectory);
