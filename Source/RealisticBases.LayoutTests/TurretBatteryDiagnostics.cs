@@ -572,6 +572,15 @@ internal static partial class Program
             Temperate, stage: late, populationBudget: broadBudget);
         cases.Add(("broad-flat-w180", new ProceduralLayoutInput(broadRequirements,
             Plains(160), 1, CoreCatalog, new LayoutFortificationReservation(1))));
+        LayoutClimate foothillClimate = new LayoutClimate(-9, 32);
+        OrdinarySettlementBudget foothillBudget = OrdinarySettlementPopulation.Create(
+            P2ProfileCatalog.IndustrialTemperate, late, foothillClimate, 90);
+        LayoutRequirements foothillRequirements = LayoutRequirements.FromProfile(
+            P2ProfileCatalog.IndustrialTemperate, foothillClimate, stage: late, populationBudget: foothillBudget);
+        cases.Add(("foothill-seed3849C7F216B8A3E2-late-wealth90", new ProceduralLayoutInput(foothillRequirements,
+            Plains(160), 0x3849C7F216B8A3E2UL, CoreCatalog, new LayoutFortificationReservation(1))));
+        cases.Add(("foothill-ridge-seed3849C7F216B8A3E2", new ProceduralLayoutInput(broadRequirements,
+            Obstacles(160), 0x3849C7F216B8A3E2UL, CoreCatalog, new LayoutFortificationReservation(1))));
 
         foreach ((string label, ProceduralLayoutInput input) in cases)
         {
@@ -584,6 +593,8 @@ internal static partial class Program
             True(preflight.Accepted, label + " accepted by the shared spawner preflight: " + preflight.Failure);
             Equal(0, ProceduralLayoutValidator.Validate(input, planned.Layout).Count,
                 label + " remains valid under planner-owned turret rules");
+            True(P4BTurretPlanner.PowerTerminalsConnected(input, planned.Layout, planned.Layout.Turret),
+                label + " connects every powered fixture, generator yard, battery and turret through legal wiring terrain");
             Equal(planned.Layout.Turret.All.Count(), preflight.GuardLookups.Count,
                 label + " retains one optional guard lookup per planned turret");
             int withGuard = preflight.GuardLookups.Count(g => g.GuardPost.HasValue);

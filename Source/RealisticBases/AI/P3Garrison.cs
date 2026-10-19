@@ -186,15 +186,64 @@ namespace RealisticBases.AI
         private bool compoundIntrusionNow;
         private bool postInventoryNeedsUpgrade;
         // Opt-in disposable combat probe; never serialized or enabled in ordinary play.
-        private int fieldProbeUntilTick;
-        private int fieldProbeShots;
-        private readonly HashSet<int> fieldProbeProjectiles = new HashSet<int>();
+        private int assaultProbeUntilTick;
+        private int assaultProbeShots;
+        private string assaultProbeName = string.Empty;
+        private string assaultProbeSide = string.Empty;
+        private readonly HashSet<string> assaultProbePostIds = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<int> assaultProbeProjectiles = new HashSet<int>();
 
         public P3GarrisonController(Map map) : base(map)
         {
         }
 
         public IntVec3 SupportCenter => supportCenter;
+        internal IReadOnlyList<KeyValuePair<string, IntVec3>> P5HostilePerimeterApproaches(Pawn hostile)
+        {
+            var result = new List<KeyValuePair<string, IntVec3>>();
+            if (hostile == null || !hostile.Spawned || hostile.Map != map) return result;
+            IntVec3[] directions = { IntVec3.North, IntVec3.East, IntVec3.South, IntVec3.West };
+            for (int i = 0; i < perimeterCells.Count && i < perimeterSectors.Count; i++)
+            {
+                IntVec3 wall = perimeterCells[i];
+                foreach (IntVec3 direction in directions)
+                {
+                    IntVec3 approach = wall + direction;
+                    // This is the hostile side of the wall. Do not use the
+                    // garrison's defended-cell set as an arrival filter: it
+                    // describes defender territory, not enemy path access.
+                    if (!approach.InBounds(map) || !approach.Standable(map) ||
+                        approach.GetEdifice(map) != null || !map.reachability.CanReachMapEdge(approach, TraverseParms.For(hostile))) continue;
+                    result.Add(new KeyValuePair<string, IntVec3>(perimeterSectors[i], approach));
+                }
+            }
+            return result.Distinct().ToList();
+        }
+
+        internal IReadOnlyList<KeyValuePair<string, IntVec3>> P5HostileGateApproaches(Pawn hostile)
+        {
+            var result = new List<KeyValuePair<string, IntVec3>>();
+            if (hostile == null || !hostile.Spawned || hostile.Map != map) return result;
+            IntVec3[] directions = { IntVec3.North, IntVec3.East, IntVec3.South, IntVec3.West };
+            for (int i = 0; i < perimeterCells.Count && i < perimeterSectors.Count && i < perimeterGates.Count; i++)
+            {
+                if (!perimeterGates[i]) continue;
+                IntVec3 gate = perimeterCells[i];
+                foreach (IntVec3 direction in directions)
+                {
+                    IntVec3 approach = gate + direction;
+                    if (!approach.InBounds(map) || !approach.Standable(map) || approach.GetEdifice(map) != null ||
+                        !map.reachability.CanReachMapEdge(approach, TraverseParms.For(hostile))) continue;
+                    result.Add(new KeyValuePair<string, IntVec3>(perimeterSectors[i], approach));
+                }
+            }
+            return result.Distinct().ToList();
+        }
+
+        internal string P5SuggestedAssaultSide => postIds.Select((id, i) => new { id, i })
+            .Where(x => x.id.StartsWith("perimeter-", StringComparison.Ordinal) && x.i < postCells.Count && x.i < postSectors.Count)
+            .GroupBy(x => postSectors[x.i].Split('|')[0]).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g => g.Count() >= 2 ? g.Key : null).FirstOrDefault(s => s != null);
         internal IEnumerable<Thing> P5OwnedThings => ownedThings.Where(t => t != null && !t.Destroyed);
         internal IEnumerable<Pawn> P5Residents => defenders.Where(p => p != null && !p.Dead && p.Spawned && p.Faction == faction);
         internal string P5AssignedRole(Pawn pawn) => AssignedRole(pawn).ToString();
@@ -232,33 +281,48 @@ namespace RealisticBases.AI
         public override void MapComponentTick()
         {
             base.MapComponentTick();
-            if (fieldProbeUntilTick <= GenTicks.TicksGame || GenTicks.TicksGame % 5 != 0) return;
+            if (assaultProbeUntilTick <= GenTicks.TicksGame || GenTicks.TicksGame % 5 != 0) return;
             foreach (Projectile projectile in map.listerThings.AllThings.OfType<Projectile>())
             {
                 Pawn launcher = projectile.Launcher as Pawn;
                 if (launcher == null || !defenders.Contains(launcher) ||
-                    !fieldProbeProjectiles.Add(projectile.thingIDNumber)) continue;
+                    !assaultProbeProjectiles.Add(projectile.thingIDNumber)) continue;
                 int postIndex = assignedPawnIds.IndexOf(launcher.thingIDNumber);
                 if (postIndex < 0 || postIndex >= assignedPostIds.Count ||
-                    !assignedPostIds[postIndex].StartsWith("field-outer-", StringComparison.Ordinal)) continue;
-                fieldProbeShots++;
-                P3Log.Message("FIELD_ASSAULT_SHOT", "map=" + map.uniqueID + " tick=" + GenTicks.TicksGame +
+                    !assaultProbePostIds.Contains(assignedPostIds[postIndex])) continue;
+                assaultProbeShots++;
+                P3Log.Message(assaultProbeName + "_ASSAULT_SHOT", "map=" + map.uniqueID + " tick=" + GenTicks.TicksGame +
                     " pawn=" + launcher.thingIDNumber + " post=" + assignedPostIds[postIndex] +
-                    " origin=" + launcher.Position + " projectile=" + projectile.def.defName);
+                    " side=" + assaultProbeSide + " origin=" + launcher.Position + " projectile=" + projectile.def.defName);
             }
-            if (GenTicks.TicksGame % 300 == 0) AuditFieldAssault("periodic");
+            if (GenTicks.TicksGame % 300 == 0) AuditAssaultProbe("periodic");
+        }
+
+        public void DebugStageCompoundAssault()
+        {
+            var side = P5SuggestedAssaultSide;
+            var chosen = postIds.Select((id, i) => new { id, i })
+                .Where(x => x.id.StartsWith("perimeter-", StringComparison.Ordinal) && x.i < postCells.Count &&
+                    x.i < postSectors.Count && postSectors[x.i].Split('|')[0] == side).ToList();
+            DebugStageAssaultProbe("COMPOUND", side, chosen.Select(x => x.i).ToList());
         }
 
         public void DebugStageFieldAssault()
         {
-            List<IntVec3> posts = postIds.Select((id, i) => new { id, i })
-                .Where(x => x.id.StartsWith("field-outer-", StringComparison.Ordinal) && x.i < postCells.Count)
-                .Select(x => postCells[x.i]).ToList();
+            var chosen = postIds.Select((id, i) => new { id, i })
+                .Where(x => x.id.StartsWith("field-outer-", StringComparison.Ordinal) && x.i < postCells.Count &&
+                    x.i < postSectors.Count).ToList();
+            DebugStageAssaultProbe("FIELD", "field-outer", chosen.Select(x => x.i).ToList());
+        }
+
+        private void DebugStageAssaultProbe(string probeName, string side, List<int> chosen)
+        {
+            List<IntVec3> posts = chosen.Where(i => i < postCells.Count).Select(i => postCells[i]).ToList();
             Pawn targetPawn = map.mapPawns.FreeColonistsSpawned.OrderBy(p => p.thingIDNumber).FirstOrDefault();
-            if (posts.Count < 2 || targetPawn == null)
+            if (string.IsNullOrEmpty(side) || posts.Count < 2 || targetPawn == null)
             {
-                P3Log.Message("FIELD_ASSAULT_STAGE_REJECT", "map=" + map.uniqueID +
-                    " posts=" + posts.Count + " playerPawn=" + (targetPawn != null));
+                P3Log.Message(probeName + "_ASSAULT_STAGE_REJECT", "map=" + map.uniqueID +
+                    " side=" + (side ?? "none") + " posts=" + posts.Count + " playerPawn=" + (targetPawn != null));
                 return;
             }
             int centerX = (int)Math.Round(posts.Average(c => c.x));
@@ -283,29 +347,58 @@ namespace RealisticBases.AI
             }
             if (!destination.IsValid)
             {
-                P3Log.Message("FIELD_ASSAULT_STAGE_REJECT", "map=" + map.uniqueID + " no_clear_approach");
+                P3Log.Message(probeName + "_ASSAULT_STAGE_REJECT", "map=" + map.uniqueID + " side=" + side + " no_clear_approach");
                 return;
             }
             targetPawn.DeSpawn();
             GenSpawn.Spawn(targetPawn, destination, map);
             targetPawn.drafter.Drafted = true;
             targetPawn.jobs.StopAll();
-            fieldProbeShots = 0;
-            fieldProbeProjectiles.Clear();
-            fieldProbeUntilTick = GenTicks.TicksGame + 3600;
-            P3Log.Message("FIELD_ASSAULT_STAGE", "map=" + map.uniqueID + " target=" + targetPawn.thingIDNumber +
-                " cell=" + destination + " fieldPosts=" + string.Join(",", posts.Select(p => p.ToString()).ToArray()) +
-                " untilTick=" + fieldProbeUntilTick);
-            AuditFieldAssault("stage");
+            assaultProbeName = probeName;
+            assaultProbeSide = side;
+            assaultProbePostIds.Clear();
+            assaultProbePostIds.UnionWith(chosen.Where(i => i < postIds.Count).Select(i => postIds[i]));
+            assaultProbeShots = 0;
+            assaultProbeProjectiles.Clear();
+            assaultProbeUntilTick = GenTicks.TicksGame + 3600;
+            string postList = string.Join(",", chosen.Where(i => i < postCells.Count && i < postIds.Count)
+                .Select(i => postIds[i] + "@" + postCells[i]));
+            P3Log.Message(probeName + "_ASSAULT_STAGE", "map=" + map.uniqueID + " side=" + side +
+                " target=" + targetPawn.thingIDNumber + " cell=" + destination +
+                (probeName == "FIELD" ? " fieldPosts=" : " posts=") + postList + " untilTick=" + assaultProbeUntilTick);
+            AuditAssaultProbe("stage");
+        }
+
+        public void AuditCompoundAssault(string phase)
+        {
+            string side = assaultProbeName == "COMPOUND" ? assaultProbeSide : P5SuggestedAssaultSide;
+            IEnumerable<string> selected = assaultProbeName == "COMPOUND"
+                ? assaultProbePostIds
+                : postIds.Select((id, i) => new { id, i }).Where(x => x.i < postSectors.Count &&
+                    x.id.StartsWith("perimeter-", StringComparison.Ordinal) && postSectors[x.i].Split('|')[0] == side)
+                    .Select(x => x.id);
+            AuditAssaultProbe(phase, "COMPOUND", side, selected);
         }
 
         public void AuditFieldAssault(string phase)
         {
+            IEnumerable<string> selected = assaultProbeName == "FIELD"
+                ? assaultProbePostIds
+                : postIds.Where(id => id.StartsWith("field-outer-", StringComparison.Ordinal));
+            AuditAssaultProbe(phase, "FIELD", "field-outer", selected);
+        }
+
+        private void AuditAssaultProbe(string phase) =>
+            AuditAssaultProbe(phase, assaultProbeName, assaultProbeSide, assaultProbePostIds);
+
+        private void AuditAssaultProbe(string phase, string probeName, string side, IEnumerable<string> selectedPostIds)
+        {
+            HashSet<string> selected = new HashSet<string>(selectedPostIds, StringComparer.Ordinal);
             Pawn targetPawn = map.mapPawns.FreeColonistsSpawned.OrderBy(p => p.thingIDNumber).FirstOrDefault();
             List<string> postState = new List<string>();
             for (int i = 0; i < postIds.Count && i < postCells.Count; i++)
             {
-                if (!postIds[i].StartsWith("field-outer-", StringComparison.Ordinal)) continue;
+                if (!selected.Contains(postIds[i])) continue;
                 Pawn assigned = defenders.FirstOrDefault(p => p != null && p.Spawned &&
                     assignedPawnIds.IndexOf(p.thingIDNumber) is int assignment && assignment >= 0 &&
                     assignment < assignedPostIds.Count && assignedPostIds[assignment] == postIds[i]);
@@ -317,8 +410,8 @@ namespace RealisticBases.AI
                     (assigned?.Position.InHorDistOf(postCells[i], 1.5f) ?? false) + ":job=" +
                     (assigned?.CurJobDef?.defName ?? "none"));
             }
-            P3Log.Message("FIELD_ASSAULT_AUDIT", "map=" + map.uniqueID + " phase=" + phase +
-                " tick=" + GenTicks.TicksGame + " shotsObserved=" + fieldProbeShots +
+            P3Log.Message(probeName + "_ASSAULT_AUDIT", "map=" + map.uniqueID + " phase=" + phase +
+                " tick=" + GenTicks.TicksGame + " side=" + side + " shotsObserved=" + assaultProbeShots +
                 " target=" + (targetPawn?.thingIDNumber.ToString() ?? "none") +
                 " targetHealth=" + (targetPawn?.health?.summaryHealth?.SummaryHealthPercent.ToString("F3") ?? "none") +
                 " posts=" + string.Join(";", postState.ToArray()));
@@ -1001,21 +1094,36 @@ namespace RealisticBases.AI
             P3Log.Message("P5B_GUN_AUDIT", "map=" + map.uniqueID + " guns=" + guns.Count + " " + string.Join(" ", guns
                 .OrderBy(g => g.def.defName).ThenBy(g => g.Position.x).ThenBy(g => g.Position.z).Select(g => g.def.defName + "@" +
                     g.Position.x + "," + g.Position.z + ":power=" + (g.TryGetComp<CompPowerTrader>()?.PowerOn.ToString() ?? "none") +
+                    ":hp=" + g.HitPoints + "/" + g.MaxHitPoints +
                     ":fuel=" + (g.TryGetComp<CompRefuelable>() is CompRefuelable fuel ? fuel.Fuel + "/" + fuel.Props.fuelCapacity : "none") +
                     ":crew=" + (g.TryGetComp<CompMannable>()?.ManningPawn?.thingIDNumber.ToString() ?? "-"))) +
                 " shells=" + string.Join(",", map.listerThings.AllThings.Where(t => t.def.IsShell && t.Spawned)
                     .GroupBy(t => t.def.defName).Select(g => g.Key + ":" + g.Sum(t => t.stackCount))));
-            foreach (PowerNet net in guns.Select(g => g.TryGetComp<CompPowerTrader>()?.PowerNet).Where(n => n != null).Distinct())
-                P3Log.Message("P5B_POWER_AUDIT", "map=" + map.uniqueID + " producers=" + string.Join(",", net.powerComps
-                    .Where(c => c.PowerOutput > 0 || c.parent.TryGetComp<CompPowerPlant>() != null)
-                    .Select(c => c.parent.def.defName + ":" + c.PowerOutput.ToString("F0") + ":" + (c.PowerOn ? "on" : "off") +
-                        (c.parent.TryGetComp<CompRefuelable>() is CompRefuelable f ? ":fuel=" + f.Fuel.ToString("F0") : ""))) +
-                    " demand=" + net.powerComps.Where(c => c.PowerOutput < 0).Sum(c => -c.Props.PowerConsumption).ToString("F0") +
-                    " served=" + net.powerComps.Where(c => c.PowerOutput < 0 && c.PowerOn).Sum(c => -c.PowerOutput).ToString("F0") +
+            List<PowerNet> allNets = map.listerThings.AllThings.Select(t => t.TryGetComp<CompPowerTrader>()?.PowerNet)
+                .Where(n => n != null).Distinct().ToList();
+            foreach (PowerNet net in allNets)
+            {
+                var powerComps = net.powerComps;
+                P3Log.Message("P5B_POWER_NET_AUDIT", "map=" + map.uniqueID + " net=" + net.GetHashCode() +
+                    " components=" + powerComps.Count + " producers=" + string.Join(",", powerComps
+                        .Where(c => c.PowerOutput > 0 || c.parent.TryGetComp<CompPowerPlant>() != null)
+                        .Select(c => c.parent.def.defName + "@" + c.parent.Position.x + "," + c.parent.Position.z +
+                            ":out=" + c.PowerOutput.ToString("F0") + ":on=" + c.PowerOn +
+                            (c.parent.TryGetComp<CompRefuelable>() is CompRefuelable f ? ":fuel=" + f.Fuel.ToString("F0") : ""))) +
+                    " demand=" + powerComps.Where(c => c.Props.PowerConsumption > 0)
+                        .Sum(c => c.Props.PowerConsumption).ToString("F0") +
+                    " served=" + powerComps.Where(c => c.Props.PowerConsumption > 0 && c.PowerOn)
+                        .Sum(c => -c.PowerOutput).ToString("F0") +
+                    " gainW=" + (net.CurrentEnergyGainRate() / CompPower.WattsToWattDaysPerTick).ToString("F0") +
+                    " batteries=" + string.Join(",", net.batteryComps.Select(b => b.parent.def.defName + "@" +
+                        b.parent.Position.x + "," + b.parent.Position.z + ":stored=" + b.StoredEnergy.ToString("F0") +
+                        "/" + b.Props.storedEnergyMax.ToString("F0"))) +
                     " stored=" + net.batteryComps.Sum(b => b.StoredEnergy).ToString("F0") +
-                    " consumers=" + string.Join(",", net.powerComps.Where(c => c.Props.PowerConsumption > 0)
-                        .GroupBy(c => c.parent.def.defName).Select(g => g.Key + "x" + g.Count() + "=" +
-                            g.Sum(c => c.Props.PowerConsumption).ToString("F0") + (g.Any(c => !c.PowerOn) ? "(off" + g.Count(c => !c.PowerOn) + ")" : ""))));
+                    " consumers=" + string.Join(",", powerComps.Where(c => c.Props.PowerConsumption > 0)
+                        .Select(c => c.parent.def.defName + "@" + c.parent.Position.x + "," + c.parent.Position.z +
+                            ":need=" + c.Props.PowerConsumption.ToString("F0") + ":out=" + (-c.PowerOutput).ToString("F0") +
+                            ":on=" + c.PowerOn)));
+            }
             P3Log.Message("P5B_GARRISON_AUDIT", "map=" + map.uniqueID + " phase=" + phase + " state=" + currentState +
                 " sector=" + currentSector + " pending=" + (sectorCandidate.Length == 0 ? "-" : sectorCandidate + "@" + sectorCandidateSince) +
                 " lastAssault=" + (lastAssaultTick == int.MinValue ? "never" : lastAssaultTick + ":" + lastAssaultTrigger) +

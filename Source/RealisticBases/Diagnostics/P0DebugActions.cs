@@ -568,14 +568,24 @@ namespace RealisticBases.Diagnostics
             Find.CurrentMap?.GetComponent<P3GarrisonController>()?.Audit("manual");
         }
 
-        [DebugAction(Category, "P4B stage field assault probe", actionType = DebugActionType.Action,
+        [DebugAction(Category, "P4B stage compound-side assault probe", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
-        private static void StageP4BFieldAssault() =>
+        private static void StageP4BCompoundAssault() =>
+            Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugStageCompoundAssault();
+
+        [DebugAction(Category, "P4B audit compound-side assault probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void AuditP4BCompoundAssault() =>
+            Find.CurrentMap?.GetComponent<P3GarrisonController>()?.AuditCompoundAssault("manual");
+
+        [DebugAction(Category, "P5B stage field-outer assault probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void StageP5BFieldAssault() =>
             Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugStageFieldAssault();
 
-        [DebugAction(Category, "P4B audit field assault probe", actionType = DebugActionType.Action,
+        [DebugAction(Category, "P5B audit field-outer assault probe", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
-        private static void AuditP4BFieldAssault() =>
+        private static void AuditP5BFieldAssault() =>
             Find.CurrentMap?.GetComponent<P3GarrisonController>()?.AuditFieldAssault("manual");
 
         [DebugAction(Category, "P5B park test visitor far from the walls", actionType = DebugActionType.Action,

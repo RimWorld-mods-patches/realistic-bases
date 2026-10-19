@@ -1946,17 +1946,22 @@ namespace RealisticBases.Planning
 
         public static bool PowerTerminalsConnected(ProceduralLayoutInput input, ProceduralLayout layout, P4BTurretPlan network)
         {
-            GridPoint[] roots = layout.AllFixtures.Where(f => f.Watts != 0 ||
-                f.Kind == LayoutFixtureKind.Generator || f.Kind == LayoutFixtureKind.Battery).Select(f => f.Cells[0]).ToArray();
-            if (roots.Length == 0) return false;
+            GridPoint[] terminals = layout.AllFixtures.Where(f => f.Watts != 0 ||
+                f.Kind == LayoutFixtureKind.Generator || f.Kind == LayoutFixtureKind.Battery).Select(f => f.Cells[0])
+                .Concat(layout.PowerYards.SelectMany(y => y.Cells.Take(1)))
+                .Concat(network?.All.SelectMany(t => t.Footprint.Take(1)) ?? Enumerable.Empty<GridPoint>())
+                .Distinct().ToArray();
+            if (terminals.Length == 0) return false;
             HashSet<GridPoint> allowed = PowerAccessCells(layout, network);
+            allowed.UnionWith(layout.PowerYards.SelectMany(y => y.Cells));
+            allowed.UnionWith(terminals);
             HashSet<GridPoint> natural = new HashSet<GridPoint>(layout.NaturalWalls.Concat(layout.Rooms.SelectMany(r => r.NaturalWalls)));
             bool Legal(GridPoint c) => allowed.Contains(c) && input.Terrain.InBounds(c) && !natural.Contains(c) &&
                 input.Terrain[c].Has(TerrainTraits.Buildable) && !input.Terrain[c].Has(TerrainTraits.Water) &&
                 (!input.Terrain[c].Has(TerrainTraits.NaturalRock) || layout.Excavation.Contains(c));
             Queue<GridPoint> queue = new Queue<GridPoint>();
-            HashSet<GridPoint> reached = new HashSet<GridPoint> { roots[0] };
-            queue.Enqueue(roots[0]);
+            HashSet<GridPoint> reached = new HashSet<GridPoint> { terminals[0] };
+            queue.Enqueue(terminals[0]);
             while (queue.Count > 0)
             {
                 GridPoint here = queue.Dequeue();
@@ -1966,7 +1971,7 @@ namespace RealisticBases.Planning
                     if (Legal(next) && reached.Add(next)) queue.Enqueue(next);
                 }
             }
-            return network.All.All(t => reached.Contains(t.Origin));
+            return terminals.All(reached.Contains);
         }
 
         private static int BaseMaterialValue(ProceduralLayoutInput input, ProceduralLayout layout) =>

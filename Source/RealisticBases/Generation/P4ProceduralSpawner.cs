@@ -606,6 +606,22 @@ namespace RealisticBases.Generation
                     // Charged like the generators' full tanks: the six-hour outage
                     // bridge holds from the first tick.
                     battery.TryGetComp<CompPowerBattery>().SetStoredEnergyPct(1f);
+                // RimWorld gradually restarts a net's switched-off consumers in
+                // small batches after power has been interrupted. The planner has
+                // already reserved firm power and the outage battery bridge; wake
+                // the accepted turret plan now so it is ready on the first tick.
+                int startupTurretsPowered = 0;
+                foreach (Thing turret in turrets.Values)
+                {
+                    CompPowerTrader power = turret.TryGetComp<CompPowerTrader>();
+                    if (power?.PowerNet == null || !FlickUtility.WantsToBeOn(turret) || turret.IsBrokenDown()) continue;
+                    if (!power.PowerOn) power.PowerOn = true;
+                    if (power.PowerOn) startupTurretsPowered++;
+                }
+                P2Log.Message("PROCEDURAL_TURRET_POWER_STARTUP", "map=" + map.uniqueID +
+                    " planned=" + turrets.Count + " powered=" + startupTurretsPowered +
+                    " networks=" + turrets.Values.Select(t => t.TryGetComp<CompPowerTrader>()?.PowerNet)
+                        .Where(n => n != null).Distinct().Count());
                 // After the fresh-layout audits above: damage, fuel, charge and
                 // loaded shells return as they were left, never refilled.
                 if (archivedAssets != null) P5EncounterArchive.ApplyAssets(map, (Settlement)settlement, archivedAssets);
