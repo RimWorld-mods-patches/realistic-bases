@@ -353,7 +353,7 @@ namespace RealisticBases.Integration
                 Stopwatch planningWatch = Stopwatch.StartNew();
                 var input = new ProceduralLayoutInput(requirements, terrain, context.Contract.Seed, catalog,
                     resources: resources, questContract: context.Contract,
-                    plannerDegree: ProceduralLayoutInput.AutomaticPlannerDegree);
+                    plannerDegree: ProceduralLayoutInput.DefaultPlannerDegree);
                 var result = ProceduralLayoutPlanner.Plan(input);
                 planningWatch.Stop();
                 if (!result.Success) throw new InvalidOperationException("quest_layout:" + P4AMapPlanner.RejectionSummary(result));

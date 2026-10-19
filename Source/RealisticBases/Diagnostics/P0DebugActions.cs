@@ -164,7 +164,7 @@ namespace RealisticBases.Diagnostics
             TimingMapGenerationMilliseconds = null;
             TimingMeasurementArmed = true;
             P4AMapPlanner.DebugPlannerDegreeNext = P4AMapPlanner.DebugPlannerDegreeNext ??
-                ProceduralLayoutInput.AutomaticPlannerDegree;
+                ProceduralLayoutInput.DefaultPlannerDegree;
             timingPlannerDegree = P4AMapPlanner.DebugPlannerDegreeNext.Value;
             GenerateIsolatedHostileSettlement(movePlayerColonist: true, pickTile: () => timingTile);
             Settlement settlement = Find.WorldObjects.AllWorldObjects.OfType<Settlement>()
@@ -578,11 +578,18 @@ namespace RealisticBases.Diagnostics
             SetPlannerDegree(4);
         }
 
-        [DebugAction(Category, "Use automatic planner degree", actionType = DebugActionType.Action,
+        [DebugAction(Category, "Use planner degree 8 for next generation", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.Playing)]
-        private static void UseAutomaticPlannerDegree()
+        private static void UsePlannerDegreeEight()
         {
-            SetPlannerDegree(ProceduralLayoutInput.AutomaticPlannerDegree);
+            SetPlannerDegree(8);
+        }
+
+        [DebugAction(Category, "Use default planner degree for next generation", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void UseDefaultPlannerDegree()
+        {
+            SetPlannerDegree(ProceduralLayoutInput.DefaultPlannerDegree);
         }
 
         private static void SetPlannerDegree(int degree)

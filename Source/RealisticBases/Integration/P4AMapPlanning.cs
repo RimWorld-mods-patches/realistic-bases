@@ -112,7 +112,7 @@ namespace RealisticBases.Integration
                 cachedMaintenanceFactor = maintenanceFactor;
             }
             TechCatalog catalog = cachedCatalog;
-            int plannerDegree = DebugPlannerDegreeNext ?? ProceduralLayoutInput.AutomaticPlannerDegree;
+            int plannerDegree = DebugPlannerDegreeNext ?? ProceduralLayoutInput.DefaultPlannerDegree;
             DebugPlannerDegreeNext = null;
             string capturePath = DebugPlannerInputCapturePathNext;
             List<ProceduralLayoutInput> capturedInputs = string.IsNullOrEmpty(capturePath) ? null : new List<ProceduralLayoutInput>();

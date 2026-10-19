@@ -494,7 +494,7 @@ namespace RealisticBases.Planning
         public ulong Seed { get; }
         // Degree is execution policy, not plan input: it must not alter the digest.
         public int PlannerDegree { get; }
-        public static int AutomaticPlannerDegree => Math.Max(1, Math.Min(8, Environment.ProcessorCount - 1));
+        public const int DefaultPlannerDegree = 1;
         public LayoutFortificationReservation Fortification { get; }
         public LayoutSearchBudget Budget { get; }
         public LayoutLocalResources Resources { get; }
