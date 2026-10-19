@@ -591,6 +591,21 @@ namespace RealisticBases.Diagnostics
             P2Log.Message("DEBUG_ARM", "plannerDegree=" + degree + " once");
         }
 
+        [DebugAction(Category, "Capture next P4 planner input under runtime", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void CaptureNextP4PlannerInput()
+        {
+            if (!P4DQuestDebugActions.Disposable)
+                throw new InvalidOperationException("Planner input capture is disposable-profile only");
+            string saves = System.IO.Path.GetDirectoryName(GenFilePaths.FilePathForSavedGame(DisposableSaveName));
+            string runtime = System.IO.Directory.GetParent(System.IO.Directory.GetParent(saves).FullName).FullName;
+            string directory = System.IO.Path.Combine(runtime, "investigations", "planner-performance");
+            System.IO.Directory.CreateDirectory(directory);
+            string path = System.IO.Path.Combine(directory, "timing-tile-input.cs");
+            P4AMapPlanner.DebugPlannerInputCapturePathNext = path;
+            P2Log.Message("DEBUG_ARM", "captureP4PlannerInputNext=" + path);
+        }
+
         [DebugAction(Category, "Use tribal profile for next generation", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.Playing)]
         private static void ForceTribalProfile()

@@ -20,6 +20,8 @@ internal static partial class Program
 
     private static int Main(string[] args)
     {
+        int? liveFixtureResult = LivePlannerFixtureReplay.RunIfRequested(args);
+        if (liveFixtureResult.HasValue) return liveFixtureResult.Value;
         int export = Array.IndexOf(args, "--export");
         if (export >= 0 && export + 1 < args.Length) exportDir = args[export + 1];
         int selected = Array.IndexOf(args, "--only");

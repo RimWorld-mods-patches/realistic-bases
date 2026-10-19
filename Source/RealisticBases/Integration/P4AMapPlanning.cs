@@ -47,6 +47,7 @@ namespace RealisticBases.Integration
         public static int? DebugWealthNext;
         public static int? DebugMortarBiasNext;
         public static int? DebugPlannerDegreeNext;
+        public static string DebugPlannerInputCapturePathNext;
 
         public static P4AMapPlanningRun Run(Map map, Settlement settlement, int requestedWallLayers)
         {
@@ -113,6 +114,9 @@ namespace RealisticBases.Integration
             TechCatalog catalog = cachedCatalog;
             int plannerDegree = DebugPlannerDegreeNext ?? ProceduralLayoutInput.AutomaticPlannerDegree;
             DebugPlannerDegreeNext = null;
+            string capturePath = DebugPlannerInputCapturePathNext;
+            List<ProceduralLayoutInput> capturedInputs = string.IsNullOrEmpty(capturePath) ? null : new List<ProceduralLayoutInput>();
+            List<ProceduralLayoutResult> capturedResults = string.IsNullOrEmpty(capturePath) ? null : new List<ProceduralLayoutResult>();
             ProceduralLayoutInput input = null;
             ProceduralLayoutResult result = null;
             int wallLayers = targetLayers;
@@ -126,6 +130,8 @@ namespace RealisticBases.Integration
                     new LayoutFortificationReservation(wallLayers), resources: resources,
                     plannerDegree: plannerDegree);
                 result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+                capturedInputs?.Add(input);
+                capturedResults?.Add(result);
                 AddTimings(totalStageTimings, result.StageTimings);
                 if (result.Success && P4BPerimeterDepth.Minimum(terrain, result.Layout) == wallLayers) break;
                 if (wallLayers > 1) layerFallback = result.Success ? "insufficient_perimeter_breach_depth" : result.RejectionCode ?? "plan_rejected";
@@ -162,6 +168,25 @@ namespace RealisticBases.Integration
                     .Select(d => d.ToString()).Take(2).ToArray()) +
                 terrainStats + " rejectionCode=" + (result.RejectionCode ?? "none") +
                 " rejected=" + RejectionSummary(result));
+            if (!string.IsNullOrEmpty(capturePath))
+            {
+                DebugPlannerInputCapturePathNext = null;
+                try
+                {
+                    RealisticBases.Diagnostics.P4PlannerFixtureExporter.WriteProceduralInput(capturePath,
+                        capturedInputs, capturedResults, profile, stageMode, worldSeed, settlement.Tile.tileId,
+                        targetLayers, wealthPercent);
+                    P2Log.Message("PLANNER_INPUT_CAPTURED", "tile=" + settlement.Tile.tileId + " input=" + input.Digest +
+                        " layout=" + (result.Layout?.Digest ?? "none") + " terrain=" + terrain.Digest +
+                        " requirements=" + requirements.Digest + " catalog=" + catalog.Digest +
+                        " resources=" + resources.Digest + " profile=" + profile.Id + "/" + profile.Version + "/" + profile.Digest +
+                        " stage=" + stage + " path=" + capturePath);
+                }
+                catch (Exception ex)
+                {
+                    P2Log.Error("PLANNER_INPUT_CAPTURE_FAILED", "path=" + capturePath + " " + ex);
+                }
+            }
             return new P4AMapPlanningRun(input, result, profile.Id, saleStock,
                 captureWatch.ElapsedMilliseconds, planningWatch.ElapsedMilliseconds, totalStageTimings);
         }
