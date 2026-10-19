@@ -1123,6 +1123,11 @@ internal static partial class Program
         HashSet<GridPoint> wiring = P4BTurretPlanner.PowerAccessCells(result.Layout);
         True(result.Layout.FieldWall.Access.All(wiring.Contains) && wiring.Contains(result.Layout.FieldWall.InnerGate.Value),
             "conduit reservation includes the explicit field lane and its inner gate");
+        HashSet<GridPoint> builtWallCells = new HashSet<GridPoint>(result.Layout.BuiltWalls.Concat(result.Layout.OuterWalls)
+            .Concat(result.Layout.Gates.SelectMany(g => g.BandWalls))
+            .Concat(result.Layout.FieldWall.Walls).Concat(result.Layout.ExhaustPocketWalls));
+        True(builtWallCells.Count > 0 && builtWallCells.All(wiring.Contains),
+            "conduit reservation may pass beneath every constructed wall cell");
         True(P4BTurretPlanner.PowerTerminalsConnected(input, result.Layout, network),
             "each network gun has a permitted conduit path into the compound");
         True(network.Groups.All(g => g.MinimumRange == 0 || g.Support != null), "every heavy retains close support");

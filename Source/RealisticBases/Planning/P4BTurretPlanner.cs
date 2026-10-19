@@ -1935,6 +1935,11 @@ namespace RealisticBases.Planning
         // Shared wiring reservation: the field's inner gate/lane is a real
         // connection, not whichever prefix the civilian arrival route happens to use.
         public static HashSet<GridPoint> PowerAccessCells(ProceduralLayout layout, P4BTurretPlan network = null) => new HashSet<GridPoint>(layout.Enclosure
+            .Concat(layout.BuiltWalls)
+            .Concat(layout.OuterWalls)
+            .Concat(layout.Gates.SelectMany(g => g.BandWalls))
+            .Concat(layout.FieldWall?.Walls ?? Enumerable.Empty<GridPoint>())
+            .Concat(layout.ExhaustPocketWalls)
             .Concat(layout.ApproachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? Enumerable.Empty<GridPoint>())
             .Concat(layout.ApproachDefense?.SallyPorts.SelectMany(p => p.InteriorRoute) ?? new GridPoint[0])
             .Concat(layout.Gates.Select(g => g.Cell))

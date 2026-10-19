@@ -392,10 +392,27 @@ namespace RealisticBases.Generation
                     SpawnLayoutFixture(tx, fixture, fixtureOrigins, layout.Rooms, map, settlement.Faction);
                 foreach (LayoutPowerYard yard in layout.PowerYards)
                     Spawn(tx, Require(yard.DefName), null, yardOrigins[yard], map, settlement.Faction, Rotation(yard.Rotation));
-                ThingDef conduitDef = Require("PowerConduit");
+                ThingDef conduitDef = PowerConduitDef(input);
+                HashSet<GridPoint> builtWallCells = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.OuterWalls)
+                    .Concat(layout.Gates.SelectMany(g => g.BandWalls))
+                    .Concat(layout.FieldWall?.Walls ?? Enumerable.Empty<GridPoint>())
+                    .Concat(layout.ExhaustPocketWalls));
+                int spawnedConduits = 0, conduitCellsUnderBuiltWalls = 0, conduitCellsSkippedForExistingTransmitters = 0;
                 foreach (GridPoint c in conduitCells)
-                    if (ToCell(c).GetTransmitter(map) == null)
-                        Spawn(tx, conduitDef, null, c, map, settlement.Faction, Rot4.North);
+                {
+                    if (ToCell(c).GetTransmitter(map) != null)
+                    {
+                        conduitCellsSkippedForExistingTransmitters++;
+                        continue;
+                    }
+                    Spawn(tx, conduitDef, null, c, map, settlement.Faction, Rot4.North);
+                    spawnedConduits++;
+                    if (builtWallCells.Contains(c)) conduitCellsUnderBuiltWalls++;
+                }
+                P2Log.Message("PROCEDURAL_CONDUIT_AUDIT", "map=" + map.uniqueID + " def=" + conduitDef.defName +
+                    " routeCells=" + conduitCells.Count + " spawned=" + spawnedConduits +
+                    " underBuiltWalls=" + conduitCellsUnderBuiltWalls +
+                    " skippedExistingTransmitters=" + conduitCellsSkippedForExistingTransmitters);
                 foreach (Thing battery in tx.OwnedThings.Where(t => t.TryGetComp<CompPowerBattery>() != null))
                     battery.TryGetComp<CompPowerBattery>().SetStoredEnergyPct(1f);
                 foreach (LayoutFixture fixture in spawnableFixtures.Where(f => !powerFoundations.Contains(f)))
@@ -1011,50 +1028,18 @@ namespace RealisticBases.Generation
 
         private static IReadOnlyList<GridPoint> PlanConduits(Map map, ProceduralLayoutInput input, ProceduralLayout layout)
         {
-            if (layout.Power == null) return new GridPoint[0];
-            List<GridPoint> terminals = layout.AllFixtures.Where(f => f.Watts != 0 ||
-                f.Kind == LayoutFixtureKind.Generator || f.Kind == LayoutFixtureKind.Battery)
-                .Select(f => f.Cells[0]).Concat(layout.PowerYards.Select(y => y.Cells[0]))
-                .Concat(layout.Turret == null ? Enumerable.Empty<GridPoint>() :
-                    layout.Turret.All.SelectMany(t => t.Footprint.Take(1)))
-                .Distinct().ToList();
-            if (terminals.Count == 0) throw new InvalidOperationException("Powered layout has no terminals");
-            HashSet<GridPoint> intactRock = new HashSet<GridPoint>(layout.NaturalWalls.Concat(layout.Rooms.SelectMany(r => r.NaturalWalls)));
-            HashSet<GridPoint> enclosed = P4BTurretPlanner.PowerAccessCells(layout);
-            Func<GridPoint, bool> legal = c => enclosed.Contains(c) && !intactRock.Contains(c) &&
-                !input.Terrain[c].Has(TerrainTraits.Water) &&
-                (!input.Terrain[c].Has(TerrainTraits.NaturalRock) || layout.Excavation.Contains(c)) &&
-                GenConstruct.CanBuildOnTerrain(ThingDefOf.PowerConduit, ToCell(c), map, Rot4.North);
-            HashSet<GridPoint> tree = new HashSet<GridPoint> { terminals[0] };
-            GridPoint[] deltas = { new GridPoint(0, -1), new GridPoint(-1, 0), new GridPoint(1, 0), new GridPoint(0, 1) };
-            foreach (GridPoint terminal in terminals.Skip(1))
-            {
-                Queue<GridPoint> queue = new Queue<GridPoint>();
-                Dictionary<GridPoint, GridPoint> previous = new Dictionary<GridPoint, GridPoint>();
-                queue.Enqueue(terminal);
-                previous[terminal] = terminal;
-                GridPoint reached = default(GridPoint);
-                bool found = false;
-                while (queue.Count > 0 && !found)
-                {
-                    GridPoint here = queue.Dequeue();
-                    if (tree.Contains(here)) { reached = here; found = true; break; }
-                    foreach (GridPoint d in deltas)
-                    {
-                        GridPoint next = new GridPoint(here.X + d.X, here.Z + d.Z);
-                        if (!legal(next) || previous.ContainsKey(next)) continue;
-                        previous[next] = here;
-                        queue.Enqueue(next);
-                    }
-                }
-                if (!found) throw new InvalidOperationException("Power terminal disconnected at " + terminal);
-                for (GridPoint c = reached; ; c = previous[c])
-                {
-                    tree.Add(c);
-                    if (c.Equals(terminal)) break;
-                }
-            }
-            return tree.OrderBy(c => c).ToList();
+            if (layout.Power == null) return Array.Empty<GridPoint>();
+            ThingDef conduitDef = PowerConduitDef(input);
+            return P4PowerConduitPlanner.Plan(input, layout,
+                canBuildOnTerrain: c => GenConstruct.CanBuildOnTerrain(conduitDef, ToCell(c), map, Rot4.North));
+        }
+
+        private static ThingDef PowerConduitDef(ProceduralLayoutInput input)
+        {
+            SettlementTechStage stage = input.Equipment.Kit.Stage;
+            if (!stage.HasResearch("Electricity") || !input.Catalog.IsLegal("HiddenConduit", stage))
+                throw new InvalidOperationException("A powered layout requires HiddenConduit at a researched Electricity stage");
+            return Require("HiddenConduit");
         }
 
         private static Thing Spawn(P4SpawnTransaction tx, ThingDef def, ThingDef stuff, GridPoint point,

@@ -765,6 +765,8 @@ internal static partial class Program
                 (counts[counts.Length / 2 - 1] + counts[counts.Length / 2]) / 2.0) + "/" + counts.Max();
         string byType = string.Join(",", guns.GroupBy(g => g.DefName, StringComparer.Ordinal)
             .OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => g.Key + ":" + g.Count()));
+        int conduitCellsBefore = PlannedConduitCells(input, layout, LegacyPowerAccessCells(layout));
+        int conduitCellsAfter = PlannedConduitCells(input, layout, P4BTurretPlanner.PowerAccessCells(layout));
         int reservedWatts = layout.Power?.DefenseReserveWatts ?? 0;
         int reservedImport = input.Requirements.DefenseImportReserveValue;
         int baseImport = Math.Max(0, layout.Materials.ImportValue - (network?.ImportValue ?? 0));
@@ -785,6 +787,7 @@ internal static partial class Program
             " generatorsReservedKept=" + (layout.Power?.ReservedGenerators ?? 0) + "/" + (layout.Power?.Generators ?? 0) +
             " batteriesReservedKept=" + (layout.Power?.ReservedBatteries ?? 0) + "/" + (layout.Power?.Batteries ?? 0) +
             " powerRoomBeforeAfter=" + powerRoomSize + "/" + powerRoomSize +
+            " conduitCellsBeforeAfter=" + conduitCellsBefore + "->" + conduitCellsAfter +
             " fuelReservedKept=" + LayoutPowerModel.FuelStock(input.Equipment.Kit.Generator,
                 layout.Power?.ReservedGenerators ?? 0) + "/" + (layout.Power?.FuelStock ?? 0) +
             " warehouseCellsReleased=" + (layout.Power?.ReleasedFuelStorageCells ?? 0) +
@@ -819,6 +822,35 @@ internal static partial class Program
             label.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0);
         if (!string.IsNullOrEmpty(mapExportDirectory) && exportMap)
             ExportTurretMap(input, layout, label, result.Diagnostics, mapExportDirectory);
+    }
+
+    private static int PlannedConduitCells(ProceduralLayoutInput input, ProceduralLayout layout,
+        IEnumerable<GridPoint> accessCells)
+    {
+        try
+        {
+            IReadOnlyList<GridPoint> route = P4PowerConduitPlanner.Plan(input, layout, accessCells);
+            return P4PowerConduitPlanner.ConduitCellCount(layout, route);
+        }
+        catch (InvalidOperationException)
+        {
+            return -1;
+        }
+    }
+
+    // Reconstruct the pre-change access-cell set to measure the path-length
+    // effect of allowing the same routes beneath newly reserved built walls.
+    private static HashSet<GridPoint> LegacyPowerAccessCells(ProceduralLayout layout)
+    {
+        return new HashSet<GridPoint>(layout.Enclosure
+            .Concat(layout.ApproachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? Enumerable.Empty<GridPoint>())
+            .Concat(layout.ApproachDefense?.SallyPorts.SelectMany(p => p.InteriorRoute) ?? new GridPoint[0])
+            .Concat(layout.Gates.Select(g => g.Cell))
+            .Concat(layout.Gates.SelectMany(g => g.BandDoors.Concat(g.OuterVestibule)))
+            .Concat(layout.FieldWall == null ? Enumerable.Empty<GridPoint>() : layout.FieldWall.Access
+                .Concat(new[] { layout.FieldWall.InnerGate.Value, layout.FieldWall.OuterGate })
+                .Concat(layout.FieldWall.ArrivalRoute.TakeWhile(c => !c.Equals(layout.FieldWall.OuterGate))))
+            .Concat((layout.Turret)?.All.SelectMany(t => t.ServiceRoute.Concat(t.Footprint)) ?? Enumerable.Empty<GridPoint>()));
     }
 
     private static void ExportTurretMap(ProceduralLayoutInput input, ProceduralLayout layout,
