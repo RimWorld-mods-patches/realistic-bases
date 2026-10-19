@@ -1,6 +1,6 @@
 # Planner performance
 
-Status: PPA (`d30f2f6`), PPC (`5a59492`) and PPD offline work are complete. Live timing is reserved for the final session; PPB and other performance work are deferred. It follows the turret-batteries work
+Status: PPD live result: no gain under Mono. The in-game default degree is 1 (step 1). Next is PPE, grid collections for the turret planner (design below), then a Mono harness if budget allows. PPB is deferred. It follows the turret-batteries work
 ([plan](2026-10-18-turret-batteries-and-power.md)), after the startup-power and
 hidden-conduit tasks.
 
@@ -314,8 +314,8 @@ removed, and no profiling hooks remain in source.
 ### PPD: Parallel site search and in-game timing — offline work complete
 **Parallel `P4BJointSitePlanner.FindCore`.**
 - `ProceduralLayoutInput.PlannerDegree` carries the execution degree and is omitted from
-  the input digest. Test inputs default to degree 1; live P4/P4D inputs set
-  `clamp(Environment.ProcessorCount - 1, 1, 8)`.
+  the input digest. Test inputs default to degree 1, and live P4/P4D generation now
+  defaults to degree 1. Developer actions can force degrees 1, 4, or 8 for measurements.
 - Each origin, in its seeded order (`P4BJointSite.cs`), is evaluated independently:
   four compound sides, then crops, lanes, gates and line of sight. The terrain data that
   PPC hoisted is read-only.
@@ -371,8 +371,100 @@ P4 timing log fields are in place. In that session:
   foreground (a backgrounded Unity app may throttle);
 - record the end-to-end time and the per-phase fields, and compare medians.
 
-The same session doubles as the live check that the parallel site search works inside
-RimWorld.
+The live timing session confirmed degree 1 and automatic degree 8 had nearly identical
+end-to-end medians on timing tile 0, and degree 4 was only slightly faster. The captured
+tile replay was slower at degree 8 than degree 1. In-game generation therefore defaults
+to degree 1; the parallel implementation remains available through the measurement actions.
+
+### PPE: Grid collections for the turret planner (design)
+**Why.** Live on timing tile 0,0, turret planning takes 25.6 s under Unity's Mono, but 5.3 s
+offline under CoreCLR for the identical input (`275f4c7`). The CPU profile of
+`PlanGroup` is mostly copying and allocating collections:
+
+| Hotspot | Exclusive share |
+|---|---|
+| `Buffer.Memmove` | 31% |
+| `HashSet<GridPoint>.FindItemIndex` | 18% |
+| `List.set_Capacity` | 9% |
+
+LINQ `Count` and `ToDictionary` and HashSet copies are also prominent. Mono's slower GC and
+slower copying multiply exactly this kind of work. The goal is to cut allocation and
+copying in the turret planner while keeping every digest identical.
+
+**Root causes in `PlanGroup` (`P4BTurretPlanner.cs:791`).** It runs for every crossing ×
+spacing level × weapon type, and each call rebuilds from scratch:
+- `blocked` and `opaque` as `HashSet<GridPoint>`. `Opaque` alone scans the whole terrain
+  and hashes about 25k cells, then is unioned with every earlier turret.
+- `coverage`: `targets.ToDictionary(c => previous.Count(t => CanShoot(t, c, opaque)))`
+  rescans every target against every earlier turret on each call.
+- several `previous.SelectMany(...)` sets and lists, and `nestCover`, `postRoutes` and
+  `arrivalCells`, which never change between calls.
+
+In the candidate scoring, `Gain`, `Shots`, `MutualShots` and `FrontShots` each walk
+`targets` again with the same `CanEngage(origin, t, ...)`, so each ray is cast up to four
+times.
+
+**New types** (in `Planning/`, plain C#, no LINQ inside):
+
+1. **`CellSet`**, a bitset over the map rectangle (`ulong[]`, `width × height` bits).
+   - Operations: `Add`, `Remove`, `Contains` (O(1), with no hashing), `UnionWith(CellSet)`
+     (word-wise OR), `UnionWith(IReadOnlyList<GridPoint>)`, `ExceptWith`, `CopyFrom`,
+     `Clear`, `Count` (popcount) and `CopyTo(List<GridPoint>)`.
+   - A 160×160 map is 400 words (3.2 KB), so a clone is one `Array.Copy`.
+   - It enumerates in index order, `z * width + x`, which is exactly `GridPoint.CompareTo`
+     order (Z, then X). Enumerating it equals `OrderBy(c => c)`, deterministically.
+   - Out-of-bounds cells: `Contains` returns false. `Add` keeps them in a small overflow
+     `HashSet<GridPoint>`, so semantics match the old `HashSet` exactly. Candidate offsets
+     can leave the map.
+   - It implements `P4BFireLane`'s `IBlocker` as a struct wrapper, so line of sight uses
+     the bitset directly.
+2. **`CellMap<T>`**, a dense `T[]` plus a presence `CellSet`, for the
+   `Dictionary<GridPoint, int|bool>` uses: `coverage`, `exposureScores` and
+   `existingExposureAnswers`. It offers `TryGetValue`, an indexer and `ContainsKey`, with
+   no hashing and no resizing.
+3. **`TurretPlanningContext`**, built once per `P4BTurretPlanner.Plan` call and passed to
+   every `PlanGroup`. It holds what doesn't depend on the earlier groups:
+   - the terrain-and-layout `Opaque` mask as a `CellSet`;
+   - the static blocked cells: field walls, exterior posts, fields, nest cover, all posts,
+     and walls minus access gates;
+   - `nestCover`, `postRoutes` and `arrivalCells`;
+   - `ApproachTargets` as a sorted `GridPoint[]`;
+   - each side's samples as arrays;
+   - the staffing-independent frames;
+   - reusable scratch buffers (`List<GridPoint>`, `CellSet`) that are cleared rather than
+     reallocated.
+4. **Incremental group state** in the context, updated only when a group is accepted:
+   - the earlier footprints and service routes, as `CellSet`s and lists;
+   - the `opaque`-with-turret-footprints mask, a copy of the base plus OR;
+   - the `coverage` `CellMap<int>`, increased by the new turret's shots only. The count
+     equals the old full recount, because coverage depends on `opaque` including the
+     earlier footprints. When a footprint is added, recompute only the targets whose ray
+     crosses the new footprint, or recompute everything when that is cheaper. The PPE
+     tests prove equality.
+
+**Loop fusion in candidate scoring.**
+- Walk `targets` once per candidate with one `CanEngage` per target, and accumulate
+  `Gain`, `Shots`, `MutualShots` and `FrontShots` together. `FrontShots` uses a
+  per-side `CellSet` of samples.
+- Precompute `staffedPosts`' line of sight to the targets (range 25) once per call as a
+  `CellSet`, instead of `staffedPosts.Any(...)` for each target and candidate.
+- Replace the anonymous-type LINQ candidate pipeline with a struct candidate array that is
+  sorted once with the same comparison keys.
+
+**Rules.**
+- **Digests are identical** on the 14 T6 bases, all 483 LayoutTests records and the
+  captured live tile. Where the old code enumerated a `HashSet` and the order fed a
+  decision (`First`, unsorted iteration, ties), keep the original order explicitly (an
+  insertion-order list next to the set). Never assume the order doesn't matter: the
+  digests decide.
+- **No LINQ, closures or interface enumerators in the inner loops.** Under Mono, each one
+  allocates and dispatches. Use `for` over arrays or `List<T>`.
+- **Introduce the types first, then convert one hot spot at a time** (`opaque` and
+  `blocked`, then `coverage`, then fusion), with a digest check after each.
+- **Measure.** Offline replay of the captured tile at degree 1 (CoreCLR), the profile's
+  allocation counts and the turret stage time, on seeds 5, 4, 1 and 2 plus the tile. Mono
+  numbers come from step 3 (a Mono harness) if Luna's budget allows; otherwise from one
+  final live run of the timing tile.
 
 ### PP1: Line of sight
 `P4BFireLane.CanEngage` walks a ray cell by cell and looks up each cell in a

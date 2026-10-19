@@ -31,6 +31,15 @@ namespace RealisticBases.Planning
                 new MaskBlocker(opaque, width, height));
         }
 
+        internal static bool CanEngage(GridPoint origin, GridPoint target, int minimumRange, int maximumRange,
+            CellSet opaque)
+        {
+            if (minimumRange < 0 || maximumRange < minimumRange) throw new ArgumentOutOfRangeException(nameof(maximumRange));
+            if (opaque == null) throw new ArgumentNullException(nameof(opaque));
+            return CanEngageCore(origin, target, minimumRange, maximumRange,
+                new CellSetBlocker(opaque));
+        }
+
         private static bool CanEngageCore<TBlocker>(GridPoint origin, GridPoint target, int minimumRange,
             int maximumRange, TBlocker blocker) where TBlocker : struct, IBlocker
         {
@@ -82,6 +91,13 @@ namespace RealisticBases.Planning
                 return cell.X >= 0 && cell.Z >= 0 && cell.X < width && cell.Z < height &&
                     cells[cell.Z * width + cell.X];
             }
+        }
+
+        private struct CellSetBlocker : IBlocker
+        {
+            private readonly CellSet cells;
+            public CellSetBlocker(CellSet cells) { this.cells = cells; }
+            public bool IsBlocked(GridPoint cell) { return cells.Contains(cell); }
         }
     }
 }

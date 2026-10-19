@@ -50,6 +50,7 @@ internal static class LivePlannerFixtureReplay
 
             double plannerMs = 0, cpuMs = 0, site = 0, field = 0, fit = 0, approach = 0;
             double turret = 0, power = 0, validator = 0, scoring = 0;
+            long allocatedBytes = 0;
             int validationCalls = 0;
             ProceduralLayoutResult result = null;
             for (int attempt = 0; attempt < inputs.Length; attempt++)
@@ -57,11 +58,13 @@ internal static class LivePlannerFixtureReplay
                 ProceduralLayoutInput input = inputs[attempt];
                 Equal(expectedAttemptInputs[attempt], input.Digest, "attempt " + (attempt + 1) + " input digest");
                 double attemptCpuBefore = Process.GetCurrentProcess().TotalProcessorTime.TotalMilliseconds;
+                long attemptAllocatedBefore = GC.GetAllocatedBytesForCurrentThread();
                 Stopwatch watch = Stopwatch.StartNew();
                 result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
                 watch.Stop();
                 plannerMs += watch.Elapsed.TotalMilliseconds;
                 cpuMs += Process.GetCurrentProcess().TotalProcessorTime.TotalMilliseconds - attemptCpuBefore;
+                allocatedBytes += GC.GetAllocatedBytesForCurrentThread() - attemptAllocatedBefore;
                 string attemptLayout = result.Layout?.Digest ?? "none";
                 Equal(expectedAttemptLayouts[attempt], attemptLayout, "attempt " + (attempt + 1) + " layout digest");
                 ProceduralLayoutStageTimings timing = result.StageTimings;
@@ -92,6 +95,7 @@ internal static class LivePlannerFixtureReplay
             Console.WriteLine("live-fixture-run plannerDegree=" + degree + " repeat=" + repeat +
                 " attempts=" + inputs.Length + " inputDigest=" + finalInput.Digest + " layoutDigest=" + result.Layout.Digest +
                 " plannerMs=" + F(plannerMs) + " plannerCpuMs=" + F(cpuMs) +
+                " plannerAllocatedBytes=" + allocatedBytes.ToString(CultureInfo.InvariantCulture) +
                 " plannerStages=" + stageText);
         }
         return 0;

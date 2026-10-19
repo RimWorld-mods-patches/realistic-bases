@@ -37,6 +37,9 @@
     <Compile Include="../RealisticBases/Planning/P4BLayerPolicy.cs" Link="Planning/P4BLayerPolicy.cs" />
     <Compile Include="../RealisticBases/Planning/P4BPerimeterDepth.cs" Link="Planning/P4BPerimeterDepth.cs" />
     <Compile Include="../RealisticBases/Planning/P4BFireLane.cs" Link="Planning/P4BFireLane.cs" />
+    <Compile Include="../RealisticBases/Planning/CellSet.cs" Link="Planning/CellSet.cs" />
+    <Compile Include="../RealisticBases/Planning/CellMap.cs" Link="Planning/CellMap.cs" />
+    <Compile Include="../RealisticBases/Planning/TurretPlanningContext.cs" Link="Planning/TurretPlanningContext.cs" />
     <Compile Include="../RealisticBases/Planning/P4BTurretPlanner.cs" Link="Planning/P4BTurretPlanner.cs" />
     <Compile Include="../RealisticBases/Planning/P4PowerConduitPlanner.cs" Link="Planning/P4PowerConduitPlanner.cs" />
     <Compile Include="../RealisticBases/Planning/P4BStaffing.cs" Link="Planning/P4BStaffing.cs" />

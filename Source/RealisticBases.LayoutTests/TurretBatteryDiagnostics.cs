@@ -755,10 +755,12 @@ internal static partial class Program
     {
         if (filterLabels.Length > 0 && !filterLabels.Any(f => label.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0)) return;
         TimeSpan cpuBefore = System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime;
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
         Stopwatch watch = Stopwatch.StartNew();
         ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: jointSite);
         watch.Stop();
         double plannerCpuMilliseconds = (System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime - cpuBefore).TotalMilliseconds;
+        long plannerAllocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
         if (result.Layout == null)
         {
             string rejections = TopIncompleteBatteryRejections(result.Diagnostics);
@@ -767,6 +769,7 @@ internal static partial class Program
                 " status=failed rejection=" + result.RejectionCode + " plannerDegree=" + input.PlannerDegree +
                 " plannerMs=" + watch.ElapsedMilliseconds +
                 " plannerCpuMs=" + plannerCpuMilliseconds.ToString("F2", CultureInfo.InvariantCulture) +
+                " plannerAllocatedBytes=" + plannerAllocatedBytes.ToString(CultureInfo.InvariantCulture) +
                 " plannerStages=" + StageTimingText(result.StageTimings, watch.Elapsed.TotalMilliseconds) +
                 " incompleteCrossingRejects=" + rejections + " diagnostics=" + string.Join(";",
                     result.Diagnostics.Where(d => d.Stage == "turret")));
@@ -850,6 +853,7 @@ internal static partial class Program
             " plannerDegree=" + input.PlannerDegree +
             " plannerMs=" + watch.ElapsedMilliseconds +
             " plannerCpuMs=" + plannerCpuMilliseconds.ToString("F2", CultureInfo.InvariantCulture) +
+            " plannerAllocatedBytes=" + plannerAllocatedBytes.ToString(CultureInfo.InvariantCulture) +
             " plannerStages=" + StageTimingText(result.StageTimings, watch.Elapsed.TotalMilliseconds) +
             " incompleteCrossingRejects=" + rejectionCodes);
         foreach (TurretFaceCoverageGap gap in TurretFacesWithoutNearbyNest(layout))

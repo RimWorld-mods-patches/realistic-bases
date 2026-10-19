@@ -29,6 +29,7 @@ internal static partial class Program
         int workerArg = Array.IndexOf(args, "--workers");
         int workers = workerArg >= 0 && workerArg + 1 < args.Length ? int.Parse(args[workerArg + 1]) : Environment.ProcessorCount;
         Stopwatch watch = Stopwatch.StartNew();
+        Run("dense cell collections preserve map and overflow semantics", CellCollections);
         Run("P4E laboratory stage matrix and compact quest exclusions", P4ELaboratoryStageMatrix);
         Run("P4E occupied room climate and power demand", P4EOccupiedRoomClimate);
         Run("P4E cardinal work dining seats and medical shelves", P4ESeatsAndMedicalShelves);
