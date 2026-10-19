@@ -103,6 +103,16 @@ namespace RealisticBases.Planning
             internal string Side;
             internal bool BetweenNests;
         }
+
+        private struct TurretCandidate
+        {
+            internal Frame Frame;
+            internal int Side, Index;
+            internal GridPoint Origin;
+            internal int Gain, Shots, MutualShots, FrontShots, FrontExposure, FrontOpenGround, Sides;
+            internal bool NewFront;
+            internal int ExposureScore;
+        }
         // Kept for parsing older T5g diagnostics; no current planner path creates these.
         private sealed class BetweenCandidateDiagnostic
         {
@@ -614,20 +624,30 @@ namespace RealisticBases.Planning
             { diagnostic = "unplaced: garrison_unavailable"; return null; }
             List<P4BTurretPlan> groups = new List<P4BTurretPlan>();
             List<string> decisions = new List<string>();
-            CellSet baseOpaque = new CellSet(input.Terrain);
+            TurretPlanningContext planningContext = new TurretPlanningContext(input.Terrain.Width, input.Terrain.Height);
             foreach (GridPoint cell in P4BApproachDefensePlanner.Opaque(layout, input.Terrain))
-                baseOpaque.Add(cell);
-            CellSet baseBlocked = new CellSet(input.Terrain);
+                planningContext.BaseOpaque.Add(cell);
             if (occupied != null)
-                foreach (GridPoint cell in occupied) baseBlocked.Add(cell);
-            baseBlocked.UnionWith(fieldWall.Walls);
-            baseBlocked.UnionWith(fieldWall.ExteriorPosts);
-            baseBlocked.UnionWith(fieldWall.Fields);
+                foreach (GridPoint cell in occupied) planningContext.StaticBlocked.Add(cell);
+            planningContext.StaticBlocked.UnionWith(fieldWall.Walls);
+            planningContext.StaticBlocked.UnionWith(fieldWall.ExteriorPosts);
+            planningContext.StaticBlocked.UnionWith(fieldWall.Fields);
             if (layout.ApproachDefense != null)
             {
-                foreach (GridPoint cell in layout.ApproachDefense.CoverCells) baseBlocked.Add(cell);
-                foreach (GridPoint cell in layout.ApproachDefense.AllPosts) baseBlocked.Add(cell);
+                foreach (GridPoint cell in layout.ApproachDefense.CoverCells)
+                {
+                    planningContext.StaticBlocked.Add(cell);
+                    planningContext.NestCover.Add(cell);
+                }
+                foreach (GridPoint cell in layout.ApproachDefense.AllPosts) planningContext.StaticBlocked.Add(cell);
+                foreach (P4BPost post in layout.ApproachDefense.Posts)
+                {
+                    planningContext.PostRoutes.UnionWith(post.Route);
+                    planningContext.NestCover.UnionWith(post.CoverCells);
+                }
             }
+            foreach (GridPoint cell in Arrival(layout)) planningContext.ArrivalCells.Add(cell);
+            planningContext.ApproachTargets = ApproachTargets(input, layout).ToArray();
             HashSet<GridPoint> powerLimitedGates = new HashSet<GridPoint>();
             bool powerHeadroomStopped = false;
             int minimumTurretWatts = input.Catalog.TryGet("Turret_MiniTurret", out CatalogDef minimumTurret)
@@ -653,7 +673,7 @@ namespace RealisticBases.Planning
             {
                 if (powerHeadroomStopped)
                 { reason = "power_headroom_stopped"; return null; }
-                P4BTurretPlan result = PlanGroup(input, layout, fieldWall, baseBlocked, baseOpaque, groups, garrison,
+                P4BTurretPlan result = PlanGroup(input, layout, fieldWall, planningContext, groups, garrison,
                     side, gate, miniOnly, heavyOnly, ignoreGainGate, spacingLevel,
                     fullCountDefenseReserve, out reason);
                 if (result == null && reason.IndexOf("critical_power_headroom", StringComparison.Ordinal) >= 0 &&
@@ -806,7 +826,7 @@ namespace RealisticBases.Planning
         }
 
         private static P4BTurretPlan PlanGroup(ProceduralLayoutInput input, ProceduralLayout layout,
-            P4BFieldWallPlan fieldWall, CellSet baseBlocked, CellSet baseOpaque, List<P4BTurretPlan> groups,
+            P4BFieldWallPlan fieldWall, TurretPlanningContext planningContext, List<P4BTurretPlan> groups,
             SettlementLoadout garrison, string onlySide, GridPoint? onlyGate, bool miniOnly, bool heavyOnly,
             bool ignoreGainGate, int spacingLevel, bool fullCountDefenseReserve,
             out string diagnostic)
@@ -817,16 +837,13 @@ namespace RealisticBases.Planning
             if (layout.Power == null || input.Equipment.Kit.Stage.Level < SettlementTechStageLevel.IndustrialMid)
             { diagnostic = "stage_or_power_unavailable"; return null; }
             CellSet blocked = new CellSet(input.Terrain);
-            blocked.CopyFrom(baseBlocked);
+            blocked.CopyFrom(planningContext.StaticBlocked);
             List<P4BTurretPlan> previous = groups.SelectMany(g => g.All).ToList();
             List<GridPoint> previousFootprintCells = previous.SelectMany(t => t.Footprint).ToList();
             CellSet previousServiceRoutes = new CellSet(input.Terrain);
             foreach (P4BTurretPlan turret in previous) previousServiceRoutes.UnionWith(turret.ServiceRoute);
-            CellSet postRoutes = new CellSet(input.Terrain);
-            if (layout.ApproachDefense != null)
-                foreach (P4BPost post in layout.ApproachDefense.Posts) postRoutes.UnionWith(post.Route);
-            CellSet arrivalCells = new CellSet(input.Terrain);
-            foreach (GridPoint cell in Arrival(layout)) arrivalCells.Add(cell);
+            CellSet postRoutes = planningContext.PostRoutes;
+            CellSet arrivalCells = planningContext.ArrivalCells;
             Dictionary<GridPoint, List<P4BTurretPlan>> previousTurretsByFootprintCell = new Dictionary<GridPoint, List<P4BTurretPlan>>();
             foreach (P4BTurretPlan turret in previous)
                 foreach (GridPoint cell in turret.Footprint)
@@ -842,12 +859,9 @@ namespace RealisticBases.Planning
                 blocked.UnionWith(turret.Footprint);
                 blocked.UnionWith(turret.CoverCells);
             }
-            HashSet<GridPoint> nestCover = new HashSet<GridPoint>(layout.ApproachDefense?.CoverCells ??
-                Enumerable.Empty<GridPoint>());
-            if (layout.ApproachDefense != null)
-                nestCover.UnionWith(layout.ApproachDefense.Posts.SelectMany(p => p.CoverCells));
+            HashSet<GridPoint> nestCover = planningContext.NestCover.ToHashSet();
             CellSet opaque = new CellSet(input.Terrain);
-            opaque.CopyFrom(baseOpaque);
+            opaque.CopyFrom(planningContext.BaseOpaque);
             foreach (P4BTurretPlan turret in previous) opaque.UnionWith(turret.Footprint);
             // A service route may pass a door, but cannot pass through either
             // perimeter's wall even if the caller omitted wall cells from its
@@ -879,7 +893,7 @@ namespace RealisticBases.Planning
                         Gate = x.Post.AccessGate, Outward = s.Outward, Side = s.Id })));
             // T5g between-nests candidates were rejected and their full variant is preserved
             // in .runtime/investigations/turret-batteries/between-nests.patch.
-            List<GridPoint> targets = ApproachTargets(input, layout).ToList();
+            List<GridPoint> targets = new List<GridPoint>(planningContext.ApproachTargets);
             HashSet<GridPoint> opaqueForCoverage = legacyOpaque;
             CellMap<int> coverage = new CellMap<int>(input.Terrain);
             for (int targetIndex = 0; targetIndex < targets.Count; targetIndex++)
@@ -958,15 +972,39 @@ namespace RealisticBases.Planning
                 // A deterministic bounded candidate set replaces the old
                 // field-gate-first rule. No gun is needed on every side.
                 int standardRifleRange = StandardRifleRange(input);
-                var generatedCandidates = frames.SelectMany(frame => (frame.BetweenNests ? new[] { 0 } : new[] { -1, 1 }).SelectMany(side =>
-                    (frame.BetweenNests ? new[] { 2, 3, 4 } : new[] { 1, 2, 3, 4, 5, 7, 9, 11, 13, 15 }).SelectMany(forward =>
-                        (frame.BetweenNests ? new[] { 0 } : new[] { 0, 2, 4, 6, 8, 10, 12, 14 }).Select(lateral => new
-                    { Frame = frame, Side = side, Origin = At(frame.Anchor, frame.Outward,
-                        new GridPoint(-frame.Outward.Z, frame.Outward.X), forward, side * lateral) }))))
-                    .ToList();
-                List<BetweenCandidateDiagnostic> generatedBetween = new List<BetweenCandidateDiagnostic>();
-                foreach (var c in generatedCandidates.Where(c => c.Frame.BetweenNests))
+                List<TurretCandidate> generatedCandidates = new List<TurretCandidate>();
+                int candidateIndex = 0;
+                int[] ordinarySides = { -1, 1 };
+                int[] ordinaryForwards = { 1, 2, 3, 4, 5, 7, 9, 11, 13, 15 };
+                int[] ordinaryLaterals = { 0, 2, 4, 6, 8, 10, 12, 14 };
+                int[] betweenForwards = { 2, 3, 4 };
+                for (int frameIndex = 0; frameIndex < frames.Count; frameIndex++)
                 {
+                    Frame frame = frames[frameIndex];
+                    int sideStart = frame.BetweenNests ? 0 : 0;
+                    int sideEnd = frame.BetweenNests ? 1 : ordinarySides.Length;
+                    int[] forwards = frame.BetweenNests ? betweenForwards : ordinaryForwards;
+                    int[] laterals = frame.BetweenNests ? new[] { 0 } : ordinaryLaterals;
+                    for (int sideIndex = sideStart; sideIndex < sideEnd; sideIndex++)
+                    {
+                        int side = frame.BetweenNests ? 0 : ordinarySides[sideIndex];
+                        for (int forwardIndex = 0; forwardIndex < forwards.Length; forwardIndex++)
+                            for (int lateralIndex = 0; lateralIndex < laterals.Length; lateralIndex++)
+                            {
+                                int lateral = laterals[lateralIndex];
+                                GridPoint origin = At(frame.Anchor, frame.Outward,
+                                    new GridPoint(-frame.Outward.Z, frame.Outward.X), forwards[forwardIndex], side * lateral);
+                                generatedCandidates.Add(new TurretCandidate { Frame = frame, Side = side,
+                                    Origin = origin, Index = candidateIndex++ });
+                            }
+                    }
+                }
+                List<BetweenCandidateDiagnostic> generatedBetween = new List<BetweenCandidateDiagnostic>();
+                HashSet<string> generatedBetweenKeys = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < generatedCandidates.Count; i++)
+                {
+                    TurretCandidate c = generatedCandidates[i];
+                    if (!c.Frame.BetweenNests) continue;
                     string key = BetweenCandidateKey(name, c.Frame, c.Origin);
                     if (!betweenCandidatesByKey.TryGetValue(key, out BetweenCandidateDiagnostic record))
                     {
@@ -976,110 +1014,207 @@ namespace RealisticBases.Planning
                         betweenCandidatesByKey.Add(key, record); betweenCandidates.Add(record);
                     }
                     generatedBetween.Add(record);
+                    generatedBetweenKeys.Add(c.Frame.Gate + "/" + c.Origin);
                 }
-                betweenGenerated += generatedCandidates.Where(c => c.Frame.BetweenNests)
-                    .Select(c => c.Frame.Gate + "/" + c.Origin).Distinct().Count();
-                var distanceCandidates = generatedCandidates.Where(c => c.Frame.BetweenNests
-                    ? c.Frame.FirstNest.HasValue && c.Frame.PartnerNest.HasValue &&
-                        (Distance(c.Frame.FirstNest.Value, c.Origin) <= 14 ||
-                         Distance(c.Frame.PartnerNest.Value, c.Origin) <= 14)
-                    : Distance(c.Frame.Anchor, c.Origin) >= def.ExplosionRadius + 2 &&
-                        Distance(c.Frame.Anchor, c.Origin) <= 14).ToList();
-                betweenBand += distanceCandidates.Count(c => c.Frame.BetweenNests);
-                HashSet<string> distanceKeys = new HashSet<string>(distanceCandidates.Where(c => c.Frame.BetweenNests)
-                    .Select(c => BetweenCandidateKey(name, c.Frame, c.Origin)), StringComparer.Ordinal);
-                foreach (var c in generatedCandidates.Where(c => c.Frame.BetweenNests))
+                betweenGenerated += generatedBetweenKeys.Count;
+                List<TurretCandidate> distanceCandidates = new List<TurretCandidate>();
+                for (int i = 0; i < generatedCandidates.Count; i++)
                 {
+                    TurretCandidate c = generatedCandidates[i];
+                    bool inBand = c.Frame.BetweenNests
+                        ? c.Frame.FirstNest.HasValue && c.Frame.PartnerNest.HasValue &&
+                            (Distance(c.Frame.FirstNest.Value, c.Origin) <= 14 ||
+                             Distance(c.Frame.PartnerNest.Value, c.Origin) <= 14)
+                        : Distance(c.Frame.Anchor, c.Origin) >= def.ExplosionRadius + 2 &&
+                            Distance(c.Frame.Anchor, c.Origin) <= 14;
+                    if (inBand) distanceCandidates.Add(c);
+                }
+                for (int i = 0; i < distanceCandidates.Count; i++)
+                    if (distanceCandidates[i].Frame.BetweenNests) betweenBand++;
+                HashSet<string> distanceKeys = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < distanceCandidates.Count; i++)
+                {
+                    TurretCandidate c = distanceCandidates[i];
+                    if (c.Frame.BetweenNests) distanceKeys.Add(BetweenCandidateKey(name, c.Frame, c.Origin));
+                }
+                for (int i = 0; i < generatedCandidates.Count; i++)
+                {
+                    TurretCandidate c = generatedCandidates[i];
+                    if (!c.Frame.BetweenNests) continue;
                     BetweenCandidateDiagnostic record = GetBetweenCandidate(name, c.Frame, c.Origin);
                     record.Stage = "within14_one_nest";
                     if (!distanceKeys.Contains(BetweenCandidateKey(name, c.Frame, c.Origin)))
                         record.Rejection = "outside_14_of_either_nest";
                 }
-                var geometryCandidates = distanceCandidates.Where(c => !c.Frame.BetweenNests ||
-                    BetweenNestRifleSupport(layout, c.Frame, c.Origin, standardRifleRange, legacyOpaque)).ToList();
-                betweenRifleLos += geometryCandidates.Count(c => c.Frame.BetweenNests);
-                HashSet<string> rifleLineKeys = new HashSet<string>(geometryCandidates.Where(c => c.Frame.BetweenNests)
-                    .Select(c => BetweenCandidateKey(name, c.Frame, c.Origin)), StringComparer.Ordinal);
-                foreach (var c in distanceCandidates.Where(c => c.Frame.BetweenNests))
+                List<TurretCandidate> geometryCandidates = new List<TurretCandidate>();
+                for (int i = 0; i < distanceCandidates.Count; i++)
                 {
+                    TurretCandidate c = distanceCandidates[i];
+                    if (!c.Frame.BetweenNests || BetweenNestRifleSupport(layout, c.Frame, c.Origin,
+                        standardRifleRange, legacyOpaque)) geometryCandidates.Add(c);
+                }
+                for (int i = 0; i < geometryCandidates.Count; i++)
+                    if (geometryCandidates[i].Frame.BetweenNests) betweenRifleLos++;
+                HashSet<string> rifleLineKeys = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < geometryCandidates.Count; i++)
+                {
+                    TurretCandidate c = geometryCandidates[i];
+                    if (c.Frame.BetweenNests) rifleLineKeys.Add(BetweenCandidateKey(name, c.Frame, c.Origin));
+                }
+                for (int i = 0; i < distanceCandidates.Count; i++)
+                {
+                    TurretCandidate c = distanceCandidates[i];
+                    if (!c.Frame.BetweenNests) continue;
                     BetweenCandidateDiagnostic record = GetBetweenCandidate(name, c.Frame, c.Origin);
                     record.Stage = "rifle_range_line_of_fire";
                     if (!rifleLineKeys.Contains(BetweenCandidateKey(name, c.Frame, c.Origin)))
                         record.Rejection = "other_nest_outside_rifle_range_or_no_nearby_ground_los";
                 }
-                var scoredCandidates = geometryCandidates.Select(c => new { c.Frame, c.Side, c.Origin,
-                        Gain = targets.Where(t => coverage[t] < 2 && P4BFireLane.CanEngage(c.Origin, t,
-                            (int)Math.Ceiling(def.MinimumRange), (int)Math.Floor(def.MaximumRange), opaque))
-                            .Sum(t => coverage[t] == 0 ? 4 : 1),
-                        NewFront = !groups.Any(g => g.Side == c.Frame.Side), Shots = targets.Count(t =>
-                        P4BFireLane.CanEngage(c.Origin, t, (int)Math.Ceiling(def.MinimumRange),
-                            (int)Math.Floor(def.MaximumRange), opaque)),
-                        MutualShots = targets.Count(t => P4BFireLane.CanEngage(c.Origin, t,
-                            (int)Math.Ceiling(def.MinimumRange), (int)Math.Floor(def.MaximumRange), opaque) &&
-                            (coverage[t] > 0 || staffedPosts.Any(p =>
-                                P4BFireLane.CanEngage(p, t, 0, 25, opaque)))),
-                        FrontShots = layout.ApproachDefense == null ? 4 : layout.ApproachDefense.Sides
-                            .Where(s => s.Id == c.Frame.Side).SelectMany(s => s.Samples).Count(t =>
-                                P4BFireLane.CanEngage(c.Origin, t, (int)Math.Ceiling(def.MinimumRange),
-                                    (int)Math.Floor(def.MaximumRange), opaque)),
-                        FrontExposure = layout.ApproachDefense == null ? 0 : layout.ApproachDefense.Sides
-                            .Where(s => s.Id == c.Frame.Side).Sum(s => s.Samples.Count),
-                        FrontOpenGround = layout.ApproachDefense == null ? 0 : layout.ApproachDefense.Sides
-                            .Where(s => s.Id == c.Frame.Side).Sum(s => s.OpenGroundArea),
-                        Sides = layout.ApproachDefense == null ? 1 : layout.ApproachDefense.Sides.Count(s =>
-                            s.Samples.Count(t => P4BFireLane.CanEngage(c.Origin, t,
-                                (int)Math.Ceiling(def.MinimumRange), (int)Math.Floor(def.MaximumRange), opaque)) >= 4) })
-                    .ToList();
-                var fireCandidates = scoredCandidates.Where(c => c.Shots >= 4 && c.FrontShots >= 4).ToList();
-                betweenFireLane += fireCandidates.Count(c => c.Frame.BetweenNests);
-                HashSet<string> fireKeys = new HashSet<string>(fireCandidates.Where(c => c.Frame.BetweenNests)
-                    .Select(c => BetweenCandidateKey(name, c.Frame, c.Origin)), StringComparer.Ordinal);
-                foreach (var c in scoredCandidates.Where(c => c.Frame.BetweenNests && !fireKeys.Contains(
-                    BetweenCandidateKey(name, c.Frame, c.Origin))))
-                { BetweenCandidateDiagnostic rec = GetBetweenCandidate(name, c.Frame, c.Origin); rec.Stage = "fireLane"; rec.Rejection = "fire_lane"; }
-                foreach (var c in fireCandidates.Where(c => c.Frame.BetweenNests))
-                    GetBetweenCandidate(name, c.Frame, c.Origin).Stage = "fireLane";
-                var gainCandidates = (ignoreGainGate ? fireCandidates : fireCandidates.Where(c => c.Gain >= 4)).ToList();
-                betweenGain += gainCandidates.Count(c => c.Frame.BetweenNests);
-                HashSet<string> gainKeys = new HashSet<string>(gainCandidates.Where(c => c.Frame.BetweenNests)
-                    .Select(c => BetweenCandidateKey(name, c.Frame, c.Origin)), StringComparer.Ordinal);
-                if (!ignoreGainGate)
-                    foreach (var c in fireCandidates.Where(c => c.Frame.BetweenNests && !gainKeys.Contains(
-                        BetweenCandidateKey(name, c.Frame, c.Origin))))
-                    { BetweenCandidateDiagnostic rec = GetBetweenCandidate(name, c.Frame, c.Origin); rec.Stage = "gain"; rec.Rejection = "gain_gate"; }
-                foreach (var c in gainCandidates.Where(c => c.Frame.BetweenNests))
-                    GetBetweenCandidate(name, c.Frame, c.Origin).Stage = "gain";
-                var sideCandidates = gainCandidates.Where(c => layout.ApproachDefense == null || layout.ApproachDefense.Sides.Any(s =>
-                        s.Id == c.Frame.Side && s.Positions.Any(p => Distance(p, c.Origin) <= 14)))
-                    .ToList();
-                betweenSide += sideCandidates.Count(c => c.Frame.BetweenNests);
-                HashSet<string> sideKeys = new HashSet<string>(sideCandidates.Where(c => c.Frame.BetweenNests)
-                    .Select(c => BetweenCandidateKey(name, c.Frame, c.Origin)), StringComparer.Ordinal);
-                foreach (var c in gainCandidates.Where(c => c.Frame.BetweenNests && !sideKeys.Contains(
-                    BetweenCandidateKey(name, c.Frame, c.Origin))))
-                { BetweenCandidateDiagnostic rec = GetBetweenCandidate(name, c.Frame, c.Origin); rec.Stage = "side"; rec.Rejection = "side_range"; }
-                foreach (var c in sideCandidates.Where(c => c.Frame.BetweenNests))
-                    GetBetweenCandidate(name, c.Frame, c.Origin).Stage = "side";
-                var candidates = sideCandidates
-                    .OrderBy(c =>
+                CellSet staffedCoveredTargets = new CellSet(input.Terrain);
+                for (int targetIndex = 0; targetIndex < targets.Count; targetIndex++)
+                {
+                    GridPoint target = targets[targetIndex];
+                    for (int postIndex = 0; postIndex < staffedPosts.Count; postIndex++)
+                        if (P4BFireLane.CanEngage(staffedPosts[postIndex], target, 0, 25, opaque))
+                        { staffedCoveredTargets.Add(target); break; }
+                }
+                int minimumRange = (int)Math.Ceiling(def.MinimumRange);
+                int maximumRange = (int)Math.Floor(def.MaximumRange);
+                List<TurretCandidate> scoredCandidates = new List<TurretCandidate>(geometryCandidates.Count);
+                for (int candidatePosition = 0; candidatePosition < geometryCandidates.Count; candidatePosition++)
+                {
+                    TurretCandidate c = geometryCandidates[candidatePosition];
+                    c.Gain = 0; c.Shots = 0; c.MutualShots = 0;
+                    c.NewFront = true;
+                    for (int groupIndex = 0; groupIndex < groups.Count; groupIndex++)
+                        if (groups[groupIndex].Side == c.Frame.Side) { c.NewFront = false; break; }
+                    for (int targetIndex = 0; targetIndex < targets.Count; targetIndex++)
                     {
-                        if (!exposureScores.TryGetValue(c.Origin, out int score))
-                            exposureScores[c.Origin] = score = UnansweredExposure(input, layout, c.Origin,
-                                def, previous, staffedPosts, opaqueForCoverage, existingExposureAnswers);
-                        return score;
-                    })
-                    .ThenByDescending(c => c.Gain + c.MutualShots * 3 + c.FrontOpenGround / 8 -
-                        Manhattan(c.Origin, c.Frame.Gate) / 4)
-                    .ThenByDescending(c => c.FrontShots).ThenByDescending(c => c.Gain)
-                    .ThenByDescending(c => c.FrontExposure)
-                    .ThenByDescending(c => c.Sides).ThenByDescending(c => c.Shots)
-                    .ThenByDescending(c => c.NewFront)
-                    .ThenBy(c => Manhattan(c.Origin, c.Frame.Gate))
-                    .ThenBy(c => c.Frame.Side, StringComparer.Ordinal).ThenBy(c => c.Origin).ThenBy(c => c.Side).ToList();
-                betweenRanked += candidates.Count(c => c.Frame.BetweenNests);
-                foreach (var c in candidates.Where(c => c.Frame.BetweenNests))
-                    GetBetweenCandidate(name, c.Frame, c.Origin).Stage = "ranked";
-                foreach (var candidate in candidates)
+                        GridPoint target = targets[targetIndex];
+                        if (!P4BFireLane.CanEngage(c.Origin, target, minimumRange, maximumRange, opaque)) continue;
+                        c.Shots++;
+                        int targetCoverage = coverage[target];
+                        if (targetCoverage < 2) c.Gain += targetCoverage == 0 ? 4 : 1;
+                        if (targetCoverage > 0 || staffedCoveredTargets.Contains(target)) c.MutualShots++;
+                    }
+                    c.FrontShots = layout.ApproachDefense == null ? 4 : 0;
+                    c.FrontExposure = 0; c.FrontOpenGround = 0;
+                    c.Sides = layout.ApproachDefense == null ? 1 : 0;
+                    if (layout.ApproachDefense != null)
+                    {
+                        for (int sideIndex = 0; sideIndex < layout.ApproachDefense.Sides.Count; sideIndex++)
+                        {
+                            P4BAttackSide attackSide = layout.ApproachDefense.Sides[sideIndex];
+                            int sideShots = 0;
+                            for (int sampleIndex = 0; sampleIndex < attackSide.Samples.Count; sampleIndex++)
+                                if (P4BFireLane.CanEngage(c.Origin, attackSide.Samples[sampleIndex],
+                                    minimumRange, maximumRange, opaque)) sideShots++;
+                            if (attackSide.Id == c.Frame.Side)
+                            {
+                                c.FrontShots += sideShots;
+                                c.FrontExposure += attackSide.Samples.Count;
+                                c.FrontOpenGround += attackSide.OpenGroundArea;
+                            }
+                            if (sideShots >= 4) c.Sides++;
+                        }
+                    }
+                    scoredCandidates.Add(c);
+                }
+                List<TurretCandidate> fireCandidates = new List<TurretCandidate>();
+                for (int i = 0; i < scoredCandidates.Count; i++)
+                    if (scoredCandidates[i].Shots >= 4 && scoredCandidates[i].FrontShots >= 4)
+                        fireCandidates.Add(scoredCandidates[i]);
+                for (int i = 0; i < fireCandidates.Count; i++)
+                    if (fireCandidates[i].Frame.BetweenNests) betweenFireLane++;
+                HashSet<string> fireKeys = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < fireCandidates.Count; i++)
+                {
+                    TurretCandidate c = fireCandidates[i];
+                    if (c.Frame.BetweenNests) fireKeys.Add(BetweenCandidateKey(name, c.Frame, c.Origin));
+                }
+                for (int i = 0; i < scoredCandidates.Count; i++)
+                {
+                    TurretCandidate c = scoredCandidates[i];
+                    if (!c.Frame.BetweenNests || fireKeys.Contains(BetweenCandidateKey(name, c.Frame, c.Origin))) continue;
+                    BetweenCandidateDiagnostic rec = GetBetweenCandidate(name, c.Frame, c.Origin);
+                    rec.Stage = "fireLane"; rec.Rejection = "fire_lane";
+                }
+                for (int i = 0; i < fireCandidates.Count; i++)
+                    if (fireCandidates[i].Frame.BetweenNests)
+                        GetBetweenCandidate(name, fireCandidates[i].Frame, fireCandidates[i].Origin).Stage = "fireLane";
+                List<TurretCandidate> gainCandidates = new List<TurretCandidate>();
+                for (int i = 0; i < fireCandidates.Count; i++)
+                    if (ignoreGainGate || fireCandidates[i].Gain >= 4) gainCandidates.Add(fireCandidates[i]);
+                for (int i = 0; i < gainCandidates.Count; i++)
+                    if (gainCandidates[i].Frame.BetweenNests) betweenGain++;
+                HashSet<string> gainKeys = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < gainCandidates.Count; i++)
+                {
+                    TurretCandidate c = gainCandidates[i];
+                    if (c.Frame.BetweenNests) gainKeys.Add(BetweenCandidateKey(name, c.Frame, c.Origin));
+                }
+                if (!ignoreGainGate)
+                    for (int i = 0; i < fireCandidates.Count; i++)
+                    {
+                        TurretCandidate c = fireCandidates[i];
+                        if (!c.Frame.BetweenNests || gainKeys.Contains(BetweenCandidateKey(name, c.Frame, c.Origin))) continue;
+                        BetweenCandidateDiagnostic rec = GetBetweenCandidate(name, c.Frame, c.Origin);
+                        rec.Stage = "gain"; rec.Rejection = "gain_gate";
+                    }
+                for (int i = 0; i < gainCandidates.Count; i++)
+                    if (gainCandidates[i].Frame.BetweenNests)
+                        GetBetweenCandidate(name, gainCandidates[i].Frame, gainCandidates[i].Origin).Stage = "gain";
+                List<TurretCandidate> sideCandidates = new List<TurretCandidate>();
+                for (int i = 0; i < gainCandidates.Count; i++)
+                {
+                    TurretCandidate c = gainCandidates[i];
+                    bool sideValid = layout.ApproachDefense == null;
+                    if (!sideValid)
+                        for (int sideIndex = 0; sideIndex < layout.ApproachDefense.Sides.Count && !sideValid; sideIndex++)
+                        {
+                            P4BAttackSide attackSide = layout.ApproachDefense.Sides[sideIndex];
+                            if (attackSide.Id != c.Frame.Side) continue;
+                            for (int positionIndex = 0; positionIndex < attackSide.Positions.Count; positionIndex++)
+                                if (Distance(attackSide.Positions[positionIndex], c.Origin) <= 14)
+                                { sideValid = true; break; }
+                        }
+                    if (sideValid) sideCandidates.Add(c);
+                }
+                for (int i = 0; i < sideCandidates.Count; i++)
+                    if (sideCandidates[i].Frame.BetweenNests) betweenSide++;
+                HashSet<string> sideKeys = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < sideCandidates.Count; i++)
+                {
+                    TurretCandidate c = sideCandidates[i];
+                    if (c.Frame.BetweenNests) sideKeys.Add(BetweenCandidateKey(name, c.Frame, c.Origin));
+                }
+                for (int i = 0; i < gainCandidates.Count; i++)
+                {
+                    TurretCandidate c = gainCandidates[i];
+                    if (!c.Frame.BetweenNests || sideKeys.Contains(BetweenCandidateKey(name, c.Frame, c.Origin))) continue;
+                    BetweenCandidateDiagnostic rec = GetBetweenCandidate(name, c.Frame, c.Origin);
+                    rec.Stage = "side"; rec.Rejection = "side_range";
+                }
+                for (int i = 0; i < sideCandidates.Count; i++)
+                    if (sideCandidates[i].Frame.BetweenNests)
+                        GetBetweenCandidate(name, sideCandidates[i].Frame, sideCandidates[i].Origin).Stage = "side";
+                for (int i = 0; i < sideCandidates.Count; i++)
+                {
+                    TurretCandidate c = sideCandidates[i];
+                    if (!exposureScores.TryGetValue(c.Origin, out int score))
+                        exposureScores[c.Origin] = score = UnansweredExposure(input, layout, c.Origin,
+                            def, previous, staffedPosts, legacyOpaque, existingExposureAnswers);
+                    c.ExposureScore = score;
+                    sideCandidates[i] = c;
+                }
+                sideCandidates.Sort(CompareTurretCandidates);
+                List<TurretCandidate> candidates = sideCandidates;
+                for (int i = 0; i < candidates.Count; i++)
+                    if (candidates[i].Frame.BetweenNests) betweenRanked++;
+                for (int i = 0; i < candidates.Count; i++)
+                    if (candidates[i].Frame.BetweenNests)
+                        GetBetweenCandidate(name, candidates[i].Frame, candidates[i].Origin).Stage = "ranked";
+                foreach (TurretCandidate candidate in candidates)
                         {
                             Frame frame = candidate.Frame;
                             currentBetweenCandidate = frame.BetweenNests;
@@ -1174,7 +1309,7 @@ namespace RealisticBases.Planning
                         spacingLevel: spacingLevel);
                     P4BTurretPlan network = Combine(input.Catalog, groups.Concat(new[] { proposed }));
                     IReadOnlyList<string> networkErrors = ValidateInternal(input, layout, network,
-                        null, garrison, onlyGroup: proposed, sharedBaseOpaque: baseOpaque);
+                        null, garrison, onlyGroup: proposed, sharedBaseOpaque: planningContext.BaseOpaque);
                     if (networkErrors.Count > 0)
                     {
                         if (networkErrors.Contains("crossing_hard_exposure_coverage"))
@@ -1200,10 +1335,11 @@ namespace RealisticBases.Planning
                     { if (frame.BetweenNests) betweenNestsFrontageRejections++; Reject("post_lane_obstructed"); continue; }
                     if (currentBetweenPosition != null)
                     { currentBetweenPosition.Stage = "placed"; currentBetweenPosition.Rejection = "placed"; }
-                    foreach (var skipped in candidates.Where(c => c.Frame.BetweenNests && !ReferenceEquals(c, candidate)))
+                    foreach (TurretCandidate skipped in candidates)
+                        if (skipped.Frame.BetweenNests && skipped.Index != candidate.Index)
                     {
                         BetweenCandidateDiagnostic rec = GetBetweenCandidate(name, skipped.Frame, skipped.Origin);
-                        if (rec.Rejection == null) rec.Rejection = "not_reached_after_earlier_acceptance";
+                            if (rec.Rejection == null) rec.Rejection = "not_reached_after_earlier_acceptance";
                     }
                     diagnostic = "accepted " + name + " side=" + frame.Side + " gain=" + candidate.Gain + " gain>=4" +
                         " staffedMutual=" + candidate.MutualShots + " approachSides=" + candidate.Sides +
@@ -1404,6 +1540,36 @@ namespace RealisticBases.Planning
         private static GridPoint At(GridPoint origin, GridPoint outward, GridPoint tangent, int forward, int lateral) =>
             new GridPoint(origin.X + outward.X * forward + tangent.X * lateral,
                 origin.Z + outward.Z * forward + tangent.Z * lateral);
+
+        private static int CompareTurretCandidates(TurretCandidate a, TurretCandidate b)
+        {
+            int comparison = a.ExposureScore.CompareTo(b.ExposureScore);
+            if (comparison != 0) return comparison;
+            int aScore = a.Gain + a.MutualShots * 3 + a.FrontOpenGround / 8 - Manhattan(a.Origin, a.Frame.Gate) / 4;
+            int bScore = b.Gain + b.MutualShots * 3 + b.FrontOpenGround / 8 - Manhattan(b.Origin, b.Frame.Gate) / 4;
+            comparison = bScore.CompareTo(aScore);
+            if (comparison != 0) return comparison;
+            comparison = b.FrontShots.CompareTo(a.FrontShots);
+            if (comparison != 0) return comparison;
+            comparison = b.Gain.CompareTo(a.Gain);
+            if (comparison != 0) return comparison;
+            comparison = b.FrontExposure.CompareTo(a.FrontExposure);
+            if (comparison != 0) return comparison;
+            comparison = b.Sides.CompareTo(a.Sides);
+            if (comparison != 0) return comparison;
+            comparison = b.Shots.CompareTo(a.Shots);
+            if (comparison != 0) return comparison;
+            comparison = b.NewFront.CompareTo(a.NewFront);
+            if (comparison != 0) return comparison;
+            comparison = Manhattan(a.Origin, a.Frame.Gate).CompareTo(Manhattan(b.Origin, b.Frame.Gate));
+            if (comparison != 0) return comparison;
+            comparison = string.Compare(a.Frame.Side, b.Frame.Side, StringComparison.Ordinal);
+            if (comparison != 0) return comparison;
+            comparison = a.Origin.CompareTo(b.Origin);
+            if (comparison != 0) return comparison;
+            comparison = a.Side.CompareTo(b.Side);
+            return comparison != 0 ? comparison : a.Index.CompareTo(b.Index);
+        }
 
         private static P4BTurretPlan PlanCloseSupport(ProceduralLayoutInput input, ProceduralLayout layout,
             P4BFieldWallPlan fieldWall, HashSet<GridPoint> blocked, HashSet<GridPoint> opaque,
