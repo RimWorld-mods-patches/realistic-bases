@@ -46,6 +46,7 @@ namespace RealisticBases.Integration
         public static SettlementTechStageLevel? DebugStageNext;
         public static int? DebugWealthNext;
         public static int? DebugMortarBiasNext;
+        public static int? DebugPlannerDegreeNext;
 
         public static P4AMapPlanningRun Run(Map map, Settlement settlement, int requestedWallLayers)
         {
@@ -110,6 +111,8 @@ namespace RealisticBases.Integration
                 cachedMaintenanceFactor = maintenanceFactor;
             }
             TechCatalog catalog = cachedCatalog;
+            int plannerDegree = DebugPlannerDegreeNext ?? ProceduralLayoutInput.AutomaticPlannerDegree;
+            DebugPlannerDegreeNext = null;
             ProceduralLayoutInput input = null;
             ProceduralLayoutResult result = null;
             int wallLayers = targetLayers;
@@ -121,7 +124,7 @@ namespace RealisticBases.Integration
             {
                 input = new ProceduralLayoutInput(requirements, terrain, seed, catalog,
                     new LayoutFortificationReservation(wallLayers), resources: resources,
-                    plannerDegree: ProceduralLayoutInput.AutomaticPlannerDegree);
+                    plannerDegree: plannerDegree);
                 result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
                 AddTimings(totalStageTimings, result.StageTimings);
                 if (result.Success && P4BPerimeterDepth.Minimum(terrain, result.Layout) == wallLayers) break;
