@@ -1662,6 +1662,9 @@ namespace RealisticBases.Planning
                 HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
                 int covered = P4BApproachDefensePlanner.CoveredSamples(side, opaque);
                 if (!side.Exposed || covered >= P4BApproachDefensePlanner.UsefulArc(side.Samples.Count)) continue;
+                List<P4BAttackSide> previouslyCovered = defense.Sides.Where(s => s.Exposed &&
+                    P4BApproachDefensePlanner.CoveredSamples(s, opaque) >=
+                    P4BApproachDefensePlanner.UsefulArc(s.Samples.Count)).ToList();
                 bool fitted = false;
                 IReadOnlyList<P4BAccessFrontage> options = P4BAccessFrontagePlanner.Candidates(input, layout, side);
                 List<string> failures = new List<string>();
@@ -1708,9 +1711,7 @@ namespace RealisticBases.Planning
                         P4BAttackSide improved = trialDefense.Sides.Single(s => s.Id == id);
                         HashSet<GridPoint> trialOpaque = P4BApproachDefensePlanner.Opaque(trial, input.Terrain);
                         int shots = P4BApproachDefensePlanner.CoveredSamples(improved, trialOpaque);
-                        bool retainedCoverage = defense.Sides.Where(s => s.Exposed &&
-                            P4BApproachDefensePlanner.CoveredSamples(s, opaque) >= P4BApproachDefensePlanner.UsefulArc(s.Samples.Count))
-                            .All(s =>
+                        bool retainedCoverage = previouslyCovered.All(s =>
                             {
                                 P4BAttackSide next = trialDefense.Sides.Single(t => t.Id == s.Id);
                                 return !next.Exposed || P4BApproachDefensePlanner.CoveredSamples(next, trialOpaque) >=

@@ -315,6 +315,11 @@ namespace RealisticBases.Planning
         {
             threats = 0; answered = 0;
             HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, terrain);
+            P4BTurretPlan[] batterySlugs = battery.Where(g => g.DefName == "Turret_Sniper").ToArray();
+            P4BTurretPlan[] batteryMinis = battery.Where(g => g.DefName == "Turret_MiniTurret").ToArray();
+            var sniperBlockers = network.Where(g => g.DefName == "Turret_Sniper")
+                .Select(slug => new { Gun = slug, Blockers = SniperBlockers(slug) }).ToArray();
+            P4BTurretPlan[] networkMinis = network.Where(g => g.DefName == "Turret_MiniTurret").ToArray();
             HashSet<GridPoint> exposure = new HashSet<GridPoint>();
             foreach (P4BTurretPlan gun in battery)
             {
@@ -331,35 +336,45 @@ namespace RealisticBases.Planning
             threats = exposure.Count;
             foreach (GridPoint cell in exposure)
             {
-                bool slugBlind = battery.Where(g => g.DefName == "Turret_Sniper")
-                    .Any(slug => Distance(slug.Origin, cell) < slug.MinimumRange);
+                bool slugBlind = false;
+                foreach (P4BTurretPlan slug in batterySlugs)
+                    if (Distance(slug.Origin, cell) < slug.MinimumRange) { slugBlind = true; break; }
                 if (slugBlind)
                 {
-                    IEnumerable<P4BTurretPlan> batteryMinis = battery.Where(g =>
-                        g.DefName == "Turret_MiniTurret");
-                    if (batteryMinis.Any(mini => Distance(mini.Origin, cell) <= mini.MaximumRange &&
-                        P4BFireLane.CanEngage(mini.Origin, cell, 0,
-                            (int)Math.Floor(mini.MaximumRange), opaque))) answered++;
+                    bool miniAnswers = false;
+                    foreach (P4BTurretPlan mini in batteryMinis)
+                        if (Distance(mini.Origin, cell) <= mini.MaximumRange &&
+                            P4BFireLane.CanEngage(mini.Origin, cell, 0, (int)Math.Floor(mini.MaximumRange), opaque))
+                        { miniAnswers = true; break; }
+                    if (miniAnswers) answered++;
                     continue;
                 }
                 bool answeredHere = guards.Any(post => Distance(post, cell) <= 44.9 &&
                     P4BFireLane.CanEngage(post, cell, 0, 45, opaque));
                 if (!answeredHere)
-                    answeredHere = network.Where(g => g.DefName == "Turret_Sniper").Any(slug =>
+                    foreach (var entry in sniperBlockers)
                     {
+                        P4BTurretPlan slug = entry.Gun;
                         double distance = Distance(slug.Origin, cell);
-                        HashSet<GridPoint> blockers = new HashSet<GridPoint>(opaque);
-                        blockers.ExceptWith(slug.Footprint);
-                        return distance >= slug.MinimumRange && distance <= slug.MaximumRange &&
-                            P4BFireLane.CanEngage(slug.Origin, cell, 12, 46, blockers);
-                    });
+                        if (distance >= slug.MinimumRange && distance <= slug.MaximumRange &&
+                            P4BFireLane.CanEngage(slug.Origin, cell, 12, 46, entry.Blockers))
+                        { answeredHere = true; break; }
+                    }
                 if (!answeredHere)
                 {
-                    IEnumerable<P4BTurretPlan> minis = network.Where(g => g.DefName == "Turret_MiniTurret");
-                    answeredHere = minis.Any(mini => Distance(mini.Origin, cell) <= mini.MaximumRange &&
-                        P4BFireLane.CanEngage(mini.Origin, cell, 0, (int)Math.Floor(mini.MaximumRange), opaque));
+                    foreach (P4BTurretPlan mini in networkMinis)
+                        if (Distance(mini.Origin, cell) <= mini.MaximumRange &&
+                            P4BFireLane.CanEngage(mini.Origin, cell, 0, (int)Math.Floor(mini.MaximumRange), opaque))
+                        { answeredHere = true; break; }
                 }
                 if (answeredHere) answered++;
+            }
+
+            HashSet<GridPoint> SniperBlockers(P4BTurretPlan slug)
+            {
+                HashSet<GridPoint> blockers = new HashSet<GridPoint>(opaque);
+                blockers.ExceptWith(slug.Footprint);
+                return blockers;
             }
         }
 
@@ -384,7 +399,8 @@ namespace RealisticBases.Planning
 
         private static int UnansweredExposure(ProceduralLayoutInput input, ProceduralLayout layout,
             GridPoint origin, CatalogDef candidate, IReadOnlyList<P4BTurretPlan> previous,
-            IReadOnlyList<GridPoint> staffedPosts, HashSet<GridPoint> opaque)
+            IReadOnlyList<GridPoint> staffedPosts, HashSet<GridPoint> opaque,
+            Dictionary<GridPoint, bool> existingAnswers)
         {
             if (layout.ApproachDefense == null) return 0;
             int unanswered = 0;
@@ -394,16 +410,20 @@ namespace RealisticBases.Planning
                     GridPoint cell = new GridPoint(x, z);
                     if (!layout.ApproachDefense.AttackerCanReach(cell) || Distance(origin, cell) > 44.9 ||
                         !P4BFireLane.CanEngage(cell, origin, 0, 45, opaque)) continue;
-                    bool answered = staffedPosts.Any(post => Distance(post, cell) <= 44.9 &&
-                        P4BFireLane.CanEngage(post, cell, 0, 45, opaque));
-                    if (!answered)
-                        answered = previous.Any(g =>
-                        {
-                            double distance = Distance(g.Origin, cell);
-                            if (distance < g.MinimumRange || distance > g.MaximumRange) return false;
-                            return P4BFireLane.CanEngage(g.Origin, cell,
-                                (int)Math.Ceiling(g.MinimumRange), (int)Math.Floor(g.MaximumRange), opaque);
-                        });
+                    if (!existingAnswers.TryGetValue(cell, out bool answered))
+                    {
+                        answered = staffedPosts.Any(post => Distance(post, cell) <= 44.9 &&
+                            P4BFireLane.CanEngage(post, cell, 0, 45, opaque));
+                        if (!answered)
+                            answered = previous.Any(g =>
+                            {
+                                double distance = Distance(g.Origin, cell);
+                                if (distance < g.MinimumRange || distance > g.MaximumRange) return false;
+                                return P4BFireLane.CanEngage(g.Origin, cell,
+                                    (int)Math.Ceiling(g.MinimumRange), (int)Math.Floor(g.MaximumRange), opaque);
+                            });
+                        existingAnswers.Add(cell, answered);
+                    }
                     if (!answered && candidate.DefName == "Turret_MiniTurret" &&
                         Distance(origin, cell) <= candidate.MaximumRange)
                         answered = P4BFireLane.CanEngage(origin, cell, 0,
@@ -781,6 +801,19 @@ namespace RealisticBases.Planning
             { diagnostic = "stage_or_power_unavailable"; return null; }
             HashSet<GridPoint> blocked = new HashSet<GridPoint>(occupied ?? Enumerable.Empty<GridPoint>());
             List<P4BTurretPlan> previous = groups.SelectMany(g => g.All).ToList();
+            List<GridPoint> previousFootprintCells = previous.SelectMany(t => t.Footprint).ToList();
+            HashSet<GridPoint> previousServiceRoutes = new HashSet<GridPoint>(previous.SelectMany(t => t.ServiceRoute));
+            HashSet<GridPoint> postRoutes = new HashSet<GridPoint>(layout.ApproachDefense?.Posts.SelectMany(p => p.Route) ??
+                Enumerable.Empty<GridPoint>());
+            HashSet<GridPoint> arrivalCells = new HashSet<GridPoint>(Arrival(layout));
+            Dictionary<GridPoint, List<P4BTurretPlan>> previousTurretsByFootprintCell = new Dictionary<GridPoint, List<P4BTurretPlan>>();
+            foreach (P4BTurretPlan turret in previous)
+                foreach (GridPoint cell in turret.Footprint)
+                {
+                    if (!previousTurretsByFootprintCell.TryGetValue(cell, out List<P4BTurretPlan> atCell))
+                        previousTurretsByFootprintCell.Add(cell, atCell = new List<P4BTurretPlan>());
+                    atCell.Add(turret);
+                }
             int spentValue = groups.Sum(g => g.ImportValue), spentWatts = previous.Sum(g => g.Watts);
             int baseValue = BaseMaterialValue(input, layout);
             blocked.UnionWith(previous.SelectMany(t => t.Footprint.Concat(t.CoverCells)));
@@ -814,7 +847,7 @@ namespace RealisticBases.Planning
                     (onlySide == null || s.Id == onlySide)).SelectMany(s =>
                     layout.ApproachDefense.Posts.Where(p => !onlyGate.HasValue || p.AccessGate.Equals(onlyGate.Value))
                     .Select(p => new { Post = p, Slot = p.Slots.Cast<GridPoint?>()
-                        .FirstOrDefault(c => s.Positions.Contains(c.Value)) })
+                        .FirstOrDefault(c => s.PositionSet.Contains(c.Value)) })
                     .Where(x => x.Slot.HasValue).Select(x => new Frame { Anchor = x.Slot.Value,
                         Gate = x.Post.AccessGate, Outward = s.Outward, Side = s.Id })));
             // T5g between-nests candidates were rejected and their full variant is preserved
@@ -827,6 +860,7 @@ namespace RealisticBases.Planning
             List<GridPoint> staffedPosts = currentStaffing == null ? new List<GridPoint>() :
                 currentStaffing.SniperPosts.Concat(currentStaffing.LinePosts).ToList();
             Dictionary<GridPoint, int> exposureScores = new Dictionary<GridPoint, int>();
+            Dictionary<GridPoint, bool> existingExposureAnswers = new Dictionary<GridPoint, bool>();
             Dictionary<string, int> rejected = new Dictionary<string, int>(StringComparer.Ordinal);
             Dictionary<string, int> hardExposureBlockers = new Dictionary<string, int>(StringComparer.Ordinal);
             List<string> turretCoverRejections = new List<string>();
@@ -994,7 +1028,7 @@ namespace RealisticBases.Planning
                     {
                         if (!exposureScores.TryGetValue(c.Origin, out int score))
                             exposureScores[c.Origin] = score = UnansweredExposure(input, layout, c.Origin,
-                                def, previous, staffedPosts, opaque);
+                                def, previous, staffedPosts, opaque, existingExposureAnswers);
                         return score;
                     })
                     .ThenByDescending(c => c.Gain + c.MutualShots * 3 + c.FrontOpenGround / 8 -
@@ -1024,9 +1058,8 @@ namespace RealisticBases.Planning
                                 Enumerable.Range(0, def.SizeZ).Select(z =>
                                     new GridPoint(origin.X + x, origin.Z + z))).ToList();
                             GridPoint? footprintBlocker = footprint.Where(c => blocked.Contains(c) || opaque.Contains(c) ||
-                                Arrival(layout).Contains(c) || !Buildable(input.Terrain, c) ||
-                                previous.Any(t => t.ServiceRoute.Contains(c)) ||
-                                (layout.ApproachDefense?.Posts.Any(p => p.Route.Contains(c)) ?? false))
+                                arrivalCells.Contains(c) || !Buildable(input.Terrain, c) ||
+                                previousServiceRoutes.Contains(c) || postRoutes.Contains(c))
                                 .Select(c => (GridPoint?)c).FirstOrDefault();
                             if (footprintBlocker.HasValue)
                             { currentBetweenBlocker = footprintBlocker; Reject("footprint"); continue; }
@@ -1035,9 +1068,9 @@ namespace RealisticBases.Planning
                                 .Where(c => footprint.Any(f => Distance(f, c) < blastClearance))
                                 .Select(c => (GridPoint?)c).FirstOrDefault();
                             if (!blastBlocker.HasValue)
-                                blastBlocker = previous.SelectMany(t => t.Footprint).Where(c =>
-                                    footprint.Any(f => previous.Where(t => t.Footprint.Contains(c))
-                                        .Any(t => Distance(f, c) < RequiredTurretSpacing(def, spacingLevel,
+                                blastBlocker = previousFootprintCells.Where(c =>
+                                    footprint.Any(f => previousTurretsByFootprintCell.TryGetValue(c, out List<P4BTurretPlan> atCell) &&
+                                        atCell.Any(t => Distance(f, c) < RequiredTurretSpacing(def, spacingLevel,
                                             frame.Gate, t))))
                                     .Select(c => (GridPoint?)c).FirstOrDefault();
                             if (blastBlocker.HasValue)

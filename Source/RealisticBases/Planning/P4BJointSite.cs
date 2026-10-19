@@ -216,9 +216,10 @@ namespace RealisticBases.Planning
                         (c.X == field.MinX + 1 || c.X == field.MaxX - 1 ||
                          c.Z == field.MinZ + 1 || c.Z == field.MaxZ - 1)).ToList();
                     if (perimeterLane.Any(c => !grid.Passable(c))) { Reject("field_lane"); continue; }
-                    int available = compound.Points().Count(grid.CanPlace);
+                    List<GridPoint> compoundPlaceable = compound.Points().Where(grid.CanPlace).ToList();
+                    int available = compoundPlaceable.Count;
                     if (available < minimumCompoundCells ||
-                        LargestConnected(compound.Points().Where(grid.CanPlace)).Count < minimumCompoundCells)
+                        LargestConnected(compoundPlaceable).Count < minimumCompoundCells)
                     { Reject("compound_capacity"); continue; }
                     List<P4BFieldInterface> interfaces = new List<P4BFieldInterface>();
                     bool attachmentBlocked = false;
@@ -234,6 +235,7 @@ namespace RealisticBases.Planning
                         GridPoint outward = side == 0 ? new GridPoint(0, 1) : side == 1 ? new GridPoint(-1, 0) :
                             side == 2 ? new GridPoint(0, -1) : new GridPoint(1, 0);
                         List<GridPoint> cover = posts.Select(p => new GridPoint(p.X + outward.X, p.Z + outward.Z)).ToList();
+                        HashSet<GridPoint> coverSet = new HashSet<GridPoint>(cover);
                         GridPoint tangent = new GridPoint(outward.Z, outward.X);
                         if (posts.Count != 2 || posts.Concat(cover).Any(c => !grid.Passable(c) || grid.At(c) != LayoutCellClass.Open)) continue;
                         List<GridPoint> outsideTargets = Enumerable.Range(2, 20).Select(k => new GridPoint(
@@ -253,9 +255,10 @@ namespace RealisticBases.Planning
                             {
                                 GridPoint c = new GridPoint(outerGate.X + outward.X * forward + tangent.X * lateral,
                                     outerGate.Z + outward.Z * forward + tangent.Z * lateral);
-                                if (grid.Passable(c) && !cover.Contains(c)) postAccess.Add(c);
+                                if (grid.Passable(c) && !coverSet.Contains(c)) postAccess.Add(c);
                             }
-                        if (posts.Any(p => !ConnectedTo(outerGate, p, postAccess))) continue;
+                        HashSet<GridPoint> postAccessSet = new HashSet<GridPoint>(postAccess) { outerGate };
+                        if (posts.Any(p => !ConnectedTo(outerGate, p, postAccessSet))) continue;
                         List<GridPoint> crossLane = field.Points().Where(c => !Edge(field, c) &&
                             (side == 0 || side == 2 ? c.X == innerGate.X : c.Z == innerGate.Z)).ToList();
                         List<GridPoint> lane = perimeterLane.Concat(crossLane).Distinct().ToList();
@@ -420,9 +423,8 @@ namespace RealisticBases.Planning
 
         private static int Manhattan(GridPoint a, GridPoint b) => Math.Abs(a.X - b.X) + Math.Abs(a.Z - b.Z);
 
-        private static bool ConnectedTo(GridPoint start, GridPoint target, IEnumerable<GridPoint> cells)
+        private static bool ConnectedTo(GridPoint start, GridPoint target, HashSet<GridPoint> legal)
         {
-            HashSet<GridPoint> legal = new HashSet<GridPoint>(cells) { start };
             HashSet<GridPoint> seen = new HashSet<GridPoint> { start };
             Queue<GridPoint> queue = new Queue<GridPoint>();
             queue.Enqueue(start);
@@ -470,9 +472,10 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> remaining = new HashSet<GridPoint>(crops);
             HashSet<GridPoint> lanes = new HashSet<GridPoint>(lane);
             Queue<GridPoint> queue = new Queue<GridPoint>();
-            foreach (GridPoint c in remaining.OrderBy(c => c).Where(c =>
-                ProceduralLayoutPlanner.Cardinal.Any(d => lanes.Contains(new GridPoint(c.X + d.X, c.Z + d.Z)))))
-                queue.Enqueue(c);
+            foreach (GridPoint c in remaining.OrderBy(c => c))
+                if (lanes.Contains(new GridPoint(c.X + 1, c.Z)) || lanes.Contains(new GridPoint(c.X - 1, c.Z)) ||
+                    lanes.Contains(new GridPoint(c.X, c.Z + 1)) || lanes.Contains(new GridPoint(c.X, c.Z - 1)))
+                    queue.Enqueue(c);
             List<GridPoint> reachable = new List<GridPoint>();
             while (queue.Count > 0)
             {

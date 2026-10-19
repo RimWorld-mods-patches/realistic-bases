@@ -1,6 +1,6 @@
 # Planner performance
 
-Status: PP0b complete; PP1–PP5 await user selection. It follows the turret-batteries work
+Status: PPA complete; PPB and later work await user selection. It follows the turret-batteries work
 ([plan](2026-10-18-turret-batteries-and-power.md)), after the startup-power and
 hidden-conduit tasks.
 
@@ -167,6 +167,84 @@ Raw traces and top-N output are under
 `.runtime/investigations/planner-performance/pp0b/` and
 `.runtime/investigations/planner-performance/pp0b-profile-summary.log`.
 No sub-timers were kept, and no optimization was made.
+
+### PP0b findings and revised order
+- **Line of sight is not the bottleneck.** `CanEngage` doesn't appear in any top list.
+- **The cost is linear membership tests.** `GridPoint[].FindItemIndex` is `Contains` on
+  arrays. It takes about 12.3 s self time on seed 5, 7.5 s on seed 4 and 3.7 s in seed 1's
+  site search. LINQ `Count`/`Any` wrappers add about 6–7 s self on seed 5. Layout
+  properties such as `BuiltWalls`, `Faces` and `Samples` are arrays or lists, and loops
+  call `.Contains` on them for each cell. Examples:
+  - `layout.BuiltWalls.Contains(face)`;
+  - `side.Samples.Count(engaged(cell).Contains)`;
+  - `cover.Contains(n)` in `P4BCoverNest.Shielded`, when `cover` is an array.
+- **`FitDefenseAccess` re-runs `P4BApproachDefensePlanner.Plan`** and accounts for most of
+  approach-defense time on seeds 4 and 5. How often it calls `Plan`, and whether those
+  calls repeat identical work, is the second lever.
+
+Revised order:
+1. **PPA, set membership.** In `P4BApproachDefense`, `FitDefenseAccess`, `P4BCoverNest`,
+   `P4BJointSitePlanner.Find` and `ReachableFromLane`, and the turret `PlanGroup` and
+   exposure paths, replace `.Contains` on arrays and lists inside loops with `HashSet`s
+   built once per call (or cached on the layout). Hoist repeated `Count`/`Any` over the
+   same sets. This is mechanical, digest-safe and low risk.
+2. **PPB, `FitDefenseAccess` repeat work.** Count the `Plan` calls per attempt and cache
+   or skip the ones that repeat identical inputs.
+3. PP2 (`Opaque` once per input) and PP1 (line of sight) only if a re-profile after PPA
+   shows them. PP5 as found. PP6 stays optional.
+
+### PPA: Set membership and repeated coverage — complete
+
+The old and PPA builds were run in three alternating pairs per base, in the order
+old/new, for seeds 5, 4, 1 and 2. The table reports median `plannerMs` and the approach,
+site/candidate and turret stage times from those three pairs. The full run log, including
+load averages and CPU time, is `.runtime/investigations/planner-performance/ppa-alternating.log`;
+medians are in `ppa-alternating-summary.csv`.
+
+| Base | Total old → PPA | Change | Approach old → PPA | Site/candidate old → PPA | Turret old → PPA |
+|---|---:|---:|---:|---:|---:|
+| seed 5 | 42.40 → 14.73 s | −65.3% | 28.72 → 2.21 s | 8.33 → 7.85 s | 4.54 → 3.88 s |
+| seed 4 | 26.36 → 13.07 s | −50.4% | 13.45 → 1.36 s | 8.69 → 8.05 s | 3.81 → 3.19 s |
+| seed 1 | 15.94 → 12.06 s | −24.3% | 3.35 → 0.67 s | 8.81 → 8.15 s | 3.59 → 2.91 s |
+| seed 2 | 21.95 → 15.37 s | −30.0% | 5.84 → 0.94 s | 8.58 → 8.12 s | 7.15 → 5.96 s |
+
+The implementation caches membership sets on attack-side and post geometry, uses those
+sets in approach-defense and turret candidate loops, caches `holds` and covered-side
+queries during post ranking, reuses compound-placeable and post-access sets in joint-site
+search, and filters turret/exposure collections once per call. No placement rules or
+scoring values changed.
+
+**Digest and test checks:** all 14 T6 layout digests match the old baseline. Full
+LayoutTests emitted 483 planner digest records on each build; the `(seed, input digest,
+layout digest)` multisets are identical. Both suites passed 182/183, with only the known
+GL peninsula case failing. All 24 focused old/new outcome runs passed. PlannerTests and
+all three Release builds passed; the only build warnings are the existing turret-frame
+fields and LayoutTests `Touches` helper.
+
+**Seed 5 re-profile:** the sampled planner took 15.49 s wall / 16.02 s process CPU. The
+new top functions below show approximate inclusive/self milliseconds, normalized against
+`PlanClusters` samples as described in PP0b. Inclusive rows overlap.
+
+| Function | Inclusive ms | Self ms |
+|---|---:|---:|
+| `P4BJointSitePlanner.Find` | ~6,720 | ~20 |
+| `P4BTurretPlanner.Plan` | ~4,060 | <10 |
+| `P4BTurretPlanner.PlanGroup` | ~3,980 | ~10 |
+| `GridPoint[].FindItemIndex` | ~3,580 | ~3,580 |
+| `P4BJointSitePlanner.ReachableFromLane` | ~2,130 | ~430 |
+| `P4BApproachDefensePlanner.Plan` | ~2,340 | ~20 |
+| `LayoutAttempt.FitDefenseAccess` | ~2,280 | ~10 |
+| `Enumerable.Count` | ~1,960 | ~430 |
+| `P4BTurretPlanner.PlanGroup` closure `b__68` | ~1,600 | ~420 |
+| `P4BJointSitePlanner.LargestConnected` | ~940 | ~160 |
+
+The approach-defense outlier dropped from 28.72 s to 2.21 s on seed 5. The fixed site
+search still takes about 8 s; `P4BJointSitePlanner.Find` is now the largest remaining
+function. Turret planning becomes the next major cost after site search.
+
+The final seed 5 trace and top-N report are in
+`.runtime/investigations/planner-performance/ppa-profile/`. The temporary digest logger
+was removed before the final Release build; no profiling hooks remain in source.
 
 ### PP1: Line of sight
 `P4BFireLane.CanEngage` walks a ray cell by cell and looks up each cell in a

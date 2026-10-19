@@ -18,6 +18,7 @@ namespace RealisticBases.Planning
             Route = new ReadOnlyCollection<GridPoint>(route.ToList());
             Slots = new ReadOnlyCollection<GridPoint>(slots.ToList());
             CoverCells = P4BAttackSide.Copy(cover);
+            CoverCellsSet = new HashSet<GridPoint>(CoverCells);
             WallReturn = wallReturn;
             if (Slots.Count == 0) throw new ArgumentException("A post needs a slot");
         }
@@ -28,6 +29,7 @@ namespace RealisticBases.Planning
         public IReadOnlyList<GridPoint> Route { get; }
         public IReadOnlyList<GridPoint> Slots { get; }
         public IReadOnlyList<GridPoint> CoverCells { get; }
+        internal HashSet<GridPoint> CoverCellsSet { get; }
         // A wall closing the far end of the row against the perimeter, kept
         // only where that cell faces no threat; otherwise it is cover.
         public GridPoint? WallReturn { get; }

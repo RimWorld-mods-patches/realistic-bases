@@ -13,16 +13,29 @@ namespace RealisticBases.Planning
         {
             Id = id; Outward = outward;
             Faces = Copy(faces); Samples = Copy(samples);
+            FaceSet = new HashSet<GridPoint>(Faces);
+            SampleSet = new HashSet<GridPoint>(Samples);
+            NearFacesSet = new HashSet<GridPoint>();
+            foreach (GridPoint face in Faces)
+                for (int dx = -6; dx <= 6; dx++)
+                    for (int dz = -6; dz <= 6; dz++)
+                        if (Math.Abs(dx) + Math.Abs(dz) <= 6)
+                            NearFacesSet.Add(new GridPoint(face.X + dx, face.Z + dz));
             Post = post; OmissionReason = omission ?? string.Empty;
             OpenGroundArea = openGroundArea;
             Positions = Copy(positions ?? (post.HasValue ? new[] { post.Value } : new GridPoint[0]));
+            PositionSet = new HashSet<GridPoint>(Positions);
         }
         public string Id { get; }
         public GridPoint Outward { get; }
         public IReadOnlyList<GridPoint> Faces { get; }
+        internal HashSet<GridPoint> FaceSet { get; }
+        internal HashSet<GridPoint> NearFacesSet { get; }
         public IReadOnlyList<GridPoint> Samples { get; }
+        internal HashSet<GridPoint> SampleSet { get; }
         public GridPoint? Post { get; }
         public IReadOnlyList<GridPoint> Positions { get; }
+        internal HashSet<GridPoint> PositionSet { get; }
         public string OmissionReason { get; }
         // Edge-connected cells in the exterior strip beyond this perimeter
         // face. This distinguishes a broad staging area from a narrow margin
@@ -153,7 +166,10 @@ namespace RealisticBases.Planning
             internal int UsefulArcGain, OtherFrontGain, ApproachGain, AddedCrossingCost;
         }
 
-        public static HashSet<GridPoint> Opaque(ProceduralLayout layout, TerrainSnapshot terrain = null) => new HashSet<GridPoint>(
+        public static HashSet<GridPoint> Opaque(ProceduralLayout layout, TerrainSnapshot terrain = null)
+        {
+            HashSet<GridPoint> excavated = new HashSet<GridPoint>(layout.Excavation);
+            return new HashSet<GridPoint>(
             layout.BuiltWalls.Concat(layout.NaturalWalls).Concat(layout.OuterWalls)
                 .Concat(layout.Gates.SelectMany(g => g.BandWalls.Concat(g.BandDoors)))
                 .Concat(layout.Gates.Select(g => g.Cell)).Concat(layout.ExhaustPocketWalls)
@@ -164,7 +180,8 @@ namespace RealisticBases.Planning
                 .Concat(layout.FieldWall?.AccessPorts.SelectMany(p => p.Doors) ?? new GridPoint[0])
                 .Concat(terrain == null ? Enumerable.Empty<GridPoint>() : terrain.Points().Where(c =>
                     terrain[c].HasAny(TerrainTraits.NaturalRock | TerrainTraits.Occupied) &&
-                    !terrain[c].Has(TerrainTraits.ClearablePlant) && !layout.Excavation.Contains(c))));
+                    !terrain[c].Has(TerrainTraits.ClearablePlant) && !excavated.Contains(c))));
+        }
 
         public static IReadOnlyList<GridPoint> AccessGates(ProceduralLayout layout) =>
             P4BAttackSide.Copy(layout.Gates.Select(g => g.BandDoors.Concat(new[] { g.Cell })
@@ -178,12 +195,15 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> opaque = Opaque(layout, input.Terrain);
             HashSet<GridPoint> interior = new HashSet<GridPoint>(layout.Enclosure.Concat(
                 layout.JointSite == null ? Enumerable.Empty<GridPoint>() : layout.JointSite.Field.Points()));
+            HashSet<GridPoint> enclosureCells = new HashSet<GridPoint>(layout.Enclosure);
             HashSet<GridPoint> occupied = new HashSet<GridPoint>(opaque.Concat(interior)
                 .Concat(layout.PowerYards.SelectMany(y => y.Cells)).Concat(layout.ExtraObstacles));
             HashSet<GridPoint> reachable = FloodEdges(input.Terrain, occupied);
             HashSet<GridPoint> perimeter = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.NaturalWalls)
                 .Concat(layout.OuterWalls).Concat(layout.Gates.SelectMany(g => g.BandWalls))
                 .Concat(layout.FieldWall?.Walls ?? new GridPoint[0]));
+            HashSet<GridPoint> builtWalls = new HashSet<GridPoint>(layout.BuiltWalls);
+            HashSet<GridPoint> outerWalls = new HashSet<GridPoint>(layout.OuterWalls);
             HashSet<GridPoint> fieldWalls = new HashSet<GridPoint>(layout.FieldWall?.Walls ?? new GridPoint[0]);
             int[] compoundGateCandidates = new int[Directions.Length];
             List<P4BAttackSide> exposed = new List<P4BAttackSide>();
@@ -293,9 +313,27 @@ namespace RealisticBases.Planning
                         P4BFireLane.CanEngage(cell, t, 0, P4BCoverNest.ThreatRange, opaque)));
                 return seen;
             };
-            Func<P4BAttackSide, GridPoint, bool> facesSide = (side, cell) => side.Exposed &&
-                side.Faces.Any(face => Math.Abs(face.X - cell.X) + Math.Abs(face.Z - cell.Z) <= 6) &&
-                side.Samples.Count(engaged(cell).Contains) >= P4BCoverNest.MinimumShots;
+            Dictionary<P4BAttackSide, Dictionary<GridPoint, int>> engagedCounts =
+                new Dictionary<P4BAttackSide, Dictionary<GridPoint, int>>();
+            Dictionary<P4BAttackSide, Dictionary<GridPoint, bool>> facesSideCache =
+                new Dictionary<P4BAttackSide, Dictionary<GridPoint, bool>>();
+            Func<P4BAttackSide, GridPoint, bool> facesSide = (side, cell) =>
+            {
+                if (!facesSideCache.TryGetValue(side, out Dictionary<GridPoint, bool> cache))
+                    facesSideCache.Add(side, cache = new Dictionary<GridPoint, bool>());
+                if (cache.TryGetValue(cell, out bool result)) return result;
+                if (!side.Exposed || !side.NearFacesSet.Contains(cell)) result = false;
+                else
+                {
+                    if (!engagedCounts.TryGetValue(side, out Dictionary<GridPoint, int> counts))
+                        engagedCounts.Add(side, counts = new Dictionary<GridPoint, int>());
+                    if (!counts.TryGetValue(cell, out int shots))
+                        counts.Add(cell, shots = side.Samples.Count(engaged(cell).Contains));
+                    result = shots >= P4BCoverNest.MinimumShots;
+                }
+                cache.Add(cell, result);
+                return result;
+            };
             List<GateOption> gates = layout.Gates
                 .Select(g => new GateOption { Outward = g.Outward, Cell = g.BandDoors.Concat(new[] { g.Cell })
                     .OrderByDescending(c => c.X * g.Outward.X + c.Z * g.Outward.Z).First() }).ToList();
@@ -313,7 +351,7 @@ namespace RealisticBases.Planning
                 GridPoint across = new GridPoint(-faceSide.Outward.Z, faceSide.Outward.X);
                 List<P4BSallyPort> singleLayerPorts = new List<P4BSallyPort>();
                 if (layout.WallLayers == 1)
-                    foreach (GridPoint face in faceSide.Faces.Where(face => layout.BuiltWalls.Contains(face) &&
+                    foreach (GridPoint face in faceSide.Faces.Where(face => builtWalls.Contains(face) &&
                         !reinforcement.Contains(face) && Buildable(input.Terrain, face) &&
                         reachable.Contains(At(face, faceSide.Outward, across, 1, 0)) &&
                         Enumerable.Range(1, 2).SelectMany(offset => new[] { -offset, offset })
@@ -321,7 +359,7 @@ namespace RealisticBases.Planning
                         .OrderBy(c => c))
                     {
                         GridPoint inside = At(face, faceSide.Outward, across, -1, 0);
-                        List<GridPoint> connector = PublicInteriorConnector(input, layout, inside, publicCells);
+                        List<GridPoint> connector = PublicInteriorConnector(input, layout, inside, publicCells, enclosureCells);
                         if (connector == null) continue;
                         singleLayerPorts.Add(new P4BSallyPort(face, inside, faceSide.Outward,
                             interiorRoute: connector.Count <= 1 ? null : connector));
@@ -341,11 +379,11 @@ namespace RealisticBases.Planning
                     {
                         GridPoint outerFace = new GridPoint(innerDoor.X + (layout.WallLayers - 1) * faceSide.Outward.X,
                             innerDoor.Z + (layout.WallLayers - 1) * faceSide.Outward.Z);
-                        if (!faceSide.Faces.Contains(outerFace)) continue;
+                        if (!faceSide.FaceSet.Contains(outerFace)) continue;
                         GridPoint inside = new GridPoint(innerDoor.X - faceSide.Outward.X,
                             innerDoor.Z - faceSide.Outward.Z);
                         if (!Buildable(input.Terrain, innerDoor)) continue;
-                        List<GridPoint> connector = PublicInteriorConnector(input, layout, inside, publicCells);
+                        List<GridPoint> connector = PublicInteriorConnector(input, layout, inside, publicCells, enclosureCells);
                         if (connector == null) continue;
                         List<GridPoint> band = Enumerable.Range(1, layout.WallLayers - 1).Select(layer =>
                             new GridPoint(innerDoor.X + layer * faceSide.Outward.X,
@@ -359,7 +397,7 @@ namespace RealisticBases.Planning
                         bool clearPassage = crossingDoors.All(c => Walkable(input.Terrain, c) && opaque.Contains(c));
                         GridPoint outside = new GridPoint(outerFace.X + faceSide.Outward.X,
                             outerFace.Z + faceSide.Outward.Z);
-                        if (!band.Last().Equals(outerFace) || band.Any(c => !layout.OuterWalls.Contains(c)) ||
+                        if (!band.Last().Equals(outerFace) || band.Any(c => !outerWalls.Contains(c)) ||
                             !flanks || !clearPassage ||
                             !reachable.Contains(outside) || crossingDoors.Any(c => existingGateParts.Contains(c) ||
                                 !input.Terrain[c].Has(TerrainTraits.Buildable))) continue;
@@ -376,7 +414,7 @@ namespace RealisticBases.Planning
                 // A side gate replaces an existing wall cell and connects
                 // through it without consuming a crop or roof cell.
                 List<GridPoint> fieldFaces = faceSide.Faces.Where(face =>
-                    (layout.FieldWall?.Walls.Contains(face) ?? false) &&
+                    fieldWalls.Contains(face) &&
                     fieldPrevious.ContainsKey(At(face, faceSide.Outward, across, -1, 0)) &&
                     reachable.Contains(At(face, faceSide.Outward, across, 1, 0))).ToList();
                 List<GridPoint> routeAdjacentFieldFaces = fieldFaces.Where(face =>
@@ -397,8 +435,20 @@ namespace RealisticBases.Planning
             }
             // A slot holds a side only when that side's shooters mostly cross
             // its cover: along a row the neighbouring slot is no barricade.
-            Func<P4BAttackSide, P4BPost, GridPoint, bool> holds = (side, post, c) => facesSide(side, c) &&
-                P4BCoverNest.Shielded(c, side.Samples.Where(visible(c).Contains), post.CoverCells, opaque.Contains);
+            Dictionary<P4BAttackSide, Dictionary<P4BPost, Dictionary<GridPoint, bool>>> holdsCache =
+                new Dictionary<P4BAttackSide, Dictionary<P4BPost, Dictionary<GridPoint, bool>>>();
+            Func<P4BAttackSide, P4BPost, GridPoint, bool> holds = (side, post, c) =>
+            {
+                if (!holdsCache.TryGetValue(side, out Dictionary<P4BPost, Dictionary<GridPoint, bool>> postsBySide))
+                    holdsCache.Add(side, postsBySide = new Dictionary<P4BPost, Dictionary<GridPoint, bool>>());
+                if (!postsBySide.TryGetValue(post, out Dictionary<GridPoint, bool> cellsByPost))
+                    postsBySide.Add(post, cellsByPost = new Dictionary<GridPoint, bool>());
+                if (cellsByPost.TryGetValue(c, out bool result)) return result;
+                result = facesSide(side, c) && P4BCoverNest.Shielded(c,
+                    side.Samples.Where(visible(c).Contains), post.CoverCellsSet, opaque.Contains);
+                cellsByPost.Add(c, result);
+                return result;
+            };
             List<GridPoint> doors = layout.Gates.SelectMany(g => g.BandDoors.Concat(new[] { g.Cell }))
                 .Concat(layout.FieldWall == null ? new GridPoint[0] : new[] { layout.FieldWall.OuterGate }
                     .Concat(layout.FieldWall.InnerGate.HasValue ? new[] { layout.FieldWall.InnerGate.Value } : new GridPoint[0]))
@@ -417,8 +467,12 @@ namespace RealisticBases.Planning
                 foreach (P4BAttackSide side in exposed.Where(s => s.Exposed))
                 {
                     Func<P4BPost, int> facing = post => post.Slots.Count(c => holds(side, post, c));
-                    HashSet<GridPoint> seen = new HashSet<GridPoint>(side.Samples.Where(t =>
-                        posts.Any(p => p.Slots.Any(c => holds(side, p, c) && engaged(c).Contains(t)))));
+                    HashSet<GridPoint> seen = new HashSet<GridPoint>();
+                    foreach (P4BPost existingPost in posts)
+                        foreach (GridPoint slot in existingPost.Slots)
+                            if (holds(side, existingPost, slot))
+                                foreach (GridPoint sample in engaged(slot))
+                                    if (side.SampleSet.Contains(sample)) seen.Add(sample);
                     int have = posts.Sum(facing);
                     if (have >= pack && seen.Count >= UsefulArc(side.Samples.Count) &&
                         seenCompound.Count >= compoundTargets.Count) continue;
@@ -470,10 +524,9 @@ namespace RealisticBases.Planning
                             int gapGain = GapReduction(compoundTargets, seenCompound, coverage);
                             int rangedCompoundGain = compoundRangedCoverage(post).Count(c => !seenRangedCompound.Contains(c));
                             int capacityGain = Math.Min(facing(post), Math.Max(0, pack - have));
-                            int arcGain = seen.Count < UsefulArc(side.Samples.Count) ? side.Samples.Count(t =>
-                                !seen.Contains(t) && post.Slots.Any(c => holds(side, post, c) && engaged(c).Contains(t))) : 0;
                             int approachGain = side.Samples.Count(t => !seen.Contains(t) &&
                                 post.Slots.Any(c => holds(side, post, c) && engaged(c).Contains(t)));
+                            int arcGain = seen.Count < UsefulArc(side.Samples.Count) ? approachGain : 0;
                             if (capacityGain == 0 && arcGain == 0 && compoundGain == 0 && rangedCompoundGain == 0) continue;
                             if (gate.Field && compoundGain == 0) continue;
                             bool addsCompoundCrossing = gate.Port != null && !gate.Port.Field && !alreadySelectedPort;
@@ -554,12 +607,12 @@ namespace RealisticBases.Planning
             sides = sides.Select(s => new P4BAttackSide(s.Id, s.Outward, s.Faces, s.Samples, s.Post,
                 s.OmissionReason, s.OpenGroundArea,
                 posts.SelectMany(p => p.Slots.Where(c => s.Exposed &&
-                    s.Faces.Any(face => Math.Abs(face.X - c.X) + Math.Abs(face.Z - c.Z) <= 6) &&
+                    s.NearFacesSet.Contains(c) &&
                     s.Samples.Count(t => P4BFireLane.CanEngage(c, t, P4BCoverNest.MinimumRange,
                         P4BCoverNest.MaximumRange, opaque)) >= P4BCoverNest.MinimumShots &&
                     P4BCoverNest.Shielded(c,
                         s.Samples.Where(t => P4BFireLane.CanEngage(c, t, 0, P4BCoverNest.ThreatRange, opaque)),
-                        p.CoverCells, opaque.Contains))))).ToList();
+                        p.CoverCellsSet, opaque.Contains))))).ToList();
             HashSet<GridPoint> compoundCoveredTargets = new HashSet<GridPoint>(posts.SelectMany(compoundCoverage));
             return new P4BApproachDefensePlan(reachable, sides, posts, previous.Keys
                 .Except(posts.Where(p => p.WallReturn.HasValue).Select(p => p.WallReturn.Value))
@@ -605,6 +658,7 @@ namespace RealisticBases.Planning
             GridPoint entry = layout.FieldWall.InnerGate.Value;
             HashSet<GridPoint> walls = new HashSet<GridPoint>(layout.FieldWall.Walls.Concat(layout.BuiltWalls)
                 .Concat(layout.NaturalWalls).Concat(layout.ExtraObstacles));
+            HashSet<GridPoint> fieldCells = new HashSet<GridPoint>(layout.JointSite.Field.Points());
             Queue<GridPoint> queue = new Queue<GridPoint>();
             previous[entry] = entry; queue.Enqueue(entry);
             while (queue.Count > 0)
@@ -613,7 +667,7 @@ namespace RealisticBases.Planning
                 foreach (GridPoint direction in Directions)
                 {
                     GridPoint next = new GridPoint(here.X + direction.X, here.Z + direction.Z);
-                    if (!layout.JointSite.Field.Contains(next) || walls.Contains(next) ||
+                    if (!fieldCells.Contains(next) || walls.Contains(next) ||
                         next.Equals(layout.FieldWall.OuterGate) || !Walkable(input.Terrain, next) || previous.ContainsKey(next)) continue;
                     previous[next] = here; queue.Enqueue(next);
                 }
@@ -622,7 +676,8 @@ namespace RealisticBases.Planning
         }
 
         private static List<GridPoint> PublicInteriorConnector(ProceduralLayoutInput input,
-            ProceduralLayout layout, GridPoint start, HashSet<GridPoint> publicCells)
+            ProceduralLayout layout, GridPoint start, HashSet<GridPoint> publicCells,
+            HashSet<GridPoint> enclosureCells)
         {
             if (publicCells.Contains(start)) return new List<GridPoint> { start };
             HashSet<GridPoint> privateCells = new HashSet<GridPoint>(layout.Rooms.SelectMany(r => r.Bounds.Points())
@@ -632,7 +687,7 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> walls = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.NaturalWalls)
                 .Concat(layout.OuterWalls).Concat(layout.Gates.SelectMany(g => g.BandWalls.Concat(g.BandDoors)))
                 .Concat(layout.FieldWall?.Walls ?? new GridPoint[0]));
-            if (!layout.Enclosure.Contains(start) || !Buildable(input.Terrain, start) ||
+            if (!enclosureCells.Contains(start) || !Buildable(input.Terrain, start) ||
                 privateCells.Contains(start) || walls.Contains(start)) return null;
             Dictionary<GridPoint, GridPoint> previous = new Dictionary<GridPoint, GridPoint> { [start] = start };
             Queue<GridPoint> queue = new Queue<GridPoint>();
@@ -646,7 +701,7 @@ namespace RealisticBases.Planning
                 foreach (GridPoint direction in Directions)
                 {
                     GridPoint next = new GridPoint(here.X + direction.X, here.Z + direction.Z);
-                    if (!layout.Enclosure.Contains(next) || previous.ContainsKey(next) || privateCells.Contains(next) ||
+                    if (!enclosureCells.Contains(next) || previous.ContainsKey(next) || privateCells.Contains(next) ||
                         walls.Contains(next) || !Buildable(input.Terrain, next)) continue;
                     previous[next] = here;
                     queue.Enqueue(next);
