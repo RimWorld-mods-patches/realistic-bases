@@ -381,18 +381,25 @@ namespace RealisticBases.Generation
                 if (finishFailure == P4CFailurePoint.AfterSmoothing)
                     throw new InvalidOperationException("forced P4C failure after smoothing");
 
-                foreach (LayoutFixture fixture in layout.AllFixtures)
-                {
-                    if (fixture.Kind == LayoutFixtureKind.Stockpile || fixture.Kind == LayoutFixtureKind.MortarCourt) continue;
-                    Thing thing = Spawn(tx, Require(fixture.DefName), ResolveStuff(fixture.Stuff), fixtureOrigins[fixture], map,
-                        settlement.Faction, Rotation(fixture.Rotation));
-                    if (!fixture.Cells.All(c => thing.OccupiedRect().Contains(ToCell(c))) || thing.OccupiedRect().Area != fixture.Cells.Count)
-                        throw new InvalidOperationException("Fixture footprint differs from plan: " + fixture.DefName + " at " + fixture.Cells[0]);
-                    LayoutRoom owner = layout.Rooms.FirstOrDefault(room => room.Id == fixture.RoomId);
-                    Configure(thing, fixture.Kind, owner?.Kind, layout.Rooms.Any(r => r.Kind == LayoutRoomKind.Freezer));
-                }
+                List<LayoutFixture> spawnableFixtures = layout.AllFixtures.Where(f =>
+                    f.Kind != LayoutFixtureKind.Stockpile && f.Kind != LayoutFixtureKind.MortarCourt).ToList();
+                List<LayoutFixture> powerFoundations = spawnableFixtures.Where(f =>
+                    f.Kind == LayoutFixtureKind.Generator || f.Kind == LayoutFixtureKind.Battery).ToList();
+                // Establish sources and storage before consumers ask the power
+                // manager to connect them. This prevents early connectors from
+                // being attached to an empty or partial net during map spawn.
+                foreach (LayoutFixture fixture in powerFoundations)
+                    SpawnLayoutFixture(tx, fixture, fixtureOrigins, layout.Rooms, map, settlement.Faction);
                 foreach (LayoutPowerYard yard in layout.PowerYards)
                     Spawn(tx, Require(yard.DefName), null, yardOrigins[yard], map, settlement.Faction, Rotation(yard.Rotation));
+                ThingDef conduitDef = Require("PowerConduit");
+                foreach (GridPoint c in conduitCells)
+                    if (ToCell(c).GetTransmitter(map) == null)
+                        Spawn(tx, conduitDef, null, c, map, settlement.Faction, Rot4.North);
+                foreach (Thing battery in tx.OwnedThings.Where(t => t.TryGetComp<CompPowerBattery>() != null))
+                    battery.TryGetComp<CompPowerBattery>().SetStoredEnergyPct(1f);
+                foreach (LayoutFixture fixture in spawnableFixtures.Where(f => !powerFoundations.Contains(f)))
+                    SpawnLayoutFixture(tx, fixture, fixtureOrigins, layout.Rooms, map, settlement.Faction);
                 foreach (P4BTurretPlan plan in turretPlans)
                 {
                     Thing turret = Spawn(tx, Require(plan.DefName), ThingDefOf.Steel, turretOrigins[plan],
@@ -402,10 +409,6 @@ namespace RealisticBases.Generation
                         turret.OccupiedRect().Area != plan.Footprint.Count)
                         throw new InvalidOperationException("Turret footprint differs from plan: " + plan.DefName);
                 }
-                ThingDef conduitDef = Require("PowerConduit");
-                foreach (GridPoint c in conduitCells)
-                    if (ToCell(c).GetTransmitter(map) == null)
-                        Spawn(tx, conduitDef, null, c, map, settlement.Faction, Rot4.North);
                 foreach (LayoutFixture court in layout.Courts)
                     mortars.Add(Spawn(tx, ThingDefOf.Turret_Mortar, ThingDefOf.Steel, mortarOrigins[court],
                         map, settlement.Faction, Rotation(court.Rotation)));
@@ -564,6 +567,12 @@ namespace RealisticBases.Generation
                     " batchingWasDisabled=" + pathUpdatesBatched + " changedWalkability=" + previousWalkability.Count(pair =>
                         map.pathing.Normal.pathGrid.Walkable(pair.Key) != pair.Value));
                 map.powerNetManager.UpdatePowerNetsAndConnections_First();
+                AuditPowerConnectorWiring(map, tx.OwnedThings, "before_reconnect");
+                foreach (CompPower connector in tx.OwnedThings.Where(t => t.Spawned && t.def.ConnectToPower)
+                    .Select(t => t.TryGetComp<CompPower>()).Where(c => c != null).OrderBy(c => c.parent.thingIDNumber))
+                    connector.TryManualReconnect(false);
+                map.powerNetManager.UpdatePowerNetsAndConnections_First();
+                AuditPowerConnectorWiring(map, tx.OwnedThings, "after_reconnect");
                 for (int i = 0; i < mortars.Count; i++)
                 {
                     Thing mortar = mortars[i]; LayoutFixture court = layout.Courts[i];
@@ -602,26 +611,32 @@ namespace RealisticBases.Generation
                         " reserve=" + plan.FuelDefName + ":" + plan.ReserveFuelUnits +
                         " cover=" + plan.CoverCells.Count + " serviceReachable=true");
                 }
-                foreach (Thing battery in tx.OwnedThings.Where(t => t.TryGetComp<CompPowerBattery>() != null))
-                    // Charged like the generators' full tanks: the six-hour outage
-                    // bridge holds from the first tick.
-                    battery.TryGetComp<CompPowerBattery>().SetStoredEnergyPct(1f);
-                // RimWorld gradually restarts a net's switched-off consumers in
-                // small batches after power has been interrupted. The planner has
-                // already reserved firm power and the outage battery bridge; wake
-                // the accepted turret plan now so it is ready on the first tick.
+                // Rebuilding a PowerNet resets its CompPowerTrader instances to
+                // off. The planner reserved production and the outage battery
+                // bridge for the full planned load, so restore every requested,
+                // unbroken consumer after the final network rebuild.
                 int startupTurretsPowered = 0;
-                foreach (Thing turret in turrets.Values)
+                int startupConsumersPowered = 0;
+                HashSet<Thing> turretThings = new HashSet<Thing>(turrets.Values);
+                foreach (Thing thing in tx.OwnedThings)
                 {
-                    CompPowerTrader power = turret.TryGetComp<CompPowerTrader>();
-                    if (power?.PowerNet == null || !FlickUtility.WantsToBeOn(turret) || turret.IsBrokenDown()) continue;
+                    CompPowerTrader power = thing.TryGetComp<CompPowerTrader>();
+                    if (power?.PowerNet == null || power.Props.PowerConsumption <= 0 ||
+                        !FlickUtility.WantsToBeOn(thing) || thing.IsBrokenDown()) continue;
                     if (!power.PowerOn) power.PowerOn = true;
-                    if (power.PowerOn) startupTurretsPowered++;
+                    if (!power.PowerOn) continue;
+                    startupConsumersPowered++;
+                    if (turretThings.Contains(thing)) startupTurretsPowered++;
                 }
                 P2Log.Message("PROCEDURAL_TURRET_POWER_STARTUP", "map=" + map.uniqueID +
                     " planned=" + turrets.Count + " powered=" + startupTurretsPowered +
                     " networks=" + turrets.Values.Select(t => t.TryGetComp<CompPowerTrader>()?.PowerNet)
                         .Where(n => n != null).Distinct().Count());
+                P2Log.Message("PROCEDURAL_POWER_CONSUMER_WAKE", "map=" + map.uniqueID +
+                    " planned=" + tx.OwnedThings.Count(t => t.Spawned && t.TryGetComp<CompPowerTrader>() is CompPowerTrader p &&
+                        p.Props.PowerConsumption > 0 && FlickUtility.WantsToBeOn(t) && !t.IsBrokenDown()) +
+                    " powered=" + startupConsumersPowered + " turrets=" + startupTurretsPowered);
+                AuditPowerConsumerStartup(map, tx.OwnedThings, "after_grid_wake");
                 // After the fresh-layout audits above: damage, fuel, charge and
                 // loaded shells return as they were left, never refilled.
                 if (archivedAssets != null) P5EncounterArchive.ApplyAssets(map, (Settlement)settlement, archivedAssets);
@@ -1051,6 +1066,69 @@ namespace RealisticBases.Generation
             thing = GenSpawn.Spawn(thing, ToCell(point), map, rotation, WipeMode.Vanish);
             tx.Own(thing);
             return thing;
+        }
+
+        private static void SpawnLayoutFixture(P4SpawnTransaction tx, LayoutFixture fixture,
+            Dictionary<LayoutFixture, GridPoint> fixtureOrigins, IReadOnlyList<LayoutRoom> rooms, Map map, Faction faction)
+        {
+            Thing thing = Spawn(tx, Require(fixture.DefName), ResolveStuff(fixture.Stuff), fixtureOrigins[fixture], map,
+                faction, Rotation(fixture.Rotation));
+            if (!fixture.Cells.All(c => thing.OccupiedRect().Contains(ToCell(c))) || thing.OccupiedRect().Area != fixture.Cells.Count)
+                throw new InvalidOperationException("Fixture footprint differs from plan: " + fixture.DefName + " at " + fixture.Cells[0]);
+            LayoutRoom owner = rooms.FirstOrDefault(room => room.Id == fixture.RoomId);
+            Configure(thing, fixture.Kind, owner?.Kind, rooms.Any(r => r.Kind == LayoutRoomKind.Freezer));
+        }
+
+        private static void AuditPowerConnectorWiring(Map map, IEnumerable<Thing> ownedThings, string phase)
+        {
+            int connectors = 0, unconnected = 0, longerThanOne = 0, longerThanTwo = 0;
+            List<string> issues = new List<string>();
+            foreach (Thing thing in ownedThings.Where(t => t.Spawned && t.def.ConnectToPower))
+            {
+                CompPower power = thing.TryGetComp<CompPower>();
+                connectors++;
+                IntVec3 cell = thing.Position;
+                if (thing.def.building != null && thing.def.building.isAttachment)
+                {
+                    Thing attached = GenConstruct.GetWallAttachedTo(thing);
+                    if (attached != null) cell = attached.Position;
+                }
+                CompPower parent = power?.connectParent;
+                if (parent == null)
+                {
+                    unconnected++;
+                    issues.Add(thing.thingIDNumber + ":" + thing.def.defName + "@" + cell + "->unconnected");
+                    continue;
+                }
+                float distance = cell.DistanceTo(parent.parent.Position);
+                if (distance > 1f) longerThanOne++;
+                if (distance > 2f)
+                {
+                    longerThanTwo++;
+                    issues.Add(thing.thingIDNumber + ":" + thing.def.defName + "@" + cell + "->" +
+                        parent.parent.def.defName + "@" + parent.parent.Position + ":wire=" + distance.ToString("F1"));
+                }
+            }
+            P2Log.Message("PROCEDURAL_POWER_WIRING_AUDIT", "map=" + map.uniqueID + " phase=" + phase +
+                " connectors=" + connectors + " unconnected=" + unconnected + " longerThan1=" + longerThanOne +
+                " longerThan2=" + longerThanTwo + " issues=" + string.Join(";", issues));
+        }
+
+        private static void AuditPowerConsumerStartup(Map map, IEnumerable<Thing> ownedThings, string phase)
+        {
+            var consumers = ownedThings.Where(t => t.Spawned).Select(t => new
+            {
+                thing = t,
+                power = t.TryGetComp<CompPowerTrader>()
+            }).Where(x => x.power != null && x.power.Props.PowerConsumption > 0 &&
+                x.thing.TryGetComp<CompPowerPlant>() == null && FlickUtility.WantsToBeOn(x.thing) && !x.thing.IsBrokenDown()).ToList();
+            var off = consumers.Where(x => !x.power.PowerOn).Select(x =>
+                x.thing.def.defName + "@" + x.thing.Position + ":net=" +
+                (x.power.PowerNet?.GetHashCode().ToString() ?? "none")).ToList();
+            P2Log.Message("PROCEDURAL_POWER_CONSUMER_STARTUP", "map=" + map.uniqueID + " phase=" + phase +
+                " wanted=" + consumers.Count + " powered=" + consumers.Count(x => x.power.PowerOn) +
+                " off=" + off.Count + " networks=" + consumers.Select(x => x.power.PowerNet)
+                    .Where(n => n != null).Distinct().Count() + " offConsumers=" + string.Join(";", off));
         }
 
         private static List<Thing> SpawnStacks(P4SpawnTransaction tx, ThingDef def, int count,
