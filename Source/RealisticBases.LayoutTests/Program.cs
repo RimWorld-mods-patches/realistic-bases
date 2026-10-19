@@ -106,6 +106,7 @@ internal static partial class Program
         Run("P4B turret emplacement respects stage, geometry and finite stocks", P4BTurretPlacementCases, 30);
         Run("P4B high-industrial field pair fits its facilities", P4BHighIndustrialJointSite, 45);
         Run("P4B turret network adds coordinated budgeted groups", P4BTurretNetwork, 110);
+        Run("P4B spawner preflight accepts T6 turret networks", P4BSpawnerPreflightOutcomes, 150);
         Run("P4B staffing does not borrow one marksman across separated fronts", P4BStaffingIsExclusive);
         Run("P4B field breach has compound gate fallback firing posts", P4BFieldFallbackPosts);
         Run("P4B final path audit flushes deferred grids and restores batching", P4BFinalPathAuditSynchronization);

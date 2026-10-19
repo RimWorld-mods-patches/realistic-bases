@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using RealisticBases.Generation;
 using RealisticBases.Planning;
 
 internal static partial class Program
@@ -550,6 +551,50 @@ internal static partial class Program
     {
         if (only == null || only.IndexOf("T4 outcome", StringComparison.OrdinalIgnoreCase) < 0) return;
         Run("T4 outcome wealth sweep", TurretBatteryT4Outcomes, 400);
+    }
+
+    private static void P4BSpawnerPreflightOutcomes()
+    {
+        SettlementTechStage late = TechStageModel.Create(SettlementTechStageLevel.IndustrialLate);
+        List<(string Label, ProceduralLayoutInput Input)> cases = new List<(string, ProceduralLayoutInput)>();
+        foreach (ulong seed in new ulong[] { 1, 2, 5 })
+        {
+            OrdinarySettlementBudget budget = OrdinarySettlementPopulation.Create(
+                P2ProfileCatalog.IndustrialTemperate, late, Temperate, 180);
+            LayoutRequirements requirements = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate,
+                Temperate, stage: late, populationBudget: budget);
+            cases.Add(("total12-seed" + seed + "-w180", new ProceduralLayoutInput(requirements,
+                Plains(180), seed, CoreCatalog, new LayoutFortificationReservation(1))));
+        }
+        OrdinarySettlementBudget broadBudget = OrdinarySettlementPopulation.Create(
+            P2ProfileCatalog.IndustrialTemperate, late, Temperate, 180);
+        LayoutRequirements broadRequirements = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate,
+            Temperate, stage: late, populationBudget: broadBudget);
+        cases.Add(("broad-flat-w180", new ProceduralLayoutInput(broadRequirements,
+            Plains(160), 1, CoreCatalog, new LayoutFortificationReservation(1))));
+
+        foreach ((string label, ProceduralLayoutInput input) in cases)
+        {
+            ProceduralLayoutResult planned = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+            Accepted(planned);
+            True(planned.Layout.Turret != null && planned.Layout.Turret.All.Count() > 0,
+                label + " has its T6 turret network");
+            P4BProceduralSpawnPreflightResult preflight = P4BProceduralSpawnPreflight.Evaluate(
+                input, planned.Layout);
+            True(preflight.Accepted, label + " accepted by the shared spawner preflight: " + preflight.Failure);
+            Equal(0, ProceduralLayoutValidator.Validate(input, planned.Layout).Count,
+                label + " remains valid under planner-owned turret rules");
+            Equal(planned.Layout.Turret.All.Count(), preflight.GuardLookups.Count,
+                label + " retains one optional guard lookup per planned turret");
+            int withGuard = preflight.GuardLookups.Count(g => g.GuardPost.HasValue);
+            Console.WriteLine("  spawner preflight " + label + " digest=" + planned.Layout.Digest +
+                " turrets=" + planned.Layout.Turret.All.Count() + " guardPriority=" + withGuard +
+                "/" + preflight.GuardLookups.Count + " missingGuardIsNonFatal=true");
+            P4BSpawnGuardLookup missingGuard = new P4BSpawnGuardLookup(
+                planned.Layout.Turret.All.First(), threats: 10, answered: 0, guardPost: null);
+            Equal(0, P4BProceduralSpawnPreflight.BuildSniperGuardSectors(new[] { missingGuard }).Count,
+                label + " omits post-priority data when no guard exists");
+        }
     }
 
     private static void RunT5aPowerHeadroomTests()

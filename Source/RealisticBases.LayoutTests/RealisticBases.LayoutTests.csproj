@@ -55,5 +55,6 @@
     <Compile Include="../RealisticBases/Planning/LayoutRoomPartition.cs" Link="Planning/LayoutRoomPartition.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutLoadout.cs" Link="Planning/LayoutLoadout.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutStockCells.cs" Link="Planning/LayoutStockCells.cs" />
+    <Compile Include="../RealisticBases/Generation/P4BProceduralSpawnPreflight.cs" Link="Generation/P4BProceduralSpawnPreflight.cs" />
   </ItemGroup>
 </Project>

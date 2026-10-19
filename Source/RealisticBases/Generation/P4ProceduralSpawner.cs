@@ -35,32 +35,23 @@ namespace RealisticBases.Generation
             List<P4BTurretPlan> turretPlans = turretPlan?.All.ToList() ?? new List<P4BTurretPlan>();
             if (layout.FieldCellsRequired > 0 && fieldWall == null)
             { failure = "missing_joint_field_wall"; return false; }
-            IReadOnlyList<string> errors = ProceduralLayoutValidator.Validate(input, layout);
-            if (errors.Count != 0) { failure = "invalid_layout:" + string.Join(",", errors); return false; }
-            SettlementLoadout loadout = LayoutLoadoutModel.Build(input, layout);
-            errors = ProceduralLayoutValidator.ValidateLoadout(input, layout, loadout);
-            if (!loadout.Success || errors.Count != 0)
-            { failure = "invalid_loadout:" + loadout.Rejection + ":" + string.Join(",", errors); return false; }
-            Dictionary<GridPoint, HashSet<string>> sniperGuardSectors = new Dictionary<GridPoint, HashSet<string>>();
-            // A quest camp's guns are the native advertised threat; it has no
-            // sniper guards to answer fire on them.
-            if (approachDefense != null && turretPlans.Count > 0 && quest == null)
+            P4BProceduralSpawnPreflightResult preflight = P4BProceduralSpawnPreflight.Evaluate(input,
+                layout, includeGuardLookups: quest == null);
+            if (!preflight.Accepted) { failure = preflight.Failure; return false; }
+            SettlementLoadout loadout = preflight.Loadout;
+            Dictionary<GridPoint, HashSet<string>> sniperGuardSectors =
+                P4BProceduralSpawnPreflight.BuildSniperGuardSectors(preflight.GuardLookups);
+            foreach (P4BSpawnGuardLookup lookup in preflight.GuardLookups)
             {
-                HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
-                opaque.UnionWith(turretPlans.SelectMany(t => t.Footprint));
-                foreach (P4BTurretPlan gun in turretPlans)
-                {
-                    P4BTurretPlanner.SniperGuardCoverage(approachDefense, gun, opaque,
-                        out int threats, out int answered, out GridPoint? guard);
-                    if (!guard.HasValue || threats == 0 || answered * 10 < threats * 9)
-                    { failure = "unanswered_turret_sniper_threat:" + gun.Origin; return false; }
-                    if (!sniperGuardSectors.TryGetValue(guard.Value, out HashSet<string> sectors))
-                        sniperGuardSectors.Add(guard.Value, sectors = new HashSet<string>(StringComparer.Ordinal));
-                    sectors.Add(gun.Side);
-                    P2Log.Message("PROCEDURAL_TURRET_GUARD_PLAN", "map=" + map.uniqueID +
-                        " gun=" + gun.DefName + "@" + gun.Origin + " side=" + gun.Side +
-                        " sniperPost=" + guard.Value + " answered=" + answered + "/" + threats);
-                }
+                // Turrets remain governed by the planner's geometric support and
+                // crossing-local exposure validation. A resident sniper guard is
+                // not a spawn requirement; use a nearby guard only to prioritize
+                // that side's defensive post when one is available.
+                if (!lookup.GuardPost.HasValue) continue;
+                GridPoint guard = lookup.GuardPost.Value;
+                P2Log.Message("PROCEDURAL_TURRET_GUARD_PLAN", "map=" + map.uniqueID +
+                    " gun=" + lookup.Turret.DefName + "@" + lookup.Turret.Origin + " side=" + lookup.Turret.Side +
+                    " sniperPost=" + guard + " answered=" + lookup.Answered + "/" + lookup.Threats);
             }
 
             List<GridPoint> roofsToBuild = layout.ConstructedRoof.Except(layout.RetainedThickRoof).ToList();
