@@ -1,6 +1,6 @@
 # Planner performance
 
-Status: PPA complete; PPB and later work await user selection. It follows the turret-batteries work
+Status: PPC complete; PPB is deferred by the user, and later work awaits user selection. It follows the turret-batteries work
 ([plan](2026-10-18-turret-batteries-and-power.md)), after the startup-power and
 hidden-conduit tasks.
 
@@ -183,14 +183,17 @@ No sub-timers were kept, and no optimization was made.
   calls repeat identical work, is the second lever.
 
 Revised order:
-1. **PPA, set membership.** In `P4BApproachDefense`, `FitDefenseAccess`, `P4BCoverNest`,
+1. **PPA, set membership — complete.** In `P4BApproachDefense`, `FitDefenseAccess`, `P4BCoverNest`,
    `P4BJointSitePlanner.Find` and `ReachableFromLane`, and the turret `PlanGroup` and
    exposure paths, replace `.Contains` on arrays and lists inside loops with `HashSet`s
    built once per call (or cached on the layout). Hoist repeated `Count`/`Any` over the
    same sets. This is mechanical, digest-safe and low risk.
-2. **PPB, `FitDefenseAccess` repeat work.** Count the `Plan` calls per attempt and cache
+2. **PPC, joint site search — complete.** Profile `P4BJointSitePlanner.Find` and
+   `ReachableFromLane`, then hoist terrain-only and per-field/per-compound work without
+   changing candidate order or pruning any site.
+3. **PPB, `FitDefenseAccess` repeat work — deferred.** Count the `Plan` calls per attempt and cache
    or skip the ones that repeat identical inputs.
-3. PP2 (`Opaque` once per input) and PP1 (line of sight) only if a re-profile after PPA
+4. PP2 (`Opaque` once per input) and PP1 (line of sight) only if a re-profile after PPC
    shows them. PP5 as found. PP6 stays optional.
 
 ### PPA: Set membership and repeated coverage — complete
@@ -215,7 +218,7 @@ search, and filters turret/exposure collections once per call. No placement rule
 scoring values changed.
 
 **Digest and test checks:** all 14 T6 layout digests match the old baseline. Full
-LayoutTests emitted 483 planner digest records on each build; the `(seed, input digest,
+LayoutTests emitted 459 planner digest records on each build; the `(seed, input digest,
 layout digest)` multisets are identical. Both suites passed 182/183, with only the known
 GL peninsula case failing. All 24 focused old/new outcome runs passed. PlannerTests and
 all three Release builds passed; the only build warnings are the existing turret-frame
@@ -245,6 +248,64 @@ function. Turret planning becomes the next major cost after site search.
 The final seed 5 trace and top-N report are in
 `.runtime/investigations/planner-performance/ppa-profile/`. The temporary digest logger
 was removed before the final Release build; no profiling hooks remain in source.
+
+### PPC: Joint site search caching and hoisting — complete
+
+The seed 5 PPA trace showed `HashSet<GridPoint>.FindItemIndex` at about 3.58 s self.
+Its largest direct callers were `P4BFireLane.CanEngage` (~1.53 s) and
+`P4BJointSitePlanner.ReachableFromLane` (~1.14 s); repeated list materialization was
+another ~0.26 s. Site-search diagnostics recorded 1,369 field origins, 5,476
+field/compound pairs, 45,360 gate offsets, 41,958 lanes, 4,573,422 lane cells and
+17,622,360 crop-cell visits, with 1,998 accepted pairs. The PPC trace also counted
+774,522 site line-of-sight checks. The origin, pair, lane and crop-visit counts were
+unchanged by PPC.
+
+The site search now builds its terrain grid, edge reach and opaque-cell mask once and
+shares them with refined-origin search. It caches wall, perimeter-lane and fertile-interior
+cells per field origin, and compound cells/placeable cells per candidate. Joint-site line
+of sight reads the cached opaque mask. `ReachableFromLane` builds a lane-neighbor set once
+and marks each crop visited when it enters the BFS queue, preserving the previous ordered
+results while avoiding duplicate hash lookups and queue entries.
+
+The exact `d30f2f6` build and PPC build were run in three alternating old/new pairs for
+seeds 5, 4, 1 and 2. These are medians of the three `plannerMs` and `siteCandidate`
+measurements in `ppc-alternating-d30-summary.csv`.
+
+| Base | Total d30 → PPC | Change | Site/candidate d30 → PPC |
+|---|---:|---:|---:|
+| seed 5 | 14.861 → 13.927 s | −6.3% | 7.992 → 6.931 s |
+| seed 4 | 13.127 → 12.005 s | −8.5% | 8.087 → 7.077 s |
+| seed 1 | 12.066 → 10.922 s | −9.5% | 8.155 → 7.045 s |
+| seed 2 | 15.518 → 14.342 s | −7.6% | 8.116 → 7.027 s |
+
+All 12 old/new pairs retained the same layout digest. All 14 T6 outcome and planner
+diagnostic rows match after removing timing fields, and all 11 emitted layout digests
+match; three lakeshore cases still produce no turret plan. The full LayoutTests digest
+log contains 459 `(seed, input, layout)` records,
+and its multiset exactly matches the PPA baseline. LayoutTests passed 182/183; the only
+failure is the known GL peninsula fixture. PlannerTests passed with zero failures, and the
+final Release build succeeded with the existing unused turret-frame-field warnings.
+
+The PPC seed 5 sample profile is in `ppc-profile/`. Approximate function milliseconds
+normalize the trace shares to the current 12.069 s planner time and `PlanClusters` share;
+inclusive rows overlap.
+
+| Function | Inclusive ms | Self ms |
+|---|---:|---:|
+| `P4BJointSitePlanner.Find` | ~4,765 | ~2 |
+| `P4BJointSitePlanner.FindCore` | ~4,758 | ~78 |
+| `P4BTurretPlanner.Plan` | ~3,313 | <10 |
+| `P4BTurretPlanner.PlanGroup` | ~3,259 | ~20 |
+| `HashSet<GridPoint>.FindItemIndex` | ~2,242 | ~2,242 |
+| `P4BApproachDefensePlanner.Plan` | ~1,998 | ~20 |
+| `LayoutAttempt.FitDefenseAccess` | ~1,983 | ~5 |
+| `P4BJointSitePlanner.ReachableFromLane` | ~1,188 | ~362 |
+
+The remaining `FindItemIndex` samples now come mainly through the general
+`P4BFireLane.CanEngage` collection overload called by approach-defense lambdas; the
+joint-site preflight uses its cached boolean blocker mask. That approach-defense work is
+outside PPC and remains for a later user-selected step. The temporary digest logger was
+removed, and no profiling hooks remain in source.
 
 ### PP1: Line of sight
 `P4BFireLane.CanEngage` walks a ray cell by cell and looks up each cell in a

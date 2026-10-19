@@ -41,5 +41,40 @@ namespace RealisticBases.Planning
             }
             return true;
         }
+
+        // Joint-site preflight uses a fixed terrain-only blocker mask across
+        // many candidate posts. Avoid re-hashing every ray cell for that path.
+        internal static bool CanEngage(GridPoint origin, GridPoint target, int minimumRange, int maximumRange,
+            bool[] opaque, int width, int height)
+        {
+            if (minimumRange < 0 || maximumRange < minimumRange) throw new ArgumentOutOfRangeException(nameof(maximumRange));
+            if (opaque == null) throw new ArgumentNullException(nameof(opaque));
+            if (width <= 0 || height <= 0 || opaque.Length != width * height)
+                throw new ArgumentException("Opaque mask dimensions do not match the grid.", nameof(opaque));
+            long dx = (long)target.X - origin.X, dz = (long)target.Z - origin.Z;
+            long squared = dx * dx + dz * dz;
+            if (squared == 0 || squared < (long)minimumRange * minimumRange ||
+                squared > (long)maximumRange * maximumRange) return false;
+            bool Blocked(GridPoint cell) => cell.X >= 0 && cell.Z >= 0 && cell.X < width && cell.Z < height &&
+                opaque[cell.Z * width + cell.X];
+            if (Blocked(origin) || Blocked(target)) return false;
+            int nx = Math.Abs(target.X - origin.X), nz = Math.Abs(target.Z - origin.Z);
+            int sx = Math.Sign(target.X - origin.X), sz = Math.Sign(target.Z - origin.Z);
+            int x = origin.X, z = origin.Z, ix = 0, iz = 0;
+            while (ix < nx || iz < nz)
+            {
+                long xCross = ix < nx ? (2L * ix + 1) * nz : long.MaxValue;
+                long zCross = iz < nz ? (2L * iz + 1) * nx : long.MaxValue;
+                if (xCross == zCross)
+                {
+                    if (Blocked(new GridPoint(x + sx, z)) || Blocked(new GridPoint(x, z + sz))) return false;
+                    x += sx; z += sz; ix++; iz++;
+                }
+                else if (xCross < zCross) { x += sx; ix++; }
+                else { z += sz; iz++; }
+                if (Blocked(new GridPoint(x, z))) return false;
+            }
+            return true;
+        }
     }
 }
