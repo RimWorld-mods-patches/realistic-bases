@@ -101,6 +101,12 @@ namespace RealisticBases.Planning
             for (int i = 0; i < cells.Count; i++) Add(cells[i]);
         }
 
+        public void UnionWith(HashSet<GridPoint> cells)
+        {
+            if (cells == null) throw new ArgumentNullException(nameof(cells));
+            foreach (GridPoint cell in cells) Add(cell);
+        }
+
         public void ExceptWith(CellSet other)
         {
             EnsureCompatible(other);
@@ -144,6 +150,13 @@ namespace RealisticBases.Planning
             }
         }
 
+        public CellSet Clone()
+        {
+            CellSet copy = new CellSet(width, height);
+            copy.CopyFrom(this);
+            return copy;
+        }
+
         public void Clear()
         {
             Array.Clear(words, 0, words.Length);
@@ -174,6 +187,13 @@ namespace RealisticBases.Planning
                 GridPoint cell = overflowOrder[i];
                 if (overflow.Contains(cell)) destination.Add(cell);
             }
+        }
+
+        public HashSet<GridPoint> ToHashSet()
+        {
+            List<GridPoint> cells = new List<GridPoint>();
+            CopyTo(cells);
+            return new HashSet<GridPoint>(cells);
         }
 
         private int Index(GridPoint cell) => cell.Z * width + cell.X;
