@@ -218,8 +218,9 @@ search, and filters turret/exposure collections once per call. No placement rule
 scoring values changed.
 
 **Digest and test checks:** all 14 T6 layout digests match the old baseline. Full
-LayoutTests emitted 459 planner digest records on each build; the `(seed, input digest,
-layout digest)` multisets are identical. Both suites passed 182/183, with only the known
+LayoutTests emitted 483 planner digest records on each build: 459 include a layout digest,
+and 24 are rejected plans logged as `layout=none`. The full record multisets are identical.
+Both suites passed 182/183, with only the known
 GL peninsula case failing. All 24 focused old/new outcome runs passed. PlannerTests and
 all three Release builds passed; the only build warnings are the existing turret-frame
 fields and LayoutTests `Touches` helper.
@@ -265,7 +266,9 @@ shares them with refined-origin search. It caches wall, perimeter-lane and ferti
 cells per field origin, and compound cells/placeable cells per candidate. Joint-site line
 of sight reads the cached opaque mask. `ReachableFromLane` builds a lane-neighbor set once
 and marks each crop visited when it enters the BFS queue, preserving the previous ordered
-results while avoiding duplicate hash lookups and queue entries.
+results while avoiding duplicate hash lookups and queue entries. Both the collection and
+mask line-of-sight APIs use one generic ray-walk core with blocker-specific predicates,
+so corner and range handling cannot diverge between site search and defense.
 
 The exact `d30f2f6` build and PPC build were run in three alternating old/new pairs for
 seeds 5, 4, 1 and 2. These are medians of the three `plannerMs` and `siteCandidate`
@@ -280,9 +283,10 @@ measurements in `ppc-alternating-d30-summary.csv`.
 
 All 12 old/new pairs retained the same layout digest. All 14 T6 outcome and planner
 diagnostic rows match after removing timing fields, and all 11 emitted layout digests
-match; three lakeshore cases still produce no turret plan. The full LayoutTests digest
-log contains 459 `(seed, input, layout)` records,
-and its multiset exactly matches the PPA baseline. LayoutTests passed 182/183; the only
+match; three lakeshore cases still produce no turret plan. Each LayoutTests run logged 483
+planner records, comprising 459 layout digests and 24 `layout=none` results. Comparing all
+483 `(seed, input, layout-or-none)` records against both PPA logs yields exact multiset
+equality, so no fixture result was omitted. LayoutTests passed 182/183; the only
 failure is the known GL peninsula fixture. PlannerTests passed with zero failures, and the
 final Release build succeeded with the existing unused turret-frame-field warnings.
 
