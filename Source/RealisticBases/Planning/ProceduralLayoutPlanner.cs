@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 
 namespace RealisticBases.Planning
@@ -702,20 +703,39 @@ namespace RealisticBases.Planning
 
     public sealed class ProceduralLayoutResult
     {
-        internal ProceduralLayoutResult(ProceduralLayout layout, LayoutDemandSet demand, IEnumerable<LayoutDiagnostic> diagnostics, LayoutSearchStats stats)
+        internal ProceduralLayoutResult(ProceduralLayout layout, LayoutDemandSet demand, IEnumerable<LayoutDiagnostic> diagnostics, LayoutSearchStats stats,
+            ProceduralLayoutStageTimings stageTimings = null)
         {
             Layout = layout;
             Demand = demand;
             Diagnostics = new ReadOnlyCollection<LayoutDiagnostic>(diagnostics.ToList());
             Stats = stats;
+            StageTimings = stageTimings ?? new ProceduralLayoutStageTimings();
         }
 
         public ProceduralLayout Layout { get; }
         public LayoutDemandSet Demand { get; }
         public IReadOnlyList<LayoutDiagnostic> Diagnostics { get; }
         public LayoutSearchStats Stats { get; }
+        public ProceduralLayoutStageTimings StageTimings { get; }
         public bool Success => Layout != null;
         public string RejectionCode => Success ? null : Diagnostics.Where(d => d.Stage == "result").Select(d => d.Code).LastOrDefault();
+    }
+
+    public sealed class ProceduralLayoutStageTimings
+    {
+        internal double SiteCandidateSearchMs, FieldWallMs, FitDefenseAccessMs, ApproachDefenseMs;
+        internal double TurretPlanningMs, PowerTrimMs, ValidationMs, ScoringMs;
+        internal int ValidationCalls;
+        public double SiteAndCandidateSearchMilliseconds => SiteCandidateSearchMs;
+        public double FieldWallMilliseconds => FieldWallMs;
+        public double FitDefenseAccessMilliseconds => FitDefenseAccessMs;
+        public double ApproachDefenseMilliseconds => ApproachDefenseMs;
+        public double TurretPlanningMilliseconds => TurretPlanningMs;
+        public double PowerTrimMilliseconds => PowerTrimMs;
+        public double ValidationMilliseconds => ValidationMs;
+        public int ValidationCallCount => ValidationCalls;
+        public double ScoringMilliseconds => ScoringMs;
     }
 
     internal enum LayoutCellClass : byte
@@ -880,19 +900,31 @@ namespace RealisticBases.Planning
         internal static ProceduralLayoutResult PlanClusters(ProceduralLayoutInput input, bool requireJointSite)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
+            Stopwatch plannerWatch = Stopwatch.StartNew();
             string terrainDigest = input.Terrain.Digest;
             string inputDigest = input.Digest;
             List<LayoutDiagnostic> diagnostics = new List<LayoutDiagnostic>();
             LayoutSearchStats stats = new LayoutSearchStats();
+            ProceduralLayoutStageTimings timings = new ProceduralLayoutStageTimings();
             LayoutRequirements requirements = input.Requirements;
             LayoutEquipment equipment = input.Equipment;
             LayoutKit kit = equipment.Kit;
             LayoutDemandSet demand = equipment.Demand;
+            Func<ProceduralLayout, ProceduralLayoutResult> makeResult = layout =>
+            {
+                plannerWatch.Stop();
+                // Search is the residual after the individually timed finishing stages.
+                // This keeps the reported stages additive and avoids double-counting.
+                timings.SiteCandidateSearchMs = Math.Max(0, plannerWatch.Elapsed.TotalMilliseconds -
+                    timings.FieldWallMs - timings.FitDefenseAccessMs - timings.ApproachDefenseMs -
+                    timings.TurretPlanningMs - timings.PowerTrimMs - timings.ValidationMs - timings.ScoringMs);
+                return new ProceduralLayoutResult(layout, demand, diagnostics, stats, timings);
+            };
             Func<string, ProceduralLayoutResult> reject = code =>
             {
                 if (input.Terrain.Digest != terrainDigest || input.Digest != inputDigest) throw new InvalidOperationException("P4A planner mutated its input.");
                 diagnostics.Add(new LayoutDiagnostic("result", code, stats.ToString()));
-                return new ProceduralLayoutResult(null, demand, diagnostics, stats);
+                return makeResult(null);
             };
             diagnostics.Add(new LayoutDiagnostic("equipment", "stage", requirements.Stage.Level + "->" + kit.Stage + " roles=" + kit.Roles.Digest));
             foreach (string line in kit.Roles.StepDowns) diagnostics.Add(new LayoutDiagnostic("equipment", "step_down", line));
@@ -965,7 +997,7 @@ namespace RealisticBases.Planning
                 {
                     int gaps;
                     int diagnosticStart = diagnostics.Count;
-                    ProceduralLayout finished = Finish(input, entry.Run, entry.Layout, entry.Site, entry.Anchor, diagnostics, out gaps);
+                    ProceduralLayout finished = Finish(input, entry.Run, entry.Layout, entry.Site, entry.Anchor, diagnostics, timings, out gaps);
                     if (finished == null)
                     {
                         string causes = string.Join(" | ", diagnostics.Skip(diagnosticStart)
@@ -983,17 +1015,20 @@ namespace RealisticBases.Planning
                         if (bonus.Count > 0)
                         {
                             ProceduralLayout planted = finished.WithBonusFields(bonus);
-                            IReadOnlyList<string> bonusErrors = ProceduralLayoutValidator.Validate(input, planted);
+                            IReadOnlyList<string> bonusErrors = ValidateTimed(input, planted, timings);
                             if (bonusErrors.Count == 0) finished = planted;
                             Note(diagnostics, "bonus_field", bonusErrors.Count == 0 ? "planted" : "omitted",
                                 "cells=" + bonus.Count + (bonusErrors.Count == 0 ? string.Empty : " " + string.Join("+", bonusErrors.Take(4))));
                         }
                     }
+                    Stopwatch scoringWatch = Stopwatch.StartNew();
                     LayoutCandidateScore final = LayoutCandidateScore.Evaluate(input, finished, gaps, Downgrades(finished));
+                    scoringWatch.Stop();
+                    timings.ScoringMs += scoringWatch.Elapsed.TotalMilliseconds;
                     if (input.Terrain.Digest != terrainDigest || input.Digest != inputDigest) throw new InvalidOperationException("P4A planner mutated its input.");
                     diagnostics.Add(new LayoutDiagnostic("result", "accepted", stats + " digest=" + finished.Digest +
                         " candidates=" + considered + " preDefense=" + entry.Score.Total.ToString("F1") + " " + final));
-                    return new ProceduralLayoutResult(finished, demand, diagnostics, stats);
+                    return makeResult(finished);
                 }
                 return null;
             };
@@ -1048,26 +1083,33 @@ namespace RealisticBases.Planning
                             if (stats.BudgetExhausted) return (pool.Count > 0 ? finishBest() : null) ?? reject("search_budget_exhausted");
                             stats.Attempts++;
                             ulong attemptSeed = LayoutSeed.Key(LayoutSeed.Sub(input.Seed, "attempt"), anchor.X * 4099 + anchor.Z, attempt, (int)doctrine);
-                            LayoutAttempt run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics,
+                            LayoutAttempt run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics, timings,
                                 jointSite: site, envelopeSearch: envelopeStrategy);
                             ProceduralLayout layout = run.Run();
                             if (layout == null && run.NeedsPocketsOnly && !stats.BudgetExhausted)
                             {
                                 // The public room failed vanilla's outdoor rule: replan this attempt with pocket exhaust only.
                                 stats.Attempts++;
-                                run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics, true, site,
+                                run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics, timings, true, site,
                                     envelopeSearch: envelopeStrategy);
                                 layout = run.Run();
                             }
                             if (stats.BudgetExhausted && layout == null) return (pool.Count > 0 ? finishBest() : null) ?? reject("search_budget_exhausted");
                             if (layout == null) continue;
+                            Stopwatch validationWatch = Stopwatch.StartNew();
                             IReadOnlyList<string> violations = ProceduralLayoutValidator.Validate(input, layout);
+                            validationWatch.Stop();
+                            timings.ValidationMs += validationWatch.Elapsed.TotalMilliseconds;
+                            timings.ValidationCalls++;
                             if (violations.Count != 0)
                             {
                                 Note(diagnostics, "validate", "rejected", anchor + " " + string.Join("+", violations.Take(6)));
                                 continue;
                             }
+                            Stopwatch scoringWatch = Stopwatch.StartNew();
                             LayoutCandidateScore score = LayoutCandidateScore.Evaluate(input, layout, 0, Downgrades(layout));
+                            scoringWatch.Stop();
+                            timings.ScoringMs += scoringWatch.Elapsed.TotalMilliseconds;
                             Note(diagnostics, "candidate", "valid", anchor + " " + score + " digest=" + layout.Digest);
                             pool.Add(new PoolEntry { Score = score, Run = run, Layout = layout, Site = site, Anchor = anchor });
                             if (pool.Count < CandidatePoolSize) continue;
@@ -1103,7 +1145,7 @@ namespace RealisticBases.Planning
         // approach defense and optional turrets (joint sites), then quest
         // defense. Null when a required stage fails; gaps counts weak fronts.
         private static ProceduralLayout Finish(ProceduralLayoutInput input, LayoutAttempt run, ProceduralLayout layout, P4BJointSite site,
-            GridPoint anchor, List<LayoutDiagnostic> diagnostics, out int gapFronts)
+            GridPoint anchor, List<LayoutDiagnostic> diagnostics, ProceduralLayoutStageTimings timings, out int gapFronts)
         {
             gapFronts = 0;
             IReadOnlyList<string> violations;
@@ -1115,32 +1157,44 @@ namespace RealisticBases.Planning
                     .Concat(layout.AllFixtures.SelectMany(f => f.Cells))
                     .Concat(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex]))));
                 string wallDiagnostic;
+                Stopwatch stageWatch = Stopwatch.StartNew();
                 P4BFieldWallPlan fieldWall = P4BFieldWallPlanner.PlanJoint(input, layout, occupied,
                     out wallDiagnostic);
+                stageWatch.Stop();
+                timings.FieldWallMs += stageWatch.Elapsed.TotalMilliseconds;
                 if (fieldWall == null)
                 {
                     diagnostics.Add(new LayoutDiagnostic("joint_site", "field_wall_rejected", anchor + " " + wallDiagnostic));
                     return null;
                 }
                 layout = layout.WithFieldWall(input, fieldWall);
-                violations = ProceduralLayoutValidator.Validate(input, layout);
+                violations = ValidateTimed(input, layout, timings);
                 if (violations.Count != 0)
                 {
                     diagnostics.Add(new LayoutDiagnostic("joint_site", "final_rejected",
                         anchor + " " + string.Join("+", violations.Take(6))));
                     return null;
                 }
+                stageWatch.Restart();
+                double approachBeforeFit = timings.ApproachDefenseMs;
+                double fieldWallBeforeFit = timings.FieldWallMs;
                 layout = run.FitDefenseAccess(layout);
+                stageWatch.Stop();
+                timings.FitDefenseAccessMs += Math.Max(0, stageWatch.Elapsed.TotalMilliseconds -
+                    (timings.ApproachDefenseMs - approachBeforeFit) - (timings.FieldWallMs - fieldWallBeforeFit));
                 fieldWall = layout.FieldWall;
                 occupied = new HashSet<GridPoint>(layout.Enclosure
                     .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
                     .Concat(layout.PowerYards.SelectMany(y => y.Cells))
                     .Concat(layout.AllFixtures.SelectMany(f => f.Cells))
                     .Concat(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex]))));
+                stageWatch.Restart();
                 P4BApproachDefensePlan defense = P4BApproachDefensePlanner.Plan(input, layout);
+                stageWatch.Stop();
+                timings.ApproachDefenseMs += stageWatch.Elapsed.TotalMilliseconds;
                 layout = layout.WithApproachDefense(input, defense);
                 fieldWall = layout.FieldWall;
-                violations = ProceduralLayoutValidator.Validate(input, layout);
+                violations = ValidateTimed(input, layout, timings);
                 if (violations.Count != 0)
                 {
                     diagnostics.Add(new LayoutDiagnostic("defense", "final_rejected",
@@ -1148,8 +1202,11 @@ namespace RealisticBases.Planning
                     return null;
                 }
                 string turretDiagnostic;
+                stageWatch.Restart();
                 P4BTurretPlan turret = P4BTurretPlanner.Plan(input, layout, fieldWall,
                     occupied, out turretDiagnostic);
+                stageWatch.Stop();
+                timings.TurretPlanningMs += stageWatch.Elapsed.TotalMilliseconds;
                 if (turret != null)
                 {
                     P4BTurretPlan candidate = turret;
@@ -1168,6 +1225,8 @@ namespace RealisticBases.Planning
                         TurretBatteryNeed(candidate.TotalWatts) + " kept=" + layout.Power?.Batteries +
                         " reserved=" + layout.Power?.ReservedBatteries + " turretWatts=" + candidate.TotalWatts +
                         " renewableStorage=" + (layout.Power?.RenewableStorageBatteries ?? 0)));
+                    double validatorBeforePowerLoop = timings.ValidationMs;
+                    Stopwatch powerLoopWatch = Stopwatch.StartNew();
                     while (candidate != null)
                     {
                         ProceduralLayout armed = null;
@@ -1177,7 +1236,7 @@ namespace RealisticBases.Planning
                             // Trim only after attaching turrets, so the generator count and
                             // six-hour battery bridge include the selected network load.
                             armed = layout.WithTurret(input, candidate).TrimDefensePower(input);
-                            armedErrors = ProceduralLayoutValidator.Validate(input, armed);
+                            armedErrors = ValidateTimed(input, armed, timings);
                         }
                         catch (InvalidOperationException ex) when (ex.Message.StartsWith(
                             "Packed defense power cannot supply", StringComparison.Ordinal))
@@ -1227,12 +1286,18 @@ namespace RealisticBases.Planning
                             string.Join("+", armedErrors.Take(6))));
                         candidate = reduced;
                     }
+                    powerLoopWatch.Stop();
+                    timings.PowerTrimMs += Math.Max(0, powerLoopWatch.Elapsed.TotalMilliseconds -
+                        (timings.ValidationMs - validatorBeforePowerLoop));
                 }
                 else diagnostics.Add(new LayoutDiagnostic("turret", "unplaced", anchor + " " + turretDiagnostic));
             }
             if (input.QuestContract != null)
             {
+                Stopwatch approachWatch = Stopwatch.StartNew();
                 layout = layout.WithApproachDefense(input, P4BApproachDefensePlanner.Plan(input, layout));
+                approachWatch.Stop();
+                timings.ApproachDefenseMs += approachWatch.Elapsed.TotalMilliseconds;
                 if (input.QuestContract.QuestTurrets > 0)
                 {
                     P4BTurretPlan guns = P4BTurretPlanner.PlanQuestGuns(input, layout, input.QuestContract.QuestTurrets,
@@ -1241,7 +1306,7 @@ namespace RealisticBases.Planning
                     if (guns == null) return null;
                     layout = layout.WithTurret(input, guns);
                 }
-                violations = ProceduralLayoutValidator.Validate(input, layout)
+                violations = ValidateTimed(input, layout, timings)
                     .Concat(input.QuestContract.ValidateReservations(layout)).ToList();
                 if (violations.Count != 0)
                 {
@@ -1249,8 +1314,11 @@ namespace RealisticBases.Planning
                     return null;
                 }
             }
+            Stopwatch trimWatch = Stopwatch.StartNew();
             layout = layout.TrimDefensePower(input);
-            violations = ProceduralLayoutValidator.Validate(input, layout);
+            trimWatch.Stop();
+            timings.PowerTrimMs += trimWatch.Elapsed.TotalMilliseconds;
+            violations = ValidateTimed(input, layout, timings);
             if (violations.Count != 0)
             {
                 diagnostics.Add(new LayoutDiagnostic("defense_power", "trim_rejected", string.Join("+", violations.Take(12))));
@@ -1273,6 +1341,17 @@ namespace RealisticBases.Planning
                 }
             }
             return layout;
+        }
+
+        internal static IReadOnlyList<string> ValidateTimed(ProceduralLayoutInput input, ProceduralLayout layout,
+            ProceduralLayoutStageTimings timings)
+        {
+            Stopwatch watch = Stopwatch.StartNew();
+            IReadOnlyList<string> result = ProceduralLayoutValidator.Validate(input, layout);
+            watch.Stop();
+            timings.ValidationMs += watch.Elapsed.TotalMilliseconds;
+            timings.ValidationCalls++;
+            return result;
         }
 
         internal static void Note(List<LayoutDiagnostic> diagnostics, string stage, string code, string detail)
@@ -1426,6 +1505,7 @@ namespace RealisticBases.Planning
         private readonly ulong seed;
         private readonly LayoutSearchStats stats;
         private readonly List<LayoutDiagnostic> diagnostics;
+        private readonly ProceduralLayoutStageTimings stageTimings;
         private readonly byte[] occ;
         private readonly HashSet<GridPoint> dug = new HashSet<GridPoint>();
         private readonly List<Segment> segments = new List<Segment>();
@@ -1474,7 +1554,7 @@ namespace RealisticBases.Planning
 
         public LayoutAttempt(ProceduralLayoutInput input, LayoutDemandSet demand, LayoutTerrainGrid grid, GridPoint anchor,
             LayoutDoctrine doctrine, bool wantsCourt, ulong seed, LayoutSearchStats stats, List<LayoutDiagnostic> diagnostics,
-            bool pocketsOnly = false, P4BJointSite jointSite = null, bool envelopeSearch = false)
+            ProceduralLayoutStageTimings stageTimings, bool pocketsOnly = false, P4BJointSite jointSite = null, bool envelopeSearch = false)
         {
             this.pocketsOnly = pocketsOnly;
             this.jointSite = jointSite;
@@ -1488,6 +1568,7 @@ namespace RealisticBases.Planning
             this.seed = seed;
             this.stats = stats;
             this.diagnostics = diagnostics;
+            this.stageTimings = stageTimings;
             occ = new byte[grid.Width * grid.Height];
             // Rock-protect doctrine: at most one cleared exhaust hole per two cooled rooms (provisional).
             int cooled = demand.Rooms.Count(r => LayoutDemandModel.NeedsOutdoorAir(r.Kind, input.Requirements, input.Equipment.Kit));
@@ -1568,7 +1649,10 @@ namespace RealisticBases.Planning
 
         internal ProceduralLayout FitDefenseAccess(ProceduralLayout layout)
         {
+            Stopwatch approachWatch = Stopwatch.StartNew();
             P4BApproachDefensePlan defense = P4BApproachDefensePlanner.Plan(input, layout);
+            approachWatch.Stop();
+            stageTimings.ApproachDefenseMs += approachWatch.Elapsed.TotalMilliseconds;
             string[] sides = defense.Sides.Where(s => s.Exposed)
                 .OrderByDescending(s => s.OpenGroundArea).ThenBy(s => s.Id, StringComparer.Ordinal)
                 .Select(s => s.Id).ToArray();
@@ -1605,16 +1689,22 @@ namespace RealisticBases.Planning
                             .Concat(trial.PowerYards.SelectMany(y => y.Cells))
                             .Concat(trial.AllFixtures.SelectMany(f => f.Cells))
                             .Concat(trial.OuterSections.SelectMany(s => s.ServiceLane(trial.Gates[s.GateIndex]))));
+                        Stopwatch wallWatch = Stopwatch.StartNew();
                         P4BFieldWallPlan fieldWall = P4BFieldWallPlanner.PlanJoint(input, trial, occupied, out string reason);
+                        wallWatch.Stop();
+                        stageTimings.FieldWallMs += wallWatch.Elapsed.TotalMilliseconds;
                         if (fieldWall == null)
                         { failures.Add("field_connection=" + reason); trial = null; }
                         else trial = trial.WithFieldWall(input, fieldWall);
                     }
                     P4BApproachDefensePlan trialDefense = null;
-                    IReadOnlyList<string> errors = trial == null ? new string[0] : ProceduralLayoutValidator.Validate(input, trial);
+                    IReadOnlyList<string> errors = trial == null ? new string[0] : ProceduralLayoutPlanner.ValidateTimed(input, trial, stageTimings);
                     if (trial != null && errors.Count == 0)
                     {
+                        Stopwatch defenseWatch = Stopwatch.StartNew();
                         trialDefense = P4BApproachDefensePlanner.Plan(input, trial);
+                        defenseWatch.Stop();
+                        stageTimings.ApproachDefenseMs += defenseWatch.Elapsed.TotalMilliseconds;
                         P4BAttackSide improved = trialDefense.Sides.Single(s => s.Id == id);
                         HashSet<GridPoint> trialOpaque = P4BApproachDefensePlanner.Opaque(trial, input.Terrain);
                         int shots = P4BApproachDefensePlanner.CoveredSamples(improved, trialOpaque);

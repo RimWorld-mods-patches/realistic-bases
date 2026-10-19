@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -702,23 +703,34 @@ internal static partial class Program
                 new LayoutFortificationReservation(1));
             cases.Add(() => RunTurretBatteryOutcome(input, "broad-flat-w" + wealth, wealth, true, filterLabels));
         }
-        System.Threading.Tasks.Parallel.ForEach(cases,
-            new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = 4 }, run => run());
+        if (string.Equals(Environment.GetEnvironmentVariable("T4_OUTCOME_SEQUENTIAL"), "1", StringComparison.Ordinal))
+        {
+            foreach (Action run in cases) run();
+        }
+        else
+        {
+            System.Threading.Tasks.Parallel.ForEach(cases,
+                new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = 4 }, run => run());
+        }
     }
 
     private static void RunTurretBatteryOutcome(ProceduralLayoutInput input, string label, int wealth, bool jointSite,
         string[] filterLabels)
     {
         if (filterLabels.Length > 0 && !filterLabels.Any(f => label.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0)) return;
+        TimeSpan cpuBefore = System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime;
         Stopwatch watch = Stopwatch.StartNew();
         ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: jointSite);
         watch.Stop();
+        double plannerCpuMilliseconds = (System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime - cpuBefore).TotalMilliseconds;
         if (result.Layout == null)
         {
             string rejections = TopIncompleteBatteryRejections(result.Diagnostics);
             string turretDetails = string.Join(";", result.Diagnostics.Where(d => d.Stage == "turret").Select(d => d.Detail));
             Console.WriteLine("  turret-t4-outcome " + label + " wealth=" + wealth + " residents=" + input.Requirements.Residents +
                 " status=failed rejection=" + result.RejectionCode + " plannerMs=" + watch.ElapsedMilliseconds +
+                " plannerCpuMs=" + plannerCpuMilliseconds.ToString("F2", CultureInfo.InvariantCulture) +
+                " plannerStages=" + StageTimingText(result.StageTimings, watch.Elapsed.TotalMilliseconds) +
                 " incompleteCrossingRejects=" + rejections + " diagnostics=" + string.Join(";",
                     result.Diagnostics.Where(d => d.Stage == "turret")));
             if (turretDetails.Length > 0) Console.WriteLine("  turret-t4-diagnostic " + label + " " + turretDetails);
@@ -798,7 +810,10 @@ internal static partial class Program
             " sidesMissingTurretSupport=" + (sidesMissingSupport.Length == 0 ? "none" : sidesMissingSupport) +
             " betweenNestsTurrets=" + guns.Count(g => g.BetweenNests) +
             " spacingFallbackLevels=" + spacingFallbackLevels +
-            " plannerMs=" + watch.ElapsedMilliseconds + " incompleteCrossingRejects=" + rejectionCodes);
+            " plannerMs=" + watch.ElapsedMilliseconds +
+            " plannerCpuMs=" + plannerCpuMilliseconds.ToString("F2", CultureInfo.InvariantCulture) +
+            " plannerStages=" + StageTimingText(result.StageTimings, watch.Elapsed.TotalMilliseconds) +
+            " incompleteCrossingRejects=" + rejectionCodes);
         foreach (TurretFaceCoverageGap gap in TurretFacesWithoutNearbyNest(layout))
             Console.WriteLine("  turret-t5-face-gap " + label + " side=" + gap.Side +
                 " faceType=" + (gap.FieldFace ? "field" : "compound") + " length=" + gap.Length +
@@ -822,6 +837,20 @@ internal static partial class Program
             label.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0);
         if (!string.IsNullOrEmpty(mapExportDirectory) && exportMap)
             ExportTurretMap(input, layout, label, result.Diagnostics, mapExportDirectory);
+    }
+
+    private static string StageTimingText(ProceduralLayoutStageTimings t, double totalMilliseconds)
+    {
+        string F(double n) => n.ToString("F2", CultureInfo.InvariantCulture);
+        string Stage(double ms) => F(ms) + "/" + F(totalMilliseconds <= 0 ? 0 : ms * 100 / totalMilliseconds) + "%";
+        return "siteCandidate=" + Stage(t.SiteAndCandidateSearchMilliseconds) +
+            ",fieldWall=" + Stage(t.FieldWallMilliseconds) +
+            ",fitDefenseAccess=" + Stage(t.FitDefenseAccessMilliseconds) +
+            ",approachDefense=" + Stage(t.ApproachDefenseMilliseconds) +
+            ",turretPlanning=" + Stage(t.TurretPlanningMilliseconds) +
+            ",powerTrimLoop=" + Stage(t.PowerTrimMilliseconds) +
+            ",validator=" + Stage(t.ValidationMilliseconds) + "/" + t.ValidationCallCount +
+            ",scoring=" + Stage(t.ScoringMilliseconds);
     }
 
     private static int PlannedConduitCells(ProceduralLayoutInput input, ProceduralLayout layout,
