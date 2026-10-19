@@ -1,6 +1,6 @@
 # Planner performance
 
-Status: PP0 complete; PP1–PP5 await user selection. It follows the turret-batteries work
+Status: PP0b complete; PP1–PP5 await user selection. It follows the turret-batteries work
 ([plan](2026-10-18-turret-batteries-and-power.md)), after the startup-power and
 hidden-conduit tasks.
 
@@ -16,8 +16,8 @@ At `3837389`, planning one settlement takes 8–54 s. The T6 sweep timings
 Planning runs while the map is generated, so the player waits this long on entering a
 settlement. It also makes each turret sweep and the full LayoutTests slow.
 
-Stage timings are not recorded yet. The candidates below come from reading the code, not
-from profiling.
+PP0 measured the stages; see the baseline and "PP0 findings" below. PP1–PP5 were written
+before any measurement, so their order follows the findings, not the numbering.
 
 ## Rules
 
@@ -83,6 +83,91 @@ The Release build passed with no warnings or errors.
 | broad-flat-w100 | 13038 / 13080 | 3453 / 26.5% | 6 / 0.0% | 1 / 0.0% | 6059 / 46.5% | 3388 / 26.0% | 1 / 0.0% | 161 / 1.2% | 4 / 0.0% | 7 |
 | broad-flat-w180 | 18984 / 18990 | 4991 / 26.3% | 12 / 0.1% | 29 / 0.1% | 8711 / 45.9% | 4946 / 26.1% | 1 / 0.0% | 201 / 1.1% | 5 / 0.0% | 8 |
 
+### PP0 findings and revised order
+Totals over the 14 bases, from the medians above:
+
+| Stage | Time | Share |
+|---|---|---|
+| approach defense | ~97 s | ~43% |
+| site and candidate search | ~82 s | ~36% |
+| turret planning | ~42 s | ~19% |
+| validator | ~3 s | ~1.4% |
+| power-trim loop | ~25 ms | under 0.1% |
+
+- **Approach defense is the main cost,** and it explains the outliers: seed 5 (29.3 s,
+  70%), seed 4 (13.3 s, 53%) and lakeshore w180 (7.6 s, 70%). It runs line-of-sight work
+  (`CanEngage`, `FiringSlots`, `RequiredCover`: 17 uses in `P4BApproachDefense.cs`) and
+  rebuilds `Opaque` with a full terrain scan at lines 178, 801 and 948.
+- **Site search costs a nearly constant ~7.8 s on seeds 1–8,** whatever the terrain. That
+  points to a fixed enumeration (sites × attempts) that may be prunable, not to geometry.
+- **Turret planning** is 10–33%, highest on seed 2.
+- **Dropped:** PP3, because the power-trim loop takes milliseconds, and PP4, because turret
+  planning takes 0.3 ms on the Neolithic bases. The validator (about 1–2%, 6–15 calls) is
+  not worth optimizing either.
+
+Revised order:
+1. **PP0b, profile inside the hot stages.** Use a sampling profiler or sub-timers on seed 5
+   and seed 4 (approach defense), seed 1 (site search) and seed 2 (turret planning), and
+   name the top functions. CPU time equals wall time in PP0, so the planner is
+   single-threaded and CPU-bound, and the profile is reliable even under load.
+2. **PP1 and PP2 for approach defense first,** then for turrets, if PP0b confirms that
+   line of sight and `Opaque` dominate.
+3. **Site search,** pruning or caching, depending on what PP0b shows.
+4. **PP5** where PP0b shows it matters. **PP6** stays optional.
+
+### PP0b: Sampling profile results
+
+PP0b is complete. I collected CPU-sampling traces for `total12-seed5-w180`,
+`total12-seed4-w180`, `total12-seed1-w180` and `total12-seed2-w180` with `dotnet-trace`.
+No planner source or decisions changed. The focused outcome test passed for all four, and
+all four input/layout digests match `t6-outcome.log`.
+
+The trace top-N report samples both the test worker and its waiting caller; `Thread.Join`
+accounts for about half of the samples. The approximate milliseconds below normalize each
+method's inclusive/exclusive sample share by the `PlanClusters` inclusive share in that
+trace, then multiply by that run's `plannerMs`. Inclusive values overlap and must not be
+added. The `self` column is the profiler's exclusive time. Treat these as function-ranking
+estimates, not exact timers.
+
+| Base / hot stage | Function | Inclusive ms | Self ms |
+|---|---|---:|---:|
+| seed 5 / approach | `P4BApproachDefensePlanner.Plan` | ~28,560 | ~40 |
+| seed 5 / approach | `LayoutAttempt.FitDefenseAccess` | ~23,610 | ~10 |
+| seed 5 / approach | `Enumerable.Any` | ~23,850 | ~1,760 |
+| seed 5 / approach | `Enumerable.Count` | ~22,130 | ~5,840 |
+| seed 5 / approach | `P4BApproachDefensePlanner.Plan` closure `b__21` | ~21,800 | ~150 |
+| seed 5 / approach | `GridPoint[].FindItemIndex` | ~12,250 | ~12,250 |
+| seed 5 / approach | `P4BCoverNest.Shielded` | ~9,730 | ~3,560 |
+| seed 4 / approach | `P4BApproachDefensePlanner.Plan` | ~13,500 | ~20 |
+| seed 4 / approach | `LayoutAttempt.FitDefenseAccess` | ~10,360 | ~10 |
+| seed 4 / approach | `Enumerable.Any` | ~12,270 | ~1,170 |
+| seed 4 / approach | `Enumerable.Count` | ~11,040 | ~2,760 |
+| seed 4 / approach | `P4BApproachDefensePlanner.Plan` closure `b__21` | ~10,340 | ~70 |
+| seed 4 / approach | `GridPoint[].FindItemIndex` | ~7,490 | ~7,490 |
+| seed 4 / approach | `P4BCoverNest.Shielded` | ~4,420 | ~1,760 |
+| seed 1 / site search | `P4BJointSitePlanner.Find` | ~7,250 | ~50 |
+| seed 1 / site search | `P4BJointSitePlanner.ReachableFromLane` | ~2,350 | ~400 |
+| seed 1 / site search | `GridPoint[].FindItemIndex` | ~3,660 | ~3,660 |
+| seed 2 / turret planning | `P4BTurretPlanner.Plan` | ~7,280 | <10 |
+| seed 2 / turret planning | `P4BTurretPlanner.PlanGroup` | ~7,220 | ~10 |
+| seed 2 / turret planning | `P4BTurretPlanner.PlanGroup` closure `b__65` | ~2,310 | ~440 |
+| seed 2 / turret planning | `P4BTurretPlanner.ExposureCoverage` | ~2,080 | ~350 |
+| seed 2 / turret planning | `P4BTurretPlanner.UnansweredExposure` | ~630 | ~190 |
+| seed 2 / turret planning | `P4BCoverNest.Shielded` | ~1,700 | ~610 |
+
+The ~7.8 s site-search plateau is mostly `P4BJointSitePlanner.Find`: it took about
+7.25 s (roughly 81% of seed 1's 8.92 s site/candidate stage). `ReachableFromLane` is a
+substantial child at about 2.35 s inclusive. In approach defense, `FitDefenseAccess`
+repeats `P4BApproachDefensePlanner.Plan`; its inclusive time overlaps the `Plan` row.
+The profile's hot path is repeated LINQ `Any`/`Count` and `GridPoint` array membership in
+those candidate/coverage passes. Turret planning on seed 2 is dominated by `PlanGroup`;
+`ExposureCoverage` and `UnansweredExposure` are identifiable children.
+
+Raw traces and top-N output are under
+`.runtime/investigations/planner-performance/pp0b/` and
+`.runtime/investigations/planner-performance/pp0b-profile-summary.log`.
+No sub-timers were kept, and no optimization was made.
+
 ### PP1: Line of sight
 `P4BFireLane.CanEngage` walks a ray cell by cell and looks up each cell in a
 `HashSet<GridPoint>`. The turret and exposure code uses it in about 37 places. When a
@@ -125,7 +210,7 @@ attacker cell within 44.9 of every turret, and that is repeated for every candid
 rebuild scans the whole terrain grid. Compute the terrain part once per input and add
 only the layout's own walls, gates, doors and room edges on each build.
 
-### PP3: Power-trim loop
+### PP3: Power-trim loop (dropped after PP0: about 1–7 ms)
 Each time a crossing is dropped for power, the planner attaches the network, trims power
 and runs a full `ProceduralLayoutValidator.Validate` again (`ProceduralLayoutPlanner.cs`,
 in the `while (candidate != null)` loop). Instead:
@@ -136,7 +221,7 @@ in the `while (candidate != null)` loop). Instead:
 
 Keep the full validation as the final gate. The accepted network must stay identical.
 
-### PP4: Skip impossible turret work
+### PP4: Skip impossible turret work (dropped after PP0: 0.3 ms)
 When the tech stage or the power rules out turrets, skip the turret stage. The
 Neolithic lakeshore base still runs all three spacing levels for every crossing, and each
 one is rejected with `stage_or_power_unavailable`.
