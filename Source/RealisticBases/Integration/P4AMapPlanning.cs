@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using RealisticBases.Persistence;
 using RealisticBases.Planning;
@@ -12,8 +13,17 @@ namespace RealisticBases.Integration
     public sealed class P4AMapPlanningRun
     {
         public P4AMapPlanningRun(ProceduralLayoutInput input, ProceduralLayoutResult result, string profileId,
-            P5StockSnapshot saleStock = null)
-        { Input = input; Result = result; ProfileId = profileId; SaleStock = saleStock; }
+            P5StockSnapshot saleStock = null, long captureMilliseconds = 0, long planningMilliseconds = 0,
+            ProceduralLayoutStageTimings stageTimings = null)
+        {
+            Input = input;
+            Result = result;
+            ProfileId = profileId;
+            SaleStock = saleStock;
+            CaptureMilliseconds = captureMilliseconds;
+            PlanningMilliseconds = planningMilliseconds;
+            StageTimings = stageTimings ?? result?.StageTimings ?? new ProceduralLayoutStageTimings();
+        }
 
         public ProceduralLayoutInput Input { get; }
         public ProceduralLayoutResult Result { get; }
@@ -22,6 +32,9 @@ namespace RealisticBases.Integration
         // offer, acquired once before planning and sized into storage. Null
         // when the settlement keeps native-only trade stock.
         public P5StockSnapshot SaleStock { get; }
+        public long CaptureMilliseconds { get; }
+        public long PlanningMilliseconds { get; }
+        public ProceduralLayoutStageTimings StageTimings { get; }
     }
 
     public static class P4AMapPlanner
@@ -37,6 +50,7 @@ namespace RealisticBases.Integration
         public static P4AMapPlanningRun Run(Map map, Settlement settlement, int requestedWallLayers)
         {
             if (map == null || settlement?.Faction == null) throw new ArgumentNullException(nameof(settlement));
+            Stopwatch captureWatch = Stopwatch.StartNew();
             PhysicalSettlementProfile profile = P2MapPlanner.SelectProfile(settlement.Faction);
             string worldSeed = Find.World?.info?.seedString ?? string.Empty;
             P0WorldState worldState = Current.Game.GetComponent<P0WorldState>();
@@ -100,14 +114,20 @@ namespace RealisticBases.Integration
             ProceduralLayoutResult result = null;
             int wallLayers = targetLayers;
             string layerFallback = "none";
-            for (; wallLayers >= 1; wallLayers--)
+            captureWatch.Stop();
+            Stopwatch planningWatch = Stopwatch.StartNew();
+            ProceduralLayoutStageTimings totalStageTimings = new ProceduralLayoutStageTimings();
+            for (wallLayers = targetLayers; wallLayers >= 1; wallLayers--)
             {
                 input = new ProceduralLayoutInput(requirements, terrain, seed, catalog,
-                    new LayoutFortificationReservation(wallLayers), resources: resources);
+                    new LayoutFortificationReservation(wallLayers), resources: resources,
+                    plannerDegree: ProceduralLayoutInput.AutomaticPlannerDegree);
                 result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+                AddTimings(totalStageTimings, result.StageTimings);
                 if (result.Success && P4BPerimeterDepth.Minimum(terrain, result.Layout) == wallLayers) break;
                 if (wallLayers > 1) layerFallback = result.Success ? "insufficient_perimeter_breach_depth" : result.RejectionCode ?? "plan_rejected";
             }
+            planningWatch.Stop();
             string terrainStats = result.Success ? string.Empty : " terrainCells=" + terrain.Width * terrain.Height +
                 " standable=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Standable)) +
                 " buildable=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Buildable)) +
@@ -139,7 +159,21 @@ namespace RealisticBases.Integration
                     .Select(d => d.ToString()).Take(2).ToArray()) +
                 terrainStats + " rejectionCode=" + (result.RejectionCode ?? "none") +
                 " rejected=" + RejectionSummary(result));
-            return new P4AMapPlanningRun(input, result, profile.Id, saleStock);
+            return new P4AMapPlanningRun(input, result, profile.Id, saleStock,
+                captureWatch.ElapsedMilliseconds, planningWatch.ElapsedMilliseconds, totalStageTimings);
+        }
+
+        private static void AddTimings(ProceduralLayoutStageTimings total, ProceduralLayoutStageTimings part)
+        {
+            total.SiteCandidateSearchMs += part.SiteAndCandidateSearchMilliseconds;
+            total.FieldWallMs += part.FieldWallMilliseconds;
+            total.FitDefenseAccessMs += part.FitDefenseAccessMilliseconds;
+            total.ApproachDefenseMs += part.ApproachDefenseMilliseconds;
+            total.TurretPlanningMs += part.TurretPlanningMilliseconds;
+            total.PowerTrimMs += part.PowerTrimMilliseconds;
+            total.ValidationMs += part.ValidationMilliseconds;
+            total.ValidationCalls += part.ValidationCallCount;
+            total.ScoringMs += part.ScoringMilliseconds;
         }
 
         public static string RejectionSummary(ProceduralLayoutResult result)

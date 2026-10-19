@@ -468,8 +468,9 @@ namespace RealisticBases.Planning
 
         public ProceduralLayoutInput(LayoutRequirements requirements, TerrainSnapshot terrain, ulong seed, TechCatalog catalog,
             LayoutFortificationReservation fortification = null, LayoutSearchBudget budget = null, LayoutLocalResources resources = null,
-            P4DQuestContract questContract = null, ILayoutEngine engine = null)
+            P4DQuestContract questContract = null, ILayoutEngine engine = null, int plannerDegree = 1)
         {
+            if (plannerDegree < 1 || plannerDegree > 8) throw new ArgumentOutOfRangeException(nameof(plannerDegree));
             Engine = engine ?? ClustersLayoutEngine.Instance;
             Requirements = requirements ?? throw new ArgumentNullException(nameof(requirements));
             QuestContract = questContract;
@@ -478,6 +479,7 @@ namespace RealisticBases.Planning
             Terrain = terrain ?? throw new ArgumentNullException(nameof(terrain));
             Catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             Seed = seed;
+            PlannerDegree = plannerDegree;
             Fortification = fortification ?? new LayoutFortificationReservation();
             Budget = budget ?? LayoutSearchBudget.ForPopulation(requirements.Residents);
             Resources = resources ?? LayoutLocalResources.Default;
@@ -490,6 +492,9 @@ namespace RealisticBases.Planning
         public TerrainSnapshot Terrain { get; }
         public TechCatalog Catalog { get; }
         public ulong Seed { get; }
+        // Degree is execution policy, not plan input: it must not alter the digest.
+        public int PlannerDegree { get; }
+        public static int AutomaticPlannerDegree => Math.Max(1, Math.Min(8, Environment.ProcessorCount - 1));
         public LayoutFortificationReservation Fortification { get; }
         public LayoutSearchBudget Budget { get; }
         public LayoutLocalResources Resources { get; }

@@ -1,6 +1,6 @@
 # Planner performance
 
-Status: PPC complete; PPB is deferred by the user, and later work awaits user selection. It follows the turret-batteries work
+Status: PPA (`d30f2f6`), PPC (`5a59492`) and PPD offline work are complete. Live timing is reserved for the final session; PPB and other performance work are deferred. It follows the turret-batteries work
 ([plan](2026-10-18-turret-batteries-and-power.md)), after the startup-power and
 hidden-conduit tasks.
 
@@ -310,6 +310,69 @@ The remaining `FindItemIndex` samples now come mainly through the general
 joint-site preflight uses its cached boolean blocker mask. That approach-defense work is
 outside PPC and remains for a later user-selected step. The temporary digest logger was
 removed, and no profiling hooks remain in source.
+
+### PPD: Parallel site search and in-game timing — offline work complete
+**Parallel `P4BJointSitePlanner.FindCore`.**
+- `ProceduralLayoutInput.PlannerDegree` carries the execution degree and is omitted from
+  the input digest. Test inputs default to degree 1; live P4/P4D inputs set
+  `clamp(Environment.ProcessorCount - 1, 1, 8)`.
+- Each origin, in its seeded order (`P4BJointSite.cs`), is evaluated independently:
+  four compound sides, then crops, lanes, gates and line of sight. The terrain data that
+  PPC hoisted is read-only.
+- The two pieces of shared state need care:
+  - **The `evaluated` budget.** It goes up by one per side tried, so the prefix of origins
+    within `maxEvaluations` can be computed before any work starts.
+  - **The `Reject` counters.** Collect them per origin and sum them at the end.
+- Evaluate that prefix with `Parallel.ForEach` over contiguous ranges, writing each
+  origin's accepted sites and reject counts into its own slot. Merge both in origin order
+  before ranking, preserving the stable order and tie-breaks.
+- Tests use degree 1, with one seed 5 digest test comparing degrees 1 and 8.
+
+Three sequential samples per degree were measured on seeds 5, 4, 1 and 2. Table values are
+median total planner time / site-candidate time, in seconds. Every one of the 48 runs kept
+the baseline input and layout digests.
+
+| Seed | Degree 1 | Degree 2 | Degree 4 | Degree 8 |
+|---|---:|---:|---:|---:|
+| 5 | 14.195 / 6.968 | 11.710 / 4.496 | 10.543 / 3.310 | 10.419 / 3.071 |
+| 4 | 12.116 / 6.984 | 9.650 / 4.565 | 8.603 / 3.352 | 8.249 / 3.078 |
+| 1 | 11.023 / 7.073 | 8.634 / 4.606 | 7.500 / 3.434 | 7.279 / 3.186 |
+| 2 | 14.927 / 7.103 | 12.419 / 4.607 | 11.092 / 3.414 | 10.940 / 3.142 |
+
+Degree 8 reduced total wall time 27–34% and site-candidate time about 55–56% from degree 1;
+process CPU time increased by 25–36%. The degree sweep log and per-run summary are
+`.runtime/investigations/planner-performance/ppd-degree-sweep.log` and
+`ppd-degree-sweep-summary.csv`. The complete T6 sweep at degree 1 matched all 14 outcome
+and planner rows from the PPC baseline after removing timing and degree fields.
+
+**Fixture digests and tests:** the PPD LayoutTests run contains all 483 PPA fixture records
+with no omissions. It also contains 16 additional diagnostic records from the separately
+registered T4 outcome sweep (14 cases) and the two degree-test plans. The full suite was a
+superset of the normal LayoutTests run: 184 passed and only the known GL peninsula test
+failed. PlannerTests passed with zero failures. Release builds for the mod and both test
+projects succeeded with existing turret-frame-field and `Touches` warnings.
+
+**In-game generation time.** HTTP debug-action latency doesn't measure generation on its
+own. Generation actions are queued: the POST returns once the action is invoked, and
+completion shows up only as a log event (see the `use-rimapi-debug-actions` skill). P4
+completion now logs `plannerDegree`, `captureMs`, `planningMs`, the PP0 stage timings
+(`planningStagesMs`, including residual `other` time) and `spawnMs`. No live timing was
+collected in PPD. Use two measurements in the separate final session:
+- **End to end:** the time from the POST to `PROCEDURAL_SPAWN_COMPLETE`, taken by a
+  wrapper around `run_debug_action.py` with `--wait-event`. The runner polls the log every
+  0.1 s, which is fine at the scale of seconds. This is what the player waits for: queue,
+  capture, planning, vanilla map work and spawning.
+- **Breakdown:** record the new P4 timing fields from `PROCEDURAL_SPAWN_COMPLETE`.
+
+Collect the live data once in the separate final session, not after each offline step. The
+P4 timing log fields are in place. In that session:
+- run the final build against `5a59492`, which has no PPD, alternating builds;
+- run 3 generations per build on the same tile from the reset save, with the game in the
+  foreground (a backgrounded Unity app may throttle);
+- record the end-to-end time and the per-phase fields, and compare medians.
+
+The same session doubles as the live check that the parallel site search works inside
+RimWorld.
 
 ### PP1: Line of sight
 `P4BFireLane.CanEngage` walks a ray cell by cell and looks up each cell in a

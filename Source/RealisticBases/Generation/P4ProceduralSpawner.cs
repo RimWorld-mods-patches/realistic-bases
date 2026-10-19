@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using RealisticBases.AI;
 using RealisticBases.Diagnostics;
@@ -26,6 +28,7 @@ namespace RealisticBases.Generation
             P4DQuestSpawnContext quest = null)
         {
             failure = null;
+            Stopwatch spawnWatch = Stopwatch.StartNew();
             if (run?.Result?.Layout == null) { failure = "missing_procedural_layout"; return false; }
             ProceduralLayoutInput input = run.Input;
             ProceduralLayout layout = run.Result.Layout;
@@ -957,8 +960,16 @@ namespace RealisticBases.Generation
                 map.GetComponent<P0MapState>().Initialize((Settlement)settlement, ToCell(layout.Anchor), ToCell(stock),
                     ToCell(marker), P0MapAudit.TerrainRoofChecksum(map));
                 }
+                spawnWatch.Stop();
+                ProceduralLayoutStageTimings stageTimes = run.StageTimings;
+                double reportedPlanningStages = stageTimes.SiteAndCandidateSearchMilliseconds +
+                    stageTimes.FieldWallMilliseconds + stageTimes.FitDefenseAccessMilliseconds +
+                    stageTimes.ApproachDefenseMilliseconds + stageTimes.TurretPlanningMilliseconds +
+                    stageTimes.PowerTrimMilliseconds + stageTimes.ValidationMilliseconds + stageTimes.ScoringMilliseconds;
+                double planningOtherMilliseconds = Math.Max(0, run.PlanningMilliseconds - reportedPlanningStages);
                 P2Log.Message("PROCEDURAL_SPAWN_COMPLETE", "map=" + map.uniqueID + " layout=" + layout.Digest +
-                    " profile=" + run.ProfileId + " rooms=" + layout.Rooms.Count + " gates=" + layout.Gates.Count +
+                    " profile=" + run.ProfileId + " plannerDegree=" + input.PlannerDegree +
+                    " rooms=" + layout.Rooms.Count + " gates=" + layout.Gates.Count +
                     " requestedLayers=" + layout.WallLayers + " reinforcedSections=" + layout.OuterSections.Count +
                     " outerWallCells=" + layout.OuterWalls.Count() +
                     " maxReinforcedLayer=" + (layout.OuterSections.Count == 0 ? 0 : layout.OuterSections.Max(s => s.Layer)) +
@@ -971,7 +982,20 @@ namespace RealisticBases.Generation
                     " turret=" + (turretPlan == null ? "none" : turretPlan.DefName) +
                     " outdoorCoolerExhausts=" + outdoorExhausts +
                     " generatorStartupFuel=" + internalFuel + " storedFuel=" + fuel +
-                    " encounter=" + encounter.Digest + " loadout=" + loadout.Digest);
+                    " encounter=" + encounter.Digest + " loadout=" + loadout.Digest +
+                    " captureMs=" + run.CaptureMilliseconds.ToString(CultureInfo.InvariantCulture) +
+                    " planningMs=" + run.PlanningMilliseconds.ToString(CultureInfo.InvariantCulture) +
+                    " planningStagesMs=siteCandidate:" + StageMilliseconds(stageTimes.SiteAndCandidateSearchMilliseconds) +
+                    ",fieldWall:" + StageMilliseconds(stageTimes.FieldWallMilliseconds) +
+                    ",fitDefenseAccess:" + StageMilliseconds(stageTimes.FitDefenseAccessMilliseconds) +
+                    ",approachDefense:" + StageMilliseconds(stageTimes.ApproachDefenseMilliseconds) +
+                    ",turretPlanning:" + StageMilliseconds(stageTimes.TurretPlanningMilliseconds) +
+                    ",powerTrim:" + StageMilliseconds(stageTimes.PowerTrimMilliseconds) +
+                    ",validator:" + StageMilliseconds(stageTimes.ValidationMilliseconds) +
+                    ",scoring:" + StageMilliseconds(stageTimes.ScoringMilliseconds) +
+                    ",other:" + StageMilliseconds(planningOtherMilliseconds) +
+                    ",validationCalls:" + stageTimes.ValidationCallCount.ToString(CultureInfo.InvariantCulture) +
+                    " spawnMs=" + spawnWatch.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture));
                 return true;
             }
             catch (Exception ex)
@@ -999,6 +1023,9 @@ namespace RealisticBases.Generation
                 return false;
             }
         }
+
+        private static string StageMilliseconds(double milliseconds) =>
+            Math.Round(milliseconds).ToString(CultureInfo.InvariantCulture);
 
         private static IReadOnlyList<GridPoint> SelectFields(ProceduralLayoutInput input, ProceduralLayout layout)
         {

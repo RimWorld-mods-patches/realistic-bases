@@ -550,6 +550,8 @@ internal static partial class Program
 
     private static void RunTurretBatteryT4OutcomeTests()
     {
+        if (only == null || only.IndexOf("P4B joint-site search preserves", StringComparison.OrdinalIgnoreCase) >= 0)
+            Run("P4B joint-site search preserves its digest across degrees 1 and 8", P4BJointSiteDegreeDeterminism, 45);
         if (only == null || only.IndexOf("T4 outcome", StringComparison.OrdinalIgnoreCase) < 0) return;
         Run("T4 outcome wealth sweep", TurretBatteryT4Outcomes, 400);
     }
@@ -671,6 +673,7 @@ internal static partial class Program
     {
         string filter = Environment.GetEnvironmentVariable("T4_OUTCOME_FILTER");
         string[] filterLabels = string.IsNullOrEmpty(filter) ? Array.Empty<string>() : filter.Split(',');
+        int plannerDegree = TurretOutcomePlannerDegree();
         List<Action> cases = new List<Action>();
         SettlementTechStage industrialLate = TechStageModel.Create(SettlementTechStageLevel.IndustrialLate);
         foreach (ulong seed in Enumerable.Range(1, 8).Select(n => (ulong)n))
@@ -680,7 +683,7 @@ internal static partial class Program
             LayoutRequirements requirements = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate,
                 Temperate, stage: industrialLate, populationBudget: budget);
             ProceduralLayoutInput input = new ProceduralLayoutInput(requirements, Plains(180), seed, CoreCatalog,
-                new LayoutFortificationReservation(1));
+                new LayoutFortificationReservation(1), plannerDegree: plannerDegree);
             cases.Add(() => RunTurretBatteryOutcome(input, "total12-seed" + seed + "-w180", 180, true, filterLabels));
         }
 
@@ -689,7 +692,7 @@ internal static partial class Program
             LayoutRequirements requirements = V2Funded(P2ProfileCatalog.TribalTemperate,
                 SettlementTechStageLevel.Neolithic, Temperate, wealth);
             ProceduralLayoutInput input = new ProceduralLayoutInput(requirements, Lakeshore(180), 1, CoreCatalog,
-                new LayoutFortificationReservation(1));
+                new LayoutFortificationReservation(1), plannerDegree: plannerDegree);
             cases.Add(() => RunTurretBatteryOutcome(input, "lakeshore-joint-w" + wealth, wealth, true, filterLabels));
         }
 
@@ -700,7 +703,7 @@ internal static partial class Program
             LayoutRequirements requirements = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate,
                 Temperate, stage: industrialLate, populationBudget: budget);
             ProceduralLayoutInput input = new ProceduralLayoutInput(requirements, Plains(160), 1, CoreCatalog,
-                new LayoutFortificationReservation(1));
+                new LayoutFortificationReservation(1), plannerDegree: plannerDegree);
             cases.Add(() => RunTurretBatteryOutcome(input, "broad-flat-w" + wealth, wealth, true, filterLabels));
         }
         if (string.Equals(Environment.GetEnvironmentVariable("T4_OUTCOME_SEQUENTIAL"), "1", StringComparison.Ordinal))
@@ -712,6 +715,39 @@ internal static partial class Program
             System.Threading.Tasks.Parallel.ForEach(cases,
                 new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = 4 }, run => run());
         }
+    }
+
+    private static int TurretOutcomePlannerDegree()
+    {
+        string value = Environment.GetEnvironmentVariable("T4_PLANNER_DEGREE");
+        if (string.IsNullOrEmpty(value)) return 1;
+        int degree;
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out degree) || degree < 1 || degree > 8)
+            throw new ArgumentOutOfRangeException("T4_PLANNER_DEGREE", "Planner degree must be from 1 through 8.");
+        return degree;
+    }
+
+    private static void P4BJointSiteDegreeDeterminism()
+    {
+        SettlementTechStage stage = TechStageModel.Create(SettlementTechStageLevel.IndustrialLate);
+        OrdinarySettlementBudget budget = OrdinarySettlementPopulation.Create(
+            P2ProfileCatalog.IndustrialTemperate, stage, Temperate, 180);
+        LayoutRequirements requirements = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate,
+            Temperate, stage: stage, populationBudget: budget);
+        TerrainSnapshot terrain = Plains(180);
+        LayoutFortificationReservation fortification = new LayoutFortificationReservation(1);
+        ProceduralLayoutInput sequential = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog,
+            fortification, plannerDegree: 1);
+        ProceduralLayoutInput parallel = new ProceduralLayoutInput(requirements, terrain, 5, CoreCatalog,
+            fortification, plannerDegree: 8);
+        Equal(sequential.Digest, parallel.Digest, "execution degree is excluded from the input digest");
+        ProceduralLayoutResult one = ProceduralLayoutPlanner.Plan(sequential, requireJointSite: true);
+        ProceduralLayoutResult eight = ProceduralLayoutPlanner.Plan(parallel, requireJointSite: true);
+        True(one.Success && eight.Success, "both degree runs must produce a complete plan");
+        Equal(one.Layout.Digest, eight.Layout.Digest, "layout digest is independent of search degree");
+        Equal(string.Join("|", one.Diagnostics.Where(d => d.Stage == "joint_site")),
+            string.Join("|", eight.Diagnostics.Where(d => d.Stage == "joint_site")),
+            "joint-site candidates and rejection counts preserve their seeded order");
     }
 
     private static void RunTurretBatteryOutcome(ProceduralLayoutInput input, string label, int wealth, bool jointSite,
@@ -728,7 +764,8 @@ internal static partial class Program
             string rejections = TopIncompleteBatteryRejections(result.Diagnostics);
             string turretDetails = string.Join(";", result.Diagnostics.Where(d => d.Stage == "turret").Select(d => d.Detail));
             Console.WriteLine("  turret-t4-outcome " + label + " wealth=" + wealth + " residents=" + input.Requirements.Residents +
-                " status=failed rejection=" + result.RejectionCode + " plannerMs=" + watch.ElapsedMilliseconds +
+                " status=failed rejection=" + result.RejectionCode + " plannerDegree=" + input.PlannerDegree +
+                " plannerMs=" + watch.ElapsedMilliseconds +
                 " plannerCpuMs=" + plannerCpuMilliseconds.ToString("F2", CultureInfo.InvariantCulture) +
                 " plannerStages=" + StageTimingText(result.StageTimings, watch.Elapsed.TotalMilliseconds) +
                 " incompleteCrossingRejects=" + rejections + " diagnostics=" + string.Join(";",
@@ -810,6 +847,7 @@ internal static partial class Program
             " sidesMissingTurretSupport=" + (sidesMissingSupport.Length == 0 ? "none" : sidesMissingSupport) +
             " betweenNestsTurrets=" + guns.Count(g => g.BetweenNests) +
             " spacingFallbackLevels=" + spacingFallbackLevels +
+            " plannerDegree=" + input.PlannerDegree +
             " plannerMs=" + watch.ElapsedMilliseconds +
             " plannerCpuMs=" + plannerCpuMilliseconds.ToString("F2", CultureInfo.InvariantCulture) +
             " plannerStages=" + StageTimingText(result.StageTimings, watch.Elapsed.TotalMilliseconds) +

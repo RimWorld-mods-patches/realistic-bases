@@ -946,7 +946,8 @@ namespace RealisticBases.Planning
                     input.Fortification.PlacementMargin, LayoutSeed.Sub(input.Seed, "joint-site"),
                     input.Budget.MaxSites, input.Budget.MaxSites * 1024, requirements.Residents,
                     attachmentDepth: requirements.ReservePopulationCirculation ? P4BJointSitePlanner.AttachmentDepth(input.Fortification) : 0,
-                    attachmentHalfTip: P4BJointSitePlanner.AttachmentHalfTip(input.Fortification));
+                    attachmentHalfTip: P4BJointSitePlanner.AttachmentHalfTip(input.Fortification),
+                    plannerDegree: input.PlannerDegree);
                 diagnostics.Add(new LayoutDiagnostic("joint_site", "preflight", "pairs=" + jointSites.Candidates.Count +
                     " evaluated=" + jointSites.Evaluated + " fieldOriginsScanned=" + jointSites.FieldOriginsScanned +
                     " rejected=" + string.Join(",", jointSites.Rejections)));
