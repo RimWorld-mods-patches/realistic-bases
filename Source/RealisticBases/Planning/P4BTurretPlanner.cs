@@ -881,8 +881,17 @@ namespace RealisticBases.Planning
             // in .runtime/investigations/turret-batteries/between-nests.patch.
             List<GridPoint> targets = ApproachTargets(input, layout).ToList();
             HashSet<GridPoint> opaqueForCoverage = legacyOpaque;
-            Dictionary<GridPoint, int> coverage = targets.ToDictionary(c => c, c => previous.Count(t =>
-                CanShoot(t, c, opaqueForCoverage)));
+            CellMap<int> coverage = new CellMap<int>(input.Terrain);
+            for (int targetIndex = 0; targetIndex < targets.Count; targetIndex++)
+            {
+                GridPoint target = targets[targetIndex];
+                if (coverage.ContainsKey(target))
+                    throw new ArgumentException("An element with the same key already exists. Key: " + target);
+                int count = 0;
+                for (int turretIndex = 0; turretIndex < previous.Count; turretIndex++)
+                    if (CanShoot(previous[turretIndex], target, opaqueForCoverage)) count++;
+                coverage.Set(target, count);
+            }
             P4BStaffingAudit currentStaffing = groups.Count == 0 ? null :
                 P4BStaffing.Audit(input, layout, Combine(input.Catalog, groups), garrison);
             List<GridPoint> staffedPosts = currentStaffing == null ? new List<GridPoint>() :
