@@ -379,7 +379,12 @@ namespace RealisticBases.Planning
                     (layout.FieldWall?.Walls.Contains(face) ?? false) &&
                     fieldPrevious.ContainsKey(At(face, faceSide.Outward, across, -1, 0)) &&
                     reachable.Contains(At(face, faceSide.Outward, across, 1, 0))).ToList();
-                gates.AddRange(Spread(fieldFaces, MaxGateCandidatesPerSide).Select(face =>
+                List<GridPoint> routeAdjacentFieldFaces = fieldFaces.Where(face =>
+                    arrival.Contains(At(face, faceSide.Outward, across, 1, 0))).ToList();
+                HashSet<GridPoint> selectedFieldFaces = new HashSet<GridPoint>(
+                    Spread(fieldFaces, MaxGateCandidatesPerSide).Concat(
+                        Spread(routeAdjacentFieldFaces, MaxGateCandidatesPerSide)));
+                gates.AddRange(fieldFaces.Where(selectedFieldFaces.Contains).Select(face =>
                 {
                     GridPoint inside = At(face, faceSide.Outward, across, -1, 0);
                     List<GridPoint> path = new List<GridPoint>();
@@ -448,7 +453,9 @@ namespace RealisticBases.Planning
                                 bool CanOpenPostCell(GridPoint c) => navigation.Contains(c) &&
                                     (!reserved.Contains(c) || SharedAccessPrefixCell(c, gate, flank, posts)) &&
                                     !occupied.Contains(c) && (!arrival.Contains(c) ||
-                                        IsArrivalCrossingCell(c, gate.Cell, gate.Outward, flank, layout.Gates));
+                                        IsArrivalCrossingCell(c, gate.Cell, gate.Outward, flank, layout.Gates) ||
+                                        gate.Port?.Field == true && IsFieldArrivalCrossingCell(c, gate.Cell,
+                                            gate.Outward, arrival));
                                 post = P4BCoverNest.Build(side.Id, gate.Cell, gate.Outward, flank, P4BCoverNest.MaxSlots,
                                     c => visible(c), c => exposed.Any(s => facesSide(s, c)), CanOpenPostCell,
                                     c => !occupied.Contains(c) && !reserved.Contains(c) && !arrival.Contains(c) &&
@@ -886,8 +893,12 @@ namespace RealisticBases.Planning
                 LayoutGate arrivalGate = layout.Gates.FirstOrDefault(g => g.Outward.Equals(post.Outward) &&
                     g.BandDoors.Concat(new[] { g.Cell }).OrderByDescending(c => c.X * g.Outward.X + c.Z * g.Outward.Z)
                         .First().Equals(post.AccessGate));
-                if (post.Route.Skip(1).Where(arrival.Contains).Any(c => arrivalGate == null ||
-                    !IsArrivalCrossingCell(c, post.AccessGate, post.Outward, flank, new[] { arrivalGate })) ||
+                P4BSallyPort fieldArrivalPort = plan.SallyPorts.FirstOrDefault(p => p.Field &&
+                    p.Outer.Equals(post.AccessGate) && p.Outward.Equals(post.Outward));
+                if (post.Route.Skip(1).Where(arrival.Contains).Any(c =>
+                    arrivalGate != null ? !IsArrivalCrossingCell(c, post.AccessGate, post.Outward, flank,
+                        new[] { arrivalGate }) : fieldArrivalPort == null ||
+                        !IsFieldArrivalCrossingCell(c, post.AccessGate, post.Outward, arrival)) ||
                     post.Slots.Any(arrival.Contains))
                     errors.Add("perimeter_post_arrival_overlap");
                 int wallWidth = post.Slots.Count;
@@ -966,6 +977,15 @@ namespace RealisticBases.Planning
             return layoutGates.Any(g => g.Outward.Equals(outward) &&
                 g.BandDoors.Concat(new[] { g.Cell }).OrderByDescending(c => c.X * outward.X + c.Z * outward.Z)
                     .First().Equals(gateCell) && g.ExteriorRoute.Contains(cell));
+        }
+
+        internal static bool IsFieldArrivalCrossingCell(GridPoint cell, GridPoint gateCell, GridPoint outward,
+            IEnumerable<GridPoint> arrivalRoute)
+        {
+            GridPoint one = new GridPoint(gateCell.X + outward.X, gateCell.Z + outward.Z);
+            GridPoint two = new GridPoint(gateCell.X + 2 * outward.X, gateCell.Z + 2 * outward.Z);
+            HashSet<GridPoint> arrival = new HashSet<GridPoint>(arrivalRoute ?? Enumerable.Empty<GridPoint>());
+            return (cell.Equals(one) || cell.Equals(two)) && arrival.Contains(one) && arrival.Contains(cell);
         }
 
         private static bool ConnectedTransit(IEnumerable<GridPoint> transitCells)

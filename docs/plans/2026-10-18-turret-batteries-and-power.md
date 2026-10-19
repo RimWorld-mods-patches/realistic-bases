@@ -48,6 +48,169 @@ guard them and are not exposed to enemy fire that nothing in the base can answer
     960 W and sometimes selected no battery after final network validation. Carry the approved
     roughly 3 kW proposal into T4B, recheck it against the final measurements, and keep the
     full-count import reserve. Trimming still removes any surplus.
+11. **Power headroom stops placement, and the reserve rises** (T5, 2026-10-18). Turret
+    placement stops adding turrets when power headroom runs out, keeps what fits and reports
+    the shortfall. It never rejects the whole turret plan for power (T5 combined run, seed 4:
+    `power_generation_below_load`, zero turrets). The reserve rises from 2,500/3,000 W to
+    3,300 W (IndustrialMid) and 4,000 W (IndustrialLate), because the T5 combined run used
+    up to 3,260 W.
+12. **T5 diagnoses turret-cover failures before choosing placement rules.** 5,689 of 13,007
+    rejected attempts were logged as `turret_cover` blocked by "terrain at 0,0", a diagnostic
+    gap. Find the real blocking cell and rule first. V1 (minimum ignores the gain gate) is
+    dropped: only 2 of 22 never-attempted crossings had any legal candidate. V6 and V7 are
+    rejected by the user. V2, V3, V5, the V4 ladder and exempting nest cover (not slots) from
+    blast clearance are decided after the diagnosis.
+13. **Cover-aware service routing first, no rule change** (T5c, user 2026-10-18). T5b showed
+    8,069 of 8,153 `turret_cover` rejections came from the candidate's own service route
+    running through its required front or flank cover cell. The planner tried neighbouring
+    cells as service cells and routed before reserving cover. Fix: fix the cover cells first,
+    then route only to the non-cover side cells (for a mini, the back cell), with cover cells
+    blocked. A position whose back side cannot be reached remains a `service_route` failure.
+    Re-measure, then decide relaxations (V2, V3, V5, the V4 ladder, nest-cover blast
+    exemption) only for what still fails.
+14. **T5d combined measurement** (user 2026-10-18). T5c kept 37/157 batteries: cover
+    failures moved on to blast clearance (1,954), hard exposure (1,154), service route (938)
+    and close staffing (752). Autocannons fell 12 → 5, mostly through unreachable support-mini
+    service endpoints. Measure one combined run against T5c with:
+    - **Nest-cover blast exemption.** Turret blast clearance ignores nest *cover* cells
+      (barricades). Full clearance stays from nest slots, access gates and other defended
+      assets.
+    - **V5 alternate route doors.** A service route may start from any door of the crossing's
+      serial band, or from the adjacent crossing's door on the same side.
+    - **Between-nests candidates.** Add candidate positions on the wall stretch between two
+      neighbouring nests on the same side, 2–3 cells off the wall so the back cell stays
+      free, with a service lane along the wall, spaced by blast clearance, within 14 cells of
+      both nests. A turret there counts toward the crossing whose door serves it. Existing
+      defender-frontage and nest fire-lane checks still apply.
+    The exposure rule (decision 3) and close staffing stay unchanged. T5b and T5c stay
+    uncommitted until the user approves.
+15. **Conditional T5e: lower the hard exposure requirement** (user 2026-10-18). If T5d doesn't
+    raise battery coverage meaningfully, the next step lowers the 100%-answered rule at
+    crossings with a sniper post or slug turret. Start at 90%, the pre-T3 sniper-guard
+    threshold, and measure against T5d. Claude brings the T5d result and the threshold proposal
+    to the user before T5e starts.
+    **Confirmed 2026-10-19:** T5d gave 37 → 41/157 batteries, which isn't meaningful. T5e sets the
+    requirement to **90%** answered. The same run also counts the between-nests candidates
+    generated per base and their rejection codes, because T5d selected none and reported no
+    generation count.
+    **Kept at 90% (user, 2026-10-19).** T5e stayed at 41/157 batteries; answered share rose
+    46.6% → 48.6%.
+16. **Turret support is geometric, not garrison-concurrent** (T5f, user 2026-10-19). Through
+    T5c–T5e, batteries stayed at 3–5 per base, matching the 3–4 nests that
+    `P4BStaffing.Audit` staffs at once. `network_concurrent_close_staffing` requires every
+    turret on every side to be defended simultaneously by distinct residents. The user's rule:
+    a settlement is like a player base. Population varies, and the defense isn't rebuilt each
+    time, so defenders move to the relevant nests and **more nests are better than fewer**.
+    Therefore:
+    - Remove garrison concurrency as a turret placement or validation requirement:
+      `network_concurrent_close_staffing`, and `network_concurrent_sniper_staffing` as a gate.
+      Keep the staffing audit as a reported diagnostic.
+    - A turret still needs a nest **on its attacked side** close enough to defend it
+      (`NearbyPawnSupport` / `CanClose` geometry: within 14 cells, with shots on attacker
+      ground near the turret). Credit the **stage's standard rifle range** (for example the
+      bolt-action rifle, 36.9, at IndustrialLate), not the best weapon in the roster and not a
+      specific assigned resident (user, 2026-10-19).
+    - **Runtime slot range follows the weapon.** Ordinary perimeter firing slots currently cap
+      engagement at 25 (`P4ProceduralSpawner.cs` around line 269; `GarrisonDoctrine.Engagements`
+      uses min(weapon, slot maximum)). Raise every perimeter slot's maximum to 44.9 so the
+      defender's weapon decides. Nest cover is already built against attackers out to 45
+      (`ThreatRange`). Sniper-guard slots are unchanged.
+    - **Corner (angle) nests count for both adjacent sides** when their geometry covers the
+      turret's side.
+    - A turret with no such nest on its side still fails. Report those sides: they show where
+      more nests are needed.
+    **Result:** batteries 41 → 54/157, turrets 185 → 250, summed planner time 369 → 306 s.
+17. **Rebuild the between-nests candidates** (T5g, user 2026-10-19). The T5d version tried only
+    two positions per nest pair, both at the midpoint. It measured "2–3 out" and the 1–2-cell
+    service lane from the first crossing's door cell. With layered walls that door sits in the
+    inner layer, so the lane falls inside the wall band (20 service endpoints, 0 in the lane).
+    The rebuild:
+    - tries every cell along the wall stretch between the two neighbouring nests' crossings on
+      the same side, 2–4 cells out from the **outer wall face**;
+    - keeps only positions within 14 cells of both nests;
+    - uses the normal cover-aware back-side routing, with no lane rule;
+    - leaves all other checks unchanged.
+    Measure once against T5f. If it still adds no batteries, remove the between-nests code.
+17a. **Between-nests, third attempt** (T5g2, user 2026-10-19, before T5h). The T5g maps showed
+    the "stretch" was a straight line between the two doors that crossed walls, yards and
+    rooms: broad-flat 18 of 44 cells were wall. Pairs were also formed by nest side rather than
+    by wall face (seed 5 east (132,99)–(102,105)). Restore from `between-nests.patch`, then:
+    - walk the **outer wall face**, the attacker-side cells along the outermost wall, around
+      the perimeter;
+    - pair only crossings that are **consecutive on that walk and share the same face**;
+    - place positions 2–4 cells out along the face's outward normal at each walk cell;
+    - require **within 14 cells of one nest and within the stage-standard rifle range (36.9) of
+      the other nest, with line of fire to ground near the turret**.
+    Report the funnel and maps to Claude. Claude checks the maps before anything is concluded.
+17a2. **Between-nests, loop spec** (T5g3, user 2026-10-19). T5g2 found 0 pairs. The outer
+    walls are stepped, so splitting the perimeter into straight same-direction faces gave 67–76
+    runs of median 3–4 cells (longest 25), none holding two crossing doors. Crossings were also
+    matched by their attack-side label rather than door position (3–5 per base unmatched, for
+    example door 109,28 in a south run labelled east,west). New spec:
+    - one continuous loop of attacker-side cells along the outermost wall, following every step
+      and corner;
+    - pairs are crossings consecutive along the loop, located by **door cell**, regardless of
+      face direction;
+    - positions 2–4 cells out from the **nearest wall cell** at each loop cell (local outward
+      direction);
+    - within 14 cells of one nest and within 36.9 of the other with line of fire.
+    Run after V1 plus the face report. Report the funnel and maps (maps-t5g3) to Claude, who
+    checks them before any conclusion.
+17b. **V1 and a face-coverage report, before T5h** (user 2026-10-19, from the seed 1 map):
+    - **V1 now.** The 3-mini minimum ignores the "neighbours already cover it" gain gate. On
+      seed 1 the field's south crossing `field-sally@146,37` has a nest but failed with
+      `no_useful_unsaturated_approach` after one check, because battery `118,36` already
+      covers its approach. Extras (4th–6th) keep the gate. Measure against the current code
+      right after T5g2. T5i keeps the V4 ladder and the 100%-exposure comparison.
+    - **Face-coverage report (diagnosis only).** Turret support is checked per compass side of
+      the whole settlement, so a long face can have no nest while its side counts as covered.
+      Example: seed 1's field north wall, where the other gate's exterior arrival route runs one
+      cell off the wall and blocks a crossing there. Per base, list every exposed outer wall
+      face (straight run of outer wall, compound or field) with no nest within about 14 cells,
+      with its length and the reason no crossing exists there. Don't change placement.
+17c. **Crossings on faces with an arrival route along them** (user 2026-10-19). Where an
+    exterior arrival route runs along an outer wall face, as on seed 1's field north wall,
+    allow a defense crossing door in that face anyway. Its nest goes off the route, on the far
+    side of it or beside it, with the route cells kept clear: no nest slot, cover or turret on
+    the route. The door counts toward the crossing caps as usual. The user accepts that such a
+    door sits next to the arrival entrance and adds little as an entrance. It exists so the
+    face gets a nest and turrets. Implement after the face-coverage report, then measure
+    separately: faces without a nest, batteries per defended crossing, turrets.
+18. **Then diagnose service-route failures** (T5h). Unreachable back sides are the top
+    remaining blocker on seeds 1, 3, 4 and 6 (62–194 rejections). Record, per rejected
+    candidate, what cuts the back cell off from every allowed door: nest cover or route, other
+    turrets, wall bands, field, terrain or crops. Report and stop for the user.
+19. **Re-measure options judged under the staffing ceiling** (T5i, user 2026-10-19). T5d (37 → 41)
+    and T5e (41, 90% exposure) were measured while concurrent staffing capped each base at
+    about one battery per staffed nest, so their effects could only show up to that cap. Some
+    options were also judged under the old geometry or tested in broken form:
+    - **V1:** the 3-mini minimum ignores the "neighbours already cover it" gain gate. It was
+      dropped after a probe found 2 of 22 never-attempted crossings had a legal position, but
+      that probe ran under the old geometry and the staffing cap. Seeds 7 and 8 now fail mainly
+      on this reason.
+    - **V4, the real spacing ladder:** radius + 2 → radius → mini-to-mini below the radius,
+      only for crossings below 3. The T5 combined run used zero spacing instead, so the ladder
+      has never been measured.
+    - **The 90% exposure rule:** report what 100% would give on the current code, so the
+      setting is judged without the staffing cap.
+    After T5g (and alongside T5h, since it changes only measurement), run one combined
+    measurement of V1 + the V4 ladder against the current code, with the 100% exposure
+    comparison as a separate column. Report per base and stop for the user's choice.
+20. **Overnight review fixes** (T5j, user 2026-10-19). Keep V1, the V4 ladder and 17c. Then:
+    - **Exposure rule decoupled from the garrison.** The 90% answered rule applies only at a
+      crossing **with a slug turret**, which is fixed base equipment. It no longer applies where
+      the staffing audit happens to assign a resident sniper guard, because that assignment
+      shifts as turrets are added. Every other crossing uses least-exposure ranking. Check the
+      rule only for the crossing being changed: one crossing's shortfall never rejects a
+      proposal elsewhere. Remove the sniper-guard coupling from `crossing_hard_exposure_coverage`.
+    - **Service routes as in the game.** Routes may pass over nest barricade and sandbag cells,
+      which RimWorld pawns cross (`PassThroughOnly`), and may share cells with other turrets'
+      service routes. Walls, turret footprints, turret cover and other impassable cells still
+      block.
+    - **Remove the between-nests code.** It's kept in `between-nests.patch`.
+    Measure the 14 bases against T5i (90%), and render maps for seeds 1, 2 and 5 and broad-flat
+    w180. Commit everything since `f762c2f` only after Claude's review (user: commit after the
+    fixes).
 
 ## Evidence (verified 2026-10-18)
 
@@ -434,6 +597,32 @@ during trimming.
 T4B results are uncommitted for review. T5 has not started.
 
 ### T5 Composition limits and spacing
+
+**T5 status (2026-10-18):**
+1. **T5a committed as `f762c2f`.** Placement stops at headroom (decision 11); reserves are
+   3,300/4,000 W. The current-rule 14-base sweep and focused 320 W cutoff fixture passed.
+2. **T5b diagnostics complete; placement-rule choice pending.** Every `turret_cover` rejection
+   now records the candidate origin, actual failing cell and condition. The 14-base audit and
+   seed 1/5 blocker maps are in `.runtime/investigations/turret-batteries/REPORT.md` and
+   `maps-t5b/`. No placement rule was changed; wait for the user's choice.
+3. **T5c complete; placement-rule choice pending.** Cover-first service routing was measured
+   against T5a on all 14 bases and seeds 1/5. Results and remaining blockers are in
+   `.runtime/investigations/turret-batteries/REPORT.md`. No cover, spacing or route-origin rule
+   was relaxed; T5b/T5c changes remain uncommitted until the user chooses any further fix.
+4. **T5d complete; review pending.** The combined nest-cover blast exemption, V5 alternate
+    route doors and between-nests candidate band were measured against T5c on all 14 bases.
+    Results and seed 1/5 maps are in `.runtime/investigations/turret-batteries/REPORT.md`.
+    No commit was made; await review before further work.
+5. **T5e complete; review pending.** The 90% hard-exposure threshold for crossings with a
+    sniper post or slug turret and the between-nests generation funnel were measured against
+    T5d on all 14 bases. Results are in `.runtime/investigations/turret-batteries/REPORT.md`.
+    Battery coverage stayed 41/157; the lane filter removed all 20 between-nests service
+    endpoints recorded. No commit was made; await review.
+6. **T5f complete; review pending.** Concurrency no longer gates turret placement. The
+    standard-rifle side-support rule and 44.9 runtime slot cap were measured against T5e on all
+    14 bases, with seed 1/5 maps. Batteries rose 41 → 54/157; staffed close coverage remains
+    diagnostic only. Results are in `.runtime/investigations/turret-batteries/REPORT.md`.
+    No commit was made; await review.
 - **Failure maps first.** Render two bases (total-twelve seed 1 and broad-flat wealth 180)
   showing each defended crossing, its candidate band, placed turrets, and the cells behind
   the top rejection codes (turret cover, service route, blast clearance). Then decide the fix

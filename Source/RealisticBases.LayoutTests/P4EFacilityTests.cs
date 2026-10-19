@@ -95,10 +95,15 @@ internal static partial class Program
                 int reservedGeneratorNeed = LayoutPowerModel.Generators(
                     layout.Power.CriticalWatts + req.DefenseReserveWatts, layout.Power.NonCriticalWatts,
                     layout.Power.Yards, layout.Power.GeneratorWatts);
-                True(layout.Power.ReservedGenerators >= reservedGeneratorNeed,
-                    "packed generators cover the realistic defense reserve before trimming");
                 int reservedBatteryNeed = LayoutPowerModel.Batteries(layout.Power.CriticalWatts +
                     layout.Power.NonCriticalWatts + req.DefenseReserveWatts) + layout.Power.RenewableStorageBatteries;
+                Console.WriteLine("  power reserve stage=" + level + " wealth=" + wealth + " allowance=" + allowance +
+                    " seed=" + seed + " reservedGeneratorNeed=" + reservedGeneratorNeed +
+                    " ReservedGenerators=" + layout.Power.ReservedGenerators +
+                    " reservedBatteryNeed=" + reservedBatteryNeed +
+                    " ReservedBatteries=" + layout.Power.ReservedBatteries);
+                True(layout.Power.ReservedGenerators >= reservedGeneratorNeed,
+                    "packed generators cover the realistic defense reserve before trimming");
                 True(layout.Power.ReservedBatteries >= reservedBatteryNeed,
                     "packed batteries cover the defense reserve bridge before trimming");
                 int turretWatts = layout.Turret?.TotalWatts ?? 0;
@@ -112,7 +117,22 @@ internal static partial class Program
             }
             if (layout.Turret == null) continue;
             var staffing = P4BStaffing.Audit(input, layout, layout.Turret);
-            Equal(staffing.Guns, staffing.CloseSupportedGuns, "all guns close-supported");
+            CatalogDef supportRifle = null;
+            foreach (string name in new[] { "Gun_BoltActionRifle", "Gun_AssaultRifle", "Gun_ChargeRifle" })
+            {
+                if (!input.Catalog.TryGet(name, out CatalogDef candidate) ||
+                    !input.Catalog.IsLegal(candidate, input.Equipment.Kit.Stage) || candidate.MaximumRange <= 0) continue;
+                supportRifle = candidate;
+                break;
+            }
+            if (supportRifle == null) True(false, "stage has a legal standard rifle for geometric support");
+            else
+            {
+                HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
+                True(layout.Turret.All.All(g => P4BTurretPlanner.NearbyPawnSupport(layout.ApproachDefense,
+                    g, opaque, (int)Math.Floor(supportRifle.MaximumRange))),
+                    "all turret guns have geometric nearby pawn support");
+            }
             guns += layout.Turret.All.Count(); groups += layout.Turret.Groups.Count();
             guards += staffing.GuardedGuns; value += layout.Turret.ImportValue; watts += layout.Turret.TotalWatts;
             autos += layout.Turret.All.Count(t => t.DefName == "Turret_Autocannon");

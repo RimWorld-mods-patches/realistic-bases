@@ -113,6 +113,7 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> doors = new HashSet<GridPoint>(layout.Gates.Select(g => g.Cell)
                 .Concat(layout.Gates.SelectMany(g => g.BandDoors)));
             HashSet<GridPoint> field = new HashSet<GridPoint>(site.Field.Points());
+            bool[] attackerReach = LayoutExposure.EdgeReach(input.Terrain);
             List<string> rejected = new List<string>();
             int bestDistance = int.MaxValue;
             for (int gateIndex = 0; gateIndex < layout.Gates.Count; gateIndex++)
@@ -249,9 +250,19 @@ namespace RealisticBases.Planning
                     List<GridPoint> targets = Enumerable.Range(2, 20).Select(k => new GridPoint(
                         option.OuterGate.X + gate.Outward.X * k, option.OuterGate.Z + gate.Outward.Z * k))
                         .Where(input.Terrain.InBounds).ToList();
-                    if (option.PostClearance.Count < 2 || option.PostClearance.Take(2).Any(p =>
-                        !targets.Any(target => P4BFireLane.CanEngage(p, target, 8, 38, opaque))))
-                    { rejected.Add("outside_posts_no_shot"); continue; }
+                    bool outsideApproachReachable = targets.Any(target =>
+                        attackerReach[target.Z * input.Terrain.Width + target.X]);
+                    int[] outsidePostShots = option.PostClearance.Take(2).Select(p => targets.Count(target =>
+                        P4BFireLane.CanEngage(p, target, 8, 38, opaque))).ToArray();
+                    if (outsideApproachReachable &&
+                        (outsidePostShots.Length < 2 || outsidePostShots.Any(count => count == 0)))
+                    {
+                        rejected.Add("outside_posts_no_shot gate=" + gateIndex + " outward=" + gate.Outward +
+                            " inner=" + option.InnerGate + " outer=" + option.OuterGate + " posts=" +
+                            string.Join("/", option.PostClearance.Take(2)) + " shots=" +
+                            string.Join("/", outsidePostShots));
+                        continue;
+                    }
                     if (option.CoverCells.Count != option.PostClearance.Count ||
                         option.CoverCells.Any(c => blocked.Contains(c) || wall.Contains(c) || arrival.Contains(c) ||
                             baseline.Contains(c) || !Walkable(input.Terrain, c)))

@@ -269,7 +269,9 @@ namespace RealisticBases.Generation
                             .Select(c => new DefensivePost((FieldAccess(layout, p.AccessGate) ? "field-outer-" : "perimeter-") +
                                 p.Side + "-" + c.X + "-" + c.Z,
                                 p.Side, c, c.Equals(p.Cell) && sniperGuardSectors.ContainsKey(p.Cell) ? 35 : 8,
-                                c.Equals(p.Cell) && sniperGuardSectors.ContainsKey(p.Cell) ? 44 : 25,
+                                // The runtime model stores integer bounds; 44 is the
+                                // cell-range ceiling for a 44.9 standard rifle.
+                                44,
                                 true, true, true, false, false, true,
                                 approachDefense.Sides.Where(s => s.Positions.Contains(c)).Select(s => s.Id)
                                     .Concat(sniperGuardSectors.TryGetValue(p.Cell, out HashSet<string> perimeterSectors)

@@ -538,7 +538,10 @@ namespace RealisticBases.Planning
                 Power.Yards, Power.GeneratorWatts);
             int batteries = LayoutPowerModel.Batteries(critical + nonCritical + turretWatts) + Power.RenewableStorageBatteries;
             if (generators > Power.Generators || batteries > Power.Batteries)
-                throw new InvalidOperationException("Packed defense power cannot supply the selected turret network");
+                throw new InvalidOperationException("Packed defense power cannot supply the selected turret network: " +
+                    "generatorsNeed=" + generators + "/" + Power.Generators +
+                    " batteriesNeed=" + batteries + "/" + Power.Batteries +
+                    " turretWatts=" + turretWatts + " renewableStorage=" + Power.RenewableStorageBatteries);
             HashSet<LayoutFixture> keepGenerators = new HashSet<LayoutFixture>(Rooms.OrderBy(r => r.Id, StringComparer.Ordinal)
                 .SelectMany(r => r.Fixtures.Where(f => f.Kind == LayoutFixtureKind.Generator).OrderBy(f => f.Cells.Min()))
                 .Take(generators));
@@ -589,8 +592,8 @@ namespace RealisticBases.Planning
             int baseGenerators = LayoutPowerModel.Generators(critical, nonCritical, Power.Yards, Power.GeneratorWatts);
             LayoutPowerPlan power = new LayoutPowerPlan(critical, nonCritical, kit.Generator, generators, batteries,
                 Power.Yards, kit.GeneratorFuel, LayoutPowerModel.FuelStock(kit.Generator, generators), Power.Diagnostics,
-                Power.DefenseReserveWatts, Math.Max(0, generators - baseGenerators), Power.Generators,
-                Power.Batteries, released, Materials.ImportValue);
+                Power.DefenseReserveWatts, Math.Max(0, generators - baseGenerators), Power.ReservedGenerators,
+                Power.ReservedBatteries, released, Materials.ImportValue);
             IEnumerable<string> defenseFixtures = Turret == null ? Enumerable.Empty<string>() :
                 Enumerable.Repeat(P4BCoverNest.CoverDefName(input), Turret.All.Sum(t => t.CoverCells.Count))
                     .Concat(Turret.All.Select(t => t.DefName));
@@ -961,8 +964,19 @@ namespace RealisticBases.Planning
                 foreach (PoolEntry entry in ordered)
                 {
                     int gaps;
+                    int diagnosticStart = diagnostics.Count;
                     ProceduralLayout finished = Finish(input, entry.Run, entry.Layout, entry.Site, entry.Anchor, diagnostics, out gaps);
-                    if (finished == null) continue;
+                    if (finished == null)
+                    {
+                        string causes = string.Join(" | ", diagnostics.Skip(diagnosticStart)
+                            .Select(d => d.Stage + ":" + d.Code + ":" + d.Detail));
+                        if (causes.Length == 0) causes = "finish returned null without a stage diagnostic";
+                        string site = entry.Site == null ? "none" :
+                            "field=" + entry.Site.Field + " compound=" + entry.Site.Compound;
+                        diagnostics.Add(new LayoutDiagnostic("finish", "candidate_rejected",
+                            "anchor=" + entry.Anchor + " site=" + site + " cause=" + causes));
+                        continue;
+                    }
                     if (input.QuestContract == null)
                     {
                         IReadOnlyList<GridPoint> bonus = LayoutBonusFields.Select(input, finished);
@@ -1105,14 +1119,15 @@ namespace RealisticBases.Planning
                     out wallDiagnostic);
                 if (fieldWall == null)
                 {
-                    Note(diagnostics, "joint_site", "field_wall_rejected", anchor + " " + wallDiagnostic);
+                    diagnostics.Add(new LayoutDiagnostic("joint_site", "field_wall_rejected", anchor + " " + wallDiagnostic));
                     return null;
                 }
                 layout = layout.WithFieldWall(input, fieldWall);
                 violations = ProceduralLayoutValidator.Validate(input, layout);
                 if (violations.Count != 0)
                 {
-                    Note(diagnostics, "joint_site", "final_rejected", anchor + " " + string.Join("+", violations.Take(6)));
+                    diagnostics.Add(new LayoutDiagnostic("joint_site", "final_rejected",
+                        anchor + " " + string.Join("+", violations.Take(6))));
                     return null;
                 }
                 layout = run.FitDefenseAccess(layout);
@@ -1128,7 +1143,8 @@ namespace RealisticBases.Planning
                 violations = ProceduralLayoutValidator.Validate(input, layout);
                 if (violations.Count != 0)
                 {
-                    Note(diagnostics, "defense", "final_rejected", anchor + " " + string.Join("+", violations.Take(6)));
+                    diagnostics.Add(new LayoutDiagnostic("defense", "final_rejected",
+                        anchor + " " + string.Join("+", violations.Take(6))));
                     return null;
                 }
                 string turretDiagnostic;
@@ -1136,17 +1152,81 @@ namespace RealisticBases.Planning
                     occupied, out turretDiagnostic);
                 if (turret != null)
                 {
-                    ProceduralLayout armed = layout.WithTurret(input, turret);
-                    IReadOnlyList<string> armedErrors = ProceduralLayoutValidator.Validate(input, armed);
-                    // One final equipment decision is retained beyond the
-                    // search-detail cap; returning immediately bounds it.
-                    if (armedErrors.Count == 0)
+                    P4BTurretPlan candidate = turret;
+                    int TurretBatteryNeed(int watts)
                     {
-                        layout = armed;
-                        diagnostics.Add(new LayoutDiagnostic("turret", "accepted", turretDiagnostic));
+                        if (layout.Power == null) return 0;
+                        LayoutPowerModel.Loads(layout.Rooms, out int baseCritical, out int baseNonCritical);
+                        return LayoutPowerModel.Batteries(baseCritical + baseNonCritical + watts) +
+                            layout.Power.RenewableStorageBatteries;
                     }
-                    else diagnostics.Add(new LayoutDiagnostic("turret", "optional_rejected",
-                        anchor + " " + string.Join("+", armedErrors.Take(6))));
+                    int miniWatts = input.Catalog.TryGet("Turret_MiniTurret", out CatalogDef miniDef)
+                        ? miniDef.BasePowerConsumption : 0;
+                    diagnostics.Add(new LayoutDiagnostic("turret", "power_battery_need",
+                        "seed=" + input.Seed + " zeroTurrets=" + TurretBatteryNeed(0) +
+                        " oneTurret=" + TurretBatteryNeed(miniWatts) + " allTurrets=" +
+                        TurretBatteryNeed(candidate.TotalWatts) + " kept=" + layout.Power?.Batteries +
+                        " reserved=" + layout.Power?.ReservedBatteries + " turretWatts=" + candidate.TotalWatts +
+                        " renewableStorage=" + (layout.Power?.RenewableStorageBatteries ?? 0)));
+                    while (candidate != null)
+                    {
+                        ProceduralLayout armed = null;
+                        IReadOnlyList<string> armedErrors;
+                        try
+                        {
+                            // Trim only after attaching turrets, so the generator count and
+                            // six-hour battery bridge include the selected network load.
+                            armed = layout.WithTurret(input, candidate).TrimDefensePower(input);
+                            armedErrors = ProceduralLayoutValidator.Validate(input, armed);
+                        }
+                        catch (InvalidOperationException ex) when (ex.Message.StartsWith(
+                            "Packed defense power cannot supply", StringComparison.Ordinal))
+                        {
+                            armedErrors = new[] { "power_reservation_unavailable: " + ex.Message };
+                        }
+                        if (armedErrors.Count == 0)
+                        {
+                            layout = armed;
+                            diagnostics.Add(new LayoutDiagnostic("turret", "accepted", turretDiagnostic));
+                            break;
+                        }
+
+                        bool powerFailure = armedErrors.Any(e => e.IndexOf("power_", StringComparison.Ordinal) >= 0);
+                        if (!powerFailure)
+                        {
+                            diagnostics.Add(new LayoutDiagnostic("turret", "optional_rejected",
+                                anchor + " " + string.Join("+", armedErrors.Take(6))));
+                            break;
+                        }
+
+                        P4BTurretPlan reduced = P4BTurretPlanner.RemoveLeastValuableCrossing(input,
+                            layout, candidate, out GridPoint? removedGate);
+                        if (!removedGate.HasValue || ReferenceEquals(candidate, reduced))
+                        {
+                            diagnostics.Add(new LayoutDiagnostic("turret", "power_limited_no_fit",
+                                anchor + " " + removedGate + " " + string.Join("+", armedErrors.Take(6))));
+                            break;
+                        }
+                        bool batteryValidationFailure = armedErrors.Any(e =>
+                            e.Contains("power_battery_count") || e.Contains("batteriesNeed="));
+                        if (batteryValidationFailure)
+                        {
+                            int beforeNeed = TurretBatteryNeed(candidate.TotalWatts);
+                            int afterNeed = TurretBatteryNeed(reduced?.TotalWatts ?? 0);
+                            if (afterNeed >= beforeNeed)
+                            {
+                                diagnostics.Add(new LayoutDiagnostic("turret", "power_limited_no_battery_progress",
+                                    "removedCrossing=" + removedGate + " batteryNeed=" + beforeNeed + "->" + afterNeed +
+                                    " kept=" + layout.Power?.Batteries + " reserved=" + layout.Power?.ReservedBatteries +
+                                    " turretWatts=" + candidate.TotalWatts + "->" + (reduced?.TotalWatts ?? 0)));
+                                break;
+                            }
+                        }
+                        diagnostics.Add(new LayoutDiagnostic("turret", "power_limited_crossing_removed",
+                            "power_limited_crossing_removed=" + removedGate + " leastExposureFirst=" +
+                            string.Join("+", armedErrors.Take(6))));
+                        candidate = reduced;
+                    }
                 }
                 else diagnostics.Add(new LayoutDiagnostic("turret", "unplaced", anchor + " " + turretDiagnostic));
             }

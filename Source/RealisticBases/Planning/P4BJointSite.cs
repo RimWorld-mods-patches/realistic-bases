@@ -150,6 +150,9 @@ namespace RealisticBases.Planning
             if (maxCandidates <= 0 || maxEvaluations <= 0) throw new ArgumentOutOfRangeException(nameof(maxCandidates));
             LayoutTerrainGrid grid = LayoutTerrainGrid.Build(terrain, margin);
             bool[] edgeReach = LayoutExposure.EdgeReach(terrain);
+            HashSet<GridPoint> opaqueTargets = new HashSet<GridPoint>(terrain.Points().Where(c =>
+                terrain[c].HasAny(TerrainTraits.NaturalRock | TerrainTraits.Occupied) &&
+                !terrain[c].Has(TerrainTraits.ClearablePlant)));
             int fieldSide = (int)Math.Ceiling(Math.Sqrt(requiredCrops)) + 5;
             // Room packing needs circulation, gate returns and utility pockets in
             // addition to the minimum room-area count. A 30-cell square passed
@@ -233,6 +236,17 @@ namespace RealisticBases.Planning
                         List<GridPoint> cover = posts.Select(p => new GridPoint(p.X + outward.X, p.Z + outward.Z)).ToList();
                         GridPoint tangent = new GridPoint(outward.Z, outward.X);
                         if (posts.Count != 2 || posts.Concat(cover).Any(c => !grid.Passable(c) || grid.At(c) != LayoutCellClass.Open)) continue;
+                        List<GridPoint> outsideTargets = Enumerable.Range(2, 20).Select(k => new GridPoint(
+                                outerGate.X + outward.X * k, outerGate.Z + outward.Z * k))
+                            .Where(terrain.InBounds).ToList();
+                        bool outsideApproachReachable = outsideTargets.Any(target =>
+                            edgeReach[target.Z * terrain.Width + target.X]);
+                        // Match the later field-wall check: filter only a reachable
+                        // exterior approach whose posts have no clear shot at any target.
+                        // Isolated fertile regions keep their interface candidates.
+                        if (outsideApproachReachable && posts.Any(post => !outsideTargets.Any(target =>
+                            edgeReach[target.Z * terrain.Width + target.X] &&
+                            P4BFireLane.CanEngage(post, target, 8, 38, opaqueTargets)))) continue;
                         List<GridPoint> postAccess = new List<GridPoint>();
                         for (int forward = 1; forward <= 4; forward++)
                             for (int lateral = -6; lateral <= 6; lateral++)
