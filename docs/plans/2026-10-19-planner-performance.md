@@ -1,6 +1,6 @@
 # Planner performance
 
-Status: PPD live result: no gain under Mono. The in-game default degree is 1 (step 1). Next is PPE, grid collections for the turret planner (design below), then a Mono harness if budget allows. PPB is deferred. It follows the turret-batteries work
+Status: PPE is complete (`3247da9`–`5b38b61`). Live map generation on the timing tile dropped from 33.0 s to 24.2 s, and turret planning from 25.1 s to 16.4 s. Next is PPF (allocation round two), after Luna's limit resets. PPB is deferred. It follows the turret-batteries work
 ([plan](2026-10-18-turret-batteries-and-power.md)), after the startup-power and
 hidden-conduit tasks.
 
@@ -376,7 +376,7 @@ end-to-end medians on timing tile 0, and degree 4 was only slightly faster. The 
 tile replay was slower at degree 8 than degree 1. In-game generation therefore defaults
 to degree 1; the parallel implementation remains available through the measurement actions.
 
-### PPE: Grid collections for the turret planner (design)
+### PPE: Grid collections for the turret planner — complete
 **Why.** Live on timing tile 0,0, turret planning takes 25.6 s under Unity's Mono, but 5.3 s
 offline under CoreCLR for the identical input (`275f4c7`). The CPU profile of
 `PlanGroup` is mostly copying and allocating collections:
@@ -465,6 +465,76 @@ times.
   allocation counts and the turret stage time, on seeds 5, 4, 1 and 2 plus the tile. Mono
   numbers come from step 3 (a Mono harness) if Luna's budget allows; otherwise from one
   final live run of the timing tile.
+
+### PPF: Allocation round two (plan)
+**Starting point** (`5b38b61`). Live on timing tile 0,0, at degree 1, median of 3 runs:
+
+| Stage | Live time |
+|---|---|
+| map generation | 24.2 s |
+| planning | 22.3 s |
+| turret planning | 16.4 s |
+| site search | 3.5 s |
+| approach defense | 1.35 s |
+
+Before PPE these were 33.0 s, 31.1 s and 25.1 s for map generation, planning and turret
+planning. Offline, the tile's turret stage still allocates about 61 GB per plan. Under Mono
+the cost tracks allocation more than computation: PPE saved 22% offline but 34% live. PPF
+therefore aims at the bytes allocated, measured first.
+
+**Likely sources, from reading the code** (to be confirmed by PPF0):
+- **Route searches over the whole map for each candidate.**
+  - `LeastBlockedRoute` (`P4BTurretPlanner.cs:1992`) is a 0-1 BFS using a
+    `LinkedList<GridPoint>`, which allocates a node per push. It also keeps
+    `Dictionary<GridPoint,int> cost` and `Dictionary<GridPoint,GridPoint> previous` up to
+    `searchLimit = width × height` (25,600 entries), so the dictionaries resize and copy
+    repeatedly.
+  - `Routes` and `Route` (`:2137`), the coverage BFS (`:1926`) and
+    `PowerTerminalsConnected` (`:2258`) use the same pattern, with
+    `Queue<GridPoint>`, `HashSet` and `Dictionary`.
+- **`IEnumerable` helpers re-run for each call or candidate:** `Arrival`, `FieldContent`,
+  `DefendedAssets`, `BlastClearanceAssets` and `PowerAccessCells`, which are `Concat` and
+  `SelectMany` chains. The planner still has about 55 `Concat`, 73 `Any`, 37 `ToList` and
+  31 `new HashSet<GridPoint>` calls.
+- **Leftover between-nests diagnostics** (49 references): `BetweenCandidateKey` string
+  keys, dictionaries keyed by strings, and the `Frame.BetweenNests`/`PartnerNest` fields
+  that are never assigned (the CS0649 warnings). The feature was removed in T5g, and
+  `between-nests.patch` keeps it.
+- **Reject and diagnostic string building inside loops.**
+
+**Steps** (rules as in PPE: identical digests on the 14 T6 bases, all 485 LayoutTests
+records and the captured tile; one hot spot per commit; no LINQ or closures in inner loops):
+- **PPF0, allocation profile.** On the captured tile, use `dotnet-trace` with
+  `gc-verbose` or `AllocationTick` sampling, grouped by allocating call site and type.
+  Also count route searches and their visited cells per plan. This sets the order of
+  PPF1–PPF4.
+- **PPF1, grid-indexed searches.**
+  - Shared `GridSearch` scratch in `TurretPlanningContext`: `int[] cost`,
+    `int[] previous` (cell index) and `int[] visitStamp` with a generation counter, so
+    nothing is cleared or reallocated between searches.
+  - An `int` ring-buffer deque replaces `LinkedList` and `Queue`.
+  - Blocked and footprint checks go through `CellSet`.
+  - **The neighbour order and the push-front/back rules must stay exactly the same,** so
+    every route is identical. Paths are rebuilt into a reused `List<GridPoint>`, copied
+    only when the route is kept.
+- **PPF2, hoist the `IEnumerable` helpers.** `Arrival`, `FieldContent`, `DefendedAssets`,
+  `BlastClearanceAssets` and the static part of `PowerAccessCells` become context
+  `CellSet`s or arrays, built once per `Plan`.
+- **PPF3, remove the between-nests remnants.** Drop the dead frames and fields, the
+  candidate diagnostic records and the string keys. Output-only diagnostics that the
+  T4/T5 reports still read stay, but are computed once per group, not per candidate.
+- **PPF4, approach defense and site search.** Apply the same treatment only where PPF0
+  shows meaningful allocation (they are 1.35 s and 3.5 s live).
+
+**Measurement:**
+- After each step: the turret stage time and the GB allocated, offline on the tile and
+  seeds 5, 4, 1 and 2 at degree 1.
+- After the round: the Mono harness (`.runtime/investigations/planner-performance/mono-*`,
+  mono:6.12 with SGen; Boehm isn't available on arm64), then one live run with
+  `.runtime/run-timing-tile.sh` (3 runs on the timing tile, compared on `mapGenMs`).
+
+**Target:** turret allocation under 15 GB on the tile and live map generation under 15 s.
+Neither is a hard gate; report whatever the round achieves.
 
 ### PP1: Line of sight
 `P4BFireLane.CanEngage` walks a ray cell by cell and looks up each cell in a
