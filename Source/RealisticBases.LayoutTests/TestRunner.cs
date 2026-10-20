@@ -21,6 +21,8 @@ internal static partial class Program
         public int EstimateSeconds;
         public long Ms;
         public bool Passed;
+        public bool Skipped;
+        public string SkipReason;
     }
 
     private static readonly List<TestCase> registered = new List<TestCase>();
@@ -38,15 +40,28 @@ internal static partial class Program
         registered.Add(new TestCase { Name = name, Body = test, EstimateSeconds = estimateSeconds });
     }
 
+    private static void Skip(string name, string reason)
+    {
+        if (only != null && name.IndexOf(only, StringComparison.OrdinalIgnoreCase) < 0) return;
+        registered.Add(new TestCase { Name = name, Skipped = true, SkipReason = reason });
+    }
+
+    private static int SkippedCount => registered.Count(t => t.Skipped);
+
     private static void Execute(int workers)
     {
         console = Console.Out;
         Console.SetOut(new RoutedWriter());
         // OrderByDescending is stable: equal estimates keep declaration order.
-        var queue = new ConcurrentQueue<TestCase>(registered.OrderByDescending(t => t.EstimateSeconds));
-        int total = registered.Count, finished = 0;
-        console.WriteLine("tests: " + total + " on " + workers + " workers, estimated " +
-            registered.Sum(t => t.EstimateSeconds) + "s of work, longest " + registered.Select(t => t.EstimateSeconds).DefaultIfEmpty(0).Max() + "s");
+        List<TestCase> runnable = registered.Where(t => !t.Skipped).OrderByDescending(t => t.EstimateSeconds).ToList();
+        List<TestCase> skipped = registered.Where(t => t.Skipped).ToList();
+        var queue = new ConcurrentQueue<TestCase>(runnable);
+        int total = runnable.Count, finished = 0;
+        console.WriteLine("tests: " + total + " to run, " + skipped.Count + " skipped on " + workers +
+            " workers, estimated " + runnable.Sum(t => t.EstimateSeconds) + "s of work, longest " +
+            runnable.Select(t => t.EstimateSeconds).DefaultIfEmpty(0).Max() + "s");
+        foreach (TestCase test in skipped)
+            console.WriteLine("SKIP " + test.Name + ": " + test.SkipReason);
         Thread[] threads = Enumerable.Range(0, Math.Max(1, Math.Min(workers, total))).Select(_ => new Thread(() =>
         {
             while (queue.TryDequeue(out TestCase test))
@@ -75,7 +90,9 @@ internal static partial class Program
         foreach (Thread thread in threads) thread.Start();
         foreach (Thread thread in threads) thread.Join();
         Console.SetOut(console);
-        console.WriteLine("slowest: " + string.Join(", ", registered.OrderByDescending(t => t.Ms).Take(8)
+        console.WriteLine("results: passed=" + runnable.Count(t => t.Passed) + " skipped=" + skipped.Count +
+            " failed=" + failures);
+        console.WriteLine("slowest: " + string.Join(", ", runnable.OrderByDescending(t => t.Ms).Take(8)
             .Select(t => t.Name + "=" + t.Ms / 1000 + "s (estimate " + t.EstimateSeconds + "s)")));
     }
 
