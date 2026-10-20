@@ -654,5 +654,5 @@ T4B results are uncommitted for review. T5 has not started.
 
 - Whether mini-turret-to-mini-turret blast clearance may be relaxed if T5 shows crowding.
 - The live refuel and repair load of 40+ turrets on a 4–12-resident garrison.
-- These changes alter generated layouts, so they need a minor version bump. The user
-  decides when.
+- The layout behavior changes do not alter saved data or existing defs. Under the
+  pre-1.0 version policy, this is a PATCH bump from 0.1.1 to 0.1.2.
