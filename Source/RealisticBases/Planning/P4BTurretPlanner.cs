@@ -524,7 +524,9 @@ namespace RealisticBases.Planning
                 occupied.Contains(c) || opaque.Contains(c) || Arrival(layout).Contains(c) ||
                 (layout.ApproachDefense?.Posts.Any(p => p.Route.Contains(c)) ?? false) ||
                 !Buildable(input.Terrain, c))) errors.Add("footprint");
-            if (!footprint.Any(c => Manhattan(c, turret.ServiceCell) == 1) ||
+            GridPoint outward = turret.Outward ?? new GridPoint(Math.Sign(fieldWall.OuterGate.X - fieldWall.InnerGate.Value.X),
+                Math.Sign(fieldWall.OuterGate.Z - fieldWall.InnerGate.Value.Z));
+            if (!TurretRearDiagonalCells(footprint, outward).Contains(turret.ServiceCell) ||
                 occupied.Contains(turret.ServiceCell) || !Walkable(input.Terrain, turret.ServiceCell))
                 errors.Add("service_cell");
             // A later group may change the shortest path, but the advertised path must stay legal.
@@ -540,8 +542,6 @@ namespace RealisticBases.Planning
                 turret.ServiceRoute.Skip(1).Any(c => routeOccupied.Contains(c) || footprint.Contains(c) || !Walkable(input.Terrain, c)) ||
                 turret.ServiceRoute.Zip(turret.ServiceRoute.Skip(1), (a, b) => Manhattan(a, b)).Any(n => n != 1))
                 errors.Add("service_route");
-            GridPoint outward = turret.Outward ?? new GridPoint(Math.Sign(fieldWall.OuterGate.X - fieldWall.InnerGate.Value.X),
-                Math.Sign(fieldWall.OuterGate.Z - fieldWall.InnerGate.Value.Z));
             if (!Cardinal.Contains(outward) || (layout.ApproachDefense != null && turret.Side.Length > 0 &&
                 !layout.ApproachDefense.Sides.Any(s => s.Id == turret.Side && s.Exposed && s.Outward.Equals(outward) &&
                     s.Samples.Count(c => P4BFireLane.CanEngage(turret.Origin, c,
@@ -555,8 +555,12 @@ namespace RealisticBases.Planning
                 !footprint.Contains(new GridPoint(c.X + sign * tangent.X, c.Z + sign * tangent.Z)))
                 .Select(c => new GridPoint(c.X + sign * tangent.X, c.Z + sign * tangent.Z)))
                 .Distinct().ToList();
+            List<GridPoint> rear = footprint.Where(c => !footprint.Contains(new GridPoint(
+                c.X - outward.X, c.Z - outward.Z))).Select(c => new GridPoint(
+                c.X - outward.X, c.Z - outward.Z)).Distinct().ToList();
             if (front.Any(c => !turret.CoverCells.Contains(c)) ||
-                flanks.Any(c => !turret.CoverCells.Contains(c))) errors.Add("adjacent_flank_cover");
+                flanks.Any(c => !turret.CoverCells.Contains(c)) ||
+                rear.Any(c => !turret.CoverCells.Contains(c))) errors.Add("adjacent_flank_cover");
             if (front.Any(c => !turret.CoverCells.Contains(c)) ||
                 turret.CoverCells.Any(c => occupied.Contains(c) || opaque.Contains(c) ||
                     footprint.Contains(c) || turret.ServiceRoute.Contains(c) ||
@@ -1269,7 +1273,7 @@ namespace RealisticBases.Planning
                 HashSet<GridPoint> routeEndpointsBlocked = new HashSet<GridPoint>(legacyBlocked);
                 routeEndpointsBlocked.UnionWith(cover);
                 List<GridPoint> services = TurretServiceCells(input.Terrain, footprint, cover,
-                    routeEndpointsBlocked, frame.Gate);
+                    routeEndpointsBlocked, frame.Gate, facing);
                 HashSet<GridPoint> routeBlocked = new HashSet<GridPoint>(routeEndpointsBlocked);
                 routeBlocked.ExceptWith(nestCover);
                 routeBlocked.ExceptWith(previous.SelectMany(t => t.ServiceRoute));
@@ -1502,7 +1506,7 @@ namespace RealisticBases.Planning
                 HashSet<GridPoint> routeBlocked = new HashSet<GridPoint>(blocked);
                 routeBlocked.UnionWith(cover);
                 List<GridPoint> services = TurretServiceCells(input.Terrain, footprint, cover,
-                    routeBlocked, frame.Gate);
+                    routeBlocked, frame.Gate, facing);
                 Dictionary<GridPoint, List<GridPoint>> serviceRoutes = Routes(input.Terrain,
                     frame.Gate, services, routeBlocked, footprint);
                 foreach (GridPoint service in services)
@@ -1684,7 +1688,7 @@ namespace RealisticBases.Planning
                     HashSet<GridPoint> routeBlocked = new HashSet<GridPoint>(supportBlocked);
                     routeBlocked.UnionWith(cover);
                     List<GridPoint> services = TurretServiceCells(input.Terrain, footprint, cover,
-                        routeBlocked, frame.Gate);
+                        routeBlocked, frame.Gate, outward);
                     HashSet<GridPoint> servicePathBlocked = new HashSet<GridPoint>(routeBlocked);
                     servicePathBlocked.ExceptWith(nestCover);
                     servicePathBlocked.ExceptWith(previous.SelectMany(t => t.ServiceRoute));
@@ -1802,6 +1806,19 @@ namespace RealisticBases.Planning
                     }
                     cover.Add(flank);
                 }
+            foreach (GridPoint rear in footprint.Where(c => !footprint.Contains(new GridPoint(
+                c.X - outward.X, c.Z - outward.Z))).Select(c => new GridPoint(
+                c.X - outward.X, c.Z - outward.Z)).Distinct())
+            {
+                if (cover.Contains(rear)) continue;
+                if (!legal(rear))
+                {
+                    failureCell = rear;
+                    failureRequirement = "rear_cover_cell_illegal";
+                    return null;
+                }
+                cover.Add(rear);
+            }
             return cover;
         }
 
@@ -1899,11 +1916,21 @@ namespace RealisticBases.Planning
 
         private static List<GridPoint> TurretServiceCells(TerrainSnapshot terrain,
             IReadOnlyCollection<GridPoint> footprint, IReadOnlyCollection<GridPoint> cover,
-            HashSet<GridPoint> blocked, GridPoint routeOrigin) => footprint
-                .SelectMany(c => Cardinal.Select(d => new GridPoint(c.X + d.X, c.Z + d.Z))).Distinct()
+            HashSet<GridPoint> blocked, GridPoint routeOrigin, GridPoint outward) =>
+            TurretRearDiagonalCells(footprint, outward)
                 .Where(service => !footprint.Contains(service) && !cover.Contains(service) &&
                     !blocked.Contains(service) && Walkable(terrain, service))
                 .OrderBy(c => Manhattan(c, routeOrigin)).ThenBy(c => c).ToList();
+
+        private static List<GridPoint> TurretRearDiagonalCells(IReadOnlyCollection<GridPoint> footprint,
+            GridPoint outward)
+        {
+            GridPoint tangent = new GridPoint(-outward.Z, outward.X);
+            return footprint.Where(c => !footprint.Contains(new GridPoint(c.X - outward.X, c.Z - outward.Z)))
+                .SelectMany(c => new[] { -1, 1 }.Select(sign => new GridPoint(
+                    c.X - outward.X + sign * tangent.X, c.Z - outward.Z + sign * tangent.Z)))
+                .Distinct().ToList();
+        }
 
         private static Dictionary<GridPoint, List<GridPoint>> Routes(TerrainSnapshot terrain, GridPoint start,
             IEnumerable<GridPoint> goals, HashSet<GridPoint> blocked, IReadOnlyCollection<GridPoint> footprint)
@@ -2226,7 +2253,7 @@ namespace RealisticBases.Planning
             .Concat(layout.FieldWall == null ? Enumerable.Empty<GridPoint>() : layout.FieldWall.Access
                 .Concat(new[] { layout.FieldWall.InnerGate.Value, layout.FieldWall.OuterGate })
                 .Concat(layout.FieldWall.ArrivalRoute.TakeWhile(c => !c.Equals(layout.FieldWall.OuterGate))))
-            .Concat((network ?? layout.Turret)?.All.SelectMany(t => t.ServiceRoute.Concat(t.Footprint)) ?? Enumerable.Empty<GridPoint>()));
+            .Concat((network ?? layout.Turret)?.All.SelectMany(t => t.ServiceRoute.Concat(t.Footprint).Concat(t.CoverCells)) ?? Enumerable.Empty<GridPoint>()));
 
         public static bool PowerTerminalsConnected(ProceduralLayoutInput input, ProceduralLayout layout, P4BTurretPlan network)
         {
