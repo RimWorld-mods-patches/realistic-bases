@@ -1,6 +1,6 @@
 # Planner performance
 
-Status: PPE is complete (`3247da9`–`5b38b61`). Live map generation on the timing tile dropped from 33.0 s to 24.2 s, and turret planning from 25.1 s to 16.4 s. Next is PPF (allocation round two), after Luna's limit resets. PPB is deferred. It follows the turret-batteries work
+Status: PPF0 measured at `a198591`; both PPF targets are already met (live map generation 11.8 s, tile allocation 3.5 GB), so PPF1–PPF4 are on hold. PPB is deferred. It follows the turret-batteries work
 ([plan](2026-10-18-turret-batteries-and-power.md)), after the startup-power and
 hidden-conduit tasks.
 
@@ -535,6 +535,25 @@ records and the captured tile; one hot spot per commit; no LINQ or closures in i
 
 **Target:** turret allocation under 15 GB on the tile and live map generation under 15 s.
 Neither is a hard gate; report whatever the round achieves.
+
+**PPF0 findings** (`a198591`, after the LOS fix, dense samples and rear cover):
+- Captured tile, offline, degree 1, median of 3: planning 3.73 s, allocation 3.46 GB per
+  replay (two attempts), down from 6.0 s and 74.7 GB at PPE. One accepted plan allocates
+  2.80 GB: site search and planner core 1.10 GB, approach defense 1.09 GB, turret 0.61 GB.
+  Seeds 1, 2, 4 and 5 allocate 9.0–9.1 GB each.
+- Top call sites: `HashSet<GridPoint>` growth 0.28 GB; room furnishing reachability
+  (`Room.ReachableFree`, `Connected`, `Adjacent`, `WallLights`) about 0.4 GB;
+  `P4BStaffing.CanClose` LINQ 0.13 GB; `SniperGuardOptions` set copies 0.08 GB.
+- Route searches are cheap: `Routes` 87 calls / 95k visited cells (about 0.01 GB),
+  `LeastBlockedRoute` and `Route` unused, power connectivity 52 calls / 96k cells.
+  Between-nests remnants are under 0.01 GB.
+- Live, timing tile 0,0, degree 1, median of 3: map generation 11.8 s (was 24.2 s),
+  planning 10.0 s (22.3), turret 4.2 s (16.4), site 3.5 s (3.5), approach 1.9 s (1.35).
+  The three digests match (`48B6FC8CF06226BB`) and the log has no errors.
+
+If more speed is wanted, the order is site search and room furnishing, then approach
+defense; PPF1 and PPF3 would save almost nothing. PPF3 stays worth doing as cleanup of the
+CS0649 warnings.
 
 ### PP1: Line of sight
 `P4BFireLane.CanEngage` walks a ray cell by cell and looks up each cell in a
