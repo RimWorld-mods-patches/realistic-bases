@@ -237,8 +237,6 @@ internal static partial class Program
             name + " retains compound coverage under an independent final-boundary metric-v4 flood");
 
         HashSet<GridPoint> field = new HashSet<GridPoint>(layout.FieldWall?.Walls ?? new GridPoint[0]);
-        HashSet<GridPoint> walls = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.NaturalWalls)
-            .Concat(layout.OuterWalls).Concat(layout.Gates.SelectMany(g => g.BandWalls)));
         HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
         SettlementLoadout loadout = LayoutLoadoutModel.Build(input, layout);
         List<CatalogDef> weapons = loadout.Residents.Where(r => r.Weapon != null)
@@ -263,17 +261,24 @@ internal static partial class Program
         }
         True(compoundPositions.Count > 0,
             name + " credits at least one weapon-compatible position against compound faces, not field-only targets");
-        HashSet<GridPoint> allCompoundTargets = new HashSet<GridPoint>(walls.Where(wall => !field.Contains(wall))
-            .SelectMany(wall => new[] { new GridPoint(wall.X + 1, wall.Z), new GridPoint(wall.X - 1, wall.Z),
-                new GridPoint(wall.X, wall.Z + 1), new GridPoint(wall.X, wall.Z - 1) })
-            .Where(defense.AttackerCanReach));
         foreach (P4BSallyPort port in defense.SallyPorts.Where(port => port.Field))
         {
             P4BPost[] portPosts = defense.Posts.Where(post => post.AccessGate.Equals(port.Outer)).ToArray();
-            True(portPosts.Any(post => post.Slots.Any(position => allCompoundTargets.Any(target => weapons.Any(weapon =>
-                P4BFireLane.CanEngage(position, target, (int)Math.Ceiling(weapon.MinimumRange),
-                    (int)Math.Floor(weapon.MaximumRange), opaque))))),
-                name + " only spends a field crossing when its post can fire on compound targets");
+            HashSet<GridPoint> fieldTargets = new HashSet<GridPoint>(field.Select(wall =>
+                new GridPoint(wall.X + port.Outward.X, wall.Z + port.Outward.Z))
+                .Where(defense.AttackerCanReach));
+            P4BAttackSide portSide = defense.Sides.First(side => side.Outward.Equals(port.Outward));
+            True(portPosts.Any(post =>
+            {
+                bool firesOnFieldFace = post.Slots.Any(position => fieldTargets.Any(target => weapons.Any(weapon =>
+                    P4BFireLane.CanEngage(position, target, (int)Math.Ceiling(weapon.MinimumRange),
+                        (int)Math.Floor(weapon.MaximumRange), opaque))));
+                bool gainsApproach = post.Slots.Any(position => portSide.Samples.Count(sample =>
+                    P4BFireLane.CanEngage(position, sample, P4BCoverNest.MinimumRange,
+                        P4BCoverNest.MaximumRange, opaque)) >= P4BCoverNest.MinimumShots);
+                return firesOnFieldFace && gainsApproach;
+            }),
+                name + " only spends a field crossing when its post gains field-face and approach fire");
         }
         Console.WriteLine("  narrow-front " + name + " pack=" + defense.Pack + " compoundCovered=" +
             defense.CompoundTargetsCovered + "/" + defense.CompoundTargets + " compoundPositions=" + compoundPositions.Count +
@@ -468,15 +473,24 @@ internal static partial class Program
 
     private static void CompoundCoverageCandidatePriority()
     {
-        var fieldOnly = new { Name = "field-only", Compound = 0, Gap = 0, Ranged = 99, Spread = 1, Capacity = 4, Arc = 24, Other = 4,
-            Approach = 24, Crossing = 1, Cell = new GridPoint(80, 20) };
-        var main = new { Name = "main-wall", Compound = 3, Gap = 2, Ranged = 0, Spread = 0, Capacity = 1, Arc = 1, Other = 1,
-            Approach = 2, Crossing = 1, Cell = new GridPoint(120, 80) };
+        var fieldOnly = new { Name = "field-only", Compound = 0, Gap = 0, Ranged = 99, Reuse = 0, Field = 4,
+            Spread = 1, Capacity = 4, Arc = 24, Other = 4, Approach = 24, Crossing = 1, Cell = new GridPoint(80, 20) };
+        var reusedFieldGate = new { Name = "reuse-field-gate", Compound = 0, Gap = 0, Ranged = 0, Reuse = 1, Field = 1,
+            Spread = 0, Capacity = 1, Arc = 1, Other = 1, Approach = 2, Crossing = 0, Cell = new GridPoint(120, 80) };
+        var main = new { Name = "main-wall", Compound = 3, Gap = 2, Ranged = 0, Reuse = 0, Field = 0,
+            Spread = 0, Capacity = 1, Arc = 1, Other = 1, Approach = 2, Crossing = 1, Cell = new GridPoint(130, 80) };
         var ranked = P4BApproachDefensePlanner.RankCandidates(new[] { fieldOnly, main },
-            c => c.Compound, c => c.Gap, c => c.Ranged, c => c.Spread, c => c.Capacity, c => c.Arc, c => c.Other,
+            c => c.Compound, c => c.Gap, c => c.Ranged, c => c.Reuse, c => c.Field,
+            c => c.Spread, c => c.Capacity, c => c.Arc, c => c.Other,
             c => c.Approach, c => c.Crossing, c => c.Cell).ToArray();
         Equal("main-wall", ranked[0].Name,
-            "marginal compound coverage and gap reduction outrank field-only ranged, capacity and arc scores");
+            "marginal compound coverage and gap reduction outrank field-only gains");
+        ranked = P4BApproachDefensePlanner.RankCandidates(new[] { fieldOnly, reusedFieldGate },
+            c => c.Compound, c => c.Gap, c => c.Ranged, c => c.Reuse, c => c.Field,
+            c => c.Spread, c => c.Capacity, c => c.Arc, c => c.Other,
+            c => c.Approach, c => c.Crossing, c => c.Cell).ToArray();
+        Equal("reuse-field-gate", ranked[0].Name,
+            "a viable existing outer field gate is preferred before opening a second door");
     }
 
     private static void CompoundCoverageCacheTracksNestGeometry()

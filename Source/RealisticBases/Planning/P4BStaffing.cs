@@ -44,7 +44,6 @@ namespace RealisticBases.Planning
                 return new P4BStaffingAudit(guns.Count, 0, 0, 0, 0,
                     new GridPoint[0], new GridPoint[0]);
             HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
-            opaque.UnionWith(guns.SelectMany(g => g.Footprint));
             List<ResidentLoadout> snipers = loadout.Residents.Where(r =>
                 r.Weapon?.DefName == "Gun_SniperRifle").ToList();
             List<ResidentLoadout> others = loadout.Residents.Where(r => r.Weapon != null &&

@@ -79,7 +79,6 @@ namespace RealisticBases.Generation
                 return new P4BProceduralSpawnPreflightResult(null, loadout, new P4BSpawnGuardLookup[0]);
 
             HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
-            opaque.UnionWith(turrets.SelectMany(t => t.Footprint));
             List<P4BSpawnGuardLookup> lookups = new List<P4BSpawnGuardLookup>(turrets.Count);
             foreach (P4BTurretPlan turret in turrets)
             {

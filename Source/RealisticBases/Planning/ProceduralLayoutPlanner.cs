@@ -533,20 +533,32 @@ namespace RealisticBases.Planning
             if (Power == null || Power.DefenseReserveWatts == 0 || input.QuestContract != null) return this;
             LayoutKit kit = input.Equipment.Kit;
             int turretWatts = Turret?.TotalWatts ?? 0;
+            List<LayoutRoom> sourceRooms = Rooms.ToList();
             int critical, nonCritical;
-            LayoutPowerModel.Loads(Rooms, out critical, out nonCritical);
+            LayoutPowerModel.Loads(sourceRooms, out critical, out nonCritical);
             int generators = LayoutPowerModel.Generators(critical + turretWatts, nonCritical,
                 Power.Yards, Power.GeneratorWatts);
             int batteries = LayoutPowerModel.Batteries(critical + nonCritical + turretWatts) + Power.RenewableStorageBatteries;
-            if (generators > Power.Generators || batteries > Power.Batteries)
+            int packedBatteryFixtures = sourceRooms.SelectMany(r => r.Fixtures)
+                .Count(f => f.Kind == LayoutFixtureKind.Battery);
+            while (packedBatteryFixtures < batteries && packedBatteryFixtures < Power.ReservedBatteries &&
+                TryAddFundedBattery(input, sourceRooms, out List<LayoutRoom> expandedRooms))
+            {
+                sourceRooms = expandedRooms;
+                packedBatteryFixtures = sourceRooms.SelectMany(r => r.Fixtures)
+                    .Count(f => f.Kind == LayoutFixtureKind.Battery);
+            }
+            if (generators > Power.Generators || batteries > Power.ReservedBatteries ||
+                batteries > packedBatteryFixtures)
                 throw new InvalidOperationException("Packed defense power cannot supply the selected turret network: " +
                     "generatorsNeed=" + generators + "/" + Power.Generators +
-                    " batteriesNeed=" + batteries + "/" + Power.Batteries +
+                    " batteriesNeed=" + batteries + "/" + Power.ReservedBatteries +
+                    " packedBatteries=" + packedBatteryFixtures +
                     " turretWatts=" + turretWatts + " renewableStorage=" + Power.RenewableStorageBatteries);
-            HashSet<LayoutFixture> keepGenerators = new HashSet<LayoutFixture>(Rooms.OrderBy(r => r.Id, StringComparer.Ordinal)
+            HashSet<LayoutFixture> keepGenerators = new HashSet<LayoutFixture>(sourceRooms.OrderBy(r => r.Id, StringComparer.Ordinal)
                 .SelectMany(r => r.Fixtures.Where(f => f.Kind == LayoutFixtureKind.Generator).OrderBy(f => f.Cells.Min()))
                 .Take(generators));
-            HashSet<LayoutFixture> keepBatteries = new HashSet<LayoutFixture>(Rooms.OrderBy(r => r.Id, StringComparer.Ordinal)
+            HashSet<LayoutFixture> keepBatteries = new HashSet<LayoutFixture>(sourceRooms.OrderBy(r => r.Id, StringComparer.Ordinal)
                 .SelectMany(r => r.Fixtures.Where(f => f.Kind == LayoutFixtureKind.Battery).OrderBy(f => f.Cells.Min()))
                 .Take(batteries));
             int stackLimit = Math.Max(1, kit.GeneratorFuel?.StackLimit ?? 1);
@@ -554,7 +566,7 @@ namespace RealisticBases.Planning
             int newFuelCells = (LayoutPowerModel.WarehouseFuel(kit.Generator, generators) + stackLimit - 1) / stackLimit;
             int releaseLeft = Math.Max(0, oldFuelCells - newFuelCells), released = 0;
             List<LayoutRoom> trimmedRooms = new List<LayoutRoom>();
-            foreach (LayoutRoom room in Rooms.OrderBy(r => r.Id, StringComparer.Ordinal))
+            foreach (LayoutRoom room in sourceRooms.OrderBy(r => r.Id, StringComparer.Ordinal))
             {
                 List<LayoutFixture> fixtures = room.Fixtures.Where(f =>
                     f.Kind != LayoutFixtureKind.Generator || keepGenerators.Contains(f)).Where(f =>
@@ -610,6 +622,48 @@ namespace RealisticBases.Planning
                     " batteries=" + Power.Batteries + "->" + batteries + " fuelCellsReleased=" + released }),
                 TechStage, RolesDigest, EquipmentDigest, WallStuff, materials, power, ExhaustPockets,
                 OuterSections, JointSite, FieldWall, Turret, ApproachDefense, PerimeterReinforcement, Courts, BonusFields);
+        }
+
+        private static bool TryAddFundedBattery(ProceduralLayoutInput input, IReadOnlyList<LayoutRoom> rooms,
+            out List<LayoutRoom> expandedRooms)
+        {
+            expandedRooms = null;
+            CatalogDef def = input.Equipment.Kit.Battery;
+            if (def == null || !input.Catalog.TryGet(def.DefName, out CatalogDef resolved)) return false;
+            foreach (LayoutRoom room in rooms.Where(r => r.Kind == LayoutRoomKind.Power)
+                .OrderBy(r => r.Id, StringComparer.Ordinal))
+            {
+                LayoutFixture template = room.Fixtures.FirstOrDefault(f => f.Kind == LayoutFixtureKind.Battery);
+                if (template == null || template.Cells.Count == 0) continue;
+                int minX = template.Cells.Min(c => c.X), minZ = template.Cells.Min(c => c.Z);
+                GridPoint[] offsets = template.Cells.Select(c => new GridPoint(c.X - minX, c.Z - minZ)).ToArray();
+                int width = offsets.Max(c => c.X) + 1, height = offsets.Max(c => c.Z) + 1;
+                HashSet<GridPoint> occupied = new HashSet<GridPoint>(room.Fixtures
+                    .SelectMany(f => f.Cells.Concat(f.Access)).Concat(room.Doors).Concat(room.NaturalWalls));
+                foreach (GridPoint origin in room.Interior.Points().OrderByDescending(c =>
+                    Math.Abs(c.X - room.Door.X) + Math.Abs(c.Z - room.Door.Z)).ThenBy(c => c))
+                {
+                    GridPoint[] cells = offsets.Select(c => new GridPoint(origin.X + c.X,
+                        origin.Z + c.Z)).ToArray();
+                    if (cells.Any(c => !room.Interior.Contains(c) || occupied.Contains(c))) continue;
+                    List<GridPoint> access = new List<GridPoint>();
+                    if (resolved.HasInteractionCell)
+                    {
+                        GridPoint interaction = new GridPoint(origin.X + resolved.InteractionOffset.X,
+                            origin.Z + resolved.InteractionOffset.Z);
+                        if (!room.Interior.Contains(interaction) || occupied.Contains(interaction)) continue;
+                        access.Add(interaction);
+                    }
+                    LayoutFixture battery = new LayoutFixture(LayoutFixtureKind.Battery, def.DefName,
+                        cells, access, template.Facing, resolved.Blocking, resolved.BasePowerConsumption,
+                        needsFuel: false, room.Id, role: null, stuff: input.Equipment.StuffFor(def));
+                    List<LayoutFixture> fixtures = room.Fixtures.Concat(new[] { battery }).ToList();
+                    expandedRooms = rooms.Select(r => ReferenceEquals(r, room)
+                        ? r.WithTrimmedFixtures(fixtures, r.Capacity) : r).ToList();
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static IReadOnlyList<GridPoint> Sorted(IEnumerable<GridPoint> cells) =>
@@ -1252,18 +1306,11 @@ namespace RealisticBases.Planning
                         }
 
                         bool powerFailure = armedErrors.Any(e => e.IndexOf("power_", StringComparison.Ordinal) >= 0);
-                        if (!powerFailure)
-                        {
-                            diagnostics.Add(new LayoutDiagnostic("turret", "optional_rejected",
-                                anchor + " " + string.Join("+", armedErrors.Take(6))));
-                            break;
-                        }
-
                         P4BTurretPlan reduced = P4BTurretPlanner.RemoveLeastValuableCrossing(input,
                             layout, candidate, out GridPoint? removedGate);
                         if (!removedGate.HasValue || ReferenceEquals(candidate, reduced))
                         {
-                            diagnostics.Add(new LayoutDiagnostic("turret", "power_limited_no_fit",
+                            diagnostics.Add(new LayoutDiagnostic("turret", powerFailure ? "power_limited_no_fit" : "optional_rejected",
                                 anchor + " " + removedGate + " " + string.Join("+", armedErrors.Take(6))));
                             break;
                         }
@@ -1278,8 +1325,8 @@ namespace RealisticBases.Planning
                                 diagnostics.Add(new LayoutDiagnostic("turret", "power_limited_no_battery_progress",
                                     "removedCrossing=" + removedGate + " batteryNeed=" + beforeNeed + "->" + afterNeed +
                                     " kept=" + layout.Power?.Batteries + " reserved=" + layout.Power?.ReservedBatteries +
-                                    " turretWatts=" + candidate.TotalWatts + "->" + (reduced?.TotalWatts ?? 0)));
-                                break;
+                                    " turretWatts=" + candidate.TotalWatts + "->" + (reduced?.TotalWatts ?? 0) +
+                                    " continuing=true"));
                             }
                         }
                         diagnostics.Add(new LayoutDiagnostic("turret", "power_limited_crossing_removed",
@@ -1328,7 +1375,6 @@ namespace RealisticBases.Planning
             if (layout.ApproachDefense != null)
             {
                 HashSet<GridPoint> finalOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
-                finalOpaque.UnionWith(layout.Turret?.All.SelectMany(t => t.Footprint) ?? new GridPoint[0]);
                 foreach (P4BAttackSide side in layout.ApproachDefense.Sides.Where(s => s.Exposed))
                 {
                     int covered = P4BApproachDefensePlanner.CoveredSamples(side, finalOpaque);
@@ -2118,7 +2164,9 @@ namespace RealisticBases.Planning
             LayoutPowerModel.Loads(rooms, out critical, out nonCritical);
             int renewable = yards.Sum(y => y.EffectiveWatts);
             int reserve = input.Requirements.DefenseReserveWatts;
-            int batteries = LayoutPowerModel.Batteries(critical + reserve + nonCritical) + LayoutPowerModel.RenewableStorageBatteries(yards);
+            int renewableStorageBatteries = LayoutPowerModel.RenewableStorageBatteries(yards);
+            int batteries = LayoutPowerModel.Batteries(critical + reserve + nonCritical) +
+                renewableStorageBatteries;
             int generators = LayoutPowerModel.Generators(critical + reserve, nonCritical, yards, kit.GeneratorWatts);
             LayoutRoomDemand demand = null;
             int ownLoad = 0;
@@ -2129,15 +2177,18 @@ namespace RealisticBases.Planning
                 int own = LayoutDemandModel.MaxLoad(demand, input.Requirements, kit);
                 ownLoad = own;
                 int needed = LayoutPowerModel.Generators(critical + reserve, nonCritical + own, yards, kit.GeneratorWatts);
-                int bridge = LayoutPowerModel.Batteries(critical + reserve + nonCritical + own) + LayoutPowerModel.RenewableStorageBatteries(yards);
+                int bridge = LayoutPowerModel.Batteries(critical + reserve + nonCritical + own) + renewableStorageBatteries;
                 if (needed <= generators && bridge <= batteries) break;
                 generators = Math.Max(generators, needed);
                 batteries = Math.Max(batteries, bridge);
             }
             if (!(Style.Kind == LayoutStyleKind.Mountain ? PlaceWithRepairs(demand) : PlaceLate(demand))) return false;
+            int fundedBatteryCapacity = batteries + (reserve > 0 &&
+                input.Requirements.DefenseImportReserveValue > 0 ? 1 : 0);
             power = new LayoutPowerPlan(critical, nonCritical, kit.Generator, generators, batteries, yards, kit.GeneratorFuel,
                 LayoutPowerModel.FuelStock(kit.Generator, generators), powerDiagnostics, reserve,
-                Math.Max(0, generators - LayoutPowerModel.Generators(critical, nonCritical + ownLoad, yards, kit.GeneratorWatts)));
+                Math.Max(0, generators - LayoutPowerModel.Generators(critical, nonCritical + ownLoad, yards, kit.GeneratorWatts)),
+                reservedBatteries: fundedBatteryCapacity);
             if (reserve > 0) notes.Add("ordinary_defense_reserve=" + reserve + "W extraGenerators=" + power.DefenseGenerators);
             return true;
         }

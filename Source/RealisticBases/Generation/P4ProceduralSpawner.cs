@@ -167,7 +167,6 @@ namespace RealisticBases.Generation
             if (approachDefense != null)
             {
                 HashSet<GridPoint> attackOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
-                attackOpaque.UnionWith(turretPlans.SelectMany(t => t.Footprint));
                 foreach (P4BAttackSide side in approachDefense.Sides)
                 {
                     int covered = P4BApproachDefensePlanner.CoveredSamples(side, attackOpaque);
@@ -223,7 +222,6 @@ namespace RealisticBases.Generation
                 if (fieldWall != null || quest != null)
                 {
                     HashSet<GridPoint> postOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
-                    postOpaque.UnionWith(turretPlans.SelectMany(t => t.Footprint));
                     // The compound reservation also covers the short exterior
                     // crossing to the field. Vanilla pathfinding may leave the
                     // literal wall interior through a different compound gate.

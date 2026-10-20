@@ -1615,6 +1615,13 @@ internal static partial class Program
         P4BApproachDefensePlan fieldDefense = P4BApproachDefensePlanner.Plan(input, fieldLayout);
         True(fieldDefense.CompoundTargetsCovered > 0,
             "the blocked-field case retains useful compound-wall fire");
+        GridPoint eastFieldOutward = new GridPoint(1, 0);
+        True(!fieldDefense.Posts.Any(post => post.AccessGate.Equals(fieldPlan.OuterGate) &&
+                post.Outward.Equals(eastFieldOutward)),
+            "an obstructed outer-gate approach cannot claim the east field crossing");
+        True(fieldDefense.SallyPorts.Any(port => port.Field && port.Outward.Equals(eastFieldOutward) &&
+                fieldDefense.Posts.Any(post => post.AccessGate.Equals(port.Outer) && post.Outward.Equals(port.Outward))),
+            "a generated east field-face port uses the freed cap when the outer gate cannot host a nest");
         ProceduralLayout fieldDefended = fieldLayout.WithApproachDefense(input, fieldDefense);
         IReadOnlyList<string> fieldPortErrors = P4BApproachDefensePlanner.Validate(input, fieldDefended);
         Equal(0, fieldPortErrors.Count,
@@ -1625,7 +1632,7 @@ internal static partial class Program
         True(fieldCounts.All(count => count <= P4BApproachDefensePlanner.MaxFieldGateCrossingsPerSide),
             "existing inner and outer field crossings remain within one per side");
         int eastFieldSide = P4BApproachDefensePlanner.SideIndex(new GridPoint(1, 0));
-        True(fieldCounts[eastFieldSide] == 1, "the fixture begins with its required east-side field entrance");
+        True(fieldCounts[eastFieldSide] == 1, "the blocked outer gate yields one defended east field crossing");
         P4BSallyPort overCapFieldPort = new P4BSallyPort(new GridPoint(95, 64), new GridPoint(94, 64),
             new GridPoint(1, 0), field: true, interiorRoute: new[] { fieldPlan.InnerGate.Value, new GridPoint(94, 64) });
         P4BApproachDefensePlan overCapFieldPlan = new P4BApproachDefensePlan(new GridPoint[0], fieldDefense.Sides,
@@ -1647,6 +1654,25 @@ internal static partial class Program
         else
             True(fieldDefense.SallyPorts.All(port => !port.Field),
                 "the planner does not add a field-only opening after compound coverage is served");
+
+        ProceduralLayout openFieldLayout = DefenseRectangle(input, fieldSite).WithFieldWall(input, fieldPlan);
+        P4BApproachDefensePlan openFieldDefense = P4BApproachDefensePlanner.Plan(input, openFieldLayout);
+        P4BPost outerGateNest = openFieldDefense.Posts.FirstOrDefault(post =>
+            post.AccessGate.Equals(fieldPlan.OuterGate) && post.Outward.Equals(new GridPoint(1, 0)));
+        True(outerGateNest != null,
+            "the clear existing outer gate becomes a defensive field crossing before a second door is added");
+        ProceduralLayout openFieldDefended = openFieldLayout.WithApproachDefense(input, openFieldDefense);
+        Equal(0, P4BApproachDefensePlanner.Validate(input, openFieldDefended).Count,
+            "the existing outer-gate nest validates with only its two arrival-axis cells shared");
+        Equal(1, P4BApproachDefensePlanner.FieldGateCrossings(openFieldDefended)[eastFieldSide],
+            "the defended outer gate alone consumes the east field-crossing cap");
+        HashSet<GridPoint> openArrival = new HashSet<GridPoint>(fieldPlan.ArrivalRoute);
+        True(outerGateNest.Route.Skip(1).Where(openArrival.Contains).All(cell =>
+            P4BApproachDefensePlanner.IsFieldArrivalCrossingCell(cell, fieldPlan.OuterGate,
+                new GridPoint(1, 0), openArrival)) &&
+            outerGateNest.Slots.All(cell => !openArrival.Contains(cell)) &&
+            outerGateNest.CoverCells.All(cell => !openArrival.Contains(cell)),
+            "the existing gate nest keeps slots and cover off the arrival route");
         int repaired = 0;
         foreach (ulong seed in new ulong[] { 1, 2, 3, 4, 5, 6 })
         {

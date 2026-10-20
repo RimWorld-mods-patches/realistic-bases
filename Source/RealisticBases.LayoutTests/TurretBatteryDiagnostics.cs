@@ -778,6 +778,8 @@ internal static partial class Program
                 string.Join(";", result.Diagnostics.TakeLast(8)));
         }
         ProceduralLayout layout = result.Layout;
+        if (label == "total12-seed1-w180")
+            AssertSeedOneEastOuterGateNest(layout);
         LayoutRoom powerRoom = layout.Rooms.FirstOrDefault(r => r.Kind == LayoutRoomKind.Power);
         string powerRoomSize = powerRoom == null ? "none" :
             powerRoom.Interior.Width + "x" + powerRoom.Interior.Height;
@@ -879,6 +881,28 @@ internal static partial class Program
             label.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0);
         if (!string.IsNullOrEmpty(mapExportDirectory) && exportMap)
             ExportTurretMap(input, layout, label, result.Diagnostics, mapExportDirectory);
+    }
+
+    private static void AssertSeedOneEastOuterGateNest(ProceduralLayout layout)
+    {
+        GridPoint east = new GridPoint(1, 0);
+        GridPoint gate = layout.FieldWall.OuterGate;
+        HashSet<GridPoint> arrival = new HashSet<GridPoint>(layout.Gates.SelectMany(g => g.ExteriorRoute)
+            .Concat(layout.FieldWall.ArrivalRoute));
+        P4BPost nest = layout.ApproachDefense.Posts.FirstOrDefault(post =>
+            post.AccessGate.Equals(gate) && post.Outward.Equals(east));
+        True(nest != null, "T6 seed 1 reuses the east field outer gate for its defensive nest");
+        True(nest.Route.Skip(1).Where(arrival.Contains).All(cell =>
+            P4BApproachDefensePlanner.IsFieldArrivalCrossingCell(cell, gate, east, arrival)),
+            "the outer-gate nest shares only its first two gate-axis cells with arrival");
+        True(nest.Slots.All(cell => !arrival.Contains(cell)) && nest.CoverCells.All(cell => !arrival.Contains(cell)) &&
+            (!nest.WallReturn.HasValue || !arrival.Contains(nest.WallReturn.Value)),
+            "the outer-gate nest keeps slots, cover, and return off arrival");
+        int eastSide = P4BApproachDefensePlanner.SideIndex(east);
+        Equal(1, P4BApproachDefensePlanner.FieldGateCrossings(layout)[eastSide],
+            "the defended outer gate consumes exactly one east field-crossing cap");
+        True(!layout.ApproachDefense.SallyPorts.Any(port => port.Field && port.Outward.Equals(east)),
+            "the existing outer gate is reused without adding an east field door");
     }
 
     private static string StageTimingText(ProceduralLayoutStageTimings t, double totalMilliseconds)

@@ -188,16 +188,6 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> finalOpaque = sharedBaseOpaque == null
                 ? P4BApproachDefensePlanner.Opaque(layout, input.Terrain)
                 : sharedBaseOpaque.ToHashSet();
-            if (layout.ApproachDefense != null)
-            {
-                HashSet<GridPoint> beforeGuns = new HashSet<GridPoint>(finalOpaque);
-                finalOpaque.UnionWith(guns.SelectMany(t => t.Footprint));
-                if (layout.ApproachDefense.Sides.Any(s => s.Exposed &&
-                    P4BApproachDefensePlanner.CoveredSamples(s, beforeGuns) >= P4BApproachDefensePlanner.UsefulArc(s.Samples.Count) &&
-                    P4BApproachDefensePlanner.CoveredSamples(s, finalOpaque) < P4BApproachDefensePlanner.UsefulArc(s.Samples.Count)))
-                    errors.Add("turret_obstructs_defender_frontage");
-            }
-            finalOpaque.UnionWith(guns.SelectMany(t => t.Footprint));
             if (!includeNetworkChecks) return errors.Distinct().ToList();
             // A quest camp's guns are the native advertised threat: its one guard
             // cannot staff them, so the garrison support rules below are for
@@ -522,9 +512,10 @@ namespace RealisticBases.Planning
             occupied.UnionWith(layout.ApproachDefense?.AllPosts ?? new GridPoint[0]);
             occupied.UnionWith(layout.ExtraObstacles);
             occupied.UnionWith(additionalBlocked ?? Enumerable.Empty<GridPoint>());
+            occupied.UnionWith(otherGuns.SelectMany(t => t.Footprint.Concat(t.CoverCells)));
+            occupied.UnionWith(turret.Support?.Footprint ?? Enumerable.Empty<GridPoint>());
+            occupied.UnionWith(turret.Support?.CoverCells ?? Enumerable.Empty<GridPoint>());
             HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
-            opaque.UnionWith(otherGuns.SelectMany(t => t.Footprint));
-            opaque.UnionWith(turret.Support?.Footprint ?? Enumerable.Empty<GridPoint>());
             occupied.UnionWith(opaque.Except(P4BApproachDefensePlanner.AccessGates(layout))
                 .Where(c => fieldWall == null || !c.Equals(fieldWall.InnerGate.Value)));
             GridPoint accessGate = turret.AccessGate ?? fieldWall.OuterGate;
@@ -812,7 +803,6 @@ namespace RealisticBases.Planning
                 network = Combine(input.Catalog, groups);
             }
             HashSet<GridPoint> finalOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
-            finalOpaque.UnionWith(network?.All.SelectMany(t => t.Footprint) ?? Enumerable.Empty<GridPoint>());
             List<int> coverage = ApproachTargets(input, layout).Select(c => network?.All.Count(t =>
                 CanShoot(t, c, finalOpaque)) ?? 0).ToList();
             P4BStaffingAudit staffed = network == null ? null : P4BStaffing.Audit(input, layout, network, garrison);
@@ -1482,7 +1472,6 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> blocked = new HashSet<GridPoint>(baseBlocked);
             blocked.UnionWith(guns.SelectMany(t => t.Footprint.Concat(t.CoverCells)));
             HashSet<GridPoint> opaque = new HashSet<GridPoint>(baseOpaque);
-            opaque.UnionWith(guns.SelectMany(t => t.Footprint));
             int minimum = (int)Math.Ceiling(mini.MinimumRange), maximum = (int)Math.Floor(mini.MaximumRange);
             var candidates = frames.SelectMany(frame => new[] { 2, 3, 4, 5, 6, 7, 8, 10, 12 }.SelectMany(forward =>
                     new[] { 0, -2, 2, -4, 4, -6, 6, -8, 8, -10, 10, -12, 12, -14, 14 }.Select(lateral => new
@@ -1593,7 +1582,6 @@ namespace RealisticBases.Planning
                     GridPoint cell = turret.Footprint[cellIndex];
                     context.PreviousFootprintCells.Add(cell);
                     context.PreviousFootprints.Add(cell);
-                    context.Opaque.Add(cell);
                     context.Blocked.Add(cell);
                 }
                 for (int cellIndex = 0; cellIndex < turret.CoverCells.Count; cellIndex++)
@@ -2275,10 +2263,8 @@ namespace RealisticBases.Planning
 
         private static bool CanShoot(P4BTurretPlan turret, GridPoint target, HashSet<GridPoint> opaque)
         {
-            HashSet<GridPoint> blockers = new HashSet<GridPoint>(opaque);
-            blockers.ExceptWith(turret.Footprint);
             return P4BFireLane.CanEngage(turret.Origin, target,
-                (int)Math.Ceiling(turret.MinimumRange), (int)Math.Floor(turret.MaximumRange), blockers);
+                (int)Math.Ceiling(turret.MinimumRange), (int)Math.Floor(turret.MaximumRange), opaque);
         }
 
 

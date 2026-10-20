@@ -162,12 +162,16 @@ namespace RealisticBases.Planning
             internal P4BAttackSide Side;
             internal P4BPost Post;
             internal GateOption Gate;
-            internal int CompoundGain, GapReduction, RangedCompoundGain, SpreadPreference, CapacityGain;
+            internal int CompoundGain, GapReduction, RangedCompoundGain, ReusesOuterFieldGate, FieldGain;
+            internal int SpreadPreference, CapacityGain;
             internal int UsefulArcGain, OtherFrontGain, ApproachGain, AddedCrossingCost;
         }
 
         public static HashSet<GridPoint> Opaque(ProceduralLayout layout, TerrainSnapshot terrain = null)
         {
+            // This set models line-of-sight blockers (full walls/rock and
+            // closed doors). Turret buildings are partial-fill: they occupy
+            // cells but do not block GenSight fire lanes.
             HashSet<GridPoint> excavated = new HashSet<GridPoint>(layout.Excavation);
             return new HashSet<GridPoint>(
             layout.BuiltWalls.Concat(layout.NaturalWalls).Concat(layout.OuterWalls)
@@ -467,6 +471,23 @@ namespace RealisticBases.Planning
                 foreach (P4BAttackSide side in exposed.Where(s => s.Exposed))
                 {
                     Func<P4BPost, int> facing = post => post.Slots.Count(c => holds(side, post, c));
+                    GridPoint sideTangent = new GridPoint(-side.Outward.Z, side.Outward.X);
+                    HashSet<GridPoint> sideFieldTargets = new HashSet<GridPoint>(side.Faces
+                        .Where(fieldWalls.Contains)
+                        .Select(face => At(face, side.Outward, sideTangent, 1, 0))
+                        .Where(c => reachable.Contains(c) && Walkable(input.Terrain, c)));
+                    Dictionary<P4BPost, HashSet<GridPoint>> fieldCoverageCache =
+                        new Dictionary<P4BPost, HashSet<GridPoint>>();
+                    Func<P4BPost, HashSet<GridPoint>> fieldCoverage = post =>
+                    {
+                        if (!fieldCoverageCache.TryGetValue(post, out HashSet<GridPoint> coverage))
+                            fieldCoverageCache[post] = coverage = new HashSet<GridPoint>(sideFieldTargets.Where(target =>
+                                post.Slots.Any(slot => P4BFireLane.CanEngage(slot, target, 0,
+                                    P4BCoverNest.MaximumRange, opaque))));
+                        return coverage;
+                    };
+                    HashSet<GridPoint> seenFieldTargets = new HashSet<GridPoint>(posts.SelectMany(fieldCoverage));
+                    bool outerFieldGateSelected = posts.Any(post => IsOuterFieldGateNest(layout, post));
                     HashSet<GridPoint> seen = new HashSet<GridPoint>();
                     foreach (P4BPost existingPost in posts)
                         foreach (GridPoint slot in existingPost.Slots)
@@ -485,11 +506,19 @@ namespace RealisticBases.Planning
                             int gateSide = SideIndex(gate.Outward);
                             if (gate.Port.Field)
                             {
-                                int[] fieldCounts = FieldGateCrossings(layout, ports);
+                                int[] fieldCounts = FieldGateCrossings(layout, ports,
+                                    includeOuterGate: outerFieldGateSelected);
                                 if (gateSide < 0 || fieldCounts[gateSide] >= MaxFieldGateCrossingsPerSide) continue;
                             }
                             else if (gateSide < 0 || CompoundGateCrossings(layout, ports).Sum() >= MaxCompoundGateCrossingsTotal)
                                 continue;
+                        }
+                        if (gate.Field && gate.Port == null && IsOuterFieldGate(layout, gate) &&
+                            !outerFieldGateSelected)
+                        {
+                            int gateSide = SideIndex(gate.Outward);
+                            int[] fieldCounts = FieldGateCrossings(layout, ports, includeOuterGate: true);
+                            if (gateSide < 0 || fieldCounts[gateSide] > MaxFieldGateCrossingsPerSide) continue;
                         }
                         // A door needs solid wall on both sides: no new port beside another door.
                         if (gate.Port != null && doors.Concat(ports.Where(p => !p.Cell.Equals(gate.Port.Cell))
@@ -508,7 +537,7 @@ namespace RealisticBases.Planning
                                     (!reserved.Contains(c) || SharedAccessPrefixCell(c, gate, flank, posts)) &&
                                     !occupied.Contains(c) && (!arrival.Contains(c) ||
                                         IsArrivalCrossingCell(c, gate.Cell, gate.Outward, flank, layout.Gates) ||
-                                        gate.Port?.Field == true && IsFieldArrivalCrossingCell(c, gate.Cell,
+                                        gate.Field && IsFieldArrivalCrossingCell(c, gate.Cell,
                                             gate.Outward, arrival));
                                 post = P4BCoverNest.Build(side.Id, gate.Cell, gate.Outward, flank, P4BCoverNest.MaxSlots,
                                     c => visible(c), c => exposed.Any(s => facesSide(s, c)), CanOpenPostCell,
@@ -523,23 +552,28 @@ namespace RealisticBases.Planning
                             int compoundGain = coverage.Count(c => !seenCompound.Contains(c));
                             int gapGain = GapReduction(compoundTargets, seenCompound, coverage);
                             int rangedCompoundGain = compoundRangedCoverage(post).Count(c => !seenRangedCompound.Contains(c));
+                            HashSet<GridPoint> fieldTargets = fieldCoverage(post);
+                            int fieldGain = fieldTargets.Count(c => !seenFieldTargets.Contains(c));
                             int capacityGain = Math.Min(facing(post), Math.Max(0, pack - have));
                             int approachGain = side.Samples.Count(t => !seen.Contains(t) &&
                                 post.Slots.Any(c => holds(side, post, c) && engaged(c).Contains(t)));
                             int arcGain = seen.Count < UsefulArc(side.Samples.Count) ? approachGain : 0;
                             if (capacityGain == 0 && arcGain == 0 && compoundGain == 0 && rangedCompoundGain == 0) continue;
-                            if (gate.Field && compoundGain == 0) continue;
+                            if (gate.Field && (fieldGain == 0 || approachGain == 0)) continue;
                             bool addsCompoundCrossing = gate.Port != null && !gate.Port.Field && !alreadySelectedPort;
                             if (addsCompoundCrossing && compoundGain == 0 && rangedCompoundGain == 0) continue;
                             int direction = SideIndex(gate.Outward);
                             int[] sideCounts = gate.Port?.Field == true
-                                ? FieldGateCrossings(layout, ports) : CompoundGateCrossings(layout, ports);
+                                ? FieldGateCrossings(layout, ports, includeOuterGate: outerFieldGateSelected)
+                                : CompoundGateCrossings(layout, ports);
                             int spread = addsCompoundCrossing && direction >= 0 &&
                                 sideCounts[direction] < PreferredCompoundGateCrossingsPerSide ? 1 : 0;
                             candidates.Add(new RankedPostOption
                             {
                                 Side = side, Post = post, Gate = gate, CompoundGain = compoundGain,
                                 GapReduction = gapGain, RangedCompoundGain = rangedCompoundGain,
+                                ReusesOuterFieldGate = IsOuterFieldGate(layout, gate) ? 1 : 0,
+                                FieldGain = fieldGain,
                                 SpreadPreference = spread, CapacityGain = capacityGain,
                                 UsefulArcGain = arcGain,
                                 OtherFrontGain = exposed.Count(s => post.Slots.Any(c => holds(s, post, c))),
@@ -553,6 +587,7 @@ namespace RealisticBases.Planning
                 bool accepted = false;
                 foreach (RankedPostOption option in RankCandidates(candidates,
                     c => c.CompoundGain, c => c.GapReduction, c => c.RangedCompoundGain,
+                    c => c.ReusesOuterFieldGate, c => c.FieldGain,
                     c => c.SpreadPreference, c => c.CapacityGain,
                     c => c.UsefulArcGain, c => c.OtherFrontGain, c => c.ApproachGain,
                     c => c.AddedCrossingCost, c => c.Post.Cell))
@@ -632,12 +667,14 @@ namespace RealisticBases.Planning
 
         internal static IEnumerable<T> RankCandidates<T>(IEnumerable<T> candidates,
             Func<T, int> compoundCoverageGain, Func<T, int> compoundGapReduction,
-            Func<T, int> rangedCompoundCoverageGain, Func<T, int> spreadPreference,
+            Func<T, int> rangedCompoundCoverageGain, Func<T, int> reusesOuterFieldGate,
+            Func<T, int> fieldFaceGain, Func<T, int> spreadPreference,
             Func<T, int> capacityGain, Func<T, int> usefulArcGain,
             Func<T, int> otherFrontGain, Func<T, int> approachGain, Func<T, int> addedCrossingCost,
             Func<T, GridPoint> cell) =>
-            candidates.OrderByDescending(compoundCoverageGain).ThenByDescending(compoundGapReduction)
-                .ThenByDescending(rangedCompoundCoverageGain).ThenByDescending(spreadPreference)
+            candidates.OrderByDescending(reusesOuterFieldGate).ThenByDescending(compoundCoverageGain)
+                .ThenByDescending(compoundGapReduction).ThenByDescending(rangedCompoundCoverageGain)
+                .ThenByDescending(fieldFaceGain).ThenByDescending(spreadPreference)
                 .ThenByDescending(capacityGain).ThenByDescending(usefulArcGain)
                 .ThenByDescending(otherFrontGain).ThenByDescending(approachGain)
                 .ThenBy(addedCrossingCost).ThenBy(cell);
@@ -742,7 +779,7 @@ namespace RealisticBases.Planning
         }
 
         internal static int[] FieldGateCrossings(ProceduralLayout layout,
-            IEnumerable<P4BSallyPort> additionalPorts = null)
+            IEnumerable<P4BSallyPort> additionalPorts = null, bool? includeOuterGate = null)
         {
             int[] counts = new int[Directions.Length];
             P4BFieldWallPlan fieldWall = layout.FieldWall;
@@ -751,7 +788,9 @@ namespace RealisticBases.Planning
             int innerSide = SideIndex(new GridPoint(-compoundOutward.X, -compoundOutward.Z));
             int outerSide = SideIndex(compoundOutward);
             if (innerSide >= 0) counts[innerSide]++;
-            if (outerSide >= 0) counts[outerSide]++;
+            bool countOuterGate = includeOuterGate ?? (layout.ApproachDefense?.Posts.Any(post =>
+                IsOuterFieldGateNest(layout, post)) == true);
+            if (countOuterGate && outerSide >= 0) counts[outerSide]++;
             IEnumerable<P4BSallyPort> ports = (layout.ApproachDefense?.SallyPorts ?? new P4BSallyPort[0])
                 .Concat(fieldWall.AccessPorts)
                 .Concat(additionalPorts ?? Enumerable.Empty<P4BSallyPort>())
@@ -762,6 +801,21 @@ namespace RealisticBases.Planning
                 if (side >= 0) counts[side]++;
             }
             return counts;
+        }
+
+        private static bool IsOuterFieldGate(ProceduralLayout layout, GateOption gate)
+        {
+            P4BFieldWallPlan fieldWall = layout.FieldWall;
+            return fieldWall != null && gate.Field && gate.Port == null &&
+                gate.Cell.Equals(fieldWall.OuterGate) &&
+                gate.Outward.Equals(layout.Gates[fieldWall.GateIndex].Outward);
+        }
+
+        private static bool IsOuterFieldGateNest(ProceduralLayout layout, P4BPost post)
+        {
+            P4BFieldWallPlan fieldWall = layout.FieldWall;
+            return fieldWall != null && post.AccessGate.Equals(fieldWall.OuterGate) &&
+                post.Outward.Equals(layout.Gates[fieldWall.GateIndex].Outward);
         }
 
         internal static IReadOnlyList<string> ValidateGateCaps(ProceduralLayout layout)
@@ -854,10 +908,10 @@ namespace RealisticBases.Planning
             if (plan == null) return new[] { "missing_approach_defense" };
             List<string> errors = new List<string>();
             HashSet<GridPoint> opaque = Opaque(layout, input.Terrain);
-            opaque.UnionWith(layout.Turret?.All.SelectMany(t => t.Footprint) ?? new GridPoint[0]);
             HashSet<GridPoint> occupied = new HashSet<GridPoint>(opaque.Concat(layout.Enclosure)
                 .Concat(layout.JointSite?.Field.Points() ?? new GridPoint[0])
                 .Concat(layout.PowerYards.SelectMany(y => y.Cells)).Concat(layout.ExtraObstacles));
+            occupied.UnionWith(layout.Turret?.All.SelectMany(t => t.Footprint) ?? new GridPoint[0]);
             HashSet<GridPoint> cover = new HashSet<GridPoint>();
             HashSet<GridPoint> publicCells = new HashSet<GridPoint>(ProceduralLayoutValidator.PublicCirculation(input, layout)
                 .Except(layout.PowerYards.SelectMany(y => y.Cells)));
@@ -950,9 +1004,10 @@ namespace RealisticBases.Planning
                         .First().Equals(post.AccessGate));
                 P4BSallyPort fieldArrivalPort = plan.SallyPorts.FirstOrDefault(p => p.Field &&
                     p.Outer.Equals(post.AccessGate) && p.Outward.Equals(post.Outward));
+                bool fieldOuterGate = IsOuterFieldGateNest(layout, post);
                 if (post.Route.Skip(1).Where(arrival.Contains).Any(c =>
                     arrivalGate != null ? !IsArrivalCrossingCell(c, post.AccessGate, post.Outward, flank,
-                        new[] { arrivalGate }) : fieldArrivalPort == null ||
+                        new[] { arrivalGate }) : (!fieldOuterGate && fieldArrivalPort == null) ||
                         !IsFieldArrivalCrossingCell(c, post.AccessGate, post.Outward, arrival)) ||
                     post.Slots.Any(arrival.Contains))
                     errors.Add("perimeter_post_arrival_overlap");
@@ -1000,8 +1055,9 @@ namespace RealisticBases.Planning
         {
             P4BApproachDefensePlan plan = layout?.ApproachDefense;
             if (plan == null) return true;
+            HashSet<GridPoint> occupied = new HashSet<GridPoint>(turretFootprints ?? Enumerable.Empty<GridPoint>());
+            if (plan.Posts.Any(p => p.Slots.Concat(p.Route).Any(occupied.Contains))) return false;
             HashSet<GridPoint> opaque = Opaque(layout);
-            opaque.UnionWith(turretFootprints ?? Enumerable.Empty<GridPoint>());
             HashSet<GridPoint> firing = new HashSet<GridPoint>();
             foreach (P4BPost post in plan.Posts)
             {
