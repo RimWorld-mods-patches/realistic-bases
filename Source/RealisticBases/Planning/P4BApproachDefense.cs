@@ -143,6 +143,7 @@ namespace RealisticBases.Planning
     // Drop pods, sappers and future demolition can expose additional fronts.
     public static class P4BApproachDefensePlanner
     {
+        private const int AttackProbeColumnsPerSide = 16;
         public const int MaxCompoundGateCrossingsTotal = 12;
         public const int PreferredCompoundGateCrossingsPerSide = 3;
         public const int MaxFieldGateCrossingsPerSide = 1;
@@ -165,6 +166,11 @@ namespace RealisticBases.Planning
             internal int CompoundGain, GapReduction, RangedCompoundGain, ReusesOuterFieldGate, FieldGain;
             internal int SpreadPreference, CapacityGain;
             internal int UsefulArcGain, OtherFrontGain, ApproachGain, AddedCrossingCost;
+        }
+        private sealed class AttackCorner
+        {
+            internal int SideA, SideB;
+            internal GridPoint FaceA, FaceB, Cell, OutwardA, OutwardB;
         }
 
         public static HashSet<GridPoint> Opaque(ProceduralLayout layout, TerrainSnapshot terrain = null)
@@ -209,23 +215,83 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> builtWalls = new HashSet<GridPoint>(layout.BuiltWalls);
             HashSet<GridPoint> outerWalls = new HashSet<GridPoint>(layout.OuterWalls);
             HashSet<GridPoint> fieldWalls = new HashSet<GridPoint>(layout.FieldWall?.Walls ?? new GridPoint[0]);
+            HashSet<GridPoint> wallSupport = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.NaturalWalls)
+                .Concat(layout.OuterWalls).Concat(fieldWalls));
             int[] compoundGateCandidates = new int[Directions.Length];
             List<P4BAttackSide> exposed = new List<P4BAttackSide>();
+            List<GridPoint>[] sideFaces = new List<GridPoint>[Directions.Length];
+            List<GridPoint>[] sampleFaceColumns = new List<GridPoint>[Directions.Length];
+            List<List<GridPoint>>[] faceRuns = new List<List<GridPoint>>[Directions.Length];
             for (int direction = 0; direction < Directions.Length; direction++)
             {
                 GridPoint outward = Directions[direction], tangent = new GridPoint(-outward.Z, outward.X);
-                List<GridPoint> faces = perimeter.Where(c => !perimeter.Contains(At(c, outward, tangent, 1, 0)) &&
+                List<GridPoint> allSideFaces = perimeter.Where(c => !perimeter.Contains(At(c, outward, tangent, 1, 0)) &&
                     Enumerable.Range(1, 5).Any(k => interior.Contains(At(c, outward, tangent, -k, 0))))
                     .OrderBy(c => c.X * tangent.X + c.Z * tangent.Z).ThenBy(c => c).ToList();
+                sideFaces[direction] = allSideFaces;
+                sampleFaceColumns[direction] = allSideFaces
+                    .GroupBy(c => c.X * tangent.X + c.Z * tangent.Z)
+                    .Select(g => g.OrderByDescending(c => c.X * outward.X + c.Z * outward.Z).ThenBy(c => c).First())
+                    .OrderBy(c => c.X * tangent.X + c.Z * tangent.Z).ThenBy(c => c).ToList();
+                faceRuns[direction] = FaceRuns(sampleFaceColumns[direction], tangent);
+            }
+            List<AttackCorner>[] attackCorners = ConvexAttackCorners(sideFaces, faceRuns, reachable);
+            for (int direction = 0; direction < Directions.Length; direction++)
+            {
+                GridPoint outward = Directions[direction], tangent = new GridPoint(-outward.Z, outward.X);
+                List<GridPoint> faces = sideFaces[direction];
                 List<GridPoint> probes = new List<GridPoint>();
-                foreach (GridPoint face in Spread(faces, 12))
+                int cornerColumns = Math.Min(2, attackCorners[direction].Count);
+                int faceColumnBudget = Math.Max(faceRuns[direction].Count, AttackProbeColumnsPerSide - cornerColumns);
+                int[] runColumns = AllocateFaceColumns(faceRuns[direction], faceColumnBudget);
+                for (int runIndex = 0; runIndex < faceRuns[direction].Count; runIndex++)
+                foreach (GridPoint face in SpreadFaceRun(faceRuns[direction][runIndex], runColumns[runIndex]))
                     foreach (int forward in new[] { 6, 12, 20, 30, 40 })
-                        foreach (int lateral in new[] { -4, 0, 4 })
+                    {
+                        int fan = forward >= 30 ? forward / 2 : 4;
+                        foreach (int lateral in new[] { -fan, 0, fan })
                         {
                             GridPoint c = At(face, outward, tangent, forward, lateral);
                             if (reachable.Contains(c) && P4BFireLane.CanEngage(
-                                At(face, outward, tangent, 1, 0), c, 0, P4BCoverNest.ThreatRange, opaque)) probes.Add(c);
+                                At(face, outward, tangent, 1, 0), c, 0, P4BCoverNest.ThreatRange, opaque))
+                            {
+                                probes.Add(c);
+                            }
                         }
+                    }
+                foreach (AttackCorner corner in attackCorners[direction])
+                {
+                    GridPoint diagonal = new GridPoint(corner.OutwardA.X + corner.OutwardB.X,
+                        corner.OutwardA.Z + corner.OutwardB.Z);
+                    GridPoint perpendicular = new GridPoint(-diagonal.Z, diagonal.X);
+                    GridPoint face = corner.SideA == direction ? corner.FaceA : corner.FaceB;
+                    GridPoint origin = At(face, outward, tangent, 1, 0);
+                    foreach (int forward in new[] { 6, 12, 20, 30, 40 })
+                    {
+                        int distance = forward / 2;
+                        GridPoint center = new GridPoint(corner.Cell.X + diagonal.X * distance,
+                            corner.Cell.Z + diagonal.Z * distance);
+                        int fan = Math.Max(1, forward / 4);
+                        foreach (int lateral in new[] { -fan, 0, fan })
+                        {
+                            GridPoint c = new GridPoint(center.X + perpendicular.X * lateral,
+                                center.Z + perpendicular.Z * lateral);
+                            int fromCornerX = c.X - corner.Cell.X;
+                            int fromCornerZ = c.Z - corner.Cell.Z;
+                            int outwardA = fromCornerX * corner.OutwardA.X + fromCornerZ * corner.OutwardA.Z;
+                            int outwardB = fromCornerX * corner.OutwardB.X + fromCornerZ * corner.OutwardB.Z;
+                            int assignedSide = outwardA > outwardB ? corner.SideA : outwardB > outwardA ? corner.SideB :
+                                AttackSideTieOrder(corner.SideA) <= AttackSideTieOrder(corner.SideB)
+                                    ? corner.SideA : corner.SideB;
+                            if (direction != assignedSide) continue;
+                            if (reachable.Contains(c) && P4BFireLane.CanEngage(
+                                origin, c, 0, P4BCoverNest.ThreatRange, opaque))
+                            {
+                                probes.Add(c);
+                            }
+                        }
+                    }
+                }
                 int openGroundArea = 0;
                 if (faces.Count > 0)
                 {
@@ -359,7 +425,7 @@ namespace RealisticBases.Planning
                         !reinforcement.Contains(face) && Buildable(input.Terrain, face) &&
                         reachable.Contains(At(face, faceSide.Outward, across, 1, 0)) &&
                         Enumerable.Range(1, 2).SelectMany(offset => new[] { -offset, offset })
-                            .All(offset => perimeter.Contains(At(face, faceSide.Outward, across, 0, offset))))
+                            .All(offset => wallSupport.Contains(At(face, faceSide.Outward, across, 0, offset))))
                         .OrderBy(c => c))
                     {
                         GridPoint inside = At(face, faceSide.Outward, across, -1, 0);
@@ -520,10 +586,8 @@ namespace RealisticBases.Planning
                             int[] fieldCounts = FieldGateCrossings(layout, ports, includeOuterGate: true);
                             if (gateSide < 0 || fieldCounts[gateSide] > MaxFieldGateCrossingsPerSide) continue;
                         }
-                        // A door needs solid wall on both sides: no new port beside another door.
-                        if (gate.Port != null && doors.Concat(ports.Where(p => !p.Cell.Equals(gate.Port.Cell))
-                            .SelectMany(p => p.Doors)).Any(d => gate.Port.Doors.Any(portDoor =>
-                                Math.Abs(d.X - portDoor.X) <= 1 && Math.Abs(d.Z - portDoor.Z) <= 1))) continue;
+                        // Keep every port's two-cell wall flanks solid after adding another port.
+                        if (gate.Port != null && PortConflictsWithWallSupport(gate.Port, doors, ports)) continue;
 
                         foreach (int flank in new[] { -1, 1 })
                         {
@@ -816,6 +880,35 @@ namespace RealisticBases.Planning
             P4BFieldWallPlan fieldWall = layout.FieldWall;
             return fieldWall != null && post.AccessGate.Equals(fieldWall.OuterGate) &&
                 post.Outward.Equals(layout.Gates[fieldWall.GateIndex].Outward);
+        }
+
+        private static bool PortConflictsWithWallSupport(P4BSallyPort candidate,
+            IEnumerable<GridPoint> existingDoors, IEnumerable<P4BSallyPort> existingPorts)
+        {
+            List<P4BSallyPort> otherPorts = (existingPorts ?? Enumerable.Empty<P4BSallyPort>())
+                .Where(p => !p.Cell.Equals(candidate.Cell)).ToList();
+            HashSet<GridPoint> otherDoors = new HashSet<GridPoint>((existingDoors ?? Enumerable.Empty<GridPoint>())
+                .Concat(otherPorts.SelectMany(p => p.Doors)));
+            GridPoint tangent = new GridPoint(-candidate.Outward.Z, candidate.Outward.X);
+            for (int layer = 0; layer < candidate.Doors.Count; layer++)
+            {
+                GridPoint center = new GridPoint(candidate.Cell.X + layer * candidate.Outward.X,
+                    candidate.Cell.Z + layer * candidate.Outward.Z);
+                if (new[] { -2, -1, 1, 2 }.Any(offset => otherDoors.Contains(new GridPoint(
+                    center.X + offset * tangent.X, center.Z + offset * tangent.Z)))) return true;
+            }
+            foreach (P4BSallyPort port in otherPorts)
+            {
+                GridPoint portTangent = new GridPoint(-port.Outward.Z, port.Outward.X);
+                for (int layer = 0; layer < port.Doors.Count; layer++)
+                {
+                    GridPoint center = new GridPoint(port.Cell.X + layer * port.Outward.X,
+                        port.Cell.Z + layer * port.Outward.Z);
+                    if (new[] { -2, -1, 1, 2 }.Any(offset => candidate.Doors.Contains(new GridPoint(
+                        center.X + offset * portTangent.X, center.Z + offset * portTangent.Z)))) return true;
+                }
+            }
+            return false;
         }
 
         internal static IReadOnlyList<string> ValidateGateCaps(ProceduralLayout layout)
@@ -1223,6 +1316,97 @@ namespace RealisticBases.Planning
                 }
             }
             return longest;
+        }
+
+        private static List<List<GridPoint>> FaceRuns(List<GridPoint> faces, GridPoint tangent)
+        {
+            List<List<GridPoint>> runs = new List<List<GridPoint>>();
+            List<GridPoint> current = null;
+            int last = int.MinValue;
+            foreach (GridPoint face in faces.OrderBy(c => c.X * tangent.X + c.Z * tangent.Z).ThenBy(c => c))
+            {
+                int position = face.X * tangent.X + face.Z * tangent.Z;
+                if (current == null || position != last + 1)
+                {
+                    current = new List<GridPoint>();
+                    runs.Add(current);
+                }
+                current.Add(face);
+                last = position;
+            }
+            return runs;
+        }
+
+        private static int AttackSideTieOrder(int sideIndex)
+        {
+            switch (Names[sideIndex])
+            {
+                case "north": return 0;
+                case "east": return 1;
+                case "south": return 2;
+                default: return 3;
+            }
+        }
+
+        private static int[] AllocateFaceColumns(List<List<GridPoint>> runs, int budget)
+        {
+            if (runs.Count == 0) return new int[0];
+            int[] columns = Enumerable.Repeat(1, runs.Count).ToArray();
+            int remaining = Math.Max(0, Math.Max(budget, runs.Count) - runs.Count);
+            int totalLength = runs.Sum(run => run.Count);
+            double[] fractions = new double[runs.Count];
+            int allocated = 0;
+            for (int i = 0; i < runs.Count; i++)
+            {
+                double share = (double)remaining * runs[i].Count / totalLength;
+                int whole = (int)Math.Floor(share);
+                columns[i] += whole;
+                fractions[i] = share - whole;
+                allocated += whole;
+            }
+            foreach (int i in Enumerable.Range(0, runs.Count)
+                .OrderByDescending(index => fractions[index]).ThenBy(index => index).Take(remaining - allocated))
+                columns[i]++;
+            return columns;
+        }
+
+        private static IEnumerable<GridPoint> SpreadFaceRun(List<GridPoint> cells, int count)
+        {
+            if (cells.Count <= count) return cells;
+            if (count <= 1) return new[] { cells[(cells.Count - 1) / 2] };
+            return Enumerable.Range(0, count).Select(i => cells[i * (cells.Count - 1) / (count - 1)]);
+        }
+
+        private static List<AttackCorner>[] ConvexAttackCorners(List<GridPoint>[] sideFaces,
+            List<List<GridPoint>>[] faceRuns, HashSet<GridPoint> reachable)
+        {
+            List<AttackCorner>[] corners = Enumerable.Range(0, sideFaces.Length)
+                .Select(_ => new List<AttackCorner>()).ToArray();
+            for (int sideA = 0; sideA < sideFaces.Length; sideA++)
+            {
+                int sideB = (sideA + 1) % sideFaces.Length;
+                if (faceRuns[sideA].Count == 0 || faceRuns[sideB].Count == 0) continue;
+                GridPoint outwardA = Directions[sideA], outwardB = Directions[sideB];
+                GridPoint tangentA = new GridPoint(-outwardA.Z, outwardA.X);
+                GridPoint tangentB = new GridPoint(-outwardB.Z, outwardB.X);
+                GridPoint faceA = faceRuns[sideA].SelectMany(run => new[] { run[0], run[run.Count - 1] })
+                    .OrderByDescending(c => c.X * tangentA.X + c.Z * tangentA.Z).ThenBy(c => c).First();
+                GridPoint faceB = faceRuns[sideB].SelectMany(run => new[] { run[0], run[run.Count - 1] })
+                    .OrderBy(c => c.X * tangentB.X + c.Z * tangentB.Z).ThenBy(c => c).First();
+                if (Math.Abs(faceA.X - faceB.X) > 2 || Math.Abs(faceA.Z - faceB.Z) > 2) continue;
+                GridPoint cell = new GridPoint((faceA.X + faceB.X) / 2, (faceA.Z + faceB.Z) / 2);
+                GridPoint diagonal = new GridPoint(outwardA.X + outwardB.X, outwardA.Z + outwardB.Z);
+                GridPoint beyondCorner = new GridPoint(cell.X + diagonal.X, cell.Z + diagonal.Z);
+                if (!reachable.Contains(beyondCorner)) continue;
+                AttackCorner corner = new AttackCorner
+                {
+                    SideA = sideA, SideB = sideB, FaceA = faceA, FaceB = faceB, Cell = cell,
+                    OutwardA = outwardA, OutwardB = outwardB
+                };
+                corners[sideA].Add(corner);
+                corners[sideB].Add(corner);
+            }
+            return corners;
         }
 
         private static IEnumerable<GridPoint> Spread(List<GridPoint> cells, int count) => cells.Count <= count
