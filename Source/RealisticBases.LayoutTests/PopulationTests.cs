@@ -6,6 +6,16 @@ internal static partial class Program
 {
     private static void OrdinaryPopulationBudgets()
     {
+        Equal(16, OrdinarySettlementPopulation.P4EMaxDefenseCrossings, "twelve compound plus four field crossings");
+        Equal(1100, OrdinarySettlementPopulation.P4ETurretImportReservePercent, "approved wealth ceiling");
+        Equal(3300, OrdinarySettlementPopulation.EstimateDefenseReserveWatts(
+            TechStageModel.Create(SettlementTechStageLevel.IndustrialMid)), "T5a mid-stage power reserve");
+        Equal(4000, OrdinarySettlementPopulation.EstimateDefenseReserveWatts(
+            TechStageModel.Create(SettlementTechStageLevel.IndustrialLate)), "T5a late-stage power reserve");
+        Equal(120352, OrdinarySettlementPopulation.EstimateDefenseImportValue(
+            TechStageModel.Create(SettlementTechStageLevel.IndustrialMid)), "full mid-stage composition import including cover");
+        Equal(166240, OrdinarySettlementPopulation.EstimateDefenseImportValue(
+            TechStageModel.Create(SettlementTechStageLevel.IndustrialLate)), "full late-stage composition import including cover");
         foreach (PhysicalSettlementProfile profile in new[] { P2ProfileCatalog.IndustrialTemperate, P2ProfileCatalog.TribalTemperate })
         foreach (SettlementTechStageLevel level in Enum.GetValues(typeof(SettlementTechStageLevel)))
         foreach (LayoutClimate climate in new[] { Temperate, Cold, Hot })
@@ -30,8 +40,18 @@ internal static partial class Program
             OrdinarySettlementBudget average = OrdinarySettlementPopulation.Create(profile, stage, climate, 100);
             Equal(7, average.Residents, "normal wealth supports seven");
             Equal(profile.Budget.ImportValueLimit, average.BaseImportValue, "normal wealth retains base import budget");
-            Equal((int)Math.Round(average.BaseImportValue * average.DefenseAllowancePercent / 100.0, MidpointRounding.AwayFromZero),
-                average.ImportValue, "named ordinary defense allowance is separate from population");
+            bool industrialDefense = profile.Has(SettlementCapability.Electricity) &&
+                stage.Level >= SettlementTechStageLevel.IndustrialMid;
+            int fullDefenseReserve = industrialDefense ? OrdinarySettlementPopulation.EstimateDefenseImportValue(stage) : 0;
+            int defenseReserve = Math.Min(fullDefenseReserve,
+                (int)Math.Round(average.BaseImportValue * OrdinarySettlementPopulation.P4ETurretImportReservePercent /
+                    100.0, MidpointRounding.AwayFromZero));
+            Equal(defenseReserve, average.DefenseImportReserveValue, "turret imports reserve up front within the approved wealth cap");
+            Equal((int)Math.Round(average.BaseImportValue * average.DefenseAllowancePercent / 100.0,
+                MidpointRounding.AwayFromZero) + defenseReserve, average.ImportValue,
+                "ordinary import allowance and battery reserve are both included");
+            Equal(industrialDefense ? OrdinarySettlementPopulation.EstimateDefenseReserveWatts(stage) : 0, average.DefenseReserveWatts,
+                "dispatchable reserve matches maximum crossing composition for tech stage");
             Equal(4, OrdinarySettlementPopulation.Create(profile, stage, climate, 60).Residents, "poor supports four");
             Equal(12, OrdinarySettlementPopulation.Create(profile, stage, climate, 180).Residents, "rich capped at twelve");
         }
@@ -76,11 +96,25 @@ internal static partial class Program
             Equal(budget.Residents, requirements.Residents, "requirements use affordable roster");
             Equal(budget.EquipmentValue, requirements.EquipmentValueLimit, "no replacement equipment allowance");
             Equal(budget.ImportValue, requirements.ImportValueLimit, "shared wealth applies to import allowance");
+            Equal(budget.DefenseImportReserveValue, requirements.DefenseImportReserveValue,
+                "requirements carry the battery import reserve separately");
+            Equal(budget.ImportValue - budget.DefenseImportReserveValue, requirements.BaseImportValueLimit,
+                "base materials cannot spend the turret import reserve");
             Equal((int)Math.Ceiling(budget.Residents * profile.DailyNutritionPerResident /
                 profile.EffectiveNutritionPerCropCellPerDay), requirements.FieldCells, "crop demand covers actual population");
             ProceduralLayoutInput input = Input(Plains(180), requirements, 1, new LayoutFortificationReservation(1));
             ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
             Accepted(result);
+            if (budget.DefenseReserveWatts > 0)
+            {
+                True(result.Layout.Power != null, "electrified population layout keeps a power plan");
+                Equal(budget.DefenseReserveWatts, result.Layout.Power.DefenseReserveWatts,
+                    "power plan retains the stage's full-crossing battery reserve");
+            }
+            else True(result.Layout.Power == null || result.Layout.Power.DefenseReserveWatts == 0,
+                "primitive layouts do not reserve turret generator watts");
+            True(result.Layout.Materials.OrdinaryImportValue <=
+                requirements.BaseImportValueLimit, "base materials leave the turret import reserve available");
             Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count, "complete final joint-site layout");
             Equal(1, result.Layout.Corridors.Count(c => c.Main), "one principal street, with a retained field branch");
             Equal(budget.Residents, result.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.Bed), "bed for every resident");
@@ -90,7 +124,9 @@ internal static partial class Program
             Equal(budget.Residents, loadout.Residents.Count, "one equipment kit per resident");
             Equal(0, ProceduralLayoutValidator.ValidateLoadout(input, result.Layout, loadout).Count, "finite legal population equipment");
             Console.WriteLine("  ordinary population " + profile.Id + " wealth=" + wealth + " residents=" + budget.Residents +
-                " equipment=" + budget.EquipmentValue + " imports=" + budget.ImportValue + " fields=" + result.Layout.FieldWall.Fields.Count);
+                " equipment=" + budget.EquipmentValue + " imports=" + budget.ImportValue + " fields=" + result.Layout.FieldWall.Fields.Count +
+                " powerReserve=" + (result.Layout.Power?.DefenseReserveWatts ?? 0) + " generators=" + (result.Layout.Power?.Generators ?? 0) +
+                " defenseGenerators=" + (result.Layout.Power?.DefenseGenerators ?? 0) + " batteries=" + (result.Layout.Power?.Batteries ?? 0));
         }
     }
 

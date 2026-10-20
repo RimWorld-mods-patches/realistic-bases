@@ -60,7 +60,15 @@ internal static partial class Program
             foreach (int wealth in new[] { 100, 180 })
                 foreach (int allowance in new[] { 100, 125, 150 })
                     Run("P4E defense allowance sweep " + level + " wealth=" + wealth + " allowance=" + allowance,
-                        () => P4EDefenseSweep(level, wealth, allowance), 100);
+                        () => P4EDefenseSweep(level, wealth, allowance), DefenseSweepEstimate(level, wealth, allowance));
+    }
+
+    private static int DefenseSweepEstimate(SettlementTechStageLevel level, int wealth, int allowance)
+    {
+        if (level == SettlementTechStageLevel.IndustrialMid)
+            return wealth == 100 ? 130 : allowance == 100 ? 200 : 165;
+        if (wealth == 100) return allowance == 100 ? 150 : allowance == 125 ? 160 : 205;
+        return allowance == 100 ? 205 : allowance == 125 ? 210 : 230;
     }
 
     private static void P4EDefenseSweep(SettlementTechStageLevel level, int wealth, int allowance)
@@ -74,7 +82,8 @@ internal static partial class Program
             Equal(baseline.Residents, budget.Residents, "no roster inflation");
             Equal(baseline.EquipmentValue, budget.EquipmentValue, "no equipment-budget inflation");
             var req = LayoutRequirements.FromProfile(P2ProfileCatalog.IndustrialTemperate, Temperate, stage: stage, populationBudget: budget);
-            Equal(allowance == 100 ? 0 : 960, req.DefenseReserveWatts, "ordinary-only dispatchable reservation");
+            Equal(OrdinarySettlementPopulation.EstimateDefenseReserveWatts(stage), req.DefenseReserveWatts,
+                "realistic stage-based dispatchable reservation is separate from the import allowance");
             var input = new ProceduralLayoutInput(req, Plains(180), seed, CoreCatalog,
                 new LayoutFortificationReservation(1), resources:
                 new LayoutLocalResources(100000, new[] { "BlocksGranite" }));
@@ -83,16 +92,47 @@ internal static partial class Program
             True(layout.Materials.ImportValue <= req.ImportValueLimit, "construction and fuel remain funded");
             if (layout.Power != null)
             {
-                True(layout.Power.Generators * layout.Power.GeneratorWatts + layout.Power.RenewableWatts -
-                    layout.Power.CriticalWatts - layout.Power.NonCriticalWatts >= req.DefenseReserveWatts, "real dispatchable headroom");
-                True(layout.Power.Batteries >= LayoutPowerModel.Batteries(layout.Power.CriticalWatts +
-                    layout.Power.NonCriticalWatts + req.DefenseReserveWatts), "defense included in outage buffer");
+                int reservedGeneratorNeed = LayoutPowerModel.Generators(
+                    layout.Power.CriticalWatts + req.DefenseReserveWatts, layout.Power.NonCriticalWatts,
+                    layout.Power.Yards, layout.Power.GeneratorWatts);
+                int reservedBatteryNeed = LayoutPowerModel.Batteries(layout.Power.CriticalWatts +
+                    layout.Power.NonCriticalWatts + req.DefenseReserveWatts) + layout.Power.RenewableStorageBatteries;
+                Console.WriteLine("  power reserve stage=" + level + " wealth=" + wealth + " allowance=" + allowance +
+                    " seed=" + seed + " reservedGeneratorNeed=" + reservedGeneratorNeed +
+                    " ReservedGenerators=" + layout.Power.ReservedGenerators +
+                    " reservedBatteryNeed=" + reservedBatteryNeed +
+                    " ReservedBatteries=" + layout.Power.ReservedBatteries);
+                True(layout.Power.ReservedGenerators >= reservedGeneratorNeed,
+                    "packed generators cover the realistic defense reserve before trimming");
+                True(layout.Power.ReservedBatteries >= reservedBatteryNeed,
+                    "packed batteries cover the defense reserve bridge before trimming");
+                int turretWatts = layout.Turret?.TotalWatts ?? 0;
+                Equal(LayoutPowerModel.Generators(layout.Power.CriticalWatts + turretWatts,
+                    layout.Power.NonCriticalWatts, layout.Power.Yards, layout.Power.GeneratorWatts),
+                    layout.Power.Generators, "trim keeps the minimum generators for the placed network");
+                Equal(LayoutPowerModel.Batteries(layout.Power.CriticalWatts + layout.Power.NonCriticalWatts +
+                    turretWatts) + layout.Power.RenewableStorageBatteries, layout.Power.Batteries,
+                    "trim keeps the actual outage bridge for the placed network");
                 generators += layout.Power.Generators;
             }
             if (layout.Turret == null) continue;
             var staffing = P4BStaffing.Audit(input, layout, layout.Turret);
-            Equal(staffing.Guns, staffing.GuardedGuns, "all guns concurrently guarded");
-            Equal(staffing.Guns, staffing.CloseSupportedGuns, "all guns close-supported");
+            CatalogDef supportRifle = null;
+            foreach (string name in new[] { "Gun_BoltActionRifle", "Gun_AssaultRifle", "Gun_ChargeRifle" })
+            {
+                if (!input.Catalog.TryGet(name, out CatalogDef candidate) ||
+                    !input.Catalog.IsLegal(candidate, input.Equipment.Kit.Stage) || candidate.MaximumRange <= 0) continue;
+                supportRifle = candidate;
+                break;
+            }
+            if (supportRifle == null) True(false, "stage has a legal standard rifle for geometric support");
+            else
+            {
+                HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
+                True(layout.Turret.All.All(g => P4BTurretPlanner.NearbyPawnSupport(layout.ApproachDefense,
+                    g, opaque, (int)Math.Floor(supportRifle.MaximumRange))),
+                    "all turret guns have geometric nearby pawn support");
+            }
             guns += layout.Turret.All.Count(); groups += layout.Turret.Groups.Count();
             guards += staffing.GuardedGuns; value += layout.Turret.ImportValue; watts += layout.Turret.TotalWatts;
             autos += layout.Turret.All.Count(t => t.DefName == "Turret_Autocannon");

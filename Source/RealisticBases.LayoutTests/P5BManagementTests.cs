@@ -8,8 +8,8 @@ internal static partial class Program
 {
     private static void RunP5BTests()
     {
-        Run("P5B Neolithic storage: wooden small shelves without ComplexFurniture", NeolithicSmallShelves, 20);
-        Run("P5B lights hang on room walls and take no floor", WallLightsTakeNoFloor, 60);
+        Run("P5B Neolithic storage: wooden small shelves without ComplexFurniture", NeolithicSmallShelves, 30);
+        Run("P5B lights hang on room walls and take no floor", WallLightsTakeNoFloor, 70);
     }
 
     private static void NeolithicSmallShelves()

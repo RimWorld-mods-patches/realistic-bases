@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
@@ -229,7 +230,7 @@ namespace RealisticBases.Integration
                 Map.GetComponent<P4DMapState>().Clear();
             });
             controller.Initialize(Site, layout.Gates.Select(g => g.Cell)
-                .Concat(layout.ApproachDefense?.SallyPorts.Select(p => p.Cell) ?? new GridPoint[0]),
+                .Concat(layout.ApproachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? new GridPoint[0]),
                 encounter, Roster, tx.OwnedThings.Concat(Roster).Concat(Loot), artillery.FirstOrDefault(), combatStocks,
                 P4ProceduralSpawner.PerimeterSegments(layout, encounter.SupportCenter),
                 layout.Enclosure, compoundRegion: layout.Enclosure, artillery: artillery);
@@ -339,16 +340,26 @@ namespace RealisticBases.Integration
             Runs.Add(map, context);
             try
             {
+                Stopwatch captureWatch = Stopwatch.StartNew();
                 context.Prepare();
                 var stage = TechStageModel.Create(map.ParentFaction.def.techLevel >= TechLevel.Industrial
                     ? SettlementTechStageLevel.IndustrialMid : SettlementTechStageLevel.Neolithic);
                 TechCatalog catalog = P4ARuntimeCatalog.Capture();
-                var input = new ProceduralLayoutInput(context.Contract.Requirements(stage, P4AMapPlanner.CaptureClimate(map), catalog),
-                    P1MapPlanner.Capture(map), context.Contract.Seed, catalog,
-                    resources: P4AMapPlanner.CaptureResources(map), questContract: context.Contract);
+                LayoutRequirements requirements = context.Contract.Requirements(stage,
+                    P4AMapPlanner.CaptureClimate(map), catalog);
+                TerrainSnapshot terrain = P1MapPlanner.Capture(map);
+                LayoutLocalResources resources = P4AMapPlanner.CaptureResources(map);
+                captureWatch.Stop();
+                Stopwatch planningWatch = Stopwatch.StartNew();
+                var input = new ProceduralLayoutInput(requirements, terrain, context.Contract.Seed, catalog,
+                    resources: resources, questContract: context.Contract,
+                    plannerDegree: ProceduralLayoutInput.DefaultPlannerDegree);
                 var result = ProceduralLayoutPlanner.Plan(input);
+                planningWatch.Stop();
                 if (!result.Success) throw new InvalidOperationException("quest_layout:" + P4AMapPlanner.RejectionSummary(result));
-                if (!P4ProceduralSpawner.TrySpawn(map, context.Site, new P4AMapPlanningRun(input, result, context.Contract.Strategy.Id),
+                if (!P4ProceduralSpawner.TrySpawn(map, context.Site, new P4AMapPlanningRun(input, result,
+                    context.Contract.Strategy.Id, captureMilliseconds: captureWatch.ElapsedMilliseconds,
+                    planningMilliseconds: planningWatch.ElapsedMilliseconds),
                     out string failure, quest: context)) throw new InvalidOperationException(failure);
                 P4DQuestDebugActions.Log("QUEST_COMMIT", "site=" + context.Site.ID + " strategy=" + context.Contract.Strategy.Id +
                     " layout=" + result.Layout.Digest + " defenders=" + context.Roster.Count + " nativeOutpostSuppressed=true");

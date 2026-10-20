@@ -175,7 +175,8 @@ namespace RealisticBases.Planning
             IEnumerable<KeyValuePair<LayoutRoomKind, int>> capacityFloors = null, SettlementTechStage stage = null, int importValueLimit = -1,
             int equipmentValueLimit = -1, int stockpileRoomCapacityTarget = 0, bool compactQuestCamp = false,
             int defenseReserveWatts = 0, int logisticsUtilityValueLimit = 0, int saleStorageStacks = 0, int salePerishableStacks = 0,
-            int retainedStorageStacks = 0, int retainedPerishableStacks = 0, int questArtillery = 0)
+            int retainedStorageStacks = 0, int retainedPerishableStacks = 0, int questArtillery = 0,
+            int defenseImportReserveValue = 0, int baseImportValueLimit = -1)
         {
             if (saleStorageStacks < 0 || salePerishableStacks < 0 || retainedStorageStacks < 0 || retainedPerishableStacks < 0 ||
                 compactQuestCamp && (saleStorageStacks + salePerishableStacks + retainedStorageStacks + retainedPerishableStacks > 0))
@@ -193,6 +194,8 @@ namespace RealisticBases.Planning
             CompactQuestCamp = compactQuestCamp;
             if (defenseReserveWatts < 0) throw new ArgumentOutOfRangeException(nameof(defenseReserveWatts));
             DefenseReserveWatts = defenseReserveWatts;
+            if (defenseImportReserveValue < 0) throw new ArgumentOutOfRangeException(nameof(defenseImportReserveValue));
+            DefenseImportReserveValue = defenseImportReserveValue;
             if (questArtillery < 0 || questArtillery > 0 && !compactQuestCamp) throw new ArgumentOutOfRangeException(nameof(questArtillery));
             QuestArtillery = questArtillery;
             if (logisticsUtilityValueLimit < 0 || compactQuestCamp && logisticsUtilityValueLimit != 0)
@@ -214,6 +217,9 @@ namespace RealisticBases.Planning
             CapacityFloors = new ReadOnlyDictionary<LayoutRoomKind, int>(floors);
             Stage = stage ?? DefaultStage(capabilities);
             ImportValueLimit = importValueLimit >= 0 ? importValueLimit : DefaultImportValueLimit(capabilities);
+            BaseImportValueLimit = baseImportValueLimit >= 0 ? baseImportValueLimit :
+                Math.Max(0, ImportValueLimit - DefenseImportReserveValue);
+            if (BaseImportValueLimit > ImportValueLimit) throw new ArgumentOutOfRangeException(nameof(baseImportValueLimit));
             EquipmentValueLimit = equipmentValueLimit >= 0 ? equipmentValueLimit : DefaultEquipmentValueLimit(residents, Stage, climate);
             StockpileRoomCapacityTarget = stockpileRoomCapacityTarget;
             Digest = ComputeDigest();
@@ -238,6 +244,7 @@ namespace RealisticBases.Planning
         public int Residents { get; }
         public bool CompactQuestCamp { get; }
         public int DefenseReserveWatts { get; }
+        public int DefenseImportReserveValue { get; }
         // A quest camp's advertised mortars: exactly this many courts, crewed
         // by the quest's own roster.
         public int QuestArtillery { get; }
@@ -253,6 +260,8 @@ namespace RealisticBases.Planning
         public SettlementTechStage Stage { get; }
         // Wood imports beyond this market value reject with material_budget_exceeded.
         public int ImportValueLimit { get; }
+        // Material planning cannot consume the portion reserved for optional turret batteries.
+        public int BaseImportValueLimit { get; }
         // Resident gear, armoury and medicine/component stocks beyond this market value degrade, then reject.
         public int EquipmentValueLimit { get; }
         // Zero retains the historical split policy; positive values prefer
@@ -314,10 +323,13 @@ namespace RealisticBases.Planning
                 mortarBiasPercent ?? (electric ? 50 : 0), 60 + residents * (electric ? 70 : 35), fieldCells, floors, resolved,
                 populationBudget?.ImportValue ?? profile.Budget.ImportValueLimit, equipment,
                 stockpileRoomCapacityTarget: populationBudget == null ? 0 : StockpileRoomStacksTarget,
-                defenseReserveWatts: populationBudget?.DefenseAllowancePercent > 100 ? OrdinarySettlementPopulation.P4EDefenseReserveWatts : 0,
+                defenseReserveWatts: populationBudget?.DefenseReserveWatts ?? 0,
                 logisticsUtilityValueLimit: populationBudget?.DefenseAllowancePercent > 100 ? 300 : 0,
                 saleStorageStacks: saleStorageStacks, salePerishableStacks: salePerishableStacks,
-                retainedStorageStacks: retainedStorageStacks, retainedPerishableStacks: retainedPerishableStacks);
+                retainedStorageStacks: retainedStorageStacks, retainedPerishableStacks: retainedPerishableStacks,
+                defenseImportReserveValue: populationBudget?.DefenseImportReserveValue ?? 0,
+                baseImportValueLimit: populationBudget == null ? profile.Budget.ImportValueLimit :
+                    populationBudget.ImportValue - populationBudget.DefenseImportReserveValue);
         }
 
         private static bool TryMap(FacilityKind kind, out LayoutRoomKind result)
@@ -355,6 +367,8 @@ namespace RealisticBases.Planning
             }
             hash = StableHash.Add(hash, Stage.Digest);
             hash = StableHash.Add(hash, ImportValueLimit);
+            hash = StableHash.Add(hash, BaseImportValueLimit);
+            if (DefenseImportReserveValue > 0) hash = StableHash.Add(hash, DefenseImportReserveValue);
             hash = StableHash.Add(hash, EquipmentValueLimit);
             if (DefenseReserveWatts > 0) hash = StableHash.Add(hash, DefenseReserveWatts);
             if (LogisticsUtilityValueLimit > 0) hash = StableHash.Add(hash, LogisticsUtilityValueLimit);
@@ -454,8 +468,9 @@ namespace RealisticBases.Planning
 
         public ProceduralLayoutInput(LayoutRequirements requirements, TerrainSnapshot terrain, ulong seed, TechCatalog catalog,
             LayoutFortificationReservation fortification = null, LayoutSearchBudget budget = null, LayoutLocalResources resources = null,
-            P4DQuestContract questContract = null, ILayoutEngine engine = null)
+            P4DQuestContract questContract = null, ILayoutEngine engine = null, int plannerDegree = 1)
         {
+            if (plannerDegree < 1 || plannerDegree > 8) throw new ArgumentOutOfRangeException(nameof(plannerDegree));
             Engine = engine ?? ClustersLayoutEngine.Instance;
             Requirements = requirements ?? throw new ArgumentNullException(nameof(requirements));
             QuestContract = questContract;
@@ -464,6 +479,7 @@ namespace RealisticBases.Planning
             Terrain = terrain ?? throw new ArgumentNullException(nameof(terrain));
             Catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             Seed = seed;
+            PlannerDegree = plannerDegree;
             Fortification = fortification ?? new LayoutFortificationReservation();
             Budget = budget ?? LayoutSearchBudget.ForPopulation(requirements.Residents);
             Resources = resources ?? LayoutLocalResources.Default;
@@ -476,6 +492,9 @@ namespace RealisticBases.Planning
         public TerrainSnapshot Terrain { get; }
         public TechCatalog Catalog { get; }
         public ulong Seed { get; }
+        // Degree is execution policy, not plan input: it must not alter the digest.
+        public int PlannerDegree { get; }
+        public const int DefaultPlannerDegree = 1;
         public LayoutFortificationReservation Fortification { get; }
         public LayoutSearchBudget Budget { get; }
         public LayoutLocalResources Resources { get; }
@@ -587,6 +606,7 @@ namespace RealisticBases.Planning
     {
         public const int MinInterior = 3;
         public const int MaxInterior = 12;
+        public const int MaxPowerInteriorLength = 24;
         public const int MaxBarracksBeds = 8;
         public const int MaxSplit = 8;
         public const int MaxSizesPerRoom = 6;
@@ -662,20 +682,24 @@ namespace RealisticBases.Planning
             {
                 // Dispatchable-only worst case; the power room's own draw is part of the load it must cover.
                 int reserve = requirements.DefenseReserveWatts;
+                // Pack generator and battery space for the full defense allowance;
+                // finalization trims both to the network that fits.
                 int batteries = LayoutPowerModel.Batteries(load + reserve);
                 // MaxSplit limits room splitting, not the number of generators
                 // one legal power room can hold. Use a physical area bound;
                 // furnishing still enforces batteries, working cells and aisles.
-                int maximumGenerators = MaxInterior * MaxInterior / Math.Max(1, kit.Generator.SizeX * kit.Generator.SizeZ);
+                int maximumGenerators = MaxInterior * MaxPowerInteriorLength /
+                    Math.Max(1, kit.Generator.SizeX * kit.Generator.SizeZ);
                 for (int generators = Math.Max(1, Ceil(load + reserve, kit.GeneratorWatts)); generators <= maximumGenerators; generators++)
                 {
                     LayoutRoomDemand power = BuildPowerRoom(requirements, kit, generators, batteries, roomSeed);
                     if (power == null) { rejections.Add("room_demand_exceeds_legal_dimensions:Power:" + generators); break; }
                     int total = load + reserve + MaxLoad(power, requirements, kit);
-                    if (LayoutPowerModel.Batteries(total) > batteries)
+                    int bridgeLoad = load + reserve + MaxLoad(power, requirements, kit);
+                    if (LayoutPowerModel.Batteries(bridgeLoad) > batteries)
                     {
-                        // The bridge also covers the power room's own draw.
-                        batteries = LayoutPowerModel.Batteries(total);
+                        // Pack the full bridge, then trim it to the selected network.
+                        batteries = LayoutPowerModel.Batteries(bridgeLoad);
                         power = BuildPowerRoom(requirements, kit, generators, batteries, roomSeed);
                         if (power == null) { rejections.Add("room_demand_exceeds_legal_dimensions:Power:" + generators); break; }
                         total = load + reserve + MaxLoad(power, requirements, kit);
@@ -728,9 +752,11 @@ namespace RealisticBases.Planning
             int batteries = 0)
         {
             List<GridRect> legal = new List<GridRect>();
-            for (int w = MinInterior; w <= MaxInterior; w++)
-                for (int h = MinInterior; h <= MaxInterior; h++)
+            int maxLength = kind == LayoutRoomKind.Power ? MaxPowerInteriorLength : MaxInterior;
+            for (int w = MinInterior; w <= maxLength; w++)
+                for (int h = MinInterior; h <= maxLength; h++)
                 {
+                    if (Math.Min(w, h) > MaxInterior) continue;
                     LayoutFurnishResult result = LayoutFurnishing.Furnish(kind, w, h, (w + 1) / 2, capacity, FurnishContext(kit, requirements, false, null, batteries));
                     if (result.Success) legal.Add(new GridRect(0, 0, w, h));
                 }

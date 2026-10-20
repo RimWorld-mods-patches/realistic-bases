@@ -18,6 +18,7 @@ namespace RealisticBases.Planning
             Route = new ReadOnlyCollection<GridPoint>(route.ToList());
             Slots = new ReadOnlyCollection<GridPoint>(slots.ToList());
             CoverCells = P4BAttackSide.Copy(cover);
+            CoverCellsSet = new HashSet<GridPoint>(CoverCells);
             WallReturn = wallReturn;
             if (Slots.Count == 0) throw new ArgumentException("A post needs a slot");
         }
@@ -28,6 +29,7 @@ namespace RealisticBases.Planning
         public IReadOnlyList<GridPoint> Route { get; }
         public IReadOnlyList<GridPoint> Slots { get; }
         public IReadOnlyList<GridPoint> CoverCells { get; }
+        internal HashSet<GridPoint> CoverCellsSet { get; }
         // A wall closing the far end of the row against the perimeter, kept
         // only where that cell faces no threat; otherwise it is cover.
         public GridPoint? WallReturn { get; }
@@ -126,8 +128,9 @@ namespace RealisticBases.Planning
             for (int n = Math.Min(MaxSlots, maxSlots); n >= 1; n--)
             {
                 List<GridPoint> slots = route.Skip(3).Take(n).ToList();
-                if (route.Skip(1).Take(2 + n).Any(c => !open(c)) || slots.Any(c => !useful(c)) ||
-                    Enumerable.Range(1, n).Any(l => !wall(Local(gate, outward, flank, 0, l)))) continue;
+                if (route.Skip(1).Take(2 + n).Any(c => !open(c))) continue;
+                if (slots.Any(c => !useful(c))) continue;
+                if (Enumerable.Range(1, n).Select(l => Local(gate, outward, flank, 0, l)).Any(c => !wall(c))) continue;
                 HashSet<GridPoint> cover = RequiredCover(gate, outward, flank, slots, threats, wall);
                 if (cover.Count == 0 || cover.Any(c => !coverable(c))) continue;
                 // The open gate axis beyond the route is optional cover: built

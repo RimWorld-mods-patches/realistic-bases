@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using LudeonTK;
+using RealisticBases.AI;
 using RealisticBases.Core;
 using RealisticBases.Integration;
 using RealisticBases.Planning;
@@ -37,6 +38,56 @@ namespace RealisticBases.Diagnostics
         [DebugAction(Category, "Start P5 three-day routine probe", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
         public static void Routine() => CurrentSettlement().Map.GetComponent<P5RoutineProbe>().Start();
+        [DebugAction(Category, "Start P5 one-day routine probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void RoutineOneDay() => CurrentSettlement().Map.GetComponent<P5RoutineProbe>().StartOneDay();
+        [DebugAction(Category, "P5 advance generators to auto-refuel threshold", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void AdvanceGeneratorsToAutoRefuelThreshold()
+        {
+            Settlement settlement = CurrentSettlement();
+            Map map = settlement.Map;
+            P3GarrisonController controller = map.GetComponent<P3GarrisonController>();
+            if (map.GetComponent<P5RoutineProbe>()?.Running != true)
+                throw new InvalidOperationException("Start the P5 routine probe before preparing the refuel threshold");
+            var generators = controller.P5OwnedThings.Where(t => t.Spawned &&
+                t.TryGetComp<CompPowerPlant>() != null && t.TryGetComp<CompRefuelable>() != null)
+                .OrderBy(t => t.thingIDNumber).ToList();
+            int changed = 0;
+            double consumed = 0;
+            foreach (Thing generator in generators)
+            {
+                CompRefuelable fuel = generator.TryGetComp<CompRefuelable>();
+                float before = fuel.Fuel;
+                float threshold = fuel.TargetFuelLevel * fuel.Props.autoRefuelPercent;
+                float target = Math.Max(0f, threshold - 0.1f);
+                if (before > target + 0.001f)
+                {
+                    fuel.ConsumeFuel(before - target);
+                    changed++;
+                    consumed += before - fuel.Fuel;
+                }
+                P0Log.Message("P5_ROUTINE_FUEL_THRESHOLD_SETUP", "map=" + map.uniqueID +
+                    " tick=" + GenTicks.TicksGame + " generator=" + generator.thingIDNumber +
+                    " def=" + generator.def.defName + " before=" + before.ToString("F2") +
+                    " threshold=" + threshold.ToString("F2") + " after=" + fuel.Fuel.ToString("F2") +
+                    " capacity=" + fuel.Props.fuelCapacity.ToString("F2"));
+            }
+            var fuelDefs = generators.Select(g => g.TryGetComp<CompRefuelable>().Props.fuelFilter.AnyAllowedDef.defName)
+                .Distinct(StringComparer.Ordinal).ToList();
+            foreach (string fuelDef in fuelDefs)
+            {
+                var carried = controller.P5Residents.SelectMany(p => p.inventory.innerContainer.Concat(
+                    p.carryTracker.CarriedThing == null ? Enumerable.Empty<Thing>() : new[] { p.carryTracker.CarriedThing }));
+                int loose = controller.P5OwnedThings.Concat(carried).Distinct().Where(t => !t.Destroyed &&
+                    t.def.category == ThingCategory.Item && t.def.defName == fuelDef).Sum(t => t.stackCount);
+                P0Log.Message("P5_ROUTINE_FUEL_THRESHOLD_SETUP_STOCK", "map=" + map.uniqueID + " input=" + fuelDef +
+                    " looseUnchanged=" + loose + " stockAdded=0");
+            }
+            P0Log.Message("P5_ROUTINE_FUEL_THRESHOLD_SETUP_COMPLETE", "map=" + map.uniqueID +
+                " generators=" + generators.Count + " changed=" + changed + " consumedFromTanks=" + consumed.ToString("F2") +
+                " looseStockChanged=False probeRunning=True");
+        }
         internal static Settlement CurrentSettlement()
         {
             if (!P4DQuestDebugActions.Disposable) throw new InvalidOperationException("Disposable profile only");

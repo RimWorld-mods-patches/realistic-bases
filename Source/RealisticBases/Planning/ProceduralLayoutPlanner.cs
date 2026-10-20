@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 
 namespace RealisticBases.Planning
@@ -122,6 +123,19 @@ namespace RealisticBases.Planning
 
         internal LayoutRoom WithSideDoors(IEnumerable<GridPoint> sideDoors) =>
             new LayoutRoom(demandSource, Bounds, Door, Facing, Capacity, Fixtures, ProtectedByRock, NaturalWalls, sideDoors);
+
+        internal LayoutRoom WithTrimmedFixtures(IEnumerable<LayoutFixture> fixtures, int capacity, int releasedCapacity = 0)
+        {
+            LayoutRoomDemand demand = new LayoutRoomDemand(Id, Kind,
+                Kind == LayoutRoomKind.Power ? capacity : Math.Max(0, DemandedCapacity - releasedCapacity),
+                Unit, demandSource.CandidateSizes.ToList());
+            LayoutRoom room = new LayoutRoom(demand, Bounds, Door, Facing, capacity, fixtures,
+                ProtectedByRock, NaturalWalls, SideDoors);
+            room.ReleasedCapacity = releasedCapacity;
+            return room;
+        }
+
+        public int ReleasedCapacity { get; private set; }
 
         public string Id { get; }
         public LayoutRoomKind Kind { get; }
@@ -292,6 +306,8 @@ namespace RealisticBases.Planning
 
     public sealed class ProceduralLayout
     {
+        private readonly IReadOnlyList<GridPoint> outerWalls;
+
         internal ProceduralLayout(string inputDigest, ulong seed, LayoutDoctrine doctrine, bool mortarCapable, GridPoint anchor,
             IEnumerable<LayoutRoom> rooms, IEnumerable<LayoutCorridor> corridors, LayoutFixture court,
             IEnumerable<GridPoint> enclosure, IEnumerable<GridPoint> builtWalls, IEnumerable<GridPoint> naturalWalls,
@@ -313,6 +329,10 @@ namespace RealisticBases.Planning
             Power = power;
             OuterSections = new ReadOnlyCollection<LayoutWallSection>((outerSections ?? Enumerable.Empty<LayoutWallSection>())
                 .OrderBy(s => s.GateIndex).ThenBy(s => s.Layer).ToList());
+            outerWalls = new ReadOnlyCollection<GridPoint>(OuterSections.SelectMany(s => s.Cells)
+                .Concat(PerimeterReinforcement)
+                .Except(ApproachDefense?.SallyPorts.Where(p => !p.Field).SelectMany(p => p.Band) ?? Enumerable.Empty<GridPoint>())
+                .Distinct().ToList());
             ExhaustPockets = new ReadOnlyCollection<LayoutExhaustPocket>((exhaustPockets ?? Enumerable.Empty<LayoutExhaustPocket>())
                 .OrderBy(p => p.Cell).ToList());
             ExhaustRoofClearance = Sorted(ExhaustPockets.Where(p => p.RoofCleared).Select(p => p.Cell));
@@ -359,7 +379,7 @@ namespace RealisticBases.Planning
         public IReadOnlyList<GridPoint> BuiltWalls { get; }
         public IReadOnlyList<LayoutWallSection> OuterSections { get; }
         public IReadOnlyList<GridPoint> PerimeterReinforcement { get; }
-        public IEnumerable<GridPoint> OuterWalls => OuterSections.SelectMany(s => s.Cells).Concat(PerimeterReinforcement).Distinct();
+        public IEnumerable<GridPoint> OuterWalls => outerWalls;
         public IReadOnlyList<GridPoint> NaturalWalls { get; }
         public IReadOnlyList<LayoutGate> Gates { get; }
         public IReadOnlyList<GridPoint> Excavation { get; }
@@ -431,20 +451,44 @@ namespace RealisticBases.Planning
         public ProceduralLayout WithFieldWall(ProceduralLayoutInput input, P4BFieldWallPlan fieldWall)
         {
             if (input == null || fieldWall == null) throw new ArgumentNullException(nameof(fieldWall));
-            List<LayoutGate> gates = Gates.Select((g, index) => index == fieldWall.GateIndex
-                ? new LayoutGate(g.Cell, g.Inside, g.Outward, g.BandDoors, g.BandWalls, g.OuterVestibule,
-                    g.Staging, fieldWall.ArrivalRoute, g.InnerVestibule, g.RockFace)
-                : g).ToList();
+            HashSet<int> retired = new HashSet<int>(fieldWall.RetiredGateIndices);
+            Dictionary<int, int> indexMap = new Dictionary<int, int>();
+            List<LayoutGate> gates = new List<LayoutGate>();
+            for (int index = 0; index < Gates.Count; index++)
+            {
+                if (retired.Contains(index)) continue;
+                LayoutGate g = Gates[index];
+                IReadOnlyList<GridPoint> route = index == fieldWall.GateIndex ? fieldWall.ArrivalRoute :
+                    fieldWall.OtherGateRoutes.TryGetValue(index, out IReadOnlyList<GridPoint> alternate) ? alternate : g.ExteriorRoute;
+                indexMap[index] = gates.Count;
+                gates.Add(new LayoutGate(g.Cell, g.Inside, g.Outward, g.BandDoors, g.BandWalls, g.OuterVestibule,
+                    g.Staging, route, g.InnerVestibule, g.RockFace));
+            }
+            if (!indexMap.TryGetValue(fieldWall.GateIndex, out int fieldGateIndex))
+                throw new InvalidOperationException("The field wall cannot retire its compound gate");
+            P4BFieldWallPlan adjustedFieldWall = fieldWall.RemapGates(fieldGateIndex, indexMap);
+            List<LayoutWallSection> outerSections = OuterSections.Where(s => !retired.Contains(s.GateIndex))
+                .Select(s => new LayoutWallSection(indexMap[s.GateIndex], s.Layer, s.Left, s.Right,
+                    s.LeftReturn, s.RightReturn)).ToList();
+            List<GridPoint> restoredOuter = OuterSections.Where(s => retired.Contains(s.GateIndex))
+                .SelectMany(s => s.Cells.Concat(s.LeftReturn).Concat(s.RightReturn)).ToList();
+            List<GridPoint> closedGateWalls = retired.SelectMany(i => Gates[i].BandDoors.Concat(Gates[i].BandWalls))
+                .Concat(restoredOuter).ToList();
+            List<GridPoint> builtWalls = BuiltWalls.Concat(retired.Select(i => Gates[i].Cell)).ToList();
+            List<GridPoint> perimeterReinforcement = PerimeterReinforcement.Concat(closedGateWalls).Distinct().ToList();
             LayoutMaterialLedger materials = input.Equipment.Count(Rooms,
-                BuiltWalls.Concat(gates.SelectMany(g => g.BandWalls)).Concat(OuterWalls)
-                    .Concat(ExhaustPocketWalls).Concat(fieldWall.Walls),
-                gates.Sum(g => 1 + g.BandDoors.Count) + 2 + (ApproachDefense?.SallyPorts.Count ?? 0), Power);
+                builtWalls.Concat(gates.SelectMany(g => g.BandWalls)).Concat(outerSections.SelectMany(s => s.Cells))
+                    .Concat(perimeterReinforcement).Concat(ExhaustPocketWalls).Concat(adjustedFieldWall.Walls),
+                gates.Sum(g => 1 + g.BandDoors.Count) + 2 + adjustedFieldWall.AccessPorts.Sum(p => p.Doors.Count) +
+                    (ApproachDefense?.SallyPorts.Sum(p => p.Doors.Count) ?? 0), Power);
             return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court,
-                Enclosure, BuiltWalls, NaturalWalls, gates, Excavation, RetainedThickRoof, ConstructedRoof,
+                Enclosure, builtWalls, NaturalWalls, gates, Excavation, RetainedThickRoof, ConstructedRoof,
                 WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
-                Notes.Concat(new[] { "fieldWall=" + fieldWall.Digest + " materials " + materials }),
+                Notes.Concat(new[] { "fieldWall=" + adjustedFieldWall.Digest + " retiredGates=" +
+                    string.Join(",", retired.OrderBy(i => i)) + " materials " + materials }),
                 TechStage, RolesDigest, EquipmentDigest, WallStuff, materials, Power,
-                ExhaustPockets, OuterSections, JointSite, fieldWall, Turret, ApproachDefense, PerimeterReinforcement, Courts, BonusFields);
+                ExhaustPockets, outerSections, JointSite, adjustedFieldWall, Turret, ApproachDefense,
+                perimeterReinforcement, Courts, BonusFields);
         }
 
         public ProceduralLayout WithApproachDefense(ProceduralLayoutInput input, P4BApproachDefensePlan defense)
@@ -452,13 +496,15 @@ namespace RealisticBases.Planning
             if (input == null || defense == null || Turret != null) throw new ArgumentException("Defense precedes turret selection");
             LayoutMaterialLedger materials = P4BApproachDefensePlanner.Materials(input, this,
                 defense.Posts, defense.SallyPorts);
-            P4BFieldWallPlan fieldWall = FieldWall?.WithoutWalls(defense.SallyPorts.Where(p => p.Field).Select(p => p.Cell));
+            P4BFieldWallPlan fieldWall = FieldWall?.WithoutWalls(defense.SallyPorts.Where(p => p.Field)
+                .SelectMany(p => p.Doors));
             return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, Rooms, Corridors, Court,
-                Enclosure, BuiltWalls.Except(defense.SallyPorts.Select(p => p.Cell)).Concat(defense.WallReturns),
+                Enclosure, BuiltWalls.Except(defense.SallyPorts.Where(p => !p.Field).Select(p => p.Cell)).Concat(defense.WallReturns),
                 NaturalWalls, Gates, Excavation, RetainedThickRoof, ConstructedRoof,
                 WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
                 Notes.Concat(new[] { "approachDefense=" + defense.Digest }), TechStage, RolesDigest,
-                EquipmentDigest, WallStuff, materials, Power, ExhaustPockets, OuterSections, JointSite, fieldWall, null, defense, PerimeterReinforcement, Courts, BonusFields);
+                EquipmentDigest, WallStuff, materials, Power, ExhaustPockets, OuterSections, JointSite, fieldWall, null, defense,
+                PerimeterReinforcement, Courts, BonusFields);
         }
 
         public ProceduralLayout WithTurret(ProceduralLayoutInput input, P4BTurretPlan turret)
@@ -480,6 +526,144 @@ namespace RealisticBases.Planning
                 TechStage, RolesDigest, EquipmentDigest, WallStuff, materials, Power,
                 ExhaustPockets, OuterSections, JointSite, FieldWall, turret,
                 ApproachDefense?.WithoutTransit(turret.All.SelectMany(t => t.Footprint)), PerimeterReinforcement, Courts, BonusFields);
+        }
+
+        internal ProceduralLayout TrimDefensePower(ProceduralLayoutInput input)
+        {
+            if (Power == null || Power.DefenseReserveWatts == 0 || input.QuestContract != null) return this;
+            LayoutKit kit = input.Equipment.Kit;
+            int turretWatts = Turret?.TotalWatts ?? 0;
+            List<LayoutRoom> sourceRooms = Rooms.ToList();
+            int critical, nonCritical;
+            LayoutPowerModel.Loads(sourceRooms, out critical, out nonCritical);
+            int generators = LayoutPowerModel.Generators(critical + turretWatts, nonCritical,
+                Power.Yards, Power.GeneratorWatts);
+            int batteries = LayoutPowerModel.Batteries(critical + nonCritical + turretWatts) + Power.RenewableStorageBatteries;
+            int packedBatteryFixtures = sourceRooms.SelectMany(r => r.Fixtures)
+                .Count(f => f.Kind == LayoutFixtureKind.Battery);
+            while (packedBatteryFixtures < batteries && packedBatteryFixtures < Power.ReservedBatteries &&
+                TryAddFundedBattery(input, sourceRooms, out List<LayoutRoom> expandedRooms))
+            {
+                sourceRooms = expandedRooms;
+                packedBatteryFixtures = sourceRooms.SelectMany(r => r.Fixtures)
+                    .Count(f => f.Kind == LayoutFixtureKind.Battery);
+            }
+            if (generators > Power.Generators || batteries > Power.ReservedBatteries ||
+                batteries > packedBatteryFixtures)
+                throw new InvalidOperationException("Packed defense power cannot supply the selected turret network: " +
+                    "generatorsNeed=" + generators + "/" + Power.Generators +
+                    " batteriesNeed=" + batteries + "/" + Power.ReservedBatteries +
+                    " packedBatteries=" + packedBatteryFixtures +
+                    " turretWatts=" + turretWatts + " renewableStorage=" + Power.RenewableStorageBatteries);
+            HashSet<LayoutFixture> keepGenerators = new HashSet<LayoutFixture>(sourceRooms.OrderBy(r => r.Id, StringComparer.Ordinal)
+                .SelectMany(r => r.Fixtures.Where(f => f.Kind == LayoutFixtureKind.Generator).OrderBy(f => f.Cells.Min()))
+                .Take(generators));
+            HashSet<LayoutFixture> keepBatteries = new HashSet<LayoutFixture>(sourceRooms.OrderBy(r => r.Id, StringComparer.Ordinal)
+                .SelectMany(r => r.Fixtures.Where(f => f.Kind == LayoutFixtureKind.Battery).OrderBy(f => f.Cells.Min()))
+                .Take(batteries));
+            int stackLimit = Math.Max(1, kit.GeneratorFuel?.StackLimit ?? 1);
+            int oldFuelCells = (LayoutPowerModel.WarehouseFuel(kit.Generator, Power.Generators) + stackLimit - 1) / stackLimit;
+            int newFuelCells = (LayoutPowerModel.WarehouseFuel(kit.Generator, generators) + stackLimit - 1) / stackLimit;
+            int releaseLeft = Math.Max(0, oldFuelCells - newFuelCells), released = 0;
+            List<LayoutRoom> trimmedRooms = new List<LayoutRoom>();
+            foreach (LayoutRoom room in sourceRooms.OrderBy(r => r.Id, StringComparer.Ordinal))
+            {
+                List<LayoutFixture> fixtures = room.Fixtures.Where(f =>
+                    f.Kind != LayoutFixtureKind.Generator || keepGenerators.Contains(f)).Where(f =>
+                    f.Kind != LayoutFixtureKind.Battery || keepBatteries.Contains(f)).ToList();
+                if (room.Kind == LayoutRoomKind.Power)
+                {
+                    // Keep the packed vent and exhaust infrastructure with the power-room
+                    // shell. Removing vents leaves their sealed outdoor exhaust pockets
+                    // without a through-wall fixture, which makes an otherwise valid
+                    // trimmed layout fail the pocket ledger. Extra vents are harmless for
+                    // the reduced generator count and preserve the original heat path.
+                    trimmedRooms.Add(room.WithTrimmedFixtures(fixtures,
+                        fixtures.Count(f => f.Kind == LayoutFixtureKind.Generator)));
+                    continue;
+                }
+                int roomReleased = 0;
+                if (room.Kind == LayoutRoomKind.Storage && releaseLeft > 0)
+                {
+                    foreach (LayoutFixture stockpile in fixtures.Where(f => f.Kind == LayoutFixtureKind.Stockpile).ToList())
+                    {
+                        int remove = Math.Min(releaseLeft, Math.Min(stockpile.Cells.Count,
+                            Math.Max(0, room.Capacity - roomReleased - 1)));
+                        if (remove == 0) continue;
+                        List<GridPoint> cells = stockpile.Cells.OrderBy(c => c).Skip(remove).ToList();
+                        fixtures.Remove(stockpile);
+                        if (cells.Count > 0) fixtures.Add(new LayoutFixture(stockpile.Kind, stockpile.DefName, cells,
+                            stockpile.Access, stockpile.Facing, stockpile.Blocking, stockpile.Watts,
+                            stockpile.NeedsFuel, stockpile.RoomId, stockpile.Exhaust, stockpile.Role, stockpile.Stuff));
+                        roomReleased += remove; releaseLeft -= remove; released += remove;
+                    }
+                }
+                trimmedRooms.Add(roomReleased == 0 ? room :
+                    room.WithTrimmedFixtures(fixtures, room.Capacity - roomReleased, roomReleased));
+            }
+            LayoutPowerModel.Loads(trimmedRooms, out critical, out nonCritical);
+            int baseGenerators = LayoutPowerModel.Generators(critical, nonCritical, Power.Yards, Power.GeneratorWatts);
+            LayoutPowerPlan power = new LayoutPowerPlan(critical, nonCritical, kit.Generator, generators, batteries,
+                Power.Yards, kit.GeneratorFuel, LayoutPowerModel.FuelStock(kit.Generator, generators), Power.Diagnostics,
+                Power.DefenseReserveWatts, Math.Max(0, generators - baseGenerators), Power.ReservedGenerators,
+                Power.ReservedBatteries, released, Materials.ImportValue);
+            IEnumerable<string> defenseFixtures = Turret == null ? Enumerable.Empty<string>() :
+                Enumerable.Repeat(P4BCoverNest.CoverDefName(input), Turret.All.Sum(t => t.CoverCells.Count))
+                    .Concat(Turret.All.Select(t => t.DefName));
+            LayoutMaterialLedger materials = input.Equipment.Count(trimmedRooms,
+                BuiltWalls.Concat(Gates.SelectMany(g => g.BandWalls)).Concat(OuterWalls)
+                    .Concat(ExhaustPocketWalls).Concat(FieldWall?.Walls ?? new GridPoint[0]),
+                Gates.Sum(g => 1 + g.BandDoors.Count) + (FieldWall == null ? 0 : 2) +
+                    (ApproachDefense?.SallyPorts.Sum(p => p.Doors.Count) ?? 0), power, defenseFixtures);
+            return new ProceduralLayout(InputDigest, Seed, Doctrine, MortarCapable, Anchor, trimmedRooms,
+                Corridors, Court, Enclosure, BuiltWalls, NaturalWalls, Gates, Excavation, RetainedThickRoof,
+                ConstructedRoof, WallLayers, FieldCellsRequired, Relationships, ExtraObstacles,
+                Notes.Concat(new[] { "defense_power_trim=" + Power.Generators + "->" + generators +
+                    " batteries=" + Power.Batteries + "->" + batteries + " fuelCellsReleased=" + released }),
+                TechStage, RolesDigest, EquipmentDigest, WallStuff, materials, power, ExhaustPockets,
+                OuterSections, JointSite, FieldWall, Turret, ApproachDefense, PerimeterReinforcement, Courts, BonusFields);
+        }
+
+        private static bool TryAddFundedBattery(ProceduralLayoutInput input, IReadOnlyList<LayoutRoom> rooms,
+            out List<LayoutRoom> expandedRooms)
+        {
+            expandedRooms = null;
+            CatalogDef def = input.Equipment.Kit.Battery;
+            if (def == null || !input.Catalog.TryGet(def.DefName, out CatalogDef resolved)) return false;
+            foreach (LayoutRoom room in rooms.Where(r => r.Kind == LayoutRoomKind.Power)
+                .OrderBy(r => r.Id, StringComparer.Ordinal))
+            {
+                LayoutFixture template = room.Fixtures.FirstOrDefault(f => f.Kind == LayoutFixtureKind.Battery);
+                if (template == null || template.Cells.Count == 0) continue;
+                int minX = template.Cells.Min(c => c.X), minZ = template.Cells.Min(c => c.Z);
+                GridPoint[] offsets = template.Cells.Select(c => new GridPoint(c.X - minX, c.Z - minZ)).ToArray();
+                int width = offsets.Max(c => c.X) + 1, height = offsets.Max(c => c.Z) + 1;
+                HashSet<GridPoint> occupied = new HashSet<GridPoint>(room.Fixtures
+                    .SelectMany(f => f.Cells.Concat(f.Access)).Concat(room.Doors).Concat(room.NaturalWalls));
+                foreach (GridPoint origin in room.Interior.Points().OrderByDescending(c =>
+                    Math.Abs(c.X - room.Door.X) + Math.Abs(c.Z - room.Door.Z)).ThenBy(c => c))
+                {
+                    GridPoint[] cells = offsets.Select(c => new GridPoint(origin.X + c.X,
+                        origin.Z + c.Z)).ToArray();
+                    if (cells.Any(c => !room.Interior.Contains(c) || occupied.Contains(c))) continue;
+                    List<GridPoint> access = new List<GridPoint>();
+                    if (resolved.HasInteractionCell)
+                    {
+                        GridPoint interaction = new GridPoint(origin.X + resolved.InteractionOffset.X,
+                            origin.Z + resolved.InteractionOffset.Z);
+                        if (!room.Interior.Contains(interaction) || occupied.Contains(interaction)) continue;
+                        access.Add(interaction);
+                    }
+                    LayoutFixture battery = new LayoutFixture(LayoutFixtureKind.Battery, def.DefName,
+                        cells, access, template.Facing, resolved.Blocking, resolved.BasePowerConsumption,
+                        needsFuel: false, room.Id, role: null, stuff: input.Equipment.StuffFor(def));
+                    List<LayoutFixture> fixtures = room.Fixtures.Concat(new[] { battery }).ToList();
+                    expandedRooms = rooms.Select(r => ReferenceEquals(r, room)
+                        ? r.WithTrimmedFixtures(fixtures, r.Capacity) : r).ToList();
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static IReadOnlyList<GridPoint> Sorted(IEnumerable<GridPoint> cells) =>
@@ -573,20 +757,39 @@ namespace RealisticBases.Planning
 
     public sealed class ProceduralLayoutResult
     {
-        internal ProceduralLayoutResult(ProceduralLayout layout, LayoutDemandSet demand, IEnumerable<LayoutDiagnostic> diagnostics, LayoutSearchStats stats)
+        internal ProceduralLayoutResult(ProceduralLayout layout, LayoutDemandSet demand, IEnumerable<LayoutDiagnostic> diagnostics, LayoutSearchStats stats,
+            ProceduralLayoutStageTimings stageTimings = null)
         {
             Layout = layout;
             Demand = demand;
             Diagnostics = new ReadOnlyCollection<LayoutDiagnostic>(diagnostics.ToList());
             Stats = stats;
+            StageTimings = stageTimings ?? new ProceduralLayoutStageTimings();
         }
 
         public ProceduralLayout Layout { get; }
         public LayoutDemandSet Demand { get; }
         public IReadOnlyList<LayoutDiagnostic> Diagnostics { get; }
         public LayoutSearchStats Stats { get; }
+        public ProceduralLayoutStageTimings StageTimings { get; }
         public bool Success => Layout != null;
         public string RejectionCode => Success ? null : Diagnostics.Where(d => d.Stage == "result").Select(d => d.Code).LastOrDefault();
+    }
+
+    public sealed class ProceduralLayoutStageTimings
+    {
+        internal double SiteCandidateSearchMs, FieldWallMs, FitDefenseAccessMs, ApproachDefenseMs;
+        internal double TurretPlanningMs, PowerTrimMs, ValidationMs, ScoringMs;
+        internal int ValidationCalls;
+        public double SiteAndCandidateSearchMilliseconds => SiteCandidateSearchMs;
+        public double FieldWallMilliseconds => FieldWallMs;
+        public double FitDefenseAccessMilliseconds => FitDefenseAccessMs;
+        public double ApproachDefenseMilliseconds => ApproachDefenseMs;
+        public double TurretPlanningMilliseconds => TurretPlanningMs;
+        public double PowerTrimMilliseconds => PowerTrimMs;
+        public double ValidationMilliseconds => ValidationMs;
+        public int ValidationCallCount => ValidationCalls;
+        public double ScoringMilliseconds => ScoringMs;
     }
 
     internal enum LayoutCellClass : byte
@@ -751,25 +954,37 @@ namespace RealisticBases.Planning
         internal static ProceduralLayoutResult PlanClusters(ProceduralLayoutInput input, bool requireJointSite)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
+            Stopwatch plannerWatch = Stopwatch.StartNew();
             string terrainDigest = input.Terrain.Digest;
             string inputDigest = input.Digest;
             List<LayoutDiagnostic> diagnostics = new List<LayoutDiagnostic>();
             LayoutSearchStats stats = new LayoutSearchStats();
+            ProceduralLayoutStageTimings timings = new ProceduralLayoutStageTimings();
             LayoutRequirements requirements = input.Requirements;
             LayoutEquipment equipment = input.Equipment;
             LayoutKit kit = equipment.Kit;
             LayoutDemandSet demand = equipment.Demand;
+            Func<ProceduralLayout, ProceduralLayoutResult> makeResult = layout =>
+            {
+                plannerWatch.Stop();
+                // Search is the residual after the individually timed finishing stages.
+                // This keeps the reported stages additive and avoids double-counting.
+                timings.SiteCandidateSearchMs = Math.Max(0, plannerWatch.Elapsed.TotalMilliseconds -
+                    timings.FieldWallMs - timings.FitDefenseAccessMs - timings.ApproachDefenseMs -
+                    timings.TurretPlanningMs - timings.PowerTrimMs - timings.ValidationMs - timings.ScoringMs);
+                return new ProceduralLayoutResult(layout, demand, diagnostics, stats, timings);
+            };
             Func<string, ProceduralLayoutResult> reject = code =>
             {
                 if (input.Terrain.Digest != terrainDigest || input.Digest != inputDigest) throw new InvalidOperationException("P4A planner mutated its input.");
                 diagnostics.Add(new LayoutDiagnostic("result", code, stats.ToString()));
-                return new ProceduralLayoutResult(null, demand, diagnostics, stats);
+                return makeResult(null);
             };
             diagnostics.Add(new LayoutDiagnostic("equipment", "stage", requirements.Stage.Level + "->" + kit.Stage + " roles=" + kit.Roles.Digest));
             foreach (string line in kit.Roles.StepDowns) diagnostics.Add(new LayoutDiagnostic("equipment", "step_down", line));
             foreach (string line in kit.Roles.Diagnostics) diagnostics.Add(new LayoutDiagnostic("equipment", "roles", line));
             foreach (string note in equipment.Notes) diagnostics.Add(new LayoutDiagnostic("equipment", "note", note));
-            diagnostics.Add(new LayoutDiagnostic("equipment", "materials_estimate", equipment.Estimate + " limit=" + requirements.ImportValueLimit));
+            diagnostics.Add(new LayoutDiagnostic("equipment", "materials_estimate", equipment.Estimate + " limit=" + requirements.BaseImportValueLimit));
             if (equipment.Rejection != null) return reject(equipment.Rejection);
             foreach (string rejection in demand.Rejections) diagnostics.Add(new LayoutDiagnostic("demand", "rejected", rejection));
             if (demand.Rejections.Count > 0) return reject("room_demand_exceeds_legal_dimensions");
@@ -785,7 +1000,8 @@ namespace RealisticBases.Planning
                     input.Fortification.PlacementMargin, LayoutSeed.Sub(input.Seed, "joint-site"),
                     input.Budget.MaxSites, input.Budget.MaxSites * 1024, requirements.Residents,
                     attachmentDepth: requirements.ReservePopulationCirculation ? P4BJointSitePlanner.AttachmentDepth(input.Fortification) : 0,
-                    attachmentHalfTip: P4BJointSitePlanner.AttachmentHalfTip(input.Fortification));
+                    attachmentHalfTip: P4BJointSitePlanner.AttachmentHalfTip(input.Fortification),
+                    plannerDegree: input.PlannerDegree);
                 diagnostics.Add(new LayoutDiagnostic("joint_site", "preflight", "pairs=" + jointSites.Candidates.Count +
                     " evaluated=" + jointSites.Evaluated + " fieldOriginsScanned=" + jointSites.FieldOriginsScanned +
                     " rejected=" + string.Join(",", jointSites.Rejections)));
@@ -835,25 +1051,39 @@ namespace RealisticBases.Planning
                 foreach (PoolEntry entry in ordered)
                 {
                     int gaps;
-                    ProceduralLayout finished = Finish(input, entry.Run, entry.Layout, entry.Site, entry.Anchor, diagnostics, out gaps);
-                    if (finished == null) continue;
+                    int diagnosticStart = diagnostics.Count;
+                    ProceduralLayout finished = Finish(input, entry.Run, entry.Layout, entry.Site, entry.Anchor, diagnostics, timings, out gaps);
+                    if (finished == null)
+                    {
+                        string causes = string.Join(" | ", diagnostics.Skip(diagnosticStart)
+                            .Select(d => d.Stage + ":" + d.Code + ":" + d.Detail));
+                        if (causes.Length == 0) causes = "finish returned null without a stage diagnostic";
+                        string site = entry.Site == null ? "none" :
+                            "field=" + entry.Site.Field + " compound=" + entry.Site.Compound;
+                        diagnostics.Add(new LayoutDiagnostic("finish", "candidate_rejected",
+                            "anchor=" + entry.Anchor + " site=" + site + " cause=" + causes));
+                        continue;
+                    }
                     if (input.QuestContract == null)
                     {
                         IReadOnlyList<GridPoint> bonus = LayoutBonusFields.Select(input, finished);
                         if (bonus.Count > 0)
                         {
                             ProceduralLayout planted = finished.WithBonusFields(bonus);
-                            IReadOnlyList<string> bonusErrors = ProceduralLayoutValidator.Validate(input, planted);
+                            IReadOnlyList<string> bonusErrors = ValidateTimed(input, planted, timings);
                             if (bonusErrors.Count == 0) finished = planted;
                             Note(diagnostics, "bonus_field", bonusErrors.Count == 0 ? "planted" : "omitted",
                                 "cells=" + bonus.Count + (bonusErrors.Count == 0 ? string.Empty : " " + string.Join("+", bonusErrors.Take(4))));
                         }
                     }
+                    Stopwatch scoringWatch = Stopwatch.StartNew();
                     LayoutCandidateScore final = LayoutCandidateScore.Evaluate(input, finished, gaps, Downgrades(finished));
+                    scoringWatch.Stop();
+                    timings.ScoringMs += scoringWatch.Elapsed.TotalMilliseconds;
                     if (input.Terrain.Digest != terrainDigest || input.Digest != inputDigest) throw new InvalidOperationException("P4A planner mutated its input.");
                     diagnostics.Add(new LayoutDiagnostic("result", "accepted", stats + " digest=" + finished.Digest +
                         " candidates=" + considered + " preDefense=" + entry.Score.Total.ToString("F1") + " " + final));
-                    return new ProceduralLayoutResult(finished, demand, diagnostics, stats);
+                    return makeResult(finished);
                 }
                 return null;
             };
@@ -908,26 +1138,33 @@ namespace RealisticBases.Planning
                             if (stats.BudgetExhausted) return (pool.Count > 0 ? finishBest() : null) ?? reject("search_budget_exhausted");
                             stats.Attempts++;
                             ulong attemptSeed = LayoutSeed.Key(LayoutSeed.Sub(input.Seed, "attempt"), anchor.X * 4099 + anchor.Z, attempt, (int)doctrine);
-                            LayoutAttempt run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics,
+                            LayoutAttempt run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics, timings,
                                 jointSite: site, envelopeSearch: envelopeStrategy);
                             ProceduralLayout layout = run.Run();
                             if (layout == null && run.NeedsPocketsOnly && !stats.BudgetExhausted)
                             {
                                 // The public room failed vanilla's outdoor rule: replan this attempt with pocket exhaust only.
                                 stats.Attempts++;
-                                run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics, true, site,
+                                run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics, timings, true, site,
                                     envelopeSearch: envelopeStrategy);
                                 layout = run.Run();
                             }
                             if (stats.BudgetExhausted && layout == null) return (pool.Count > 0 ? finishBest() : null) ?? reject("search_budget_exhausted");
                             if (layout == null) continue;
+                            Stopwatch validationWatch = Stopwatch.StartNew();
                             IReadOnlyList<string> violations = ProceduralLayoutValidator.Validate(input, layout);
+                            validationWatch.Stop();
+                            timings.ValidationMs += validationWatch.Elapsed.TotalMilliseconds;
+                            timings.ValidationCalls++;
                             if (violations.Count != 0)
                             {
                                 Note(diagnostics, "validate", "rejected", anchor + " " + string.Join("+", violations.Take(6)));
                                 continue;
                             }
+                            Stopwatch scoringWatch = Stopwatch.StartNew();
                             LayoutCandidateScore score = LayoutCandidateScore.Evaluate(input, layout, 0, Downgrades(layout));
+                            scoringWatch.Stop();
+                            timings.ScoringMs += scoringWatch.Elapsed.TotalMilliseconds;
                             Note(diagnostics, "candidate", "valid", anchor + " " + score + " digest=" + layout.Digest);
                             pool.Add(new PoolEntry { Score = score, Run = run, Layout = layout, Site = site, Anchor = anchor });
                             if (pool.Count < CandidatePoolSize) continue;
@@ -963,7 +1200,7 @@ namespace RealisticBases.Planning
         // approach defense and optional turrets (joint sites), then quest
         // defense. Null when a required stage fails; gaps counts weak fronts.
         private static ProceduralLayout Finish(ProceduralLayoutInput input, LayoutAttempt run, ProceduralLayout layout, P4BJointSite site,
-            GridPoint anchor, List<LayoutDiagnostic> diagnostics, out int gapFronts)
+            GridPoint anchor, List<LayoutDiagnostic> diagnostics, ProceduralLayoutStageTimings timings, out int gapFronts)
         {
             gapFronts = 0;
             IReadOnlyList<string> violations;
@@ -975,57 +1212,140 @@ namespace RealisticBases.Planning
                     .Concat(layout.AllFixtures.SelectMany(f => f.Cells))
                     .Concat(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex]))));
                 string wallDiagnostic;
+                Stopwatch stageWatch = Stopwatch.StartNew();
                 P4BFieldWallPlan fieldWall = P4BFieldWallPlanner.PlanJoint(input, layout, occupied,
                     out wallDiagnostic);
+                stageWatch.Stop();
+                timings.FieldWallMs += stageWatch.Elapsed.TotalMilliseconds;
                 if (fieldWall == null)
                 {
-                    Note(diagnostics, "joint_site", "field_wall_rejected", anchor + " " + wallDiagnostic);
+                    diagnostics.Add(new LayoutDiagnostic("joint_site", "field_wall_rejected", anchor + " " + wallDiagnostic));
                     return null;
                 }
                 layout = layout.WithFieldWall(input, fieldWall);
-                violations = ProceduralLayoutValidator.Validate(input, layout);
+                violations = ValidateTimed(input, layout, timings);
                 if (violations.Count != 0)
                 {
-                    Note(diagnostics, "joint_site", "final_rejected", anchor + " " + string.Join("+", violations.Take(6)));
+                    diagnostics.Add(new LayoutDiagnostic("joint_site", "final_rejected",
+                        anchor + " " + string.Join("+", violations.Take(6))));
                     return null;
                 }
+                stageWatch.Restart();
+                double approachBeforeFit = timings.ApproachDefenseMs;
+                double fieldWallBeforeFit = timings.FieldWallMs;
                 layout = run.FitDefenseAccess(layout);
+                stageWatch.Stop();
+                timings.FitDefenseAccessMs += Math.Max(0, stageWatch.Elapsed.TotalMilliseconds -
+                    (timings.ApproachDefenseMs - approachBeforeFit) - (timings.FieldWallMs - fieldWallBeforeFit));
                 fieldWall = layout.FieldWall;
                 occupied = new HashSet<GridPoint>(layout.Enclosure
                     .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
                     .Concat(layout.PowerYards.SelectMany(y => y.Cells))
                     .Concat(layout.AllFixtures.SelectMany(f => f.Cells))
                     .Concat(layout.OuterSections.SelectMany(s => s.ServiceLane(layout.Gates[s.GateIndex]))));
-                layout = layout.WithApproachDefense(input, P4BApproachDefensePlanner.Plan(input, layout));
+                stageWatch.Restart();
+                P4BApproachDefensePlan defense = P4BApproachDefensePlanner.Plan(input, layout);
+                stageWatch.Stop();
+                timings.ApproachDefenseMs += stageWatch.Elapsed.TotalMilliseconds;
+                layout = layout.WithApproachDefense(input, defense);
                 fieldWall = layout.FieldWall;
-                violations = ProceduralLayoutValidator.Validate(input, layout);
+                violations = ValidateTimed(input, layout, timings);
                 if (violations.Count != 0)
                 {
-                    Note(diagnostics, "defense", "final_rejected", anchor + " " + string.Join("+", violations.Take(6)));
+                    diagnostics.Add(new LayoutDiagnostic("defense", "final_rejected",
+                        anchor + " " + string.Join("+", violations.Take(6))));
                     return null;
                 }
                 string turretDiagnostic;
+                stageWatch.Restart();
                 P4BTurretPlan turret = P4BTurretPlanner.Plan(input, layout, fieldWall,
                     occupied, out turretDiagnostic);
+                stageWatch.Stop();
+                timings.TurretPlanningMs += stageWatch.Elapsed.TotalMilliseconds;
                 if (turret != null)
                 {
-                    ProceduralLayout armed = layout.WithTurret(input, turret);
-                    IReadOnlyList<string> armedErrors = ProceduralLayoutValidator.Validate(input, armed);
-                    // One final equipment decision is retained beyond the
-                    // search-detail cap; returning immediately bounds it.
-                    if (armedErrors.Count == 0)
+                    P4BTurretPlan candidate = turret;
+                    int TurretBatteryNeed(int watts)
                     {
-                        layout = armed;
-                        diagnostics.Add(new LayoutDiagnostic("turret", "accepted", turretDiagnostic));
+                        if (layout.Power == null) return 0;
+                        LayoutPowerModel.Loads(layout.Rooms, out int baseCritical, out int baseNonCritical);
+                        return LayoutPowerModel.Batteries(baseCritical + baseNonCritical + watts) +
+                            layout.Power.RenewableStorageBatteries;
                     }
-                    else diagnostics.Add(new LayoutDiagnostic("turret", "optional_rejected",
-                        anchor + " " + string.Join("+", armedErrors.Take(6))));
+                    int miniWatts = input.Catalog.TryGet("Turret_MiniTurret", out CatalogDef miniDef)
+                        ? miniDef.BasePowerConsumption : 0;
+                    diagnostics.Add(new LayoutDiagnostic("turret", "power_battery_need",
+                        "seed=" + input.Seed + " zeroTurrets=" + TurretBatteryNeed(0) +
+                        " oneTurret=" + TurretBatteryNeed(miniWatts) + " allTurrets=" +
+                        TurretBatteryNeed(candidate.TotalWatts) + " kept=" + layout.Power?.Batteries +
+                        " reserved=" + layout.Power?.ReservedBatteries + " turretWatts=" + candidate.TotalWatts +
+                        " renewableStorage=" + (layout.Power?.RenewableStorageBatteries ?? 0)));
+                    double validatorBeforePowerLoop = timings.ValidationMs;
+                    Stopwatch powerLoopWatch = Stopwatch.StartNew();
+                    while (candidate != null)
+                    {
+                        ProceduralLayout armed = null;
+                        IReadOnlyList<string> armedErrors;
+                        try
+                        {
+                            // Trim only after attaching turrets, so the generator count and
+                            // six-hour battery bridge include the selected network load.
+                            armed = layout.WithTurret(input, candidate).TrimDefensePower(input);
+                            armedErrors = ValidateTimed(input, armed, timings);
+                        }
+                        catch (InvalidOperationException ex) when (ex.Message.StartsWith(
+                            "Packed defense power cannot supply", StringComparison.Ordinal))
+                        {
+                            armedErrors = new[] { "power_reservation_unavailable: " + ex.Message };
+                        }
+                        if (armedErrors.Count == 0)
+                        {
+                            layout = armed;
+                            diagnostics.Add(new LayoutDiagnostic("turret", "accepted", turretDiagnostic));
+                            break;
+                        }
+
+                        bool powerFailure = armedErrors.Any(e => e.IndexOf("power_", StringComparison.Ordinal) >= 0);
+                        P4BTurretPlan reduced = P4BTurretPlanner.RemoveLeastValuableCrossing(input,
+                            layout, candidate, out GridPoint? removedGate);
+                        if (!removedGate.HasValue || ReferenceEquals(candidate, reduced))
+                        {
+                            diagnostics.Add(new LayoutDiagnostic("turret", powerFailure ? "power_limited_no_fit" : "optional_rejected",
+                                anchor + " " + removedGate + " " + string.Join("+", armedErrors.Take(6))));
+                            break;
+                        }
+                        bool batteryValidationFailure = armedErrors.Any(e =>
+                            e.Contains("power_battery_count") || e.Contains("batteriesNeed="));
+                        if (batteryValidationFailure)
+                        {
+                            int beforeNeed = TurretBatteryNeed(candidate.TotalWatts);
+                            int afterNeed = TurretBatteryNeed(reduced?.TotalWatts ?? 0);
+                            if (afterNeed >= beforeNeed)
+                            {
+                                diagnostics.Add(new LayoutDiagnostic("turret", "power_limited_no_battery_progress",
+                                    "removedCrossing=" + removedGate + " batteryNeed=" + beforeNeed + "->" + afterNeed +
+                                    " kept=" + layout.Power?.Batteries + " reserved=" + layout.Power?.ReservedBatteries +
+                                    " turretWatts=" + candidate.TotalWatts + "->" + (reduced?.TotalWatts ?? 0) +
+                                    " continuing=true"));
+                            }
+                        }
+                        diagnostics.Add(new LayoutDiagnostic("turret", "power_limited_crossing_removed",
+                            "power_limited_crossing_removed=" + removedGate + " leastExposureFirst=" +
+                            string.Join("+", armedErrors.Take(6))));
+                        candidate = reduced;
+                    }
+                    powerLoopWatch.Stop();
+                    timings.PowerTrimMs += Math.Max(0, powerLoopWatch.Elapsed.TotalMilliseconds -
+                        (timings.ValidationMs - validatorBeforePowerLoop));
                 }
                 else diagnostics.Add(new LayoutDiagnostic("turret", "unplaced", anchor + " " + turretDiagnostic));
             }
             if (input.QuestContract != null)
             {
+                Stopwatch approachWatch = Stopwatch.StartNew();
                 layout = layout.WithApproachDefense(input, P4BApproachDefensePlanner.Plan(input, layout));
+                approachWatch.Stop();
+                timings.ApproachDefenseMs += approachWatch.Elapsed.TotalMilliseconds;
                 if (input.QuestContract.QuestTurrets > 0)
                 {
                     P4BTurretPlan guns = P4BTurretPlanner.PlanQuestGuns(input, layout, input.QuestContract.QuestTurrets,
@@ -1034,7 +1354,7 @@ namespace RealisticBases.Planning
                     if (guns == null) return null;
                     layout = layout.WithTurret(input, guns);
                 }
-                violations = ProceduralLayoutValidator.Validate(input, layout)
+                violations = ValidateTimed(input, layout, timings)
                     .Concat(input.QuestContract.ValidateReservations(layout)).ToList();
                 if (violations.Count != 0)
                 {
@@ -1042,10 +1362,19 @@ namespace RealisticBases.Planning
                     return null;
                 }
             }
+            Stopwatch trimWatch = Stopwatch.StartNew();
+            layout = layout.TrimDefensePower(input);
+            trimWatch.Stop();
+            timings.PowerTrimMs += trimWatch.Elapsed.TotalMilliseconds;
+            violations = ValidateTimed(input, layout, timings);
+            if (violations.Count != 0)
+            {
+                diagnostics.Add(new LayoutDiagnostic("defense_power", "trim_rejected", string.Join("+", violations.Take(12))));
+                return null;
+            }
             if (layout.ApproachDefense != null)
             {
                 HashSet<GridPoint> finalOpaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
-                finalOpaque.UnionWith(layout.Turret?.All.SelectMany(t => t.Footprint) ?? new GridPoint[0]);
                 foreach (P4BAttackSide side in layout.ApproachDefense.Sides.Where(s => s.Exposed))
                 {
                     int covered = P4BApproachDefensePlanner.CoveredSamples(side, finalOpaque);
@@ -1059,6 +1388,17 @@ namespace RealisticBases.Planning
                 }
             }
             return layout;
+        }
+
+        internal static IReadOnlyList<string> ValidateTimed(ProceduralLayoutInput input, ProceduralLayout layout,
+            ProceduralLayoutStageTimings timings)
+        {
+            Stopwatch watch = Stopwatch.StartNew();
+            IReadOnlyList<string> result = ProceduralLayoutValidator.Validate(input, layout);
+            watch.Stop();
+            timings.ValidationMs += watch.Elapsed.TotalMilliseconds;
+            timings.ValidationCalls++;
+            return result;
         }
 
         internal static void Note(List<LayoutDiagnostic> diagnostics, string stage, string code, string detail)
@@ -1212,6 +1552,7 @@ namespace RealisticBases.Planning
         private readonly ulong seed;
         private readonly LayoutSearchStats stats;
         private readonly List<LayoutDiagnostic> diagnostics;
+        private readonly ProceduralLayoutStageTimings stageTimings;
         private readonly byte[] occ;
         private readonly HashSet<GridPoint> dug = new HashSet<GridPoint>();
         private readonly List<Segment> segments = new List<Segment>();
@@ -1260,7 +1601,7 @@ namespace RealisticBases.Planning
 
         public LayoutAttempt(ProceduralLayoutInput input, LayoutDemandSet demand, LayoutTerrainGrid grid, GridPoint anchor,
             LayoutDoctrine doctrine, bool wantsCourt, ulong seed, LayoutSearchStats stats, List<LayoutDiagnostic> diagnostics,
-            bool pocketsOnly = false, P4BJointSite jointSite = null, bool envelopeSearch = false)
+            ProceduralLayoutStageTimings stageTimings, bool pocketsOnly = false, P4BJointSite jointSite = null, bool envelopeSearch = false)
         {
             this.pocketsOnly = pocketsOnly;
             this.jointSite = jointSite;
@@ -1274,6 +1615,7 @@ namespace RealisticBases.Planning
             this.seed = seed;
             this.stats = stats;
             this.diagnostics = diagnostics;
+            this.stageTimings = stageTimings;
             occ = new byte[grid.Width * grid.Height];
             // Rock-protect doctrine: at most one cleared exhaust hole per two cooled rooms (provisional).
             int cooled = demand.Rooms.Count(r => LayoutDemandModel.NeedsOutdoorAir(r.Kind, input.Requirements, input.Equipment.Kit));
@@ -1354,7 +1696,10 @@ namespace RealisticBases.Planning
 
         internal ProceduralLayout FitDefenseAccess(ProceduralLayout layout)
         {
+            Stopwatch approachWatch = Stopwatch.StartNew();
             P4BApproachDefensePlan defense = P4BApproachDefensePlanner.Plan(input, layout);
+            approachWatch.Stop();
+            stageTimings.ApproachDefenseMs += approachWatch.Elapsed.TotalMilliseconds;
             string[] sides = defense.Sides.Where(s => s.Exposed)
                 .OrderByDescending(s => s.OpenGroundArea).ThenBy(s => s.Id, StringComparer.Ordinal)
                 .Select(s => s.Id).ToArray();
@@ -1364,6 +1709,9 @@ namespace RealisticBases.Planning
                 HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
                 int covered = P4BApproachDefensePlanner.CoveredSamples(side, opaque);
                 if (!side.Exposed || covered >= P4BApproachDefensePlanner.UsefulArc(side.Samples.Count)) continue;
+                List<P4BAttackSide> previouslyCovered = defense.Sides.Where(s => s.Exposed &&
+                    P4BApproachDefensePlanner.CoveredSamples(s, opaque) >=
+                    P4BApproachDefensePlanner.UsefulArc(s.Samples.Count)).ToList();
                 bool fitted = false;
                 IReadOnlyList<P4BAccessFrontage> options = P4BAccessFrontagePlanner.Candidates(input, layout, side);
                 List<string> failures = new List<string>();
@@ -1391,22 +1739,26 @@ namespace RealisticBases.Planning
                             .Concat(trial.PowerYards.SelectMany(y => y.Cells))
                             .Concat(trial.AllFixtures.SelectMany(f => f.Cells))
                             .Concat(trial.OuterSections.SelectMany(s => s.ServiceLane(trial.Gates[s.GateIndex]))));
+                        Stopwatch wallWatch = Stopwatch.StartNew();
                         P4BFieldWallPlan fieldWall = P4BFieldWallPlanner.PlanJoint(input, trial, occupied, out string reason);
+                        wallWatch.Stop();
+                        stageTimings.FieldWallMs += wallWatch.Elapsed.TotalMilliseconds;
                         if (fieldWall == null)
                         { failures.Add("field_connection=" + reason); trial = null; }
                         else trial = trial.WithFieldWall(input, fieldWall);
                     }
                     P4BApproachDefensePlan trialDefense = null;
-                    IReadOnlyList<string> errors = trial == null ? new string[0] : ProceduralLayoutValidator.Validate(input, trial);
+                    IReadOnlyList<string> errors = trial == null ? new string[0] : ProceduralLayoutPlanner.ValidateTimed(input, trial, stageTimings);
                     if (trial != null && errors.Count == 0)
                     {
+                        Stopwatch defenseWatch = Stopwatch.StartNew();
                         trialDefense = P4BApproachDefensePlanner.Plan(input, trial);
+                        defenseWatch.Stop();
+                        stageTimings.ApproachDefenseMs += defenseWatch.Elapsed.TotalMilliseconds;
                         P4BAttackSide improved = trialDefense.Sides.Single(s => s.Id == id);
                         HashSet<GridPoint> trialOpaque = P4BApproachDefensePlanner.Opaque(trial, input.Terrain);
                         int shots = P4BApproachDefensePlanner.CoveredSamples(improved, trialOpaque);
-                        bool retainedCoverage = defense.Sides.Where(s => s.Exposed &&
-                            P4BApproachDefensePlanner.CoveredSamples(s, opaque) >= P4BApproachDefensePlanner.UsefulArc(s.Samples.Count))
-                            .All(s =>
+                        bool retainedCoverage = previouslyCovered.All(s =>
                             {
                                 P4BAttackSide next = trialDefense.Sides.Single(t => t.Id == s.Id);
                                 return !next.Exposed || P4BApproachDefensePlanner.CoveredSamples(next, trialOpaque) >=
@@ -1649,6 +2001,10 @@ namespace RealisticBases.Planning
 
         private bool YardCellFree(GridPoint c) => grid.CanPlace(c) && occ[grid.Index(c)] == Free && grid.At(c) == LayoutCellClass.Open && !dug.Contains(c);
 
+        private bool SolarCellFree(GridPoint c) => grid.CanPlace(c) &&
+            (occ[grid.Index(c)] == Free || occ[grid.Index(c)] == YardZone) &&
+            grid.At(c) == LayoutCellClass.Open && !dug.Contains(c);
+
         private bool IsStreet(GridPoint c) => grid.InBounds(c) && occ[grid.Index(c)] == Street;
 
         private GridPoint? StreetAccess(IEnumerable<GridPoint> footprint)
@@ -1700,7 +2056,8 @@ namespace RealisticBases.Planning
                     List<GridPoint> cells = new List<GridPoint>();
                     for (int b = 1; b <= def.SizeZ; b++)
                         for (int a = 0; a < def.SizeX; a++) cells.Add(new GridPoint(street.X + b * f.X + a * p.X, street.Z + b * f.Z + a * p.Z));
-                    if (!cells.All(YardCellFree)) continue;
+                    Func<GridPoint, bool> cellFree = def.DefName == LayoutPowerModel.Solar ? SolarCellFree : YardCellFree;
+                    if (!cells.All(cellFree)) continue;
                     double score = Manhattan(street, anchor) + (int)(LayoutSeed.Key(seed, street.X, street.Z, f.X * 3 + f.Z) % 5);
                     if (score >= bestScore) continue;
                     bestScore = score;
@@ -1720,6 +2077,7 @@ namespace RealisticBases.Planning
             List<GridPoint> bestCells = null, bestZone = null;
             GridPoint bestAccess = default(GridPoint);
             double bestScore = double.MaxValue;
+            int bestSolarSpots = -1;
             foreach (GridPoint street in segments.SelectMany(x => x.Cells).Distinct().OrderBy(p => LayoutSeed.Key(LayoutSeed.Sub(seed, def.DefName), p.X, p.Z, yards.Count)))
                 foreach (GridPoint center in WindCenters(street))
                 {
@@ -1734,8 +2092,10 @@ namespace RealisticBases.Planning
                         (occ[grid.Index(c)] == Free || occ[grid.Index(c)] == Street || occ[grid.Index(c)] == Plaza || occ[grid.Index(c)] == YardZone))) continue;
                     GridPoint? access = StreetAccess(cells);
                     if (!access.HasValue) continue;
+                    int solarSpots = SolarSpotsInZone(zone, cells);
                     double score = Manhattan(street, anchor) + (int)(LayoutSeed.Key(seed, street.X, street.Z, center.X - street.X) % 5);
-                    if (score >= bestScore) continue;
+                    if (solarSpots < bestSolarSpots || solarSpots == bestSolarSpots && score >= bestScore) continue;
+                    bestSolarSpots = solarSpots;
                     bestScore = score;
                     bestCells = cells;
                     bestZone = zone;
@@ -1743,6 +2103,29 @@ namespace RealisticBases.Planning
                 }
             done:
             return bestCells == null ? null : Commit(def, bestCells, bestAccess, bestZone);
+        }
+
+        private int SolarSpotsInZone(IEnumerable<GridPoint> zone, IEnumerable<GridPoint> windFootprint)
+        {
+            if (!input.Catalog.TryGet(LayoutPowerModel.Solar, out CatalogDef solar) ||
+                !input.Catalog.IsLegal(solar, input.Equipment.Kit.Stage)) return 0;
+            HashSet<GridPoint> zoneCells = new HashSet<GridPoint>(zone);
+            HashSet<GridPoint> windCells = new HashSet<GridPoint>(windFootprint);
+            HashSet<GridPoint> newlyCleared = new HashSet<GridPoint>(zoneCells.Where(c =>
+                grid.CanPlace(c) && occ[grid.Index(c)] == Free));
+            if (newlyCleared.Count == 0) return 0;
+            int minX = zoneCells.Min(c => c.X), maxX = zoneCells.Max(c => c.X);
+            int minZ = zoneCells.Min(c => c.Z), maxZ = zoneCells.Max(c => c.Z);
+            HashSet<GridPoint> spots = new HashSet<GridPoint>();
+            for (int x = minX - solar.SizeX + 1; x <= maxX; x++)
+                for (int z = minZ - solar.SizeZ + 1; z <= maxZ; z++)
+                {
+                    List<GridPoint> cells = new GridRect(x, z, solar.SizeX, solar.SizeZ).Points().ToList();
+                    if (!cells.Any(zoneCells.Contains) || !cells.Any(newlyCleared.Contains) || cells.Any(windCells.Contains) ||
+                        !cells.All(SolarCellFree) || !StreetAccess(cells).HasValue) continue;
+                    spots.Add(new GridPoint(x, z));
+                }
+            return spots.Count;
         }
 
         // Footprints touching the street cell: every lateral offset above and below it, and both sides.
@@ -1781,8 +2164,10 @@ namespace RealisticBases.Planning
             LayoutPowerModel.Loads(rooms, out critical, out nonCritical);
             int renewable = yards.Sum(y => y.EffectiveWatts);
             int reserve = input.Requirements.DefenseReserveWatts;
-            int batteries = LayoutPowerModel.Batteries(critical + reserve + nonCritical);
-            int generators = LayoutPowerModel.Generators(critical + reserve, nonCritical, renewable, kit.GeneratorWatts);
+            int renewableStorageBatteries = LayoutPowerModel.RenewableStorageBatteries(yards);
+            int batteries = LayoutPowerModel.Batteries(critical + reserve + nonCritical) +
+                renewableStorageBatteries;
+            int generators = LayoutPowerModel.Generators(critical + reserve, nonCritical, yards, kit.GeneratorWatts);
             LayoutRoomDemand demand = null;
             int ownLoad = 0;
             for (int guard = 0; guard <= LayoutDemandModel.MaxSplit; guard++)
@@ -1791,16 +2176,19 @@ namespace RealisticBases.Planning
                 if (demand == null) { Fail("power_room_unbuildable", generators + " generators"); return false; }
                 int own = LayoutDemandModel.MaxLoad(demand, input.Requirements, kit);
                 ownLoad = own;
-                int needed = LayoutPowerModel.Generators(critical + reserve, nonCritical + own, renewable, kit.GeneratorWatts);
-                int bridge = LayoutPowerModel.Batteries(critical + reserve + nonCritical + own);
+                int needed = LayoutPowerModel.Generators(critical + reserve, nonCritical + own, yards, kit.GeneratorWatts);
+                int bridge = LayoutPowerModel.Batteries(critical + reserve + nonCritical + own) + renewableStorageBatteries;
                 if (needed <= generators && bridge <= batteries) break;
                 generators = Math.Max(generators, needed);
                 batteries = Math.Max(batteries, bridge);
             }
             if (!(Style.Kind == LayoutStyleKind.Mountain ? PlaceWithRepairs(demand) : PlaceLate(demand))) return false;
+            int fundedBatteryCapacity = batteries + (reserve > 0 &&
+                input.Requirements.DefenseImportReserveValue > 0 ? 1 : 0);
             power = new LayoutPowerPlan(critical, nonCritical, kit.Generator, generators, batteries, yards, kit.GeneratorFuel,
                 LayoutPowerModel.FuelStock(kit.Generator, generators), powerDiagnostics, reserve,
-                Math.Max(0, generators - LayoutPowerModel.Generators(critical, nonCritical + ownLoad, renewable, kit.GeneratorWatts)));
+                Math.Max(0, generators - LayoutPowerModel.Generators(critical, nonCritical + ownLoad, yards, kit.GeneratorWatts)),
+                reservedBatteries: fundedBatteryCapacity);
             if (reserve > 0) notes.Add("ordinary_defense_reserve=" + reserve + "W extraGenerators=" + power.DefenseGenerators);
             return true;
         }
@@ -2316,7 +2704,7 @@ namespace RealisticBases.Planning
             if (best == null)
                 return magazineRepairs < 2 && AddBranch("mortar-magazine-" + magazineRepairs) && PlaceCourt(magazineRepairs + 1);
             int artilleryValue = P4EArtillery.ImportValue(input.Catalog, courts.Count + 1);
-            if (artilleryValue > input.Requirements.ImportValueLimit)
+            if (artilleryValue > input.Requirements.BaseImportValueLimit)
             { notes.Add("mortar_import_budget:" + artilleryValue); return false; }
             courts.Add(new LayoutFixture(LayoutFixtureKind.MortarCourt, "MortarCourtReservation", best.Bounds.Points(), access,
                 new GridPoint(-best.Facing.X, -best.Facing.Z), true, 0, false, magazine.Id));
@@ -2530,9 +2918,10 @@ namespace RealisticBases.Planning
                 gates.Sum(g => 1 + g.BandDoors.Count), power);
             layoutNotes.Add("materials " + materials);
             // Exact accounting is enforced per attempt; the search continues on overrun.
-            if (materials.ImportValue > input.Requirements.ImportValueLimit)
+            if (materials.OrdinaryImportValue > input.Requirements.BaseImportValueLimit ||
+                materials.ImportValue > input.Requirements.ImportValueLimit)
             {
-                Fail(LayoutEquipment.MaterialBudgetExceeded, materials.ImportValue + ">" + input.Requirements.ImportValueLimit);
+                Fail(LayoutEquipment.MaterialBudgetExceeded, materials.ImportValue + ">" + input.Requirements.BaseImportValueLimit);
                 return null;
             }
             ProceduralLayout layout = new ProceduralLayout(input.Digest, input.Seed, doctrine, equipment.Kit.MortarCapable, anchor, rooms,

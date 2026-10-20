@@ -129,7 +129,21 @@ namespace RealisticBases.Diagnostics
             P0Log.Message("P5_COMBAT_PROBE_START", "map=" + map.uniqueID + " start=" + start + " horizon=" + Horizon +
                 " raiders=" + raiders.def.defName + " wavePoints=" + points + " waves=3 residents=" + Controller.P5Residents.Count() +
                 " stock=" + string.Join(",", before.Select(p => p.Key + ":" + p.Value)) + " suppliesAdded=0 npcOrdersIssued=0");
-            SpawnWave();
+            try { SpawnWave(); }
+            catch (Exception ex)
+            {
+                mode = Mode.None;
+                if (visitor != null && !visitor.Dead && visitorCell.InBounds(map) && visitorCell.Standable(map))
+                {
+                    visitor.jobs?.StopAll();
+                    if (visitor.Spawned) visitor.DeSpawn();
+                    GenSpawn.Spawn(visitor, visitorCell, map);
+                    if (visitor.drafter != null) visitor.drafter.Drafted = false;
+                }
+                P0Log.Message("P5_COMBAT_PROBE_START_REJECT", "map=" + map.uniqueID + " tick=" + GenTicks.TicksGame +
+                    " reason=" + ex.Message.Replace(' ', '_') + " visitorRestored=" + (visitor?.Spawned ?? false));
+                throw;
+            }
         }
 
         private void Begin(string save)
@@ -160,17 +174,72 @@ namespace RealisticBases.Diagnostics
             {
                 groupKind = PawnGroupKindDefOf.Combat, tile = map.Tile, faction = raiders, points = wavePoints
             }).ToList();
-            IntVec3 target = Controller.SupportCenter;
-            if (!CellFinder.TryFindRandomEdgeCellWith(c => c.Standable(map) && !c.Fogged(map) &&
-                    map.reachability.CanReach(c, target, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors)),
-                    map, CellFinder.EdgeRoadChance_Hostile, out IntVec3 edge))
-                throw new InvalidOperationException("No reachable edge cell for the assault wave");
-            foreach (Pawn pawn in pawns) GenSpawn.Spawn(pawn, CellFinder.RandomClosewalkCellNear(edge, map, 6), map);
+            Pawn representative = pawns.FirstOrDefault();
+            if (representative == null) throw new InvalidOperationException("Combat raid wave produced no pawns");
+            if (!CellFinder.TryFindRandomEdgeCellWith(c => c.Standable(map) && !c.Fogged(map) && c.GetEdifice(map) == null,
+                    map, CellFinder.EdgeRoadChance_Hostile, out IntVec3 probeEdge))
+                throw new InvalidOperationException("No standable edge cell for hostile path audit");
+            GenSpawn.Spawn(representative, probeEdge, map);
+            IReadOnlyList<KeyValuePair<string, IntVec3>> perimeter = Controller.P5HostilePerimeterApproaches(representative);
+            IReadOnlyList<KeyValuePair<string, IntVec3>> gates = Controller.P5HostileGateApproaches(representative);
+            string preferredSide = Controller.P5SuggestedAssaultSide;
+            var sameSideGates = gates.Where(p => p.Key == preferredSide).ToList();
+            var sameSideWalls = perimeter.Where(p => p.Key == preferredSide).ToList();
+            var targetApproaches = sameSideGates.Count > 0 ? sameSideGates : sameSideWalls;
+            var paths = targetApproaches.Select(p => new
+            {
+                p.Key,
+                p.Value,
+                Edge = CellFinder.TryFindRandomEdgeCellWith(c => c.Standable(map) && !c.Fogged(map) &&
+                    EdgeMatchesSide(c, p.Key) &&
+                    map.reachability.CanReach(c, p.Value, PathEndMode.OnCell, TraverseParms.For(representative)),
+                    map, CellFinder.EdgeRoadChance_Hostile, out IntVec3 edge) ? (IntVec3?)edge : null
+            }).ToList();
+            string sideAudit = string.Join(";", perimeter.Select(p => p.Key).Concat(gates.Select(p => p.Key))
+                .Distinct().OrderBy(side => side, StringComparer.Ordinal).Select(side =>
+                    side + ":outerApproaches=" + perimeter.Count(p => p.Key == side) +
+                    ":gateApproaches=" + gates.Count(p => p.Key == side) +
+                    ":sameSideGateEdge=" + (sameSideGates.Where(p => p.Key == side).Any(p =>
+                        CellFinder.TryFindRandomEdgeCellWith(c => c.Standable(map) && !c.Fogged(map) &&
+                            EdgeMatchesSide(c, side) && map.reachability.CanReach(c, p.Value, PathEndMode.OnCell,
+                                TraverseParms.For(representative)), map, CellFinder.EdgeRoadChance_Hostile, out _)) ? "yes" : "no")));
+            var selected = paths.FirstOrDefault(p => p.Edge.HasValue);
+            if (selected == null)
+            {
+                foreach (Pawn pawn in pawns.Where(p => p.Spawned)) pawn.DeSpawn();
+                throw new InvalidOperationException("No same-side hostile path to a gate or outer wall; selectedSide=" +
+                    (preferredSide ?? "none") + "; sides=" + sideAudit);
+            }
+            IntVec3 edgeCell = selected.Edge.Value;
+            P0Log.Message("P5_COMBAT_EDGE_AUDIT", "map=" + map.uniqueID + " side=" + selected.Key +
+                " probeEdge=" + probeEdge + " edge=" + edgeCell + " outerApproach=" + selected.Value +
+                " gateApproach=" + sameSideGates.Contains(new KeyValuePair<string, IntVec3>(selected.Key, selected.Value)) +
+                " target=" + Controller.SupportCenter + " hostileTraverse=True doorsClosedToEnemies=True sameSideEdge=True sides=" + sideAudit);
+            IntVec3 edge = edgeCell;
+            if (representative.Position != edge)
+            {
+                representative.DeSpawn();
+                GenSpawn.Spawn(representative, edge, map);
+            }
+            foreach (Pawn pawn in pawns.Where(p => p != representative))
+                GenSpawn.Spawn(pawn, CellFinder.RandomClosewalkCellNear(edge, map, 6), map);
             LordMaker.MakeNewLord(raiders, new LordJob_AssaultColony(raiders, canKidnap: false, canTimeoutOrFlee: false,
                 canSteal: false), map, pawns);
             wavesSpawned++;
             P0Log.Message("P5_COMBAT_WAVE", "map=" + map.uniqueID + " wave=" + wavesSpawned + " tick=" + GenTicks.TicksGame +
                 " pawns=" + pawns.Count + " edge=" + edge + " kinds=" + string.Join(",", pawns.Select(p => p.kindDef.defName)));
+        }
+
+        private bool EdgeMatchesSide(IntVec3 cell, string side)
+        {
+            switch (side)
+            {
+                case "north": return cell.z == map.Size.z - 1;
+                case "south": return cell.z == 0;
+                case "east": return cell.x == map.Size.x - 1;
+                case "west": return cell.x == 0;
+                default: return false;
+            }
         }
 
         // Owned operating units of one definition, loose or carried by residents.

@@ -60,6 +60,9 @@ internal static partial class Program
             LayoutRequirements requirements = V2Funded(P2ProfileCatalog.IndustrialTemperate, SettlementTechStageLevel.IndustrialLate, Temperate, 100);
             ProceduralLayoutInput input = new ProceduralLayoutInput(requirements, c.Terrain, 3, CoreCatalog, new LayoutFortificationReservation(1));
             ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
+            if (!result.Success)
+                foreach (LayoutDiagnostic rejection in result.Diagnostics.Where(d => d.Stage == "finish"))
+                    Console.WriteLine("  finish-rejection " + c.Name + " " + rejection.Detail);
             Accepted(result);
             Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count, c.Name + " validator");
             int margin = input.Fortification.PlacementMargin;

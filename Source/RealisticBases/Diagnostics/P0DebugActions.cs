@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using LudeonTK;
 using RealisticBases.AI;
@@ -23,6 +25,13 @@ namespace RealisticBases.Diagnostics
         private const string P3ActiveSaveName = "RealisticBases-P3-Active";
         private static int lastDebugSettlementId = -1;
         private static bool captureNextFlatTerrain;
+        private static PlanetTile timingTile = PlanetTile.Invalid;
+        private static int timingSettlementId = -1;
+        private static int timingArrivalPawnId = -1;
+        private static int timingHomeMapId = -1;
+        internal static long? TimingMapGenerationMilliseconds;
+        internal static bool TimingMeasurementArmed;
+        private static int timingPlannerDegree;
 
         [DebugAction(Category, "Save disposable P0 game", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.Playing)]
@@ -119,6 +128,91 @@ namespace RealisticBases.Diagnostics
         private static void GeneratePlayableFlatP4Settlement()
         {
             GenerateIsolatedHostileSettlement(movePlayerColonist: true, requireFlat: true);
+        }
+
+        [DebugAction(Category, "Generate playable flat P4 settlement on timing tile", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void GeneratePlayableFlatP4SettlementOnTimingTile()
+        {
+            ResetPreviousTimingSettlement();
+            if (timingTile == PlanetTile.Invalid)
+            {
+                PlanetLayer surface = Find.WorldGrid.Surface;
+                for (int i = 0; i < surface.TilesCount; i++)
+                {
+                    Tile candidate = surface[i];
+                    if (candidate.PrimaryBiome == BiomeDefOf.TemperateForest && candidate.hilliness == Hilliness.Flat &&
+                        candidate.PrimaryBiome.canBuildBase && candidate.PrimaryBiome.canAutoChoose &&
+                        TileFinder.IsValidTileForNewSettlement(candidate.tile))
+                    {
+                        timingTile = candidate.tile;
+                        break;
+                    }
+                }
+                if (timingTile == PlanetTile.Invalid)
+                    throw new InvalidOperationException("No flat TemperateForest tile is valid for a new settlement");
+                P0Log.Message("GENERATION_TIMING_TILE_SELECTED", "tile=" + timingTile);
+            }
+
+            Pawn arrivalPawn = Find.Maps.Where(m => m.IsPlayerHome)
+                .SelectMany(m => m.mapPawns.FreeColonistsSpawned)
+                .OrderBy(p => p.thingIDNumber).FirstOrDefault();
+            if (arrivalPawn == null)
+                throw new InvalidOperationException("No spawned player colonist is available for the timing run");
+            timingArrivalPawnId = arrivalPawn.thingIDNumber;
+            timingHomeMapId = arrivalPawn.Map.uniqueID;
+            TimingMapGenerationMilliseconds = null;
+            TimingMeasurementArmed = true;
+            P4AMapPlanner.DebugPlannerDegreeNext = P4AMapPlanner.DebugPlannerDegreeNext ??
+                ProceduralLayoutInput.DefaultPlannerDegree;
+            timingPlannerDegree = P4AMapPlanner.DebugPlannerDegreeNext.Value;
+            GenerateIsolatedHostileSettlement(movePlayerColonist: true, pickTile: () => timingTile);
+            Settlement settlement = Find.WorldObjects.AllWorldObjects.OfType<Settlement>()
+                .Where(s => s.Tile == timingTile).OrderByDescending(s => s.ID).FirstOrDefault();
+            if (settlement != null)
+            {
+                timingSettlementId = settlement.ID;
+                P0Log.Message("GENERATION_TIMING_RUN_ARMED", "tile=" + timingTile + " settlement=" + timingSettlementId +
+                    " pawn=" + timingArrivalPawnId);
+            }
+            if (TimingMapGenerationMilliseconds.HasValue)
+            {
+                P2Log.Message("GENERATION_TIMING", "tile=" + timingTile + " plannerDegree=" + timingPlannerDegree +
+                    " mapGenMs=" + TimingMapGenerationMilliseconds.Value.ToString(CultureInfo.InvariantCulture));
+                TimingMapGenerationMilliseconds = null;
+            }
+        }
+
+        private static void ResetPreviousTimingSettlement()
+        {
+            Settlement previous = Find.WorldObjects.AllWorldObjects.OfType<Settlement>()
+                .FirstOrDefault(s => s.ID == timingSettlementId);
+            if (previous == null)
+            {
+                timingSettlementId = -1;
+                return;
+            }
+
+            Map home = Find.Maps.FirstOrDefault(m => m.uniqueID == timingHomeMapId && m.IsPlayerHome);
+            Pawn pawn = Find.Maps.SelectMany(m => m.mapPawns.AllPawnsSpawned)
+                .FirstOrDefault(p => p.thingIDNumber == timingArrivalPawnId);
+            if (home == null || pawn == null)
+                throw new InvalidOperationException("Cannot reset timing settlement: arrival pawn or home map is missing");
+            if (pawn.Map != home)
+            {
+                IntVec3 homeCell = home.AllCells.OrderBy(c => c.DistanceToSquared(home.Center))
+                    .First(c => c.Standable(home) && c.GetEdifice(home) == null);
+                pawn.jobs.StopAll();
+                pawn.DeSpawn();
+                GenSpawn.Spawn(pawn, homeCell, home);
+            }
+            Current.Game.CurrentMap = home;
+            Map oldMap = previous.Map;
+            if (oldMap != null) Current.Game.DeinitAndRemoveMap(oldMap, false);
+            previous.Destroy();
+            P0Log.Message("GENERATION_TIMING_RESET", "settlement=" + timingSettlementId + " pawn=" + timingArrivalPawnId +
+                " homeMap=" + home.uniqueID + " mapRemoved=" + (oldMap != null));
+            timingSettlementId = -1;
         }
 
         [DebugAction(Category, "Generate playable Core coast P4 settlement", actionType = DebugActionType.Action,
@@ -243,7 +337,14 @@ namespace RealisticBases.Diagnostics
             IntVec3 mapSize = requireMountainous || requireFoothill || requireFlat || pickTile != null
                 ? new IntVec3(160, 1, 160)
                 : new IntVec3(80, 1, 80);
+            Stopwatch mapGenerationWatch = TimingMeasurementArmed ? Stopwatch.StartNew() : null;
             Map map = GetOrGenerateMapUtility.GetOrGenerateMap(tile, mapSize, null);
+            if (mapGenerationWatch != null)
+            {
+                mapGenerationWatch.Stop();
+                TimingMapGenerationMilliseconds = mapGenerationWatch.ElapsedMilliseconds;
+                TimingMeasurementArmed = false;
+            }
             if (requireFlat && captureNextFlatTerrain)
             {
                 captureNextFlatTerrain = false;
@@ -463,6 +564,55 @@ namespace RealisticBases.Diagnostics
             P2Log.Message("DEBUG_ARM", "P4A stage=Neolithic once; faction stage unchanged");
         }
 
+        [DebugAction(Category, "Use planner degree 1 for next generation", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void UsePlannerDegreeOne()
+        {
+            SetPlannerDegree(1);
+        }
+
+        [DebugAction(Category, "Use planner degree 4 for next generation", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void UsePlannerDegreeFour()
+        {
+            SetPlannerDegree(4);
+        }
+
+        [DebugAction(Category, "Use planner degree 8 for next generation", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void UsePlannerDegreeEight()
+        {
+            SetPlannerDegree(8);
+        }
+
+        [DebugAction(Category, "Use default planner degree for next generation", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void UseDefaultPlannerDegree()
+        {
+            SetPlannerDegree(ProceduralLayoutInput.DefaultPlannerDegree);
+        }
+
+        private static void SetPlannerDegree(int degree)
+        {
+            P4AMapPlanner.DebugPlannerDegreeNext = degree;
+            P2Log.Message("DEBUG_ARM", "plannerDegree=" + degree + " once");
+        }
+
+        [DebugAction(Category, "Capture next P4 planner input under runtime", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.Playing)]
+        private static void CaptureNextP4PlannerInput()
+        {
+            if (!P4DQuestDebugActions.Disposable)
+                throw new InvalidOperationException("Planner input capture is disposable-profile only");
+            string saves = System.IO.Path.GetDirectoryName(GenFilePaths.FilePathForSavedGame(DisposableSaveName));
+            string runtime = System.IO.Directory.GetParent(System.IO.Directory.GetParent(saves).FullName).FullName;
+            string directory = System.IO.Path.Combine(runtime, "investigations", "planner-performance");
+            System.IO.Directory.CreateDirectory(directory);
+            string path = System.IO.Path.Combine(directory, "timing-tile-input.cs");
+            P4AMapPlanner.DebugPlannerInputCapturePathNext = path;
+            P2Log.Message("DEBUG_ARM", "captureP4PlannerInputNext=" + path);
+        }
+
         [DebugAction(Category, "Use tribal profile for next generation", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.Playing)]
         private static void ForceTribalProfile()
@@ -568,14 +718,24 @@ namespace RealisticBases.Diagnostics
             Find.CurrentMap?.GetComponent<P3GarrisonController>()?.Audit("manual");
         }
 
-        [DebugAction(Category, "P4B stage field assault probe", actionType = DebugActionType.Action,
+        [DebugAction(Category, "P4B stage compound-side assault probe", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
-        private static void StageP4BFieldAssault() =>
+        private static void StageP4BCompoundAssault() =>
+            Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugStageCompoundAssault();
+
+        [DebugAction(Category, "P4B audit compound-side assault probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void AuditP4BCompoundAssault() =>
+            Find.CurrentMap?.GetComponent<P3GarrisonController>()?.AuditCompoundAssault("manual");
+
+        [DebugAction(Category, "P5B stage field-outer assault probe", actionType = DebugActionType.Action,
+            allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void StageP5BFieldAssault() =>
             Find.CurrentMap?.GetComponent<P3GarrisonController>()?.DebugStageFieldAssault();
 
-        [DebugAction(Category, "P4B audit field assault probe", actionType = DebugActionType.Action,
+        [DebugAction(Category, "P5B audit field-outer assault probe", actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
-        private static void AuditP4BFieldAssault() =>
+        private static void AuditP5BFieldAssault() =>
             Find.CurrentMap?.GetComponent<P3GarrisonController>()?.AuditFieldAssault("manual");
 
         [DebugAction(Category, "P5B park test visitor far from the walls", actionType = DebugActionType.Action,

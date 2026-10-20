@@ -30,7 +30,7 @@ namespace RealisticBases.Planning
             if (layout.ApproachDefense != null)
                 blocked.UnionWith(layout.ApproachDefense.Posts.SelectMany(p => p.Route.Concat(p.CoverCells).Concat(new[] { p.Cell, p.AccessGate }))
                     .Concat(layout.ApproachDefense.CoverCells).Concat(layout.ApproachDefense.TransitCells)
-                    .Concat(layout.ApproachDefense.SallyPorts.SelectMany(p => p.InteriorRoute.Concat(new[] { p.Cell, p.Inside }))));
+                    .Concat(layout.ApproachDefense.SallyPorts.SelectMany(p => p.InteriorRoute.Concat(p.Doors).Concat(new[] { p.Inside }))));
             if (layout.Turret != null)
                 blocked.UnionWith(layout.Turret.All.SelectMany(t => t.Footprint.Concat(t.CoverCells)));
             HashSet<GridPoint> candidate = new HashSet<GridPoint>(layout.Enclosure.Where(c =>

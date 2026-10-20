@@ -23,6 +23,7 @@ from PIL import Image, ImageDraw
 
 CELL = {
     '#': (70, 70, 80), '^': (120, 105, 90), 'G': (220, 40, 40), 'D': (240, 170, 40), '=': (150, 200, 255),
+    'Q': (210, 35, 180), 'q': (35, 160, 210),
     ',': (205, 225, 170), '.': (245, 240, 225), 'i': (245, 240, 225), 'Y': (255, 220, 60), 'w': (255, 240, 160),
     'x': (180, 120, 200), 'g': (220, 90, 40), '|': (110, 60, 60), 'v': (240, 140, 140), 's': (240, 200, 200),
     '*': (250, 210, 210), '"': (120, 200, 90), 'F': (90, 170, 60), '@': (230, 30, 160), 'b': (140, 100, 60),
@@ -40,7 +41,8 @@ ROOM = {
 LEGEND = [('Corridor', CELL['=']), ('Dining, kitchen', ROOM['dining']), ('Freezer, pantry', ROOM['freezer']),
           ('Storage, workshop, lab', ROOM['storage']), ('Housing', ROOM['barracks']), ('Medical', ROOM['medical']),
           ('Power yard', CELL['Y']), ('Yard inside walls', CELL[',']), ('Door', CELL['D']), ('Wall', CELL['#']),
-          ('Field', CELL['F'])]
+          ('Field', CELL['F']), ('Compound arrival gate', CELL['G']),
+          ('Compound defense crossing', CELL['Q']), ('Field crossing', CELL['q'])]
 ROOM_LINE = re.compile(r'^  (\S+)\s+bounds=(-?\d+),(-?\d+),(\d+)x(\d+)\s+door=(-?\d+),(-?\d+)')
 MATRIX_LINE = re.compile(r'^\s+(\S+)\s+ok=(\d+)/(\d+) shared=\d+ overhead=\S+ walled=(\S+)(?: foodWalk=(\d+))?')
 
