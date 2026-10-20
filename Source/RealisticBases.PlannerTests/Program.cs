@@ -428,8 +428,11 @@ internal static class Program
     private static void P2PowerTerminalsJoinOneConduitTree()
     {
         PhysicalSettlementPlan plan = PhysicalSettlementPlanner.Plan(P2Input(P2ProfileCatalog.IndustrialTemperate)).Plan;
-        HashSet<GridPoint> conduits = new HashSet<GridPoint>(plan.Placements.Where(p => p.Kind == PhysicalPlacementKind.Conduit).Select(p => p.Cell));
+        PhysicalPlacement[] conduitPlacements = plan.Placements.Where(p => p.Kind == PhysicalPlacementKind.Conduit).ToArray();
+        HashSet<GridPoint> conduits = new HashSet<GridPoint>(conduitPlacements.Select(p => p.Cell));
         True(conduits.Count > 0, "conduits exist");
+        True(conduitPlacements.All(p => p.DefName == "HiddenConduit"), "researched Electricity uses hidden conduit");
+        True(conduitPlacements.All(p => p.Value == 10), "hidden conduit doubles the one-steel import allowance");
         GridPoint generator = plan.Placements.Single(p => p.Kind == PhysicalPlacementKind.Generator).Cell;
         GridPoint battery = plan.Placements.Single(p => p.Kind == PhysicalPlacementKind.Battery).Cell;
         GridPoint[] transmitterFootprints = { generator, new GridPoint(generator.X + 1, generator.Z),

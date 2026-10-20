@@ -52,7 +52,8 @@ namespace RealisticBases.Planning
     {
         internal LayoutPowerPlan(int criticalWatts, int nonCriticalWatts, CatalogDef generator, int generators, int batteries,
             IEnumerable<LayoutPowerYard> yards, CatalogDef fuel, int fuelStock, IEnumerable<string> diagnostics,
-            int defenseReserveWatts = 0, int defenseGenerators = 0)
+            int defenseReserveWatts = 0, int defenseGenerators = 0, int reservedGenerators = 0,
+            int reservedBatteries = 0, int releasedFuelStorageCells = 0, int packedMaterialImportValue = 0)
         {
             CriticalWatts = criticalWatts;
             NonCriticalWatts = nonCriticalWatts;
@@ -62,6 +63,10 @@ namespace RealisticBases.Planning
             Batteries = batteries;
             DefenseReserveWatts = defenseReserveWatts;
             DefenseGenerators = defenseGenerators;
+            ReservedGenerators = reservedGenerators > 0 ? reservedGenerators : generators;
+            ReservedBatteries = reservedBatteries > 0 ? reservedBatteries : batteries;
+            ReleasedFuelStorageCells = releasedFuelStorageCells;
+            PackedMaterialImportValue = packedMaterialImportValue;
             Yards = new ReadOnlyCollection<LayoutPowerYard>(yards.ToList());
             FuelDef = fuel == null ? string.Empty : fuel.DefName;
             FuelStock = fuelStock;
@@ -79,8 +84,14 @@ namespace RealisticBases.Planning
         public int Batteries { get; }
         public int DefenseReserveWatts { get; }
         public int DefenseGenerators { get; }
+        public int ReservedGenerators { get; }
+        public int ReservedBatteries { get; }
+        public int ReleasedFuelStorageCells { get; }
+        public int PackedMaterialImportValue { get; }
         public IReadOnlyList<LayoutPowerYard> Yards { get; }
         public int RenewableWatts => Yards.Sum(y => y.EffectiveWatts);
+        public int FirmWatts => LayoutPowerModel.FirmWatts(Yards);
+        public int RenewableStorageBatteries => LayoutPowerModel.RenewableStorageBatteries(Yards);
         // Generator fuel def and all generator fuel: full tanks at spawn plus
         // the warehouse stock for LayoutEquipment.FuelHorizonDays.
         public string FuelDef { get; }
@@ -102,6 +113,10 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, GeneratorDef);
             hash = StableHash.Add(hash, Generators);
             hash = StableHash.Add(hash, Batteries);
+            hash = StableHash.Add(hash, ReservedGenerators);
+            hash = StableHash.Add(hash, ReservedBatteries);
+            hash = StableHash.Add(hash, ReleasedFuelStorageCells);
+            hash = StableHash.Add(hash, PackedMaterialImportValue);
             if (DefenseReserveWatts > 0) { hash = StableHash.Add(hash, DefenseReserveWatts); hash = StableHash.Add(hash, DefenseGenerators); }
             foreach (LayoutPowerYard yard in Yards) hash = yard.AddTo(hash);
             hash = StableHash.Add(hash, FuelDef);
@@ -125,6 +140,8 @@ namespace RealisticBases.Planning
         public const int BatteryBridgeHours = 6;
         // Vanilla battery capacity (Wd) from the plan's evidence.
         public const int BatteryStoredWattDays = 600;
+        public const double BatteryChargingEfficiency = 0.5;
+        public const double IntermittentActiveShare = 0.5;
         // Native CompPowerBattery self-discharge per battery.
         public const int BatterySelfDischargeWatts = 5;
 
@@ -137,7 +154,7 @@ namespace RealisticBases.Planning
         public const string Unplaceable = "power_source_unplaceable";
 
         // Renewables in preference order.
-        public static IReadOnlyList<string> RenewableOrder { get; } = new ReadOnlyCollection<string>(new[] { Geothermal, Watermill, Solar, Wind });
+        public static IReadOnlyList<string> RenewableOrder { get; } = new ReadOnlyCollection<string>(new[] { Geothermal, Watermill, Wind, Solar });
         // Dispatchable generators in preference order.
         public static IReadOnlyList<string> DispatchableOrder { get; } = new ReadOnlyCollection<string>(new[] { WoodGenerator, ChemfuelGenerator });
 
@@ -178,11 +195,34 @@ namespace RealisticBases.Planning
         }
 
         // Dispatchable units: the critical load plus whatever non-critical load renewables leave uncovered.
-        public static int Generators(int critical, int nonCritical, int renewable, int generatorWatts)
+        public static int Generators(int critical, int nonCritical, int renewable, int generatorWatts,
+            int firmWatts = 0, int minimumGenerators = 1)
         {
             if (generatorWatts <= 0) return 0;
-            long need = critical + Math.Max(0, nonCritical - renewable);
-            return Math.Max(1, (int)((need + generatorWatts - 1) / generatorWatts));
+            long need = Math.Max(Math.Max(0L, (long)critical - firmWatts),
+                (long)critical + nonCritical - renewable);
+            return Math.Max(minimumGenerators, (int)((need + generatorWatts - 1) / generatorWatts));
+        }
+
+        public static int FirmWatts(IEnumerable<LayoutPowerYard> yards) => yards.Sum(y =>
+            y.DefName == Solar || y.DefName == Wind ? (int)Math.Floor(y.EffectiveWatts /
+                (IntermittentActiveShare + (1 - IntermittentActiveShare) / BatteryChargingEfficiency)) :
+            y.DefName == Geothermal || y.DefName == Watermill ? y.EffectiveWatts : 0);
+
+        public static int RenewableStorageBatteries(IEnumerable<LayoutPowerYard> yards)
+        {
+            int bufferedWatts = FirmWatts(yards.Where(y => y.DefName == Solar || y.DefName == Wind));
+            return (int)Math.Ceiling(bufferedWatts * (1 - IntermittentActiveShare) / BatteryStoredWattDays);
+        }
+
+        public static int Generators(int critical, int nonCritical, IEnumerable<LayoutPowerYard> yards, int generatorWatts)
+        {
+            List<LayoutPowerYard> sources = yards.ToList();
+            int direct = FirmWatts(sources.Where(y => y.DefName == Geothermal || y.DefName == Watermill));
+            bool bufferedCritical = critical > direct && sources.Any(y => y.DefName == Solar || y.DefName == Wind);
+            int credit = FirmWatts(sources);
+            return Generators(critical, nonCritical, credit, generatorWatts, credit,
+                bufferedCritical || direct == 0 ? 1 : 0);
         }
 
         // NPC residents shed no load in an outage, so the bridge covers every

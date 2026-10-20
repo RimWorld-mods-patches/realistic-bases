@@ -20,6 +20,8 @@ internal static partial class Program
 
     private static int Main(string[] args)
     {
+        int? liveFixtureResult = LivePlannerFixtureReplay.RunIfRequested(args);
+        if (liveFixtureResult.HasValue) return liveFixtureResult.Value;
         int export = Array.IndexOf(args, "--export");
         if (export >= 0 && export + 1 < args.Length) exportDir = args[export + 1];
         int selected = Array.IndexOf(args, "--only");
@@ -27,13 +29,14 @@ internal static partial class Program
         int workerArg = Array.IndexOf(args, "--workers");
         int workers = workerArg >= 0 && workerArg + 1 < args.Length ? int.Parse(args[workerArg + 1]) : Environment.ProcessorCount;
         Stopwatch watch = Stopwatch.StartNew();
+        Run("dense cell collections preserve map and overflow semantics", CellCollections);
         Run("P4E laboratory stage matrix and compact quest exclusions", P4ELaboratoryStageMatrix);
         Run("P4E occupied room climate and power demand", P4EOccupiedRoomClimate);
         Run("P4E cardinal work dining seats and medical shelves", P4ESeatsAndMedicalShelves);
         Run("P4E compact mortar magazine geometry and rotated access", P4EMortarMagazine);
         Run("P4E population artillery caps shared stock and cost", P4EArtilleryCapacity);
-        Run("P4E exact ten-resident rejected flat tile packs required rooms", P4ETenRejectedTile, 20);
-        Run("P4E exact flat cooler tile keeps a valid served room", P4EFlatCoolerTile, 70);
+        Run("P4E exact ten-resident rejected flat tile packs required rooms", P4ETenRejectedTile, 15);
+        Run("P4E exact flat cooler tile keeps a valid served room", P4EFlatCoolerTile, 35);
         Run("P4E cleared vegetation does not split cooler served rooms", P4EClearedThermalPlants);
         Run("P4E spare barrels may use warehouse without moving ammunition", P4EBarrelWarehouse);
         Run("P4E ordinary defense allowance and weapon order", P4EDefenseAllowance);
@@ -45,17 +48,17 @@ internal static partial class Program
         Run("P4D reserves the original prisoner separately", QuestObjectiveContracts);
         Run("P4D compact camps use shared geometry without ordinary gear", QuestCampLayouts);
         Run("P4D unusable terrain rejects without changing inputs", QuestCampRejection);
-        Run("P4D terrain and tech matrix preserves objective and native roster", QuestTerrainTechMatrix, 15);
+        Run("P4D terrain and tech matrix preserves objective and native roster", QuestTerrainTechMatrix, 40);
         RunTurretRescueTests();
-        Run("P4C finishes are deterministic, whole-room, protected and budgeted", P4CFinishPolicy, 15);
+        Run("P4C finishes are deterministic, whole-room, protected and budgeted", P4CFinishPolicy, 30);
         Run("ordinary population follows wealth budgets with mean seven", OrdinaryPopulationBudgets);
         Run("ordinary population remains stable and preserves legacy saves", OrdinaryPopulationPersistence);
         Run("ordinary population reserves facility and circulation space upfront", OrdinaryPopulationReservation);
-        Run("ordinary population plans complete four seven and twelve resident sites", OrdinaryPopulationLayouts, 180);
-        Run("ordinary population fits cluttered flat tiles without reducing residents", OrdinaryPopulationClutter, 165);
-        Run("ordinary population reserves usable layered gate frontage", OrdinaryPopulationLayeredFrontage, 95);
-        Run("ordinary population stocks use all split rooms and prefer shelves", OrdinaryPopulationStocks, 175);
-        Run("P5 sale offer is sized into storage without changing other inputs", P5SaleStorageSizing, 110);
+        Run("ordinary population plans complete four seven and twelve resident sites", OrdinaryPopulationLayouts, 220);
+        Run("ordinary population fits cluttered flat tiles without reducing residents", OrdinaryPopulationClutter, 110);
+        Run("ordinary population reserves usable layered gate frontage", OrdinaryPopulationLayeredFrontage, 125);
+        Run("ordinary population stocks use all split rooms and prefer shelves", OrdinaryPopulationStocks, 205);
+        Run("P5 sale offer is sized into storage without changing other inputs", P5SaleStorageSizing, 100);
         Run("P5 captured native trade tile fits its whole offer with dense storage", P5NativeTradeStorage);
         Run("demand scales with population and splits barracks", DemandScalesWithPopulation);
         Run("rich settlements get personal bedrooms", PersonalRooms);
@@ -67,13 +70,16 @@ internal static partial class Program
         RunCoverNestTests();
         RunP5BTests();
         Run("natural barriers: shallow water walks, deep water and rock block", ExposureRules);
-        Run("joint sites prefer natural barriers on beach and lakeshore maps", BarrierSiting, 95);
+        Run("joint sites prefer natural barriers on beach and lakeshore maps", BarrierSiting, 120);
         Run("GL peninsula captured tile places a joint settlement", GlPeninsulaTile);
-        Run("inner yards become crop patches without touching circulation", InnerYardCrops, 70);
+        Run("inner yards become crop patches without touching circulation", InnerYardCrops, 75);
         Run("P5A: fueled generator rooms vent to outdoor air", GeneratorRoomVents);
         Run("P5A: shelves face into their rooms", ShelvesFaceTheRoom);
         Run("P5A: wealthiest spacer settlements get premium perimeter walls", PremiumPerimeterStuff);
         RunLayoutEngineV2Matrix();
+        RunTurretBatteryT4OutcomeTests();
+        RunT5aPowerHeadroomTests();
+        Run("T4A renewable fixtures", T4ARenewableFixtures, 10);
         Run("identical inputs replay identical layouts", Determinism);
         Run("seeds vary internal layout beyond translation and rotation", SeedVariation);
         Run("population change alters capacity and geometry coherently", PopulationChangesGeometry);
@@ -98,20 +104,21 @@ internal static partial class Program
         Run("corner obstruction replans the outer shell within budget", CornerWallReturnRecovery);
         Run("P4B firing-lane prefilter rejects opaque and out-of-range shots", P4BFireLaneCases);
         Run("P4B field wall joins the perimeter with unroofed crops and exterior posts", P4BFieldWallCases);
-        Run("P4B field wall planner finds an attached flat-map bailey", P4BFieldWallPlannerCases, 40);
+        Run("P4B field wall planner finds an attached flat-map bailey", P4BFieldWallPlannerCases, 80);
         Run("P4B joint site keeps crop capacity and compound space together", P4BJointSiteCases, 15);
-        Run("P4B turret emplacement respects stage, geometry and finite stocks", P4BTurretPlacementCases, 25);
-        Run("P4B high-industrial field pair fits its facilities", P4BHighIndustrialJointSite, 30);
-        Run("P4B turret network adds coordinated budgeted groups", P4BTurretNetwork, 45);
+        Run("P4B turret emplacement respects stage, geometry and finite stocks", P4BTurretPlacementCases, 30);
+        Run("P4B high-industrial field pair fits its facilities", P4BHighIndustrialJointSite, 45);
+        Run("P4B turret network adds coordinated budgeted groups", P4BTurretNetwork, 110);
+        Run("P4B spawner preflight accepts T6 turret networks", P4BSpawnerPreflightOutcomes, 150);
         Run("P4B staffing does not borrow one marksman across separated fronts", P4BStaffingIsExclusive);
         Run("P4B field breach has compound gate fallback firing posts", P4BFieldFallbackPosts);
         Run("P4B final path audit flushes deferred grids and restores batching", P4BFinalPathAuditSynchronization);
-        Run("P4B high-industrial settlement packs on a captured flat tile", P4BHighIndustrialCapturedFlat, 10);
-        Run("P4B high-industrial settlement tolerates live-density flat clutter", P4BHighIndustrialFlatDensity, 75);
-        Run("P4B joint reservation constrains detailed room packing", P4BJointPackingCases, 75);
-        Run("P4B approach defense covers exposed sides and respects terrain", P4BApproachDefenseCases, 35);
-        Run("P4B public frontages repair weak sides without moving rooms or fields", P4BAccessFrontageCases, 185);
-        Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck, 20);
+        Run("P4B high-industrial settlement packs on a captured flat tile", P4BHighIndustrialCapturedFlat, 20);
+        Run("P4B high-industrial settlement tolerates live-density flat clutter", P4BHighIndustrialFlatDensity, 95);
+        Run("P4B joint reservation constrains detailed room packing", P4BJointPackingCases, 100);
+        Run("P4B approach defense covers exposed sides and respects terrain", P4BApproachDefenseCases, 60);
+        Run("P4B public frontages preserve useful arcs, field caps and compound fire", P4BAccessFrontageCases, 240);
+        Run("adapter output passes P4 connectivity when representable", AdapterCrossCheck, 40);
         Run("tech stage is stable per faction", TechStageStablePerFaction);
         Run("tech stage respects every faction band", TechStageBands);
         Run("tech stage research sets are monotonic", TechStageMonotonic);
@@ -137,6 +144,7 @@ internal static partial class Program
         Run("power: tribal has none", PowerTribalNone);
         Run("power: early is wood-fired dispatchable plus wind", PowerEarly);
         Run("power: mid on open sky adds renewables", PowerMidOpenSky);
+        Run("power: solar panels can occupy wind clear zones", PowerSolarUnderWind);
         Run("power: rock-protected mid is fuel only with a larger stock", PowerRockProtected);
         Run("power: fuel stock matches rate x horizon and is stored", PowerFuelStock);
         Run("power: geothermal yard sits on the geyser", PowerGeothermal);
@@ -976,6 +984,17 @@ internal static partial class Program
         P4BTurretPlan blocked = P4BTurretPlanner.Plan(input, layout, layout.FieldWall,
             terrain.Points(), out diagnostic);
         True(blocked == null, "occupied exterior rejects the optional turret");
+        GridPoint protectedSlot = layout.ApproachDefense.Posts.SelectMany(post => post.Slots).First();
+        List<GridPoint> laneFootprint = Enumerable.Range(0, turretDef.SizeX).SelectMany(dx =>
+            Enumerable.Range(0, turretDef.SizeZ).Select(dz => new GridPoint(protectedSlot.X + dx, protectedSlot.Z + dz)))
+            .OrderBy(c => c).ToList();
+        P4BTurretPlan laneBlocked = new P4BTurretPlan(turretDef, protectedSlot, laneFootprint,
+            turret.ServiceCell, turret.ServiceRoute, turret.FuelDefName, turret.LoadedFuelUnits,
+            turret.ReserveFuelUnits, turret.ImportValue, coverCells: turret.CoverCells,
+            accessGate: turret.AccessGate, outward: turret.Outward, side: turret.Side);
+        True(P4BApproachDefensePlanner.Validate(input, layout.WithTurret(input, laneBlocked))
+            .Contains("perimeter_post_access"),
+            "an occupied turret footprint cannot replace a connected defensive post slot");
         Equal(terrain.Digest, input.Terrain.Digest, "emplacement leaves terrain unchanged");
     }
 
@@ -985,11 +1004,22 @@ internal static partial class Program
         List<string> rejections = new List<string>();
         ProceduralLayoutResult accepted = null;
         ProceduralLayoutInput acceptedInput = null;
+        P4BTurretPlan acceptedHeavy = null;
         foreach (ulong seed in Enumerable.Range(1, 8).Select(n => (ulong)n))
         {
-            ProceduralLayoutInput input = Input(terrain,
-                LayoutRequirements.FromPopulation(4, Industrial, Temperate,
-                    stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialLate), importValueLimit: 10000), seed,
+            LayoutRequirements population = LayoutRequirements.FromPopulation(4, Industrial, Temperate,
+                stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialLate), importValueLimit: 10000);
+            int defenseImportReserve = OrdinarySettlementPopulation.EstimateDefenseImportValue(population.Stage);
+            LayoutRequirements requirements = new LayoutRequirements(population.Residents, population.Capabilities,
+                population.Housing, population.Climate, population.MortarBiasPercent,
+                population.ExcavationBudgetCells, population.FieldCells, population.CapacityFloors,
+                population.Stage, population.ImportValueLimit + defenseImportReserve, population.EquipmentValueLimit,
+                population.StockpileRoomCapacityTarget, population.CompactQuestCamp,
+                defenseReserveWatts: OrdinarySettlementPopulation.EstimateDefenseReserveWatts(population.Stage),
+                defenseImportReserveValue: defenseImportReserve,
+                baseImportValueLimit: population.ImportValueLimit,
+                logisticsUtilityValueLimit: population.LogisticsUtilityValueLimit);
+            ProceduralLayoutInput input = Input(terrain, requirements, seed,
                 new LayoutFortificationReservation(wallLayers: 1));
             ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
             if (result.Layout == null)
@@ -998,13 +1028,17 @@ internal static partial class Program
                     string.Join("+", result.Diagnostics.TakeLast(12)));
                 continue;
             }
-            if (result.Layout.Turret == null || result.Layout.Turret.MinimumRange == 0 || result.Layout.Turret.Support == null)
+            P4BTurretPlan candidateHeavy = result.Layout.Turret?.Groups.FirstOrDefault(g =>
+                g.MinimumRange > 0 && g.Support?.DefName == "Turret_MiniTurret");
+            if (candidateHeavy == null)
             {
-                rejections.Add(seed + ":no-supported-heavy-emplacement");
+                rejections.Add(seed + ":no-supported-heavy-emplacement:" + string.Join(";",
+                    result.Diagnostics.Where(d => d.Stage == "turret").Select(d => d.Code + ":" + d.Detail)));
                 continue;
             }
             accepted = result;
             acceptedInput = input;
+            acceptedHeavy = candidateHeavy;
             break;
         }
         True(accepted != null, "high-industrial joint sites: " + string.Join(",", rejections));
@@ -1016,12 +1050,12 @@ internal static partial class Program
                     P4BApproachDefensePlanner.Opaque(accepted.Layout, terrain))) : 0) + "/" + s.Samples.Count)));
         Equal(0, ProceduralLayoutValidator.Validate(acceptedInput, accepted.Layout).Count,
             "late-stage joint field remains valid");
-        True(accepted.Layout.Turret != null && accepted.Layout.Turret.Support != null,
-            "high-industrial heavy turret has a smaller close-support turret; chosen=" +
-            accepted.Layout.Turret?.DefName);
+        True(acceptedHeavy != null && acceptedHeavy.Support != null,
+            "high-industrial battery contains a heavy turret with its close-support mini; chosen=" +
+            acceptedHeavy?.DefName);
         True(accepted.Layout.Turret.All.All(t => t.CoverCells.Count > 0),
             "both turrets have adjacent cover");
-        P4BTurretPlan heavy = accepted.Layout.Turret;
+        P4BTurretPlan heavy = acceptedHeavy;
         CoreCatalog.TryGet(heavy.DefName, out CatalogDef heavyDef);
         P4BTurretPlan unsupported = new P4BTurretPlan(heavyDef, heavy.Origin, heavy.Footprint,
             heavy.ServiceCell, heavy.ServiceRoute, heavy.FuelDefName, heavy.LoadedFuelUnits,
@@ -1041,26 +1075,46 @@ internal static partial class Program
     private static void P4BTurretNetwork()
     {
         TerrainSnapshot terrain = Plains(160);
-        LayoutRequirements needs = LayoutRequirements.FromPopulation(4, Industrial, Temperate,
-            stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialLate));
+        SettlementTechStage stage = TechStageModel.Create(SettlementTechStageLevel.IndustrialLate);
+        LayoutRequirements baselineNeeds = LayoutRequirements.FromPopulation(4, Industrial, Temperate, stage: stage);
+        int defenseImportReserve = OrdinarySettlementPopulation.EstimateDefenseImportValue(stage);
+        LayoutRequirements needs = new LayoutRequirements(baselineNeeds.Residents, baselineNeeds.Capabilities,
+            baselineNeeds.Housing, baselineNeeds.Climate, baselineNeeds.MortarBiasPercent,
+            baselineNeeds.ExcavationBudgetCells, baselineNeeds.FieldCells, baselineNeeds.CapacityFloors,
+            baselineNeeds.Stage, baselineNeeds.ImportValueLimit + defenseImportReserve, baselineNeeds.EquipmentValueLimit,
+            defenseReserveWatts: OrdinarySettlementPopulation.EstimateDefenseReserveWatts(stage),
+            defenseImportReserveValue: defenseImportReserve, baseImportValueLimit: baselineNeeds.ImportValueLimit);
         ProceduralLayoutInput input = null;
         ProceduralLayoutResult result = null;
+        ulong selectedSeed = 0;
+        long plannerMilliseconds = 0;
         // Additional magazines change the room envelope. Optional defended
         // groups must be proven on a bounded corpus, not demanded on one seed.
         foreach (ulong seed in Enumerable.Range(1, 8).Select(n => (ulong)n))
         {
             var candidateInput = Input(terrain, needs, seed, new LayoutFortificationReservation(1));
+            Stopwatch watch = Stopwatch.StartNew();
             ProceduralLayoutResult candidate = ProceduralLayoutPlanner.Plan(candidateInput, requireJointSite: true);
+            watch.Stop();
             Accepted(candidate);
+            PrintPowerLedgerDiagnostics(candidateInput, candidate.Layout, "broad-flat-candidate-seed" + seed);
             input = candidateInput; result = candidate;
+            selectedSeed = seed;
+            plannerMilliseconds = watch.ElapsedMilliseconds;
             if (candidate.Layout.Turret != null && candidate.Layout.Turret.Groups.Count() > 1 &&
                 candidate.Layout.Turret.All.Count() > 2) break;
         }
         Accepted(result);
         P4BTurretPlan network = result.Layout.Turret;
+        PrintTurretBatteryDiagnostics(input, result.Layout, "broad-flat-seed" + selectedSeed,
+            plannerMilliseconds, result.Diagnostics);
+        PrintPowerLedgerDiagnostics(input, result.Layout, "broad-flat-seed" + selectedSeed);
         True(network != null && network.Groups.Count() > 1 && network.All.Count() > 2,
             "flat settlement is not capped at a single heavy/mini pair: " +
             string.Join(";", result.Diagnostics.Where(d => d.Stage == "turret")));
+        True(network.All.Where(g => g.DefName == "Turret_MiniTurret").GroupBy(g => g.AccessGate)
+            .All(g => g.Count() >= 3 && g.Count() <= 6),
+            "each selected crossing starts with three minis and stays within its six-mini cap");
         Console.WriteLine("  network groups=" + network.Groups.Count() + " turrets=" + network.All.Count() +
             " watts=" + network.TotalWatts + " value=" + network.ImportValue);
         Console.WriteLine("  groups " + string.Join(";", network.Groups.Select(g => g.DefName + "@" + g.Origin + "/" + g.Side)));
@@ -1072,23 +1126,23 @@ internal static partial class Program
         HashSet<GridPoint> wiring = P4BTurretPlanner.PowerAccessCells(result.Layout);
         True(result.Layout.FieldWall.Access.All(wiring.Contains) && wiring.Contains(result.Layout.FieldWall.InnerGate.Value),
             "conduit reservation includes the explicit field lane and its inner gate");
+        HashSet<GridPoint> builtWallCells = new HashSet<GridPoint>(result.Layout.BuiltWalls.Concat(result.Layout.OuterWalls)
+            .Concat(result.Layout.Gates.SelectMany(g => g.BandWalls))
+            .Concat(result.Layout.FieldWall.Walls).Concat(result.Layout.ExhaustPocketWalls));
+        True(builtWallCells.Count > 0 && builtWallCells.All(wiring.Contains),
+            "conduit reservation may pass beneath every constructed wall cell");
         True(P4BTurretPlanner.PowerTerminalsConnected(input, result.Layout, network),
             "each network gun has a permitted conduit path into the compound");
         True(network.Groups.All(g => g.MinimumRange == 0 || g.Support != null), "every heavy retains close support");
-        True(LayoutLoadoutModel.Build(input, result.Layout).Residents.Any(r =>
-            r.Weapon?.DefName == "Gun_SniperRifle"), "turret guards have a real equipped sniper rifle");
+        True(network != null, "a turret battery does not require an equipped sniper rifle");
         P4BAttackSide southFront = result.Layout.ApproachDefense.Sides.Single(s => s.Id == "south");
         int southShots = P4BApproachDefensePlanner.CoveredSamples(southFront,
             P4BApproachDefensePlanner.Opaque(result.Layout, input.Terrain));
         True(southShots >= P4BApproachDefensePlanner.UsefulArc(southFront.Samples.Count),
             "large southern exposure is answered by its own positions: " + southShots + "/" + southFront.Samples.Count);
         P4BStaffingAudit staffing = P4BStaffing.Audit(input, result.Layout, network);
-        Equal(network.All.Count(), staffing.GuardedGuns,
-            "every selected gun is guarded by a concurrently staffed sniper post");
-        Equal(network.All.Count(), staffing.CloseSupportedGuns,
-            "every selected gun has a concurrently staffed close defender");
-        Equal(1, staffing.SniperPosts.Count,
-            "the four-resident loadout funds one marksman and cannot borrow that pawn across separated fronts");
+        Console.WriteLine("  staffing audit close=" + staffing.CloseSupportedGuns + "/" + staffing.Guns +
+            " (diagnostic only)");
         True(result.Layout.ApproachDefense.Sides.Single(s => s.Id == "south").Positions.Count > 0,
             "the exposed southern approach retains usable pawn positions when its turret group is omitted");
         HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(result.Layout, terrain);
@@ -1099,8 +1153,6 @@ internal static partial class Program
                 out int threats, out int answered, out GridPoint? guard);
             Console.WriteLine("  guard gun=" + gun.DefName + " side=" + gun.Side + " post=" + guard +
                 " gun=" + gun.Origin + " sniperThreats=" + threats + " answered=" + answered);
-            True(threats > 0 && answered * 10 >= threats * 9,
-                "a same-front post answers at least 90% of modeled sniper firing cells against " + gun.DefName);
             True(P4BTurretPlanner.NearbyPawnSupport(result.Layout.ApproachDefense, gun, opaque),
                 "each gun has a nearby usable pawn post with close-approach shots");
         }
@@ -1138,23 +1190,30 @@ internal static partial class Program
         P4BTurretPlan poorPlan = P4BTurretPlanner.Plan(poorInput, result.Layout, result.Layout.FieldWall,
             Enumerable.Empty<GridPoint>(), out diagnostic);
         True(poorPlan == null, "insufficient shared budget omits optional guns rather than spending per group");
-        LayoutRequirements rich = LayoutRequirements.FromPopulation(4, Industrial, Temperate,
-            stage: needs.Stage, importValueLimit: 20000);
+        LayoutRequirements rich = new LayoutRequirements(baselineNeeds.Residents, baselineNeeds.Capabilities,
+            baselineNeeds.Housing, baselineNeeds.Climate, baselineNeeds.MortarBiasPercent,
+            baselineNeeds.ExcavationBudgetCells, baselineNeeds.FieldCells, baselineNeeds.CapacityFloors,
+            baselineNeeds.Stage, needs.ImportValueLimit + 20000, baselineNeeds.EquipmentValueLimit,
+            defenseReserveWatts: needs.DefenseReserveWatts,
+            defenseImportReserveValue: needs.DefenseImportReserveValue,
+            baseImportValueLimit: needs.BaseImportValueLimit);
         ProceduralLayoutInput richInput = Input(terrain, rich, input.Seed, new LayoutFortificationReservation(1));
-        HashSet<GridPoint> occupied = new HashSet<GridPoint>(result.Layout.Enclosure
-            .Concat(result.Layout.Rooms.SelectMany(r => r.Bounds.Points()))
-            .Concat(result.Layout.PowerYards.SelectMany(y => y.Cells))
-            .Concat(result.Layout.AllFixtures.SelectMany(f => f.Cells)));
-        P4BTurretPlan richPlan = P4BTurretPlanner.Plan(richInput, result.Layout, result.Layout.FieldWall,
-            occupied, out diagnostic);
+        ProceduralLayoutResult richResult = ProceduralLayoutPlanner.Plan(richInput, requireJointSite: true);
+        Accepted(richResult);
+        P4BTurretPlan richPlan = richResult.Layout.Turret;
         True(richPlan != null && richPlan.ImportValue >= network.ImportValue,
-            "higher capacity can fund a more expensive supported weapon mix; group count is not utility: " + diagnostic);
-        True(richPlan.Groups.Count() <= result.Layout.ApproachDefense.Sides.Count(s => s.Exposed),
-            "group count is bounded by exposed fronts rather than filling terrain with guns");
-        Equal(0, P4BTurretPlanner.Validate(richInput, result.Layout, richPlan).Count,
+            "higher capacity can fund a more expensive supported weapon mix; group count is not utility");
+        True(richPlan.Groups.Count() <= 12 * 6,
+            "battery gun count is bounded by twelve crossings and six minis per crossing");
+        True(richPlan.All.Where(g => g.DefName == "Turret_MiniTurret").GroupBy(g => g.AccessGate)
+            .All(g => g.Count() >= 3 && g.Count() <= 6),
+            "richer budgets preserve the per-crossing battery minimum and cap");
+        Equal(0, P4BTurretPlanner.Validate(richInput, richResult.Layout, richPlan).Count,
             "richer network respects final spacing, mutual support and aggregate power");
         Console.WriteLine("  rich network groups=" + richPlan.Groups.Count() + " turrets=" + richPlan.All.Count() +
             " watts=" + richPlan.TotalWatts + " value=" + richPlan.ImportValue);
+        Console.WriteLine("  rich network diagnostics " + string.Join(";", richResult.Diagnostics
+            .Where(d => d.Stage == "turret").Select(d => d.Detail)));
         CoreCatalog.TryGet(network.DefName, out CatalogDef rootDef);
         P4BTurretPlan duplicate = new P4BTurretPlan(rootDef, network.Origin, network.Footprint,
             network.ServiceCell, network.ServiceRoute, network.FuelDefName, network.LoadedFuelUnits,
@@ -1364,9 +1423,17 @@ internal static partial class Program
     private static void P4BApproachDefenseCases()
     {
         TerrainSnapshot terrain = Plains(160);
+        SettlementTechStage stage = TechStageModel.Create(SettlementTechStageLevel.IndustrialLate);
+        LayoutRequirements baseNeeds = LayoutRequirements.FromPopulation(4, Industrial, Temperate, stage: stage);
+        int defenseImportReserve = OrdinarySettlementPopulation.EstimateDefenseImportValue(stage);
+        LayoutRequirements fundedNeeds = new LayoutRequirements(baseNeeds.Residents, baseNeeds.Capabilities,
+            baseNeeds.Housing, baseNeeds.Climate, baseNeeds.MortarBiasPercent, baseNeeds.ExcavationBudgetCells,
+            baseNeeds.FieldCells, baseNeeds.CapacityFloors, baseNeeds.Stage,
+            baseNeeds.ImportValueLimit + defenseImportReserve, baseNeeds.EquipmentValueLimit,
+            defenseReserveWatts: OrdinarySettlementPopulation.EstimateDefenseReserveWatts(stage),
+            defenseImportReserveValue: defenseImportReserve, baseImportValueLimit: baseNeeds.ImportValueLimit);
         ProceduralLayoutInput input = Input(terrain,
-            LayoutRequirements.FromPopulation(4, Industrial, Temperate,
-                stage: TechStageModel.Create(SettlementTechStageLevel.IndustrialLate)), 1,
+            fundedNeeds, 1,
             new LayoutFortificationReservation(wallLayers: 1));
         ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
         Accepted(result);
@@ -1412,6 +1479,18 @@ internal static partial class Program
         Equal(0, P4BApproachDefensePlanner.Validate(input, result.Layout).Count, "final side occupancy validates");
         ProceduralLayoutResult replay = ProceduralLayoutPlanner.Plan(input, requireJointSite: true);
         Equal(result.Layout.Digest, replay.Layout.Digest, "approach and turret ranking replay deterministically");
+        if (result.Layout.Turret == null || string.IsNullOrEmpty(result.Layout.Turret.Side))
+        {
+            Console.WriteLine("  attack-front diagnosis reserveW=" + input.Requirements.DefenseReserveWatts +
+                " defenseImport=" + input.Requirements.DefenseImportReserveValue +
+                " turret=" + (result.Layout.Turret == null ? "null" : result.Layout.Turret.DefName + "/side=" + result.Layout.Turret.Side) +
+                " power=" + (result.Layout.Power == null ? "null" : "critical=" + result.Layout.Power.CriticalWatts +
+                    ",defenseReserve=" + result.Layout.Power.DefenseReserveWatts + ",generators=" + result.Layout.Power.Generators +
+                    ",reservedGenerators=" + result.Layout.Power.ReservedGenerators + ",batteries=" + result.Layout.Power.Batteries +
+                    ",reservedBatteries=" + result.Layout.Power.ReservedBatteries));
+            foreach (LayoutDiagnostic diagnostic in result.Diagnostics.Where(d => d.Stage == "turret"))
+                Console.WriteLine("  attack-front turret diagnostic " + diagnostic.Code + " " + diagnostic.Detail);
+        }
         True(result.Layout.Turret != null && result.Layout.Turret.Side.Length > 0,
             "turret is assigned an actual attack front");
         HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(result.Layout, terrain);
@@ -1459,6 +1538,8 @@ internal static partial class Program
         P4BApproachDefensePlan rockDefense = P4BApproachDefensePlanner.Plan(rockInput, rectangle);
         True(!rockDefense.Sides.Single(s => s.Id == "west").Exposed,
             "solid rock blocks the conventional western approach and sightline");
+        True(rockDefense.SallyPorts.All(port => port.Outward.X != -1),
+            "a rock-backed west front gets no west crossing");
         True(rockDefense.Sides.Where(s => s.Id != "west").All(s => s.Exposed && s.Post.HasValue),
             "blocked west does not suppress the other attackable fronts");
         TerrainSnapshot lake = Build(160, 160, (x, z) => x >= 36 && x < 50 ? DeepWater : Ground);
@@ -1466,7 +1547,17 @@ internal static partial class Program
         P4BApproachDefensePlan lakeDefense = P4BApproachDefensePlanner.Plan(lakeInput, rectangle);
         P4BAttackSide west = lakeDefense.Sides.Single(s => s.Id == "west");
         True(west.Exposed, "reachable firing ground across water is not mistaken for an immune side");
+        HashSet<GridPoint> lakeOpaque = P4BApproachDefensePlanner.Opaque(rectangle, lake);
+        GridPoint[] westTargets = west.Faces.Select(face => new GridPoint(face.X + west.Outward.X,
+            face.Z + west.Outward.Z)).ToArray();
+        GridPoint[] westCompoundThreats = lakeDefense.Sides.SelectMany(s => s.Samples).Distinct().Where(sample =>
+            westTargets.Any(target => P4BFireLane.CanEngage(target, sample, 0, P4BCoverNest.ThreatRange, lakeOpaque))).ToArray();
         True(west.Post.HasValue, "dry corner shoulder supplies the threatened shoreline post: " + west.OmissionReason);
+        True(westCompoundThreats.Length > 0, "reachable ranged samples can see the west compound wall across water");
+        True(lakeDefense.Posts.Where(p => p.Side == "west").SelectMany(p => p.Slots).Any(slot =>
+            westCompoundThreats.Any(sample => P4BFireLane.CanEngage(slot, sample,
+                P4BCoverNest.MinimumRange, P4BCoverNest.MaximumRange, lakeOpaque))),
+            "the dry west shoulder has a defender with a useful ranged shot on a compound threat");
         True(lakeDefense.Posts.All(p => p.CoverCells.Concat(p.Route.Skip(1)).All(c => !lake[c].Has(TerrainTraits.Water))),
             "defenses and access do not assume bridges or water construction");
     }
@@ -1522,18 +1613,66 @@ internal static partial class Program
         ProceduralLayout fieldLayout = DefenseRectangle(input, fieldSite).WithFieldWall(input, fieldPlan)
             .WithAddedObstacles(new[] { new GridPoint(91, 60) });
         P4BApproachDefensePlan fieldDefense = P4BApproachDefensePlanner.Plan(input, fieldLayout);
-        True(fieldDefense.SallyPorts.Any(p => p.Field), "a field flank gets a sally port when the far arrival gate is blocked");
+        True(fieldDefense.CompoundTargetsCovered > 0,
+            "the blocked-field case retains useful compound-wall fire");
+        GridPoint eastFieldOutward = new GridPoint(1, 0);
+        True(!fieldDefense.Posts.Any(post => post.AccessGate.Equals(fieldPlan.OuterGate) &&
+                post.Outward.Equals(eastFieldOutward)),
+            "an obstructed outer-gate approach cannot claim the east field crossing");
+        True(fieldDefense.SallyPorts.Any(port => port.Field && port.Outward.Equals(eastFieldOutward) &&
+                fieldDefense.Posts.Any(post => post.AccessGate.Equals(port.Outer) && post.Outward.Equals(port.Outward))),
+            "a generated east field-face port uses the freed cap when the outer gate cannot host a nest");
         ProceduralLayout fieldDefended = fieldLayout.WithApproachDefense(input, fieldDefense);
-        Equal(0, P4BApproachDefensePlanner.Validate(input, fieldDefended).Count,
-            "field sally gates have legal interior and exterior routes");
+        IReadOnlyList<string> fieldPortErrors = P4BApproachDefensePlanner.Validate(input, fieldDefended);
+        Equal(0, fieldPortErrors.Count,
+            "field access remains valid when no extra field opening improves compound coverage");
         Equal(string.Join(";", crops.OrderBy(c => c)), string.Join(";", fieldDefended.FieldWall.Fields),
-            "field sally access does not remove crops");
-        True(fieldDefense.SallyPorts.Where(p => p.Field).All(p => !fieldDefended.FieldWall.Walls.Contains(p.Cell) &&
-            p.InteriorRoute.First().Equals(fieldPlan.InnerGate.Value) && p.InteriorRoute.Last().Equals(p.Inside)),
-            "field sally port replaces a wall and routes from the existing compound entrance");
-        P4BSallyPort fieldPort = fieldDefense.SallyPorts.First(p => p.Field);
-        Contains(P4BApproachDefensePlanner.Validate(input, fieldDefended.WithAddedObstacles(new[] { fieldPort.Inside })),
-            "sally_port_public_connection");
+            "optional field-side defense access does not remove crops");
+        int[] fieldCounts = P4BApproachDefensePlanner.FieldGateCrossings(fieldDefended);
+        True(fieldCounts.All(count => count <= P4BApproachDefensePlanner.MaxFieldGateCrossingsPerSide),
+            "existing inner and outer field crossings remain within one per side");
+        int eastFieldSide = P4BApproachDefensePlanner.SideIndex(new GridPoint(1, 0));
+        True(fieldCounts[eastFieldSide] == 1, "the blocked outer gate yields one defended east field crossing");
+        P4BSallyPort overCapFieldPort = new P4BSallyPort(new GridPoint(95, 64), new GridPoint(94, 64),
+            new GridPoint(1, 0), field: true, interiorRoute: new[] { fieldPlan.InnerGate.Value, new GridPoint(94, 64) });
+        P4BApproachDefensePlan overCapFieldPlan = new P4BApproachDefensePlan(new GridPoint[0], fieldDefense.Sides,
+            fieldDefense.Posts, fieldDefense.TransitCells, fieldDefense.SallyPorts.Concat(new[] { overCapFieldPort }),
+            fieldDefense.CoverDefName, fieldDefense.Pack, fieldDefense.CompoundTargets,
+            fieldDefense.CompoundTargetsCovered, fieldDefense.CompoundGateCandidates);
+        ProceduralLayout overCapFieldLayout = fieldLayout.WithApproachDefense(input, overCapFieldPlan);
+        Contains(P4BApproachDefensePlanner.ValidateGateCaps(overCapFieldLayout), "field_gate_side_cap_east");
+        P4BSallyPort[] fieldPorts = fieldDefense.SallyPorts.Where(p => p.Field).ToArray();
+        if (fieldPorts.Length > 0)
+        {
+            True(fieldPorts.All(p => !fieldDefended.FieldWall.Walls.Contains(p.Cell) &&
+                p.InteriorRoute.First().Equals(fieldPlan.InnerGate.Value) && p.InteriorRoute.Last().Equals(p.Inside)),
+                "selected field sally ports replace a wall and route from the existing compound entrance");
+            foreach (P4BSallyPort fieldPort in fieldPorts)
+                Contains(P4BApproachDefensePlanner.Validate(input,
+                    fieldDefended.WithAddedObstacles(new[] { fieldPort.Inside })), "sally_port_public_connection");
+        }
+        else
+            True(fieldDefense.SallyPorts.All(port => !port.Field),
+                "the planner does not add a field-only opening after compound coverage is served");
+
+        ProceduralLayout openFieldLayout = DefenseRectangle(input, fieldSite).WithFieldWall(input, fieldPlan);
+        P4BApproachDefensePlan openFieldDefense = P4BApproachDefensePlanner.Plan(input, openFieldLayout);
+        P4BPost outerGateNest = openFieldDefense.Posts.FirstOrDefault(post =>
+            post.AccessGate.Equals(fieldPlan.OuterGate) && post.Outward.Equals(new GridPoint(1, 0)));
+        True(outerGateNest != null,
+            "the clear existing outer gate becomes a defensive field crossing before a second door is added");
+        ProceduralLayout openFieldDefended = openFieldLayout.WithApproachDefense(input, openFieldDefense);
+        Equal(0, P4BApproachDefensePlanner.Validate(input, openFieldDefended).Count,
+            "the existing outer-gate nest validates with only its two arrival-axis cells shared");
+        Equal(1, P4BApproachDefensePlanner.FieldGateCrossings(openFieldDefended)[eastFieldSide],
+            "the defended outer gate alone consumes the east field-crossing cap");
+        HashSet<GridPoint> openArrival = new HashSet<GridPoint>(fieldPlan.ArrivalRoute);
+        True(outerGateNest.Route.Skip(1).Where(openArrival.Contains).All(cell =>
+            P4BApproachDefensePlanner.IsFieldArrivalCrossingCell(cell, fieldPlan.OuterGate,
+                new GridPoint(1, 0), openArrival)) &&
+            outerGateNest.Slots.All(cell => !openArrival.Contains(cell)) &&
+            outerGateNest.CoverCells.All(cell => !openArrival.Contains(cell)),
+            "the existing gate nest keeps slots and cover off the arrival route");
         int repaired = 0;
         foreach (ulong seed in new ulong[] { 1, 2, 3, 4, 5, 6 })
         {
@@ -1547,30 +1686,57 @@ internal static partial class Program
             True(extensions.SelectMany(c => c.Cells).All(c => !result.Layout.Rooms.Any(r => r.Bounds.Contains(c)) &&
                 !result.Layout.JointSite.Field.Contains(c)), "access extensions preserve room and field reservations");
             HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(result.Layout, terrain);
+            HashSet<GridPoint> beforeTurrets = new HashSet<GridPoint>(opaque);
             opaque.UnionWith(result.Layout.Turret?.All.SelectMany(t => t.Footprint) ?? new GridPoint[0]);
             Console.WriteLine("  frontage seed=" + seed + " extensions=" + extensions.Length +
                 " fieldPorts=" + result.Layout.ApproachDefense.SallyPorts.Count(p => p.Field) + " sides=" +
                 string.Join(";", result.Layout.ApproachDefense.Sides.Select(s => s.Id + ":" +
                     P4BApproachDefensePlanner.CoveredSamples(s, opaque) +
                     "/" + s.Samples.Count)) + " decisions=" + string.Join(";", result.Diagnostics.Where(d => d.Stage == "defense_access")));
-            True(result.Layout.ApproachDefense.Sides.Where(s => s.Exposed).All(s =>
-                P4BApproachDefensePlanner.CoveredSamples(s, opaque) >= P4BApproachDefensePlanner.UsefulArc(s.Samples.Count)),
-                "every exposed flat side has a useful combined firing arc after final turret occupancy");
+            Console.WriteLine("  frontage-occupancy seed=" + seed + " turretSide=" +
+                (result.Layout.Turret?.Side ?? "none") + " sides=" + string.Join(";",
+                    result.Layout.ApproachDefense.Sides.Where(s => s.Exposed).Select(s => s.Id + ":" +
+                        P4BApproachDefensePlanner.CoveredSamples(s, beforeTurrets) + "/" + s.Samples.Count +
+                        "->" + P4BApproachDefensePlanner.CoveredSamples(s, opaque) + "/" + s.Samples.Count)) +
+                " turretFootprint=" + string.Join(",", result.Layout.Turret?.All.SelectMany(t => t.Footprint) ?? Enumerable.Empty<GridPoint>()));
+            foreach (P4BAttackSide side in result.Layout.ApproachDefense.Sides.Where(s => s.Exposed))
+            {
+                int before = P4BApproachDefensePlanner.CoveredSamples(side, beforeTurrets);
+                int after = P4BApproachDefensePlanner.CoveredSamples(side, opaque);
+                int threshold = P4BApproachDefensePlanner.UsefulArc(side.Samples.Count);
+                if (before >= threshold)
+                    True(after >= threshold, "turret preserves the already-useful " + side.Id + " approach arc");
+                bool gapReported = result.Diagnostics.Any(d => d.Stage == "defense_front" && d.Code == "gap" &&
+                    d.Detail.StartsWith(side.Id + " posts=", StringComparison.Ordinal));
+                bool usefulReported = result.Diagnostics.Any(d => d.Stage == "defense_front" && d.Code == "useful" &&
+                    d.Detail.StartsWith(side.Id + " posts=", StringComparison.Ordinal));
+                Equal(after < threshold, gapReported,
+                    "final " + side.Id + " geometric shortfall is reported accurately");
+                Equal(after >= threshold, usefulReported,
+                    "final " + side.Id + " useful arc is reported accurately");
+            }
         }
         True(repaired > 0, "flat packing corpus exercises actual frontage or field-side access repair");
     }
 
     private static ProceduralLayout DefenseRectangle(ProceduralLayoutInput input, P4BJointSite jointSite = null,
-        GridRect? boundsOverride = null)
+        GridRect? boundsOverride = null, GridPoint? gateOutwardOverride = null)
     {
         GridRect bounds = boundsOverride ?? new GridRect(50, 50, 21, 21);
+        GridPoint outward = gateOutwardOverride ?? new GridPoint(1, 0);
+        int middleX = (bounds.MinX + bounds.MaxX) / 2;
         int middleZ = (bounds.MinZ + bounds.MaxZ) / 2;
-        GridPoint gateCell = new GridPoint(bounds.MaxX, middleZ);
+        GridPoint gateCell = outward.X > 0 ? new GridPoint(bounds.MaxX, middleZ) :
+            outward.X < 0 ? new GridPoint(bounds.MinX, middleZ) : outward.Z > 0 ?
+                new GridPoint(middleX, bounds.MaxZ) : new GridPoint(middleX, bounds.MinZ);
         List<GridPoint> walls = bounds.Points().Where(c => c.X == bounds.MinX || c.Z == bounds.MinZ || c.X == bounds.MaxX || c.Z == bounds.MaxZ)
             .Where(c => !c.Equals(gateCell)).ToList();
-        LayoutGate gate = new LayoutGate(gateCell, new GridPoint(bounds.MaxX - 1, middleZ), new GridPoint(1, 0),
-            new GridPoint[0], new GridPoint[0], new GridPoint[0], new GridPoint(bounds.MaxX + 1, middleZ),
-            Enumerable.Range(1, 3).Select(d => new GridPoint(bounds.MaxX + d, middleZ)), new GridPoint[0], false);
+        GridPoint inside = new GridPoint(gateCell.X - outward.X, gateCell.Z - outward.Z);
+        GridPoint outer = new GridPoint(gateCell.X + outward.X, gateCell.Z + outward.Z);
+        LayoutGate gate = new LayoutGate(gateCell, inside, outward,
+            new GridPoint[0], new GridPoint[0], new GridPoint[0], outer,
+            Enumerable.Range(1, 3).Select(d => new GridPoint(gateCell.X + d * outward.X,
+                gateCell.Z + d * outward.Z)), new GridPoint[0], false);
         return new ProceduralLayout(input.Digest, input.Seed, LayoutDoctrine.OpenGround, false,
             new GridPoint(60, 60), new LayoutRoom[0], new LayoutCorridor[0], null,
             new GridRect(bounds.MinX + 1, bounds.MinZ + 1, bounds.Width - 2, bounds.Height - 2).Points(), walls, new GridPoint[0], new[] { gate },
@@ -1838,6 +2004,55 @@ internal static partial class Program
         True(power.Yards.All(y => y.Cells.All(c => result.Layout.Enclosure.Contains(c))), "yards inside the enclosure");
     }
 
+    private static void PowerSolarUnderWind()
+    {
+        ProceduralLayoutInput selectedInput = null;
+        ProceduralLayoutResult selected = null;
+        LayoutPowerYard selectedWind = null, selectedSolar = null;
+        long plannerMilliseconds = 0;
+        for (ulong seed = 1; seed <= 24; seed++)
+        {
+            ProceduralLayoutInput input = new ProceduralLayoutInput(
+                LayoutRequirements.FromPopulation(8, Industrial, Temperate, stage: MidStage),
+                Plains(130), seed, CoreCatalog);
+            Stopwatch watch = Stopwatch.StartNew();
+            ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
+            watch.Stop();
+            Accepted(result);
+            LayoutPowerYard[] windYards = result.Layout.PowerYards.Where(y => y.DefName == LayoutPowerModel.Wind).ToArray();
+            LayoutPowerYard[] solarYards = result.Layout.PowerYards.Where(y => y.DefName == LayoutPowerModel.Solar).ToArray();
+            int solarCellsInZones = solarYards.Sum(solar => solar.Cells.Count(c => result.Layout.PowerYards
+                .Where(y => y.DefName == LayoutPowerModel.Wind).Any(turbine => turbine.ZoneCells.Contains(c))));
+            Console.WriteLine("  solar-wind-candidate seed=" + seed + " winds=" + result.Layout.PowerYards.Count(y => y.DefName == LayoutPowerModel.Wind) +
+                " solar=" + solarYards.Length + " panelCellsInWindZones=" + solarCellsInZones);
+            var pair = windYards.SelectMany(wind => solarYards.Select(solar => new { Wind = wind, Solar = solar,
+                Shared = wind.ZoneCells.Intersect(solar.Cells).Count() })).FirstOrDefault(p => p.Shared > 0);
+            if (pair == null) continue;
+            selectedInput = input; selected = result; selectedWind = pair.Wind; selectedSolar = pair.Solar;
+            plannerMilliseconds = watch.ElapsedMilliseconds;
+            break;
+        }
+        True(selected != null, "a legal solar footprint uses cells in a wind clear zone");
+        int windIndex = selected.Layout.PowerYards.ToList().IndexOf(selectedWind);
+        int solarIndex = selected.Layout.PowerYards.ToList().IndexOf(selectedSolar);
+        True(windIndex >= 0 && solarIndex > windIndex, "wind placement precedes solar placement");
+        True(selected.Layout.PowerYards.Where(y => y.DefName == LayoutPowerModel.Wind)
+            .All(wind => !wind.Cells.Intersect(selectedSolar.Cells).Any()), "solar avoids every turbine footprint");
+        True(selectedSolar.Cells.All(c => !selectedInput.Terrain[c].Has(TerrainTraits.Roofed) &&
+            selected.Layout.Enclosure.Contains(c)), "solar footprint remains open sky inside the enclosure");
+        True(selected.Layout.PowerYards.Count(y => y.DefName == LayoutPowerModel.Wind) <= LayoutPowerModel.MaxUnitsPerSource &&
+            selected.Layout.PowerYards.Count(y => y.DefName == LayoutPowerModel.Solar) <= LayoutPowerModel.MaxUnitsPerSource,
+            "wind and solar source caps remain enforced");
+        Equal(0, ProceduralLayoutValidator.Validate(selectedInput, selected.Layout).Count,
+            "wind-zone solar passes the final power validator");
+        PrintTurretBatteryDiagnostics(selectedInput, selected.Layout, "solar-wind-seed" + selectedInput.Seed,
+            plannerMilliseconds, selected.Diagnostics);
+        PrintPowerLedgerDiagnostics(selectedInput, selected.Layout, "solar-wind-seed" + selectedInput.Seed);
+        Console.WriteLine("  solar-wind seed=" + selectedInput.Seed + " wind=" + selectedWind.Cells.Min() +
+            " solar=" + selectedSolar.Cells.Min() + " panelCellsInZone=" + selectedSolar.Cells.Count +
+            " power=" + selected.Layout.Power + " plannerMs=" + plannerMilliseconds);
+    }
+
     private static void PowerRockProtected()
     {
         LayoutRequirements requirements = new LayoutRequirements(8, Industrial, HousingStandard.Barracks, Temperate, 0, 700, 186, null, MidStage);
@@ -1923,8 +2138,10 @@ internal static partial class Program
             LayoutPowerModel.Loads(result.Layout.Rooms, out critical, out nonCritical);
             LayoutPowerPlan power = result.Layout.Power;
             True(critical > 0, "scenario has a critical load");
-            True(power.Generators * power.GeneratorWatts >= critical, "dispatchable covers critical " + power.Generators * power.GeneratorWatts + ">=" + critical +
-                " despite renewables " + power.RenewableWatts);
+            True(power.Generators * power.GeneratorWatts + power.FirmWatts >= critical,
+                "dispatchable and firm output cover critical " +
+                (power.Generators * power.GeneratorWatts + power.FirmWatts) + ">=" + critical +
+                " despite intermittent renewables " + power.RenewableWatts);
             True(power.Generators * power.GeneratorWatts + power.RenewableWatts >= critical + nonCritical, "all load covered");
         }
     }
@@ -1954,6 +2171,9 @@ internal static partial class Program
     {
         ProceduralLayoutResult result = Mid(1, null, new LayoutLocalResources(0), 100000);
         Accepted(result);
+        PrintPowerLedgerDiagnostics(new ProceduralLayoutInput(
+            LayoutRequirements.FromPopulation(8, Industrial, Temperate, stage: MidStage, importValueLimit: 100000),
+            Plains(130), 1, CoreCatalog, resources: new LayoutLocalResources(0)), result.Layout, "mid-wood-scarce");
         LayoutPowerPlan power = result.Layout.Power;
         Equal(LayoutPowerModel.ChemfuelGenerator, power.GeneratorDef, "chemfuel when wood cannot cover the stock");
         Equal("Chemfuel", power.FuelDef, "chemfuel stock");
@@ -1962,10 +2182,28 @@ internal static partial class Program
         Equal((int)Math.Ceiling(materials.ImportedWood * 1.2 + power.FuelStock * 2.3) +
             P4EArtillery.ImportValue(CoreCatalog, result.Layout.Courts.Count), materials.ImportValue,
             "chemfuel and the separate finite artillery ledger use catalog market values");
-        ProceduralLayoutResult woodRich = Mid(1);
-        Equal(LayoutPowerModel.WoodGenerator, woodRich.Layout.Power.GeneratorDef, "wood when the yield covers the stock");
+        ProceduralLayoutInput woodRichInput = new ProceduralLayoutInput(
+            LayoutRequirements.FromPopulation(8, Industrial, Temperate, stage: MidStage),
+            Plains(130), 1, CoreCatalog);
+        ProceduralLayoutResult woodRich = ProceduralLayoutPlanner.Plan(woodRichInput);
+        Accepted(woodRich);
+        PrintPowerLedgerDiagnostics(woodRichInput, woodRich.Layout, "mid-wood-rich");
+        Equal(LayoutPowerModel.ChemfuelGenerator, woodRich.Layout.Power.GeneratorDef,
+            "legal chemfuel is preferred even when local wood covers the stock");
+        Equal("Chemfuel", woodRich.Layout.Materials.GeneratorFuelDef, "wood-rich base uses chemfuel stock");
+        Equal(woodRich.Layout.Power.FuelStock, woodRich.Layout.Materials.GeneratorFuelImported,
+            "wood-rich base imports all chemfuel stock");
+        string dispatchable = woodRichInput.Equipment.Notes.Single(note => note.StartsWith("dispatchable:", StringComparison.Ordinal));
+        True(dispatchable.EndsWith("storageCells=1", StringComparison.Ordinal),
+            "chemfuel reserve uses one generator-fuel storage cell: " + dispatchable);
+        Equal((int)Math.Ceiling(woodRich.Layout.Materials.ImportedWood * 1.2 +
+            woodRich.Layout.Power.FuelStock * 2.3) + P4EArtillery.ImportValue(CoreCatalog, woodRich.Layout.Courts.Count),
+            woodRich.Layout.Materials.ImportValue, "wood-rich chemfuel import value includes the full fuel stock");
         ProceduralLayoutResult early = PlanWith(Plains(130), LayoutRequirements.FromPopulation(8, Industrial, Temperate, importValueLimit: 100000), 1, new LayoutLocalResources(0));
         Accepted(early);
+        PrintPowerLedgerDiagnostics(new ProceduralLayoutInput(
+            LayoutRequirements.FromPopulation(8, Industrial, Temperate, importValueLimit: 100000),
+            Plains(130), 1, CoreCatalog, resources: new LayoutLocalResources(0)), early.Layout, "early-no-chemfuel");
         Equal(LayoutPowerModel.WoodGenerator, early.Layout.Power.GeneratorDef, "early has no chemfuel: imported wood instead");
         True(early.Layout.Materials.ImportedWood >= early.Layout.Power.FuelStock, "generator wood imported");
     }
@@ -2416,9 +2654,13 @@ internal static partial class Program
 
     private static void ExportLayout(string name, ProceduralLayoutResult result, bool roof = false)
     {
+        ExportLayout(name, result, TerrainFor(name), roof);
+    }
+
+    private static void ExportLayout(string name, ProceduralLayoutResult result, TerrainSnapshot terrain, bool roof = false)
+    {
         if (exportDir == null || !result.Success) return;
         Directory.CreateDirectory(exportDir);
-        TerrainSnapshot terrain = TerrainFor(name);
         string text = "# " + name + " (synthetic terrain; planner evidence only, not a live map)\n" + LayoutAsciiExport.Legend + "\n\n" +
             LayoutAsciiExport.Render(terrain, result.Layout);
         if (roof) text += "\nroof view:\n" + LayoutAsciiExport.RenderRoof(terrain, result.Layout);

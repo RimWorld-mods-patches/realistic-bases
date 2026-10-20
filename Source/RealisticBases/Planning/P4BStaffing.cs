@@ -8,12 +8,16 @@ namespace RealisticBases.Planning
     public sealed class P4BStaffingAudit
     {
         internal P4BStaffingAudit(int guns, int guarded, int closeSupported, int mortarCrew, int reserve,
-            IEnumerable<GridPoint> sniperPosts, IEnumerable<GridPoint> linePosts)
+            IEnumerable<GridPoint> sniperPosts, IEnumerable<GridPoint> linePosts,
+            IReadOnlyDictionary<P4BTurretPlan, IReadOnlyCollection<GridPoint>> guardOptions = null)
         {
             Guns = guns; GuardedGuns = guarded; CloseSupportedGuns = closeSupported;
             MortarCrew = mortarCrew; MobileReserve = reserve;
             SniperPosts = new ReadOnlyCollection<GridPoint>(sniperPosts.ToList());
             LinePosts = new ReadOnlyCollection<GridPoint>(linePosts.ToList());
+            GuardOptions = new ReadOnlyDictionary<P4BTurretPlan, IReadOnlyCollection<GridPoint>>(
+                new Dictionary<P4BTurretPlan, IReadOnlyCollection<GridPoint>>(guardOptions ??
+                    new Dictionary<P4BTurretPlan, IReadOnlyCollection<GridPoint>>()));
         }
         public int Guns { get; }
         public int GuardedGuns { get; }
@@ -22,6 +26,7 @@ namespace RealisticBases.Planning
         public int MobileReserve { get; }
         public IReadOnlyList<GridPoint> SniperPosts { get; }
         public IReadOnlyList<GridPoint> LinePosts { get; }
+        internal IReadOnlyDictionary<P4BTurretPlan, IReadOnlyCollection<GridPoint>> GuardOptions { get; }
         public int ResponderDependentGuns => Guns - GuardedGuns;
     }
 
@@ -39,7 +44,6 @@ namespace RealisticBases.Planning
                 return new P4BStaffingAudit(guns.Count, 0, 0, 0, 0,
                     new GridPoint[0], new GridPoint[0]);
             HashSet<GridPoint> opaque = P4BApproachDefensePlanner.Opaque(layout, input.Terrain);
-            opaque.UnionWith(guns.SelectMany(g => g.Footprint));
             List<ResidentLoadout> snipers = loadout.Residents.Where(r =>
                 r.Weapon?.DefName == "Gun_SniperRifle").ToList();
             List<ResidentLoadout> others = loadout.Residents.Where(r => r.Weapon != null &&
@@ -52,10 +56,18 @@ namespace RealisticBases.Planning
             int reserve = loadout.Residents.Count >= 5 && others.Count >= 3 ? 1 : 0;
             if (reserve > 0) others.RemoveAt(0);
 
-            List<IReadOnlyCollection<GridPoint>> guardOptions = guns.Select(g =>
-                P4BTurretPlanner.SniperGuardOptions(layout.ApproachDefense, g, opaque)).ToList();
-            List<GridPoint> guardPosts = GreedyCover(guardOptions, snipers.Count);
-            int guarded = guardOptions.Count(options => options.Any(guardPosts.Contains));
+            // Guard coverage can only matter when a sniper can be assigned. Avoid
+            // scanning every gun's attack grid on each placement proposal otherwise.
+            List<IReadOnlyCollection<GridPoint>> guardOptionLists = snipers.Count == 0
+                ? new List<IReadOnlyCollection<GridPoint>>()
+                : guns.Select(g => P4BTurretPlanner.SniperGuardOptions(
+                    layout.ApproachDefense, g, opaque)).ToList();
+            Dictionary<P4BTurretPlan, IReadOnlyCollection<GridPoint>> guardOptions = new Dictionary<P4BTurretPlan, IReadOnlyCollection<GridPoint>>();
+            if (guardOptionLists.Count > 0)
+                for (int i = 0; i < guns.Count; i++) guardOptions[guns[i]] = guardOptionLists[i];
+            List<GridPoint> guardPosts = snipers.Count == 0
+                ? new List<GridPoint>() : GreedyCover(guardOptionLists, snipers.Count);
+            int guarded = guardOptionLists.Count(options => options.Any(guardPosts.Contains));
             HashSet<int> closeCovered = new HashSet<int>(Enumerable.Range(0, guns.Count).Where(i =>
                 guardPosts.Any(post => CanClose(layout.ApproachDefense, guns[i], post, 44, opaque))));
             HashSet<GridPoint> occupied = new HashSet<GridPoint>(guardPosts);
@@ -76,7 +88,7 @@ namespace RealisticBases.Planning
                     if (CanClose(layout.ApproachDefense, guns[i], best.Value, range, opaque)) closeCovered.Add(i);
             }
             return new P4BStaffingAudit(guns.Count, guarded, closeCovered.Count, mortarCrew, reserve,
-                guardPosts, linePosts);
+                guardPosts, linePosts, guardOptions);
         }
 
         // Also used by focused staffing fixtures to prove that disjoint

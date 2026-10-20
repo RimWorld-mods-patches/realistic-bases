@@ -13,7 +13,7 @@ namespace RealisticBases.Integration
     internal static class P5ReadinessAudit
     {
         private static string F(double number) => number.ToString("F2", CultureInfo.InvariantCulture);
-        internal static void Audit(Map map)
+        internal static bool Audit(Map map)
         {
             var controller = map.GetComponent<P3GarrisonController>();
             var residents = controller.P5Residents.ToList();
@@ -96,6 +96,38 @@ namespace RealisticBases.Integration
             foreach (var input in combat.Inputs)
                 P0Log.Message("P5_COMBAT_INPUT", "map=" + map.uniqueID + " input=" + input.Input +
                     " required=" + F(input.Demand) + " physical=" + F(input.Available) + " shortfall=" + F(input.Shortfall));
+            var fueledGenerators = owned.Where(t => t.Spawned && t.TryGetComp<CompPowerPlant>() != null)
+                .Select(t => new { thing = t, fuel = t.TryGetComp<CompRefuelable>() })
+                .Where(x => x.fuel != null && x.fuel.Props.FuelMultiplierCurrentDifficulty > 0).ToList();
+            bool fuelHorizonCovered = true;
+            Dictionary<string, double> fuelHorizonNeed = new Dictionary<string, double>(StringComparer.Ordinal);
+            Dictionary<string, double> fuelHorizonAvailable = new Dictionary<string, double>(StringComparer.Ordinal);
+            foreach (var group in fueledGenerators
+                .GroupBy(x => x.fuel.Props.fuelFilter.AnyAllowedDef.defName))
+            {
+                double fullTanks = group.Sum(x => x.fuel.Props.fuelCapacity /
+                    x.fuel.Props.FuelMultiplierCurrentDifficulty);
+                double loaded = group.Sum(x => x.fuel.Fuel / x.fuel.Props.FuelMultiplierCurrentDifficulty);
+                double dailyBurn = group.Sum(x => (x.fuel.Props.fuelConsumptionRate +
+                    (!x.thing.Position.Roofed(map) ? x.fuel.Props.fuelConsumptionPerTickInRain * 60000 : 0)) /
+                    x.fuel.Props.FuelMultiplierCurrentDifficulty);
+                int stored = loose.TryGetValue(group.Key, out int fuelUnits) ? fuelUnits : 0;
+                double required = fullTanks + dailyBurn * LayoutEquipment.FuelHorizonDays;
+                double available = loaded + stored;
+                bool covered = available + 0.00001 >= required;
+                fuelHorizonNeed[group.Key] = required;
+                fuelHorizonAvailable[group.Key] = available;
+                fuelHorizonCovered &= covered;
+                P0Log.Message("P5_ROUTINE_FUEL_HORIZON_STOCK", "map=" + map.uniqueID + " input=" + group.Key +
+                    " generators=" + group.Count() + " horizonDays=" + LayoutEquipment.FuelHorizonDays +
+                    " loadedTanks=" + F(loaded) + " loose=" + stored + " available=" + F(available) +
+                    " fullTanks=" + F(fullTanks) + " threeDayBurn=" + F(dailyBurn * LayoutEquipment.FuelHorizonDays) +
+                    " required=" + F(required) + " covered=" + covered + " perGenerator=" + string.Join(",", group.Select(x =>
+                        x.thing.def.defName + "@" + x.thing.Position + ":fuel=" + F(x.fuel.Fuel) + "/" +
+                        F(x.fuel.Props.fuelCapacity) + ":dailyBurn=" + F((x.fuel.Props.fuelConsumptionRate +
+                            (!x.thing.Position.Roofed(map) ? x.fuel.Props.fuelConsumptionPerTickInRain * 60000 : 0)) /
+                            x.fuel.Props.FuelMultiplierCurrentDifficulty))));
+            }
             foreach (var group in owned.Where(t => t.Spawned && !(t is Building_Turret)).Select(t => new { thing = t,
                 fuel = t.TryGetComp<CompRefuelable>() }).Where(x => x.fuel != null && x.fuel.Props.FuelMultiplierCurrentDifficulty > 0)
                 .GroupBy(x => x.fuel.Props.fuelFilter.AnyAllowedDef.defName))
@@ -107,8 +139,13 @@ namespace RealisticBases.Integration
                 int stored = loose.TryGetValue(group.Key, out int fuelUnits) ? fuelUnits : 0;
                 P0Log.Message("P5_ROUTINE_FUEL", "map=" + map.uniqueID + " input=" + group.Key +
                     " devices=" + group.Count() + " unitsPerDayWorst=" + F(rate) + " loaded=" + F(loaded) +
-                    " loose=" + stored + " required=" + F(rate * 3) + " covered=" + (loaded + stored + 0.00001 >= rate * 3));
+                    " loose=" + stored + " threeDayBurn=" + F(rate * 3) +
+                    " horizonAvailable=" + F(fuelHorizonAvailable.TryGetValue(group.Key, out double available) ? available : 0) +
+                    " horizonRequired=" + F(fuelHorizonNeed.TryGetValue(group.Key, out double need) ? need : 0) +
+                    " horizonCovered=" + (fuelHorizonAvailable.TryGetValue(group.Key, out double availableForCheck) &&
+                        fuelHorizonNeed.TryGetValue(group.Key, out double needForCheck) && availableForCheck + 0.00001 >= needForCheck));
             }
+            return fuelHorizonCovered;
         }
     }
 }

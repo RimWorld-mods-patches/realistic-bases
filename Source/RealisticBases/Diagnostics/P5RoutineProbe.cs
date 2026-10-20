@@ -19,6 +19,7 @@ namespace RealisticBases.Diagnostics
         private bool running;
         private bool interrupted;
         private int start, finish, lastSample;
+        private int targetTicks = 3 * 60000;
         private Pawn visitor;
         private Faction previousHost;
         private bool previousDrafted;
@@ -29,13 +30,20 @@ namespace RealisticBases.Diagnostics
         private readonly HashSet<int> slept = new HashSet<int>();
         private readonly HashSet<int> sleptInBed = new HashSet<int>();
         private readonly HashSet<int> refuelJobs = new HashSet<int>();
+        private readonly HashSet<int> loggedRefuelJobs = new HashSet<int>();
         private readonly Dictionary<int, float> lastFuel = new Dictionary<int, float>();
         private int fuelIncreases, missingSamples, starvingSamples, downedSamples, powerOffSamples;
+        private int consumerPowerOffSamples, startupConsumerPowerOffSamples, firstCoolerOffTick = -1, lastCoolerOffTick = -1;
         private float minimumFood = 1, minimumRest = 1;
+        private bool fuelHorizonCovered;
         public P5RoutineProbe(Map map) : base(map) { }
         internal bool Running => running;
 
-        public void Start()
+        public void Start() => StartForDays(3);
+
+        public void StartOneDay() => StartForDays(1);
+
+        private void StartForDays(int days)
         {
             P5DebugActions.CurrentSettlement();
             if (running) throw new InvalidOperationException("Routine probe already running");
@@ -57,15 +65,18 @@ namespace RealisticBases.Diagnostics
             if (visitor.drafter != null) visitor.drafter.Drafted = false;
             visitor.DeSpawn();
             GenSpawn.Spawn(visitor, homeCell, home);
-            start = GenTicks.TicksGame; finish = checked(start + 3 * 60000); lastSample = start - 150;
+            targetTicks = checked(days * 60000);
+            start = GenTicks.TicksGame; finish = checked(start + targetTicks); lastSample = start - 150;
             initialIds = residents.Select(p => p.thingIDNumber).OrderBy(id => id).ToList();
-            ate.Clear(); slept.Clear(); sleptInBed.Clear(); refuelJobs.Clear(); lastFuel.Clear();
+            ate.Clear(); slept.Clear(); sleptInBed.Clear(); refuelJobs.Clear(); loggedRefuelJobs.Clear(); lastFuel.Clear();
             fuelIncreases = missingSamples = starvingSamples = downedSamples = powerOffSamples = 0;
+            consumerPowerOffSamples = startupConsumerPowerOffSamples = 0;
+            firstCoolerOffTick = lastCoolerOffTick = -1;
             minimumFood = minimumRest = 1;
             running = true;
-            P5ReadinessAudit.Audit(map);
+            fuelHorizonCovered = P5ReadinessAudit.Audit(map);
             P0Log.Message("P5_ROUTINE_PROBE_START", "map=" + map.uniqueID + " start=" + start + " finish=" + finish +
-                " residents=" + initialIds.Count + " visitor=" + visitor.ThingID +
+                " residents=" + initialIds.Count + " target=" + targetTicks + " visitor=" + visitor.ThingID +
                 " disposableMapHold=True visitorParkedHome=" + home.uniqueID +
                 " npcOrdersIssued=0 suppliesAdded=0 futureProductionCredited=0");
         }
@@ -93,18 +104,67 @@ namespace RealisticBases.Diagnostics
                     slept.Add(pawn.thingIDNumber);
                     if (pawn.CurJob.targetA.Thing is Building_Bed) sleptInBed.Add(pawn.thingIDNumber);
                 }
-                if (pawn.CurJobDef == JobDefOf.Refuel && pawn.CurJob != null) refuelJobs.Add(pawn.CurJob.loadID);
+                if (pawn.CurJobDef?.defName.StartsWith("Refuel", StringComparison.Ordinal) == true && pawn.CurJob != null)
+                {
+                    int jobId = pawn.CurJob.loadID;
+                    refuelJobs.Add(jobId);
+                    Thing target = pawn.CurJob.targetA.Thing;
+                    CompRefuelable targetFuel = target?.TryGetComp<CompRefuelable>();
+                    if (target != null && target.TryGetComp<CompPowerPlant>() != null && targetFuel != null &&
+                        loggedRefuelJobs.Add(jobId))
+                    {
+                        string input = targetFuel.Props.fuelFilter.AnyAllowedDef.defName;
+                        P0Log.Message("P5_ROUTINE_GENERATOR_REFUEL_JOB", "map=" + map.uniqueID +
+                            " tick=" + GenTicks.TicksGame + " pawn=" + pawn.thingIDNumber + " job=" + jobId +
+                            " target=" + target.thingIDNumber + " def=" + target.def.defName +
+                            " fuel=" + targetFuel.Fuel.ToString("F2") + "/" + targetFuel.Props.fuelCapacity.ToString("F2") +
+                            " input=" + input + " looseBefore=" + AvailableLooseFuelUnits(controller, residents, input) +
+                            " requested=" + targetFuel.GetFuelCountToFullyRefuel());
+                    }
+                }
             }
             foreach (Thing thing in controller.P5OwnedThings.Where(t => t.Spawned && !(t is Building_Turret)))
             {
                 var fuel = thing.TryGetComp<CompRefuelable>();
                 if (fuel != null)
                 {
-                    if (lastFuel.TryGetValue(thing.thingIDNumber, out float prior) && fuel.Fuel > prior + 0.01f) fuelIncreases++;
+                    if (lastFuel.TryGetValue(thing.thingIDNumber, out float prior) && fuel.Fuel > prior + 0.01f)
+                    {
+                        fuelIncreases++;
+                        if (thing.TryGetComp<CompPowerPlant>() != null)
+                        {
+                            string input = fuel.Props.fuelFilter.AnyAllowedDef.defName;
+                            P0Log.Message("P5_ROUTINE_GENERATOR_FUEL_CHANGE", "map=" + map.uniqueID +
+                                " tick=" + GenTicks.TicksGame + " generator=" + thing.thingIDNumber +
+                                " def=" + thing.def.defName + " from=" + prior.ToString("F2") +
+                                " to=" + fuel.Fuel.ToString("F2") + " added=" + (fuel.Fuel - prior).ToString("F2") +
+                                " capacity=" + fuel.Props.fuelCapacity.ToString("F2") + " input=" + input +
+                                " looseAfter=" + AvailableLooseFuelUnits(controller, residents, input));
+                        }
+                    }
                     lastFuel[thing.thingIDNumber] = fuel.Fuel;
                 }
                 var power = thing.TryGetComp<CompPowerTrader>();
-                if (thing.def.defName == "Cooler" && power?.PowerOn == false) powerOffSamples++;
+                CompFlickable flick = thing.TryGetComp<CompFlickable>();
+                if (power != null && power.Props.PowerConsumption > 0 && !power.PowerOn &&
+                    (flick == null || flick.SwitchIsOn) && !thing.IsBrokenDown())
+                {
+                    consumerPowerOffSamples++;
+                    int elapsed = GenTicks.TicksGame - start;
+                    if (elapsed <= 5000) startupConsumerPowerOffSamples++;
+                    if (thing.def.defName == "Cooler")
+                    {
+                        powerOffSamples++;
+                        if (firstCoolerOffTick < 0) firstCoolerOffTick = GenTicks.TicksGame;
+                        lastCoolerOffTick = GenTicks.TicksGame;
+                    }
+                    P0Log.Message("P5_ROUTINE_CONSUMER_OFF_SAMPLE", "map=" + map.uniqueID +
+                        " tick=" + GenTicks.TicksGame + " elapsed=" + elapsed +
+                        " thing=" + thing.thingIDNumber + " def=" + thing.def.defName +
+                        " powerNet=" + (power.PowerNet?.GetHashCode().ToString() ?? "none") +
+                        " powerOutput=" + power.PowerOutput.ToString("F0") +
+                        " cooler=" + (thing.def.defName == "Cooler"));
+                }
             }
             if (GenTicks.TicksGame >= finish || missingSamples > 0 || parentChanged)
             {
@@ -113,15 +173,19 @@ namespace RealisticBases.Diagnostics
                 Find.TickManager.Pause();
                 RestoreVisitor();
                 bool passed = fullHorizon && !parentChanged && missingSamples == 0 && starvingSamples == 0 && downedSamples == 0 &&
-                    ate.Count == initialIds.Count && sleptInBed.Count == initialIds.Count && fuelIncreases > 0;
+                    ate.Count == initialIds.Count && sleptInBed.Count == initialIds.Count && fuelHorizonCovered;
                 P0Log.Message("P5_ROUTINE_PROBE_COMPLETE", "map=" + map.uniqueID + " passed=" + passed +
-                    " elapsed=" + (GenTicks.TicksGame - start) + " target=180000 residents=" + initialIds.Count +
+                    " elapsed=" + (GenTicks.TicksGame - start) + " target=" + targetTicks + " residents=" + initialIds.Count +
                     " ate=" + ate.Count + " slept=" + slept.Count + " sleptInBed=" + sleptInBed.Count + " nativeRefuelJobs=" + refuelJobs.Count +
                     " physicalFuelIncreases=" + fuelIncreases + " missingSamples=" + missingSamples +
                     " starvingSamples=" + starvingSamples + " downedSamples=" + downedSamples +
                     " minFood=" + minimumFood.ToString("F3") + " minRest=" + minimumRest.ToString("F3") +
-                    " coolerPowerOffSamples=" + powerOffSamples + " parentChanged=" + parentChanged +
+                    " coolerPowerOffSamples=" + powerOffSamples + " firstCoolerOffTick=" + firstCoolerOffTick +
+                    " lastCoolerOffTick=" + lastCoolerOffTick + " consumerPowerOffSamples=" + consumerPowerOffSamples +
+                    " startupConsumerPowerOffSamples=" + startupConsumerPowerOffSamples +
+                    " fuelHorizonCovered=" + fuelHorizonCovered + " parentChanged=" + parentChanged +
                     " disposableMapHold=True npcOrdersIssued=0 suppliesAdded=0");
+                LogGeneratorFuelState(controller, "final");
                 P5ReadinessAudit.Audit(map);
             }
             else if ((GenTicks.TicksGame - start) / 15000 != (GenTicks.TicksGame - start - 150) / 15000)
@@ -163,6 +227,29 @@ namespace RealisticBases.Diagnostics
                 GenSpawn.Spawn(visitor, previousCell, map);
             }
             if (visitor.drafter != null) visitor.drafter.Drafted = previousDrafted;
+        }
+
+        private int AvailableLooseFuelUnits(P3GarrisonController controller, IEnumerable<Pawn> residents, string defName)
+        {
+            var residentItems = residents.SelectMany(p => p.inventory.innerContainer.Concat(
+                p.carryTracker.CarriedThing == null ? Enumerable.Empty<Thing>() : new[] { p.carryTracker.CarriedThing }));
+            return controller.P5OwnedThings.Concat(residentItems).Distinct().Where(t => !t.Destroyed &&
+                t.def.category == ThingCategory.Item && t.def.defName == defName).Sum(t => t.stackCount);
+        }
+
+        private void LogGeneratorFuelState(P3GarrisonController controller, string phase)
+        {
+            foreach (Thing generator in controller.P5OwnedThings.Where(t => t.Spawned && t.TryGetComp<CompPowerPlant>() != null))
+            {
+                CompRefuelable fuel = generator.TryGetComp<CompRefuelable>();
+                if (fuel == null) continue;
+                string input = fuel.Props.fuelFilter.AnyAllowedDef.defName;
+                P0Log.Message("P5_ROUTINE_GENERATOR_FUEL_STATE", "map=" + map.uniqueID + " phase=" + phase +
+                    " tick=" + GenTicks.TicksGame + " generator=" + generator.thingIDNumber +
+                    " def=" + generator.def.defName + " fuel=" + fuel.Fuel.ToString("F2") +
+                    "/" + fuel.Props.fuelCapacity.ToString("F2") + " input=" + input +
+                    " loose=" + AvailableLooseFuelUnits(controller, controller.P5Residents, input));
+            }
         }
     }
 

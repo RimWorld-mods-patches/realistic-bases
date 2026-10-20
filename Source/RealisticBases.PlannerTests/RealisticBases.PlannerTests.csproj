@@ -19,6 +19,7 @@
     <Compile Include="../RealisticBases/Planning/P3DefenderRoute.cs" Link="Planning/P3DefenderRoute.cs" />
     <Compile Include="../RealisticBases/Planning/P3ServiceRetry.cs" Link="Planning/P3ServiceRetry.cs" />
     <Compile Include="../RealisticBases/Planning/P4BFireLane.cs" Link="Planning/P4BFireLane.cs" />
+    <Compile Include="../RealisticBases/Planning/CellSet.cs" Link="Planning/CellSet.cs" />
     <Compile Include="../RealisticBases/Planning/P3Encounter.cs" Link="Planning/P3Encounter.cs" />
     <Compile Include="../RealisticBases/Planning/P4GeometryEncounter.cs" Link="Planning/P4GeometryEncounter.cs" />
     <Compile Include="../RealisticBases/Planning/P4Terrain.cs" Link="Planning/P4Terrain.cs" />

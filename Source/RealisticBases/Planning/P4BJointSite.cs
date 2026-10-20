@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace RealisticBases.Planning
 {
@@ -103,6 +105,20 @@ namespace RealisticBases.Planning
 
     public static class P4BJointSitePlanner
     {
+        private sealed class OriginEvaluation
+        {
+            public readonly List<P4BJointSite> Accepted = new List<P4BJointSite>();
+            public readonly Dictionary<string, int> Rejections = new Dictionary<string, int>(StringComparer.Ordinal);
+            public int Evaluated;
+
+            public void Reject(string code)
+            {
+                int count;
+                Rejections.TryGetValue(code, out count);
+                Rejections[code] = count + 1;
+            }
+        }
+
         // Score per ring cell attackers cannot reach. A site backed by water on
         // one side of a ~60-cell envelope gains roughly 180.
         public const int ProtectionWeight = 3;
@@ -141,15 +157,32 @@ namespace RealisticBases.Planning
 
         public static P4BJointSiteResult Find(TerrainSnapshot terrain, int requiredCrops,
             int minimumCompoundCells, int margin, ulong seed, int maxCandidates = 16, int maxEvaluations = 4096,
-            int residents = 4, bool refineFieldOrigins = false, int attachmentDepth = 0, int attachmentHalfTip = 1)
+            int residents = 4, bool refineFieldOrigins = false, int attachmentDepth = 0, int attachmentHalfTip = 1,
+            int plannerDegree = 1)
         {
             if (terrain == null) throw new ArgumentNullException(nameof(terrain));
             if (requiredCrops <= 0) throw new ArgumentOutOfRangeException(nameof(requiredCrops));
             if (minimumCompoundCells <= 0) throw new ArgumentOutOfRangeException(nameof(minimumCompoundCells));
             if (residents <= 0) throw new ArgumentOutOfRangeException(nameof(residents));
             if (maxCandidates <= 0 || maxEvaluations <= 0) throw new ArgumentOutOfRangeException(nameof(maxCandidates));
+            if (plannerDegree < 1 || plannerDegree > 8) throw new ArgumentOutOfRangeException(nameof(plannerDegree));
             LayoutTerrainGrid grid = LayoutTerrainGrid.Build(terrain, margin);
             bool[] edgeReach = LayoutExposure.EdgeReach(terrain);
+            bool[] opaqueTargets = new bool[terrain.Width * terrain.Height];
+            foreach (GridPoint cell in terrain.Points())
+                opaqueTargets[cell.Z * terrain.Width + cell.X] = terrain[cell].HasAny(
+                    TerrainTraits.NaturalRock | TerrainTraits.Occupied) &&
+                    !terrain[cell].Has(TerrainTraits.ClearablePlant);
+            return FindCore(terrain, requiredCrops, minimumCompoundCells, margin, seed, maxCandidates,
+                maxEvaluations, residents, refineFieldOrigins, attachmentDepth, attachmentHalfTip,
+                grid, edgeReach, opaqueTargets, plannerDegree);
+        }
+
+        private static P4BJointSiteResult FindCore(TerrainSnapshot terrain, int requiredCrops,
+            int minimumCompoundCells, int margin, ulong seed, int maxCandidates, int maxEvaluations,
+            int residents, bool refineFieldOrigins, int attachmentDepth, int attachmentHalfTip,
+            LayoutTerrainGrid grid, bool[] edgeReach, bool[] opaqueTargets, int plannerDegree)
+        {
             int fieldSide = (int)Math.Ceiling(Math.Sqrt(requiredCrops)) + 5;
             // Room packing needs circulation, gate returns and utility pockets in
             // addition to the minimum room-area count. A 30-cell square passed
@@ -196,91 +229,41 @@ namespace RealisticBases.Planning
                     }
                     origins.Add(new GridPoint(x, z));
                 }
-            foreach (GridPoint origin in origins.OrderBy(p => LayoutSeed.Key(seed, p.X, p.Z)).ThenBy(p => p))
+            List<GridPoint> orderedOrigins = origins.OrderBy(p => LayoutSeed.Key(seed, p.X, p.Z)).ThenBy(p => p).ToList();
+            // Each origin consumes four pair evaluations except the final partial
+            // origin. Compute this exact seeded prefix before parallel work starts.
+            int originLimit = Math.Min(orderedOrigins.Count, (maxEvaluations - 1) / 4 + 1);
+            OriginEvaluation[] originResults = new OriginEvaluation[originLimit];
+            Action<int> evaluateAt = index => originResults[index] = EvaluateOrigin(orderedOrigins[index],
+                Math.Min(4, maxEvaluations - index * 4), terrain, requiredCrops, minimumCompoundCells,
+                margin, fieldSide, compoundSide, attachmentDepth, attachmentHalfTip, grid, edgeReach,
+                opaqueTargets);
+            if (plannerDegree == 1)
             {
-                if (evaluated >= maxEvaluations) break;
-                GridRect field = new GridRect(origin.X, origin.Z, fieldSide, fieldSide);
-                foreach (int side in new[] { 0, 1, 2, 3 })
-                {
-                    if (evaluated >= maxEvaluations) break;
-                    evaluated++;
-                    GridRect compound = CompoundAt(field, compoundSide, side);
-                    if (!Fits(compound, terrain, margin)) { Reject("compound_bounds"); continue; }
-                    List<GridPoint> wall = field.Points().Where(c => Edge(field, c)).ToList();
-                    if (wall.Any(c => grid.At(c) != LayoutCellClass.Open || !grid.CanPlace(c)))
-                    { Reject("field_wall_terrain"); continue; }
-                    List<GridPoint> perimeterLane = field.Points().Where(c => !Edge(field, c) &&
-                        (c.X == field.MinX + 1 || c.X == field.MaxX - 1 ||
-                         c.Z == field.MinZ + 1 || c.Z == field.MaxZ - 1)).ToList();
-                    if (perimeterLane.Any(c => !grid.Passable(c))) { Reject("field_lane"); continue; }
-                    int available = compound.Points().Count(grid.CanPlace);
-                    if (available < minimumCompoundCells ||
-                        LargestConnected(compound.Points().Where(grid.CanPlace)).Count < minimumCompoundCells)
-                    { Reject("compound_capacity"); continue; }
-                    List<P4BFieldInterface> interfaces = new List<P4BFieldInterface>();
-                    bool attachmentBlocked = false;
-                    for (int gateOffset = 2; gateOffset <= fieldSide - 3; gateOffset++)
+                for (int i = 0; i < originLimit; i++) evaluateAt(i);
+            }
+            else if (originLimit > 0)
+            {
+                Parallel.ForEach(Partitioner.Create(0, originLimit),
+                    new ParallelOptions { MaxDegreeOfParallelism = plannerDegree }, range =>
                     {
-                        GridPoint innerGate = GateAt(field, side, true, gateOffset);
-                        GridPoint outerGate = GateAt(field, side, false, gateOffset);
-                        // A field the compound cannot reach through open ground
-                        // would fail every room attempt at its approach reservation.
-                        if (attachmentDepth > 0 && !AttachmentClear(grid, innerGate, outerGate, attachmentDepth, attachmentHalfTip))
-                        { attachmentBlocked = true; continue; }
-                        List<GridPoint> posts = PostCells(field, outerGate, side);
-                        GridPoint outward = side == 0 ? new GridPoint(0, 1) : side == 1 ? new GridPoint(-1, 0) :
-                            side == 2 ? new GridPoint(0, -1) : new GridPoint(1, 0);
-                        List<GridPoint> cover = posts.Select(p => new GridPoint(p.X + outward.X, p.Z + outward.Z)).ToList();
-                        GridPoint tangent = new GridPoint(outward.Z, outward.X);
-                        if (posts.Count != 2 || posts.Concat(cover).Any(c => !grid.Passable(c) || grid.At(c) != LayoutCellClass.Open)) continue;
-                        List<GridPoint> postAccess = new List<GridPoint>();
-                        for (int forward = 1; forward <= 4; forward++)
-                            for (int lateral = -6; lateral <= 6; lateral++)
-                            {
-                                GridPoint c = new GridPoint(outerGate.X + outward.X * forward + tangent.X * lateral,
-                                    outerGate.Z + outward.Z * forward + tangent.Z * lateral);
-                                if (grid.Passable(c) && !cover.Contains(c)) postAccess.Add(c);
-                            }
-                        if (posts.Any(p => !ConnectedTo(outerGate, p, postAccess))) continue;
-                        List<GridPoint> crossLane = field.Points().Where(c => !Edge(field, c) &&
-                            (side == 0 || side == 2 ? c.X == innerGate.X : c.Z == innerGate.Z)).ToList();
-                        List<GridPoint> lane = perimeterLane.Concat(crossLane).Distinct().ToList();
-                        if (lane.Any(c => !grid.Passable(c))) continue;
-                        HashSet<GridPoint> laneSet = new HashSet<GridPoint>(lane);
-                        List<GridPoint> interior = field.Points().Where(c => !Edge(field, c) &&
-                            c.X > field.MinX + 1 && c.X < field.MaxX - 1 &&
-                            c.Z > field.MinZ + 1 && c.Z < field.MaxZ - 1 &&
-                            !laneSet.Contains(c) && grid.At(c) == LayoutCellClass.Open &&
-                            terrain[c].Has(TerrainTraits.Fertile)).ToList();
-                        List<GridPoint> reachable = ReachableFromLane(interior, lane);
-                        if (reachable.Count < requiredCrops) continue;
-                        // Demand is a floor, not a planting cap: an established
-                        // field uses every reachable fertile cell beyond its lane.
-                        List<GridPoint> chosen = reachable;
-                        interfaces.Add(new P4BFieldInterface(innerGate, outerGate, chosen, lane, posts, cover, postAccess));
-                    }
-                    if (interfaces.Count == 0) { Reject(attachmentBlocked ? "field_attachment_or_capacity" : "crop_capacity_or_interface"); continue; }
-                    P4BFieldInterface preferred = interfaces.OrderBy(i => Manhattan(i.InnerGate,
-                        new GridPoint((field.MinX + field.MaxX) / 2, (field.MinZ + field.MaxZ) / 2))).First();
-                    int farmlandLost = compound.Points().Count(c => terrain[c].Has(TerrainTraits.Fertile));
-                    // Natural barriers (deep water, cliffs) just outside the whole
-                    // site remove approach directions; prefer them, all else equal.
-                    int protectedRing = LayoutExposure.ProtectedRing(terrain, edgeReach,
-                        LayoutExposure.Union(field, compound), margin + 2, out int ring);
-                    int score = requiredCrops * 4 - farmlandLost - (wall.Count * 2) + available / 8 + ProtectionWeight * protectedRing;
-                    GridPoint center = new GridPoint((compound.MinX + compound.MaxX) / 2,
-                        (compound.MinZ + compound.MaxZ) / 2);
-                    GridPoint anchor = compound.Points().Where(grid.CanPlace)
-                        .OrderBy(c => Manhattan(c, center)).ThenBy(c => c).First();
-                    accepted.Add(new P4BJointSite(field, compound, anchor, preferred.Crops, preferred.Lane, wall,
-                        preferred.InnerGate, preferred.OuterGate, preferred.PostClearance, score, interfaces));
-                }
+                        for (int i = range.Item1; i < range.Item2; i++) evaluateAt(i);
+                    });
+            }
+            for (int i = 0; i < originResults.Length; i++)
+            {
+                OriginEvaluation originResult = originResults[i];
+                evaluated += originResult.Evaluated;
+                accepted.AddRange(originResult.Accepted);
+                foreach (KeyValuePair<string, int> pair in originResult.Rejections)
+                    for (int count = 0; count < pair.Value; count++) Reject(pair.Key);
             }
             if (accepted.Count == 0 && !refineFieldOrigins)
             {
-                P4BJointSiteResult refined = Find(terrain, requiredCrops, minimumCompoundCells, margin, seed,
+                P4BJointSiteResult refined = FindCore(terrain, requiredCrops, minimumCompoundCells, margin, seed,
                     maxCandidates, maxEvaluations, residents, refineFieldOrigins: true,
-                    attachmentDepth: attachmentDepth, attachmentHalfTip: attachmentHalfTip);
+                    attachmentDepth: attachmentDepth, attachmentHalfTip: attachmentHalfTip,
+                    grid: grid, edgeReach: edgeReach, opaqueTargets: opaqueTargets, plannerDegree: plannerDegree);
                 return new P4BJointSiteResult(refined.Candidates,
                     rejected.OrderBy(kv => kv.Key).Select(kv => "coarse_" + kv.Key + ":" + kv.Value)
                         .Concat(refined.Rejections.Select(r => "refined_" + r)),
@@ -293,6 +276,107 @@ namespace RealisticBases.Planning
                 fieldOriginsScanned);
 
             void Reject(string code) { int n; rejected.TryGetValue(code, out n); rejected[code] = n + 1; }
+        }
+
+        private static OriginEvaluation EvaluateOrigin(GridPoint origin, int sideCount,
+            TerrainSnapshot terrain, int requiredCrops, int minimumCompoundCells, int margin,
+            int fieldSide, int compoundSide, int attachmentDepth, int attachmentHalfTip,
+            LayoutTerrainGrid grid, bool[] edgeReach, bool[] opaqueTargets)
+        {
+            OriginEvaluation result = new OriginEvaluation { Evaluated = sideCount };
+            GridRect field = new GridRect(origin.X, origin.Z, fieldSide, fieldSide);
+            List<GridPoint> fieldPoints = null;
+            List<GridPoint> wall = null;
+            List<GridPoint> perimeterLane = null;
+            List<GridPoint> fertileOpenInterior = null;
+            bool fieldDataReady = false, wallPassable = false, perimeterLanePassable = false;
+            for (int side = 0; side < sideCount; side++)
+            {
+                GridRect compound = CompoundAt(field, compoundSide, side);
+                if (!Fits(compound, terrain, margin)) { result.Reject("compound_bounds"); continue; }
+                if (!fieldDataReady)
+                {
+                    fieldPoints = field.Points().ToList();
+                    wall = fieldPoints.Where(c => Edge(field, c)).ToList();
+                    perimeterLane = fieldPoints.Where(c => !Edge(field, c) &&
+                        (c.X == field.MinX + 1 || c.X == field.MaxX - 1 ||
+                         c.Z == field.MinZ + 1 || c.Z == field.MaxZ - 1)).ToList();
+                    fertileOpenInterior = fieldPoints.Where(c => !Edge(field, c) &&
+                        c.X > field.MinX + 1 && c.X < field.MaxX - 1 &&
+                        c.Z > field.MinZ + 1 && c.Z < field.MaxZ - 1 &&
+                        grid.At(c) == LayoutCellClass.Open && terrain[c].Has(TerrainTraits.Fertile)).ToList();
+                    wallPassable = !wall.Any(c => grid.At(c) != LayoutCellClass.Open || !grid.CanPlace(c));
+                    perimeterLanePassable = !perimeterLane.Any(c => !grid.Passable(c));
+                    fieldDataReady = true;
+                }
+                if (!wallPassable) { result.Reject("field_wall_terrain"); continue; }
+                if (!perimeterLanePassable) { result.Reject("field_lane"); continue; }
+                List<GridPoint> compoundCells = compound.Points().ToList();
+                List<GridPoint> compoundPlaceable = compoundCells.Where(grid.CanPlace).ToList();
+                int available = compoundPlaceable.Count;
+                if (available < minimumCompoundCells ||
+                    LargestConnected(compoundPlaceable).Count < minimumCompoundCells)
+                { result.Reject("compound_capacity"); continue; }
+                List<P4BFieldInterface> interfaces = new List<P4BFieldInterface>();
+                bool attachmentBlocked = false;
+                for (int gateOffset = 2; gateOffset <= fieldSide - 3; gateOffset++)
+                {
+                    GridPoint innerGate = GateAt(field, side, true, gateOffset);
+                    GridPoint outerGate = GateAt(field, side, false, gateOffset);
+                    if (attachmentDepth > 0 && !AttachmentClear(grid, innerGate, outerGate,
+                        attachmentDepth, attachmentHalfTip))
+                    { attachmentBlocked = true; continue; }
+                    List<GridPoint> posts = PostCells(field, outerGate, side);
+                    GridPoint outward = side == 0 ? new GridPoint(0, 1) : side == 1 ? new GridPoint(-1, 0) :
+                        side == 2 ? new GridPoint(0, -1) : new GridPoint(1, 0);
+                    List<GridPoint> cover = posts.Select(p => new GridPoint(p.X + outward.X, p.Z + outward.Z)).ToList();
+                    HashSet<GridPoint> coverSet = new HashSet<GridPoint>(cover);
+                    GridPoint tangent = new GridPoint(outward.Z, outward.X);
+                    if (posts.Count != 2 || posts.Concat(cover).Any(c => !grid.Passable(c) || grid.At(c) != LayoutCellClass.Open)) continue;
+                    List<GridPoint> outsideTargets = Enumerable.Range(2, 20).Select(k => new GridPoint(
+                            outerGate.X + outward.X * k, outerGate.Z + outward.Z * k))
+                        .Where(terrain.InBounds).ToList();
+                    bool outsideApproachReachable = outsideTargets.Any(target =>
+                        edgeReach[target.Z * terrain.Width + target.X]);
+                    if (outsideApproachReachable && posts.Any(post => !outsideTargets.Any(target =>
+                        edgeReach[target.Z * terrain.Width + target.X] &&
+                        P4BFireLane.CanEngage(post, target, 8, 38, opaqueTargets, terrain.Width, terrain.Height)))) continue;
+                    List<GridPoint> postAccess = new List<GridPoint>();
+                    for (int forward = 1; forward <= 4; forward++)
+                        for (int lateral = -6; lateral <= 6; lateral++)
+                        {
+                            GridPoint c = new GridPoint(outerGate.X + outward.X * forward + tangent.X * lateral,
+                                outerGate.Z + outward.Z * forward + tangent.Z * lateral);
+                            if (grid.Passable(c) && !coverSet.Contains(c)) postAccess.Add(c);
+                        }
+                    HashSet<GridPoint> postAccessSet = new HashSet<GridPoint>(postAccess) { outerGate };
+                    if (posts.Any(p => !ConnectedTo(outerGate, p, postAccessSet))) continue;
+                    List<GridPoint> crossLane = fieldPoints.Where(c => !Edge(field, c) &&
+                        (side == 0 || side == 2 ? c.X == innerGate.X : c.Z == innerGate.Z)).ToList();
+                    List<GridPoint> lane = perimeterLane.Concat(crossLane).Distinct().ToList();
+                    if (crossLane.Any(c => !grid.Passable(c))) continue;
+                    HashSet<GridPoint> laneSet = new HashSet<GridPoint>(lane);
+                    List<GridPoint> interior = fertileOpenInterior.Where(c => !laneSet.Contains(c)).ToList();
+                    List<GridPoint> reachable = ReachableFromLane(interior, lane);
+                    if (reachable.Count < requiredCrops) continue;
+                    interfaces.Add(new P4BFieldInterface(innerGate, outerGate, reachable, lane, posts, cover, postAccess));
+                }
+                if (interfaces.Count == 0)
+                { result.Reject(attachmentBlocked ? "field_attachment_or_capacity" : "crop_capacity_or_interface"); continue; }
+                P4BFieldInterface preferred = interfaces.OrderBy(i => Manhattan(i.InnerGate,
+                    new GridPoint((field.MinX + field.MaxX) / 2, (field.MinZ + field.MaxZ) / 2))).First();
+                int farmlandLost = compoundCells.Count(c => terrain[c].Has(TerrainTraits.Fertile));
+                int protectedRing = LayoutExposure.ProtectedRing(terrain, edgeReach,
+                    LayoutExposure.Union(field, compound), margin + 2, out int ring);
+                int score = requiredCrops * 4 - farmlandLost - (wall.Count * 2) + available / 8 + ProtectionWeight * protectedRing;
+                GridPoint center = new GridPoint((compound.MinX + compound.MaxX) / 2,
+                    (compound.MinZ + compound.MaxZ) / 2);
+                GridPoint anchor = compoundPlaceable
+                    .OrderBy(c => Manhattan(c, center)).ThenBy(c => c).First();
+                result.Accepted.Add(new P4BJointSite(field, compound, anchor, preferred.Crops, preferred.Lane, wall,
+                    preferred.InnerGate, preferred.OuterGate, preferred.PostClearance, score, interfaces));
+            }
+            return result;
         }
 
         // A failed room pack does not prove that this field/compound pair is
@@ -406,9 +490,8 @@ namespace RealisticBases.Planning
 
         private static int Manhattan(GridPoint a, GridPoint b) => Math.Abs(a.X - b.X) + Math.Abs(a.Z - b.Z);
 
-        private static bool ConnectedTo(GridPoint start, GridPoint target, IEnumerable<GridPoint> cells)
+        private static bool ConnectedTo(GridPoint start, GridPoint target, HashSet<GridPoint> legal)
         {
-            HashSet<GridPoint> legal = new HashSet<GridPoint>(cells) { start };
             HashSet<GridPoint> seen = new HashSet<GridPoint> { start };
             Queue<GridPoint> queue = new Queue<GridPoint>();
             queue.Enqueue(start);
@@ -455,20 +538,27 @@ namespace RealisticBases.Planning
         {
             HashSet<GridPoint> remaining = new HashSet<GridPoint>(crops);
             HashSet<GridPoint> lanes = new HashSet<GridPoint>(lane);
+            HashSet<GridPoint> laneNeighbors = new HashSet<GridPoint>();
+            foreach (GridPoint c in lanes)
+            {
+                laneNeighbors.Add(new GridPoint(c.X + 1, c.Z));
+                laneNeighbors.Add(new GridPoint(c.X - 1, c.Z));
+                laneNeighbors.Add(new GridPoint(c.X, c.Z + 1));
+                laneNeighbors.Add(new GridPoint(c.X, c.Z - 1));
+            }
             Queue<GridPoint> queue = new Queue<GridPoint>();
-            foreach (GridPoint c in remaining.OrderBy(c => c).Where(c =>
-                ProceduralLayoutPlanner.Cardinal.Any(d => lanes.Contains(new GridPoint(c.X + d.X, c.Z + d.Z)))))
-                queue.Enqueue(c);
+            foreach (GridPoint c in remaining.OrderBy(c => c))
+                if (laneNeighbors.Contains(c) && remaining.Remove(c))
+                    queue.Enqueue(c);
             List<GridPoint> reachable = new List<GridPoint>();
             while (queue.Count > 0)
             {
                 GridPoint here = queue.Dequeue();
-                if (!remaining.Remove(here)) continue;
                 reachable.Add(here);
                 foreach (GridPoint d in ProceduralLayoutPlanner.Cardinal)
                 {
                     GridPoint next = new GridPoint(here.X + d.X, here.Z + d.Z);
-                    if (remaining.Contains(next)) queue.Enqueue(next);
+                    if (remaining.Remove(next)) queue.Enqueue(next);
                 }
             }
             return reachable;

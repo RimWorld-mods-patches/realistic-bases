@@ -4,7 +4,7 @@
     <AssemblyName>RealisticBases</AssemblyName>
     <RootNamespace>RealisticBases</RootNamespace>
     <LangVersion>latest</LangVersion>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <OutputPath>$(MSBuildProjectDirectory)/../../1.6/Assemblies/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <DebugType>none</DebugType>

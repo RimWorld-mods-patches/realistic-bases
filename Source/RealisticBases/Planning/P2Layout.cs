@@ -561,7 +561,8 @@ namespace RealisticBases.Planning
                     new GridPoint(battery.X, battery.Z + 1)
                 };
                 foreach (GridPoint cell in ConduitTree(powered).Where(c => !transmitterFootprints.Contains(c)))
-                    result.Add(Placement(PhysicalPlacementKind.Conduit, "PowerConduit", string.Empty, cell, "North", "power", true, 5));
+                    result.Add(Placement(PhysicalPlacementKind.Conduit, "HiddenConduit", string.Empty, cell,
+                        "North", "power", true, 10));
                 result.Add(Placement(PhysicalPlacementKind.Turret, "Turret_MiniTurret", "Steel",
                     new GridPoint(compound.MinX + 12, compound.MinZ + 1), "South", "defense", true, 700));
                 result.Add(Placement(PhysicalPlacementKind.Turret, "Turret_MiniTurret", "Steel",

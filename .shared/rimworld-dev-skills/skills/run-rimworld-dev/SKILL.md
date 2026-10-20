@@ -105,6 +105,29 @@ curl --noproxy '*' --fail --silent --show-error --max-time 4 "$RW_RIMAPI_BASE/ap
 curl --noproxy '*' --fail --silent --show-error --max-time 4 "$RW_RIMAPI_BASE/api/v1/maps"
 ```
 
+RIMAPI starts listening with a delay: a request sent right after the save loads,
+even after a consumer's game-loaded log marker, can be refused. That is normal
+startup, not a failure. Before the first action, poll the read-only state route
+until it answers with JSON `success: true` and `program_state` `Playing`:
+
+```sh
+for i in $(seq 1 36); do
+  curl --noproxy '*' --fail --silent --max-time 4 "$RW_RIMAPI_BASE/api/v1/game/state" |
+    grep -q '"program_state":"Playing"' && break
+  sleep 5
+done
+```
+
+Treat it as a failure only when the API still hasn't answered after this window
+(about 3 minutes), or stops answering mid-run. Then inspect the log and the
+process; don't invoke actions blindly.
+
+If every request fails at once (`Failed to connect ... after 0 ms`) even though
+the game is up, check whether it listens: `lsof -nP -iTCP:<port> -sTCP:LISTEN`.
+When it listens but the requests still fail, the agent's command sandbox is
+probably blocking local network access. Rerun the requests with network
+permission instead of restarting the game.
+
 Read [use-rimapi-debug-actions](../use-rimapi-debug-actions/SKILL.md) before invoking
 a debug action. Prefer its checked runner for supported methods; require fresh
 completion/failure evidence for queued generation. HTTP success proves invocation

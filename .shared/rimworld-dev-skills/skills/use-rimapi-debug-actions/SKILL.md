@@ -71,6 +71,11 @@ this interface runs mod code in the live game, not a safety-filtered sandbox.
 
 ## Diagnose and verify
 
+RIMAPI comes up some time after the save loads. Poll `GET /api/v1/game/state`
+until it is ready before discovery or invocation, and treat an immediately
+refused connection as an agent sandbox network block when the port is
+listening. Both checks are in [run-rimworld-dev](../run-rimworld-dev/SKILL.md#prefer-the-api).
+
 If routes are missing, confirm both mods enabled, restart/load a game, inspect
 registered endpoint paths, and distinguish 404 from timeout or an empty list.
 Optional RIMAPI logging enables registration details. For absent RimWorld 1.6
