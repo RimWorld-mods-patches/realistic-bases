@@ -973,6 +973,18 @@ internal static partial class Program
         json.AppendLine("{");
         json.Append("  \"base\": ").Append(Json(label)).AppendLine(",");
         json.Append("  \"layoutDigest\": ").Append(Json(layout.Digest)).AppendLine(",");
+        List<P4BAttackSide> attackSides = (layout.ApproachDefense?.Sides ?? Array.Empty<P4BAttackSide>()).ToList();
+        json.AppendLine("  \"attackSides\": [");
+        for (int i = 0; i < attackSides.Count; i++)
+        {
+            P4BAttackSide side = attackSides[i];
+            json.Append("    {\"id\": ").Append(Json(side.Id)).Append(", \"exposed\": ")
+                .Append(side.Exposed ? "true" : "false").Append(", \"outward\": ")
+                .Append(JsonPoint(side.Outward)).Append(", \"samples\": ").Append(JsonPoints(side.Samples))
+                .Append(", \"positions\": ").Append(JsonPoints(side.Positions)).Append("}")
+                .AppendLine(i + 1 == attackSides.Count ? string.Empty : ",");
+        }
+        json.AppendLine("  ],");
         string[] sidesWithoutNest = (layout.ApproachDefense?.Sides ?? Array.Empty<P4BAttackSide>())
             .Where(s => s.Exposed && s.Positions.Count == 0).Select(s => s.Id)
             .OrderBy(s => s, StringComparer.Ordinal).ToArray();
