@@ -107,6 +107,7 @@ internal static partial class Program
         Run("P4B field wall joins the perimeter with unroofed crops and exterior posts", P4BFieldWallCases);
         Run("P4B field wall planner finds an attached flat-map bailey", P4BFieldWallPlannerCases, 80);
         Run("P4B joint site keeps crop capacity and compound space together", P4BJointSiteCases, 15);
+        Run("P4B dry field fences beside water retain crop capacity and compound setbacks", FieldFenceNearWater);
         Run("P4B turret emplacement respects stage, geometry and finite stocks", P4BTurretPlacementCases, 30);
         Run("P4B high-industrial field pair fits its facilities", P4BHighIndustrialJointSite, 45);
         Run("P4B turret network adds coordinated budgeted groups", P4BTurretNetwork, 110);
@@ -114,6 +115,7 @@ internal static partial class Program
         Run("P4B staffing does not borrow one marksman across separated fronts", P4BStaffingIsExclusive);
         Run("P4B field breach has compound gate fallback firing posts", P4BFieldFallbackPosts);
         Run("P4B final path audit flushes deferred grids and restores batching", P4BFinalPathAuditSynchronization);
+        Run("P4B field-post spawn gate searches beyond eight nearby gateways", FieldPostGatewaySearch);
         Run("P4B high-industrial settlement packs on a captured flat tile", P4BHighIndustrialCapturedFlat, 20);
         Run("P4B high-industrial settlement tolerates live-density flat clutter", P4BHighIndustrialFlatDensity, 95);
         Run("P4B joint reservation constrains detailed room packing", P4BJointPackingCases, 100);

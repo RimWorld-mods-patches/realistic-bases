@@ -27,9 +27,18 @@ internal static class LivePlannerFixtureReplay
         string expectedResources = Constant<string>(fixture, "ExpectedResourcesDigest");
         string expectedProfile = Constant<string>(fixture, "ExpectedProfileDigest");
         string expectedEngine = Constant<string>(fixture, "ExpectedEngineId");
+        string expectedRejection = ReadString(args, "--expect-rejection");
+        string fixedLayout = ReadString(args, "--expect-fixed-layout");
+        bool requireFixedSuccess = args.Contains("--require-success") || fixedLayout != null;
+        if (requireFixedSuccess && (expectedLayout != "none" || expectedRejection != null))
+            throw new InvalidOperationException("Fixed-success replay requires a rejected capture and no --expect-rejection.");
 
         Equal(expectedProfile, ProfileDigest(fixture), "profile digest");
-        if (expectedLayout == "none") throw new InvalidOperationException("The captured live plan has no layout digest.");
+        bool expectsRejection = expectedLayout == "none" && !requireFixedSuccess;
+        if (expectsRejection && string.IsNullOrEmpty(expectedRejection))
+            throw new InvalidOperationException("A rejected fixture requires --expect-rejection with its captured rejection code.");
+        if (!expectsRejection && !string.IsNullOrEmpty(expectedRejection))
+            throw new InvalidOperationException("--expect-rejection was supplied for a successful fixture.");
         string[] expectedAttemptInputs = (string[])Constant<string[]>(fixture, "ExpectedAttemptInputDigests");
         string[] expectedAttemptLayouts = (string[])Constant<string[]>(fixture, "ExpectedAttemptLayoutDigests");
         if (expectedAttemptInputs.Length == 0 || expectedAttemptInputs.Length != expectedAttemptLayouts.Length)
@@ -66,7 +75,8 @@ internal static class LivePlannerFixtureReplay
                 cpuMs += Process.GetCurrentProcess().TotalProcessorTime.TotalMilliseconds - attemptCpuBefore;
                 allocatedBytes += GC.GetAllocatedBytesForCurrentThread() - attemptAllocatedBefore;
                 string attemptLayout = result.Layout?.Digest ?? "none";
-                Equal(expectedAttemptLayouts[attempt], attemptLayout, "attempt " + (attempt + 1) + " layout digest");
+                if (!requireFixedSuccess)
+                    Equal(expectedAttemptLayouts[attempt], attemptLayout, "attempt " + (attempt + 1) + " layout digest");
                 ProceduralLayoutStageTimings timing = result.StageTimings;
                 site += timing.SiteAndCandidateSearchMilliseconds;
                 field += timing.FieldWallMilliseconds;
@@ -80,10 +90,36 @@ internal static class LivePlannerFixtureReplay
                 if (result.Success && P4BPerimeterDepth.Minimum(input.Terrain, result.Layout) == input.Fortification.WallLayers)
                     break;
             }
+            Equal(expectedInput, finalInput.Digest, "final input digest");
+            if (expectsRejection)
+            {
+                if (result == null || result.Success || result.Layout != null)
+                    throw new InvalidOperationException("Captured live rejection no longer reproduces; actual layout=" +
+                        (result?.Layout?.Digest ?? "none") + " success=" + (result?.Success.ToString() ?? "null"));
+                Equal(expectedRejection, result.RejectionCode, "rejection code");
+                if (args.Contains("--joint-diagnostics"))
+                    foreach (var diagnostic in result.Diagnostics) Console.WriteLine(diagnostic);
+                Console.WriteLine("live-fixture-rejection-run inputDigest=" + finalInput.Digest +
+                    " rejectionCode=" + result.RejectionCode + " attempts=" + inputs.Length +
+                    " terrainDigest=" + finalInput.Terrain.Digest);
+                continue;
+            }
             if (result == null || !result.Success || result.Layout == null)
                 throw new InvalidOperationException("Captured live planner attempts rejected: " + result?.RejectionCode);
-            Equal(expectedInput, finalInput.Digest, "final input digest");
-            Equal(expectedLayout, result.Layout.Digest, "layout digest");
+            if (!requireFixedSuccess) Equal(expectedLayout, result.Layout.Digest, "layout digest");
+            else
+            {
+                if (fixedLayout != null) Equal(fixedLayout, result.Layout.Digest, "fixed layout digest");
+                var preflight = RealisticBases.Generation.P4BProceduralSpawnPreflight.Evaluate(finalInput, result.Layout);
+                if (!preflight.Accepted)
+                    throw new InvalidOperationException("Fixed fixture spawn preflight rejected: " + preflight.Failure);
+                Console.WriteLine("live-fixture-fixed-success inputDigest=" + finalInput.Digest +
+                    " terrainDigest=" + finalInput.Terrain.Digest + " layoutDigest=" + result.Layout.Digest +
+                    " residents=" + finalInput.Requirements.Residents + " crops=" + (result.Layout.FieldWall?.Fields.Count ?? 0));
+            }
+            if (args.Contains("--field-route")) CalderaFieldRouteRegression.Run(finalInput, result.Layout);
+            if (args.Contains("--joint-diagnostics"))
+                foreach (var diagnostic in result.Diagnostics) Console.WriteLine(diagnostic);
             string stageText = "siteCandidate=" + F(site) +
                 ",fieldWall=" + F(field) +
                 ",fitDefenseAccess=" + F(fit) +
@@ -114,6 +150,12 @@ internal static class LivePlannerFixtureReplay
     {
         int at = Array.IndexOf(args, key);
         return at >= 0 && at + 1 < args.Length ? int.Parse(args[at + 1], CultureInfo.InvariantCulture) : fallback;
+    }
+
+    private static string ReadString(string[] args, string key)
+    {
+        int at = Array.IndexOf(args, key);
+        return at >= 0 && at + 1 < args.Length ? args[at + 1] : null;
     }
 
     private static string F(double value) => value.ToString("F2", CultureInfo.InvariantCulture);

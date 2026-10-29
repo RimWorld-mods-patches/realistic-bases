@@ -181,7 +181,8 @@ namespace RealisticBases.Planning
         private static P4BJointSiteResult FindCore(TerrainSnapshot terrain, int requiredCrops,
             int minimumCompoundCells, int margin, ulong seed, int maxCandidates, int maxEvaluations,
             int residents, bool refineFieldOrigins, int attachmentDepth, int attachmentHalfTip,
-            LayoutTerrainGrid grid, bool[] edgeReach, bool[] opaqueTargets, int plannerDegree)
+            LayoutTerrainGrid grid, bool[] edgeReach, bool[] opaqueTargets, int plannerDegree,
+            bool useFieldTerrainRules = false)
         {
             int fieldSide = (int)Math.Ceiling(Math.Sqrt(requiredCrops)) + 5;
             // Room packing needs circulation, gate returns and utility pockets in
@@ -208,7 +209,11 @@ namespace RealisticBases.Planning
             // resolution, bounded by map area, before the expensive pair budget.
             // Refinement is attempted only after the coarse phase found no
             // feasible pair, preserving successful established seeded layouts.
-            // Each phase has maxEvaluations pair work; at most two phases run.
+            // If both setback phases fail, a final dense pass checks field
+            // fences by their own physical terrain rules. Compound hazard
+            // setbacks do not apply to a dry crop fence beside water. Keep
+            // compound capacity/attachment checks and map-edge margins intact.
+            // Each phase has maxEvaluations pair work; at most three phases run.
             bool denseFields = refineFieldOrigins;
             int originStep = denseFields ? 1 : 4;
             for (int z = margin + 2; z + fieldSide + margin + 2 < terrain.Height; z += originStep)
@@ -219,7 +224,8 @@ namespace RealisticBases.Planning
                     if (denseFields)
                     {
                         if (possibleField.Points().Where(c => Edge(possibleField, c))
-                            .Any(c => grid.At(c) != LayoutCellClass.Open || !grid.CanPlace(c)))
+                            .Any(c => grid.At(c) != LayoutCellClass.Open ||
+                                (!useFieldTerrainRules && !grid.CanPlace(c))))
                         { Reject("field_wall_terrain"); continue; }
                         if (possibleField.Points().Where(c => !Edge(possibleField, c) &&
                             (c.X == possibleField.MinX + 1 || c.X == possibleField.MaxX - 1 ||
@@ -237,7 +243,7 @@ namespace RealisticBases.Planning
             Action<int> evaluateAt = index => originResults[index] = EvaluateOrigin(orderedOrigins[index],
                 Math.Min(4, maxEvaluations - index * 4), terrain, requiredCrops, minimumCompoundCells,
                 margin, fieldSide, compoundSide, attachmentDepth, attachmentHalfTip, grid, edgeReach,
-                opaqueTargets);
+                opaqueTargets, useFieldTerrainRules);
             if (plannerDegree == 1)
             {
                 for (int i = 0; i < originLimit; i++) evaluateAt(i);
@@ -258,15 +264,16 @@ namespace RealisticBases.Planning
                 foreach (KeyValuePair<string, int> pair in originResult.Rejections)
                     for (int count = 0; count < pair.Value; count++) Reject(pair.Key);
             }
-            if (accepted.Count == 0 && !refineFieldOrigins)
+            if (accepted.Count == 0 && (!refineFieldOrigins || !useFieldTerrainRules))
             {
                 P4BJointSiteResult refined = FindCore(terrain, requiredCrops, minimumCompoundCells, margin, seed,
                     maxCandidates, maxEvaluations, residents, refineFieldOrigins: true,
                     attachmentDepth: attachmentDepth, attachmentHalfTip: attachmentHalfTip,
-                    grid: grid, edgeReach: edgeReach, opaqueTargets: opaqueTargets, plannerDegree: plannerDegree);
+                    grid: grid, edgeReach: edgeReach, opaqueTargets: opaqueTargets, plannerDegree: plannerDegree,
+                    useFieldTerrainRules: refineFieldOrigins);
                 return new P4BJointSiteResult(refined.Candidates,
-                    rejected.OrderBy(kv => kv.Key).Select(kv => "coarse_" + kv.Key + ":" + kv.Value)
-                        .Concat(refined.Rejections.Select(r => "refined_" + r)),
+                    rejected.OrderBy(kv => kv.Key).Select(kv => (refineFieldOrigins ? "setback_" : "coarse_") + kv.Key + ":" + kv.Value)
+                        .Concat(refined.Rejections.Select(r => (refineFieldOrigins ? "field_terrain_" : "refined_") + r)),
                     evaluated + refined.Evaluated, fieldOriginsScanned + refined.FieldOriginsScanned);
             }
             return new P4BJointSiteResult(accepted.OrderByDescending(c => c.Score)
@@ -281,7 +288,7 @@ namespace RealisticBases.Planning
         private static OriginEvaluation EvaluateOrigin(GridPoint origin, int sideCount,
             TerrainSnapshot terrain, int requiredCrops, int minimumCompoundCells, int margin,
             int fieldSide, int compoundSide, int attachmentDepth, int attachmentHalfTip,
-            LayoutTerrainGrid grid, bool[] edgeReach, bool[] opaqueTargets)
+            LayoutTerrainGrid grid, bool[] edgeReach, bool[] opaqueTargets, bool useFieldTerrainRules)
         {
             OriginEvaluation result = new OriginEvaluation { Evaluated = sideCount };
             GridRect field = new GridRect(origin.X, origin.Z, fieldSide, fieldSide);
@@ -305,7 +312,8 @@ namespace RealisticBases.Planning
                         c.X > field.MinX + 1 && c.X < field.MaxX - 1 &&
                         c.Z > field.MinZ + 1 && c.Z < field.MaxZ - 1 &&
                         grid.At(c) == LayoutCellClass.Open && terrain[c].Has(TerrainTraits.Fertile)).ToList();
-                    wallPassable = !wall.Any(c => grid.At(c) != LayoutCellClass.Open || !grid.CanPlace(c));
+                    wallPassable = !wall.Any(c => grid.At(c) != LayoutCellClass.Open ||
+                        (!useFieldTerrainRules && !grid.CanPlace(c)));
                     perimeterLanePassable = !perimeterLane.Any(c => !grid.Passable(c));
                     fieldDataReady = true;
                 }

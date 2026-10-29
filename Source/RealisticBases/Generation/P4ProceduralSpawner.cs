@@ -225,29 +225,7 @@ namespace RealisticBases.Generation
                     // The compound reservation also covers the short exterior
                     // crossing to the field. Vanilla pathfinding may leave the
                     // literal wall interior through a different compound gate.
-                    List<GridPoint> defended = P4BPerimeterDepth.Envelope(input.Terrain, layout)
-                        .Concat(layout.Gates.SelectMany(g => g.BandDoors.Concat(g.OuterVestibule).Concat(new[] { g.Cell, g.Staging })))
-                        .Concat(layerServiceCells)
-                        .Concat(layout.JointSite?.Compound.Points() ?? Enumerable.Empty<GridPoint>())
-                        .Concat(layout.JointSite?.Field.Points() ?? Enumerable.Empty<GridPoint>())
-                        .Concat(fieldWall?.Access ?? new GridPoint[0])
-                        // Low cover is passable; vanilla paths can step over a
-                        // screen. This permits transit, not a protected post.
-                        .Concat(approachDefense?.CoverCells ?? new GridPoint[0])
-                        .Concat(approachDefense?.TransitCells ?? new GridPoint[0])
-                        .Concat(approachDefense?.Posts.SelectMany(p => p.Route) ?? new GridPoint[0])
-                        .Concat(approachDefense?.AllPosts ?? new GridPoint[0])
-                        .Concat(fieldWall?.ArrivalRoute.TakeWhile(c => !c.Equals(fieldWall.OuterGate)) ?? Enumerable.Empty<GridPoint>())
-                        .Concat(fieldWall?.ExteriorPosts ?? new GridPoint[0])
-                        .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() : new[] { fieldWall.OuterGate })
-                        .Concat(turretPlans.SelectMany(t => t.ServiceRoute))
-                        .Concat(P3DefenderRoute.TransitEnvelope(input.Terrain,
-                            (fieldWall?.Access ?? new GridPoint[0])
-                                .Concat(approachDefense?.TransitCells ?? new GridPoint[0])
-                                .Concat(approachDefense?.Posts.SelectMany(p => p.Route) ?? new GridPoint[0])
-                                .Concat(turretPlans.SelectMany(t => t.ServiceRoute)),
-                            postOpaque.Except(P4BApproachDefensePlanner.AccessGates(layout))))
-                        .Distinct().ToList();
+                    IReadOnlyList<GridPoint> defended = P4BDefenderArea.Build(input, layout);
                     GridRect bounds = new GridRect(defended.Min(c => c.X), defended.Min(c => c.Z),
                         defended.Max(c => c.X) - defended.Min(c => c.X) + 1,
                         defended.Max(c => c.Z) - defended.Min(c => c.Z) + 1);
@@ -393,7 +371,7 @@ namespace RealisticBases.Generation
                     SpawnLayoutFixture(tx, fixture, fixtureOrigins, layout.Rooms, map, settlement.Faction);
                 foreach (LayoutPowerYard yard in layout.PowerYards)
                     Spawn(tx, Require(yard.DefName), null, yardOrigins[yard], map, settlement.Faction, Rotation(yard.Rotation));
-                ThingDef conduitDef = PowerConduitDef(input);
+                ThingDef conduitDef = conduitCells.Count > 0 ? PowerConduitDef(input) : null;
                 HashSet<GridPoint> builtWallCells = new HashSet<GridPoint>(layout.BuiltWalls.Concat(layout.OuterWalls)
                     .Concat(layout.Gates.SelectMany(g => g.BandWalls))
                     .Concat(layout.FieldWall?.Walls ?? Enumerable.Empty<GridPoint>())
@@ -410,7 +388,7 @@ namespace RealisticBases.Generation
                     spawnedConduits++;
                     if (builtWallCells.Contains(c)) conduitCellsUnderBuiltWalls++;
                 }
-                P2Log.Message("PROCEDURAL_CONDUIT_AUDIT", "map=" + map.uniqueID + " def=" + conduitDef.defName +
+                P2Log.Message("PROCEDURAL_CONDUIT_AUDIT", "map=" + map.uniqueID + " def=" + (conduitDef?.defName ?? "none") +
                     " routeCells=" + conduitCells.Count + " spawned=" + spawnedConduits +
                     " underBuiltWalls=" + conduitCellsUnderBuiltWalls +
                     " skippedExistingTransmitters=" + conduitCellsSkippedForExistingTransmitters);
@@ -729,46 +707,23 @@ namespace RealisticBases.Generation
                             {
                                 IntVec3 firstOutside = path.Found
                                     ? path.NodesReversed.FirstOrDefault(c => !defendedCells.Contains(c)) : IntVec3.Invalid;
-                                bool legal = path.Found && path.NodesReversed.Count <= P3DefenderRoute.MaximumCells &&
-                                    path.NodesReversed.All(defendedCells.Contains);
-                                int length = path.NodesReversed.Count;
-                                if (!legal && defendedCells.Contains(ToCell(gate)))
+                                IReadOnlyList<GridPoint> NativeRoute(GridPoint from, GridPoint to)
                                 {
-                                    // Vanilla's shortest direct path can cut through open ground
-                                    // outside the declared corridor. The live controller will use
-                                    // this same access gate as a waypoint instead of broadening
-                                    // its movement authority to include that shortcut.
-                                    using (PawnPath toGate = map.pathFinder.FindPathNow(pawn.Position, ToCell(gate),
+                                    using (PawnPath leg = map.pathFinder.FindPathNow(ToCell(from), ToCell(to),
                                         TraverseParms.For(pawn), null, PathEndMode.OnCell))
-                                    using (PawnPath fromGate = map.pathFinder.FindPathNow(ToCell(gate), ToCell(post),
-                                        TraverseParms.For(pawn), null, PathEndMode.OnCell))
-                                    {
-                                        length = toGate.NodesReversed.Count + fromGate.NodesReversed.Count - 1;
-                                        legal = toGate.Found && fromGate.Found && length <= P3DefenderRoute.MaximumCells &&
-                                            toGate.NodesReversed.All(defendedCells.Contains) &&
-                                            fromGate.NodesReversed.All(defendedCells.Contains);
-                                        if (legal) viaGatePaths++;
-                                    }
+                                        return leg.Found ? leg.NodesReversed.AsEnumerable().Reverse().Select(c => new GridPoint(c.x, c.z)).ToArray() : null;
                                 }
-                                if (!legal)
-                                {
-                                    IReadOnlyList<GridPoint> NativeRoute(GridPoint from, GridPoint to)
-                                    {
-                                        using (PawnPath leg = map.pathFinder.FindPathNow(ToCell(from), ToCell(to),
-                                            TraverseParms.For(pawn), null, PathEndMode.OnCell))
-                                            return leg.Found ? leg.NodesReversed.AsEnumerable().Reverse().Select(c => new GridPoint(c.x, c.z)).ToArray() : null;
-                                    }
-                                    int completeLength = 0;
-                                    var waypoint = P3DefenderRoute.NextWaypoint(new GridPoint(pawn.Position.x, pawn.Position.z),
-                                        post, encounter.SupportCenter, gate,
-                                        layout.Gates.Select(g => g.Cell).Concat(approachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? new GridPoint[0])
-                                            .Concat(new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }), NativeRoute,
-                                        encounter.DefendedCells,
-                                        P4BPerimeterDepth.Envelope(input.Terrain, layout).Concat(layout.JointSite.Compound.Points())
-                                            .Concat(layout.JointSite.Field.Points()).Distinct().ToArray(),
-                                        new GridPoint[0], walls.Concat(natural).ToArray(), n => completeLength = n);
-                                    if (waypoint.HasValue) { legal = true; length = completeLength; viaGatePaths++; }
-                                }
+                                P4BFieldPostPathResult route = P4BFieldPostPath.Evaluate(
+                                    new GridPoint(pawn.Position.x, pawn.Position.z), post, encounter.SupportCenter, gate,
+                                    layout.Gates.Select(g => g.Cell).Concat(approachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? new GridPoint[0])
+                                        .Concat(new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }), NativeRoute,
+                                    encounter.DefendedCells,
+                                    P4BPerimeterDepth.Envelope(input.Terrain, layout).Concat(layout.JointSite.Compound.Points())
+                                        .Concat(layout.JointSite.Field.Points()).Distinct().ToArray(), walls.Concat(natural).ToArray(),
+                                    path.Found ? path.NodesReversed.AsEnumerable().Reverse().Select(c => new GridPoint(c.x, c.z)).ToArray() : null);
+                                bool legal = route.Allowed;
+                                int length = route.Cells;
+                                if (legal && route.ViaGate) viaGatePaths++;
                                 if (legal)
                                 {
                                     eligibleDefenders++;

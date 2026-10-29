@@ -288,8 +288,8 @@ namespace RealisticBases.Diagnostics
             P0Log.Message("DEBUG_TERRAIN_CAPTURE_ARM", "nextFlat=true");
         }
 
-        private static void GenerateIsolatedHostileSettlement(bool movePlayerColonist, bool requireMountainous = false,
-            bool requireFoothill = false, bool requireFlat = false, Func<PlanetTile> pickTile = null)
+        internal static void GenerateIsolatedHostileSettlement(bool movePlayerColonist, bool requireMountainous = false,
+            bool requireFoothill = false, bool requireFlat = false, Func<PlanetTile> pickTile = null, int mapSide = 0)
         {
             Pawn arrivalPawn = movePlayerColonist
                 ? Find.Maps.Where(m => m.IsPlayerHome)
@@ -337,6 +337,7 @@ namespace RealisticBases.Diagnostics
             IntVec3 mapSize = requireMountainous || requireFoothill || requireFlat || pickTile != null
                 ? new IntVec3(160, 1, 160)
                 : new IntVec3(80, 1, 80);
+            if (mapSide > 0) mapSize = new IntVec3(mapSide, 1, mapSide);
             Stopwatch mapGenerationWatch = TimingMeasurementArmed ? Stopwatch.StartNew() : null;
             Map map = GetOrGenerateMapUtility.GetOrGenerateMap(tile, mapSize, null);
             if (mapGenerationWatch != null)

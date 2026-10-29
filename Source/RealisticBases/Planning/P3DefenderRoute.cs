@@ -60,7 +60,11 @@ namespace RealisticBases.Planning
             IEnumerable<GridPoint> hostileCells, IReadOnlyCollection<GridPoint> opaque, Action<int> reportLength = null)
         {
             var gates = (entryGates ?? Enumerable.Empty<GridPoint>()).Distinct()
-                .OrderBy(g => Math.Abs(g.X - from.X) + Math.Abs(g.Z - from.Z)).ThenBy(g => g).Take(8).ToArray();
+                // Nearby sally ports can all lead to forbidden shortcuts. The
+                // farther compound/field gate may be the only legal crossing.
+                // Search the finite declared gateway set; retain full-route
+                // area, length and exposure checks below.
+                .OrderBy(g => Math.Abs(g.X - from.X) + Math.Abs(g.Z - from.Z)).ThenBy(g => g).ToArray();
             var chains = new List<GridPoint[]> { new[] { destination } };
             GridPoint exit = destinationGate ?? destination;
             chains.Add(new[] { exit, destination });
