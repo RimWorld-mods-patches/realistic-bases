@@ -1061,6 +1061,15 @@ namespace RealisticBases.Planning
                 }
             }
             if (failure == null && capacity < capacityTarget) failure = "capacity";
+            // Residents need distinct empty housing floor after furnishing.
+            // Wall attachments do not claim the room's flood state, so exclude
+            // all fixture footprints explicitly as a conservative reservation.
+            if (failure == null && (kind == LayoutRoomKind.Barracks || kind == LayoutRoomKind.Bedroom))
+            {
+                var occupied = new HashSet<GridPoint>(room.Fixtures.SelectMany(f => f.Cells));
+                if (room.ReachableFree().Count(c => !occupied.Contains(c)) < capacityTarget)
+                    failure = "housing_spawn_floor";
+            }
             return new LayoutFurnishResult(room.Fixtures, capacity, failure);
         }
 

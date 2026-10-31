@@ -1414,7 +1414,7 @@ namespace RealisticBases.Planning
         private static GridPoint At(GridPoint c, GridPoint outward, GridPoint tangent, int f, int l) =>
             new GridPoint(c.X + outward.X * f + tangent.X * l, c.Z + outward.Z * f + tangent.Z * l);
         private static bool Walkable(TerrainSnapshot terrain, GridPoint c) => terrain.InBounds(c) &&
-            (terrain[c].Has(TerrainTraits.Standable) || terrain[c].Has(TerrainTraits.ClearablePlant)) &&
+            terrain[c].StandableAfterClearance &&
             !terrain[c].HasAny(TerrainTraits.Water | TerrainTraits.NaturalRock | TerrainTraits.Occupied);
         private static bool Buildable(TerrainSnapshot terrain, GridPoint c) => Walkable(terrain, c) &&
             terrain[c].Has(TerrainTraits.Buildable) && !terrain[c].HasAny(TerrainTraits.Roofed | TerrainTraits.MapEdge);

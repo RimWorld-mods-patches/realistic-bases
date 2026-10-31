@@ -69,6 +69,22 @@ namespace RealisticBases.Diagnostics
             Generate();
         }
 
+        [DebugAction("Realistic Bases tour", "Resume GL tour after recorded Caldera case", allowedGameStates = AllowedGameStates.Playing)]
+        public static void ResumeAfterRecordedCases()
+        {
+            RequireDisposable();
+            current = Array.IndexOf(Forms, "Caldera");
+            P0Log.Message("GL_TOUR_CURSOR", "last=Caldera next=" + Forms[current + 1]);
+        }
+
+        [DebugAction("Realistic Bases tour", "Skip known Cliff timeout and continue tour", allowedGameStates = AllowedGameStates.Playing)]
+        public static void SkipKnownCliffTimeout()
+        {
+            RequireDisposable();
+            current = Array.IndexOf(Forms, "Cliff");
+            P0Log.Message("GL_TOUR_CURSOR", "skipped=Cliff knownTimeout=true next=" + Forms[current + 1]);
+        }
+
         [DebugAction("Realistic Bases tour", "Recheck recorded GL Atoll tile", allowedGameStates = AllowedGameStates.Playing)]
         private static void RecordedAtoll() => RecheckRecordedTile("Atoll", 68248);
 
@@ -77,6 +93,18 @@ namespace RealisticBases.Diagnostics
 
         [DebugAction("Realistic Bases tour", "Recheck recorded GL Caldera tile", allowedGameStates = AllowedGameStates.Playing)]
         private static void RecordedCaldera() => RecheckRecordedTile("Caldera", 89176);
+
+        [DebugAction("Realistic Bases tour", "Recheck recorded GL Coast tile", allowedGameStates = AllowedGameStates.Playing)]
+        private static void RecordedCoast() => RecheckRecordedTile("Coast", 55094);
+
+        [DebugAction("Realistic Bases tour", "Recheck recorded GL CoastCorner tile", allowedGameStates = AllowedGameStates.Playing)]
+        private static void RecordedCoastCorner() => RecheckRecordedTile("CoastCorner", 71102);
+
+        [DebugAction("Realistic Bases tour", "Recheck recorded GL CoastalIsland tile", allowedGameStates = AllowedGameStates.Playing)]
+        private static void RecordedCoastalIsland() => RecheckRecordedTile("CoastalIsland", 92492);
+
+        [DebugAction("Realistic Bases tour", "Recheck recorded GL CoveWithIsland candidate tile", allowedGameStates = AllowedGameStates.Playing)]
+        private static void RecordedCoveCandidate() => RecheckRecordedTile("CoveWithIsland", 50492);
 
         private static void RecheckRecordedTile(string form, int tileId)
         {
@@ -131,7 +159,10 @@ namespace RealisticBases.Diagnostics
             generatedLandforms = null;
             try
             {
-                P0DebugActions.GenerateIsolatedHostileSettlement(true, pickTile: () => chosen, mapSide: 200);
+                // The tour can generate many isolated hostile maps; moving a
+                // home colonist on every case exhausts the home-map pawns and
+                // prevents later forms from reaching map/planner generation.
+                P0DebugActions.GenerateIsolatedHostileSettlement(false, pickTile: () => chosen, mapSide: 200);
                 bool applied = generatedLandforms != null && generatedLandforms.Contains(form, StringComparer.Ordinal);
                 P0Log.Message(applied ? "GL_TOUR_CONFIRMED" : "GL_TOUR_UNCONFIRMED",
                     "form=" + form + " tile=" + chosen + " requestedFormApplied=" + applied +

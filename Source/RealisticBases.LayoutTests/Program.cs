@@ -70,6 +70,9 @@ internal static partial class Program
         RunCoverNestTests();
         RunP5BTests();
         Run("natural barriers: shallow water walks, deep water and rock block", ExposureRules);
+        Run("stone chunks: rooms and crop fields use clearable ground", StoneChunkTerrain);
+        Run("stone chunks: thermal partition models owned public exhaust clearance", StoneChunkThermalClearance);
+        Run("stone chunks: relocation keeps source objects separate and allocation bounded", StoneChunkDestinations);
         Run("joint sites prefer natural barriers on beach and lakeshore maps", BarrierSiting, 95);
         Skip("GL peninsula captured tile places a joint settlement",
             "known: GL peninsula captured tile no_valid_layout, see gl-peninsula issue");
@@ -105,8 +108,12 @@ internal static partial class Program
         Run("corner obstruction replans the outer shell within budget", CornerWallReturnRecovery);
         Run("P4B firing-lane prefilter rejects opaque and out-of-range shots", P4BFireLaneCases);
         Run("P4B field wall joins the perimeter with unroofed crops and exterior posts", P4BFieldWallCases);
+        Run("P4B CoastalIsland field arrival reaches the surviving shallow-water approach", CoastalIslandFieldArrival);
+        Run("P4B field movement crosses shallows while foundations and crops stay dry", FieldMovementAndDryGround);
         Run("P4B field wall planner finds an attached flat-map bailey", P4BFieldWallPlannerCases, 80);
         Run("P4B joint site keeps crop capacity and compound space together", P4BJointSiteCases, 15);
+        Run("P4B street starts recover inside the same compound without crossing hazards", StreetStartRecovery);
+        Run("P4B housing reserves empty floor for every resident after furnishing", HousingSpawnFloor);
         Run("P4B dry field fences beside water retain crop capacity and compound setbacks", FieldFenceNearWater);
         Run("P4B turret emplacement respects stage, geometry and finite stocks", P4BTurretPlacementCases, 30);
         Run("P4B high-industrial field pair fits its facilities", P4BHighIndustrialJointSite, 45);
@@ -2016,7 +2023,9 @@ internal static partial class Program
         for (ulong seed = 1; seed <= 24; seed++)
         {
             ProceduralLayoutInput input = new ProceduralLayoutInput(
-                LayoutRequirements.FromPopulation(8, Industrial, Temperate, stage: MidStage),
+                // A higher-load layout keeps both source types present so
+                // this checks overlap geometry rather than one seeded mix.
+                LayoutRequirements.FromPopulation(12, Industrial, Temperate, stage: MidStage),
                 Plains(130), seed, CoreCatalog);
             Stopwatch watch = Stopwatch.StartNew();
             ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);

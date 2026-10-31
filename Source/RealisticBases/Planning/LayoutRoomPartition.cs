@@ -42,10 +42,11 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> excavated = new HashSet<GridPoint>(layout.Excavation);
             HashSet<GridPoint> cleared = new HashSet<GridPoint>(layout.ExhaustRoofClearance);
             HashSet<GridPoint> constructed = new HashSet<GridPoint>(layout.ConstructedRoof);
-            // Room construction clears its vegetation before the native room
-            // audit. A standing tree is not a permanent thermal separator in
-            // that owned footprint; untouched vegetation outside it still is.
-            HashSet<GridPoint> plantClearance = new HashSet<GridPoint>(layout.Rooms.SelectMany(r => r.Bounds.Points())
+            // Native spawn clears plants and loose chunks throughout the
+            // enclosure before its thermal audit, including public exhaust
+            // cells. Untouched obstructions outside that footprint still split rooms.
+            HashSet<GridPoint> plantClearance = new HashSet<GridPoint>(layout.Enclosure
+                .Concat(layout.Rooms.SelectMany(r => r.Bounds.Points()))
                 .Concat(layout.ExhaustPockets.Select(p => p.Cell)));
 
             LayoutRoomPartition partition = new LayoutRoomPartition(terrain.Width, terrain.Height);
@@ -100,7 +101,7 @@ namespace RealisticBases.Planning
             if (separators.Contains(c)) return true;
             if (excavated.Contains(c)) return false;
             TerrainCell cell = terrain[c];
-            if (plantClearance.Contains(c) && cell.Has(TerrainTraits.ClearablePlant | TerrainTraits.Buildable) &&
+            if (plantClearance.Contains(c) && cell.HasClearableObstruction && cell.Has(TerrainTraits.Buildable) &&
                 (cell.Traits & (TerrainTraits.NaturalRock | TerrainTraits.Occupied | TerrainTraits.Water)) == 0) return false;
             return cell.Has(TerrainTraits.NaturalRock) || cell.Has(TerrainTraits.Occupied) || !cell.Has(TerrainTraits.Standable);
         }

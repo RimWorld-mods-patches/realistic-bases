@@ -22,7 +22,7 @@ namespace RealisticBases.Planning
             List<GridPoint> crossing = Enumerable.Range(1, 8).Select(n =>
                 new GridPoint(gate.Cell.X + gate.Outward.X * n, gate.Cell.Z + gate.Outward.Z * n))
                 .Where(c => input.Terrain.InBounds(c) && !opaque.Contains(c) &&
-                    input.Terrain[c].Has(TerrainTraits.Standable)).ToList();
+                    input.Terrain[c].HasAny(TerrainTraits.Standable | TerrainTraits.ClearableStoneChunk)).ToList();
             return encounter.Posts.Where(p => p.Inner && p.Id.StartsWith(
                     "gate-" + layout.FieldWall.GateIndex + "-", StringComparison.Ordinal) &&
                     crossing.Any(c => P4BFireLane.CanEngage(p.Cell, c, 0, 25, opaque)))

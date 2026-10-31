@@ -322,12 +322,17 @@ namespace RealisticBases.Generation
             try
             {
                 tx.Excavate();
-                foreach (GridPoint c in layout.Enclosure.Concat(structures).Concat(fields).Concat(serviceCells)
+                var clearance = new HashSet<GridPoint>(layout.Enclosure.Concat(structures).Concat(fields).Concat(serviceCells)
                     .Concat(layout.Gates.SelectMany(g => g.OuterVestibule.Concat(g.ExteriorRoute)))
                     .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() :
-                        layout.JointSite.Field.Points().Concat(fieldWall.ExteriorPosts).Concat(fieldWall.Access)).Distinct())
+                        layout.JointSite.Field.Points().Concat(fieldWall.ExteriorPosts).Concat(fieldWall.Access))
+                    .Concat(finishPlan.Floors.Keys)
+                    .Concat(layout.AllFixtures.Where(f => f.HotCell.HasValue).Select(f => f.HotCell.Value)));
+                tx.ClearStoneChunks(clearance);
+                P2Log.Message("PROCEDURAL_CHUNK_CLEARANCE", "map=" + map.uniqueID + " moved=" + tx.MovedChunkCount +
+                    " units=" + tx.MovedChunkUnits + " identitiesPreserved=True destinationsOutsideFootprint=True remaining=0");
+                foreach (GridPoint c in clearance)
                     tx.ClearPlant(c);
-                foreach (GridPoint c in finishPlan.Floors.Keys) tx.ClearPlant(c);
                 tx.ApplyFloors();
                 if (finishFailure == P4CFailurePoint.AfterFloors)
                     throw new InvalidOperationException("forced P4C failure after floors");
@@ -642,6 +647,9 @@ namespace RealisticBases.Generation
                 PawnKindDef kind = settlement.Faction.def.basicMemberKind ?? PawnKindDefOf.Pirate;
                 List<GridPoint> homes = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Barracks || r.Kind == LayoutRoomKind.Bedroom)
                     .SelectMany(r => r.Interior.Points()).Where(c => ToCell(c).Standable(map) && ToCell(c).GetEdifice(map) == null).ToList();
+                P2Log.Message("PROCEDURAL_RESIDENT_HOME_AUDIT", "map=" + map.uniqueID +
+                    " required=" + input.Requirements.Residents + " available=" + homes.Count +
+                    " plannedBeds=" + layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.Bed) + " housingOnly=True");
                 if (homes.Count < input.Requirements.Residents) throw new InvalidOperationException("No resident spawn cells remain");
                 if (quest != null)
                 {
@@ -972,6 +980,7 @@ namespace RealisticBases.Generation
                 P2Log.Error("PROCEDURAL_SPAWN_ABORT", "map=" + map.uniqueID + " error=" + failure +
                     " owned=" + tx.OwnedCount + " plantsRestored=" + tx.RestoredPlantCount +
                     "/" + tx.ClearedPlantCount + " itemLedgerRestored=" + tx.ItemLedgerRestored +
+                    " chunksRestored=" + tx.RestoredChunkCount + "/" + tx.MovedChunkCount +
                     " provisionalRoofCollapsesDiscarded=" + tx.DiscardedProvisionalRoofCollapses + " recovered=" + restored);
                 return false;
             }

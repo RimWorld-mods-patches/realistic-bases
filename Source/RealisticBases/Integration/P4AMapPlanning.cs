@@ -141,6 +141,7 @@ namespace RealisticBases.Integration
                 " standable=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Standable)) +
                 " buildable=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Buildable)) +
                 " clearablePlant=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.ClearablePlant)) +
+                " clearableStoneChunk=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.ClearableStoneChunk)) +
                 " plantBlocked=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.ClearablePlant) &&
                     !terrain[c].Has(TerrainTraits.Standable)) +
                 " occupied=" + terrain.Points().Count(c => terrain[c].Has(TerrainTraits.Occupied)) +

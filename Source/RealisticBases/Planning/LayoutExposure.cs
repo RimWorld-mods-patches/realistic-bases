@@ -11,7 +11,7 @@ namespace RealisticBases.Planning
     public static class LayoutExposure
     {
         public static bool Walkable(TerrainCell cell) =>
-            (cell.Has(TerrainTraits.Standable) || cell.Has(TerrainTraits.ClearablePlant)) &&
+            cell.StandableAfterClearance &&
             !cell.HasAny(TerrainTraits.Occupied | TerrainTraits.NaturalRock);
 
         // Cells an attacker on foot can reach from any walkable map-edge cell.

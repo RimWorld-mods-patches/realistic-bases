@@ -67,9 +67,9 @@ internal static partial class Program
 
     // Minimal synthetic plan: only walls, roofs and pockets matter to the partition.
     private static ProceduralLayout PartitionLayout(IEnumerable<GridPoint> walls, IEnumerable<GridPoint> constructedRoof,
-        IEnumerable<LayoutExhaustPocket> pockets = null) =>
+        IEnumerable<LayoutExhaustPocket> pockets = null, IEnumerable<GridPoint> enclosure = null) =>
         new ProceduralLayout(string.Empty, 0, LayoutDoctrine.OpenGround, false, new GridPoint(0, 0), Enumerable.Empty<LayoutRoom>(),
-            Enumerable.Empty<LayoutCorridor>(), null, Enumerable.Empty<GridPoint>(), walls, Enumerable.Empty<GridPoint>(),
+            Enumerable.Empty<LayoutCorridor>(), null, enclosure ?? Enumerable.Empty<GridPoint>(), walls, Enumerable.Empty<GridPoint>(),
             Enumerable.Empty<LayoutGate>(), Enumerable.Empty<GridPoint>(), Enumerable.Empty<GridPoint>(), constructedRoof, 1, 0,
             Enumerable.Empty<LayoutRelationship>(), Enumerable.Empty<GridPoint>(), Enumerable.Empty<string>(), null, string.Empty,
             string.Empty, string.Empty, null, null, pockets);

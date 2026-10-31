@@ -378,11 +378,30 @@ namespace RealisticBases.Planning
             if (layout.Rooms.Count(r => r.Kind != LayoutRoomKind.MortarMagazine) != demand.Rooms.Count) errors.Add("room_count");
             int beds = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Barracks || r.Kind == LayoutRoomKind.Bedroom).Sum(r => r.Capacity);
             if (beds < requirements.Residents) errors.Add("housing_beds");
+            if (HousingFloorCells(input, layout).Count < requirements.Residents) errors.Add("housing_spawn_floor");
             if (kit.Powered)
                 ValidatePower(input, layout, grid, enclosure, roomCells, courtCells, yardCells, built, errors);
             else if (fixtures.Any(f => f.Watts > 0 || f.Kind == LayoutFixtureKind.Generator || f.Kind == LayoutFixtureKind.Battery) || layout.Power != null)
                 errors.Add("unpowered_electric_content");
             return new ReadOnlyCollection<string>(errors.Distinct().ToList());
+        }
+
+        // Planned empty housing floor after owned excavation/plant clearance.
+        // The native spawner still checks actual Standable/GetEdifice values.
+        public static IReadOnlyList<GridPoint> HousingFloorCells(ProceduralLayoutInput input, ProceduralLayout layout)
+        {
+            var occupied = new HashSet<GridPoint>(layout.AllFixtures.SelectMany(f => f.Cells));
+            var excavated = new HashSet<GridPoint>(layout.Excavation);
+            return layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Barracks || r.Kind == LayoutRoomKind.Bedroom)
+                .SelectMany(r => r.Interior.Points()).Distinct().Where(c =>
+                {
+                    if (!input.Terrain.InBounds(c) || occupied.Contains(c)) return false;
+                    TerrainCell cell = input.Terrain[c];
+                    if (cell.Has(TerrainTraits.Water)) return false;
+                    if (excavated.Contains(c)) return true;
+                    return !cell.HasAny(TerrainTraits.Occupied | TerrainTraits.NaturalRock) &&
+                        cell.StandableAfterClearance;
+                }).OrderBy(c => c).ToArray();
         }
 
         // Neighbouring rooms may share a common wall: a cell may belong to several

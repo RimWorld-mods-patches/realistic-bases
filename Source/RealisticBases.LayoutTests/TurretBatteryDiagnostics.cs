@@ -95,8 +95,10 @@ internal static partial class Program
         foreach (bool steam in new[] { true, false })
         {
             ProceduralLayoutInput input = new ProceduralLayoutInput(
-                LayoutRequirements.FromPopulation(8, Industrial, Temperate, stage: MidStage),
-                Plains(130), steam ? 1UL : 17UL, CoreCatalog,
+                // The comparison needs enough load to request both renewable
+                // types after housing reserves its resident floor space.
+                LayoutRequirements.FromPopulation(steam ? 8 : 12, Industrial, Temperate, stage: MidStage),
+                Plains(130), steam ? 1UL : 5UL, CoreCatalog,
                 resources: steam ? new LayoutLocalResources(int.MaxValue, null, null, CentreGeysers) : null);
             Stopwatch watch = Stopwatch.StartNew();
             ProceduralLayoutResult result = ProceduralLayoutPlanner.Plan(input);
@@ -105,7 +107,8 @@ internal static partial class Program
             LayoutPowerPlan power = result.Layout.Power;
             True(steam ? power.Yards.Any(y => y.DefName == LayoutPowerModel.Geothermal) :
                 power.Yards.Any(y => y.DefName == LayoutPowerModel.Solar) && power.Yards.Any(y => y.DefName == LayoutPowerModel.Wind),
-                "renewable comparison fixture retains the requested sources");
+                "renewable comparison fixture retains the requested sources: " +
+                    string.Join(",", power.Yards.Select(y => y.DefName)));
             if (steam) Equal(0, power.Generators, "geothermal alone funds this fixture's entire connected load");
             else Equal(LayoutPowerModel.Batteries(power.CriticalWatts + power.NonCriticalWatts) +
                 power.RenewableStorageBatteries, power.Batteries, "wind and solar keep the bridge plus off-share storage");

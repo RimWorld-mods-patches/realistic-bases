@@ -32,14 +32,14 @@ namespace RealisticBases.Planning
             if (baseline.Count == 0 || fieldWall.Count == 0 || doors.Count == 0)
                 errors.Add("field_wall_or_gate_missing");
             if (outsidePosts.Count == 0) errors.Add("field_exterior_posts_missing");
-            if (crop.Any(c => !terrain.InBounds(c) || !Walkable(c) ||
+            if (crop.Any(c => !terrain.InBounds(c) || !DryGround(c) ||
                 !terrain[c].Has(TerrainTraits.Fertile) || terrain[c].Has(TerrainTraits.Roofed) || roofs.Contains(c)))
                 errors.Add("field_not_fertile_unroofed_ground");
             if (solid.Overlaps(doors) || crop.Overlaps(solid) || crop.Overlaps(doors) ||
                 outsidePosts.Overlaps(solid) || outsidePosts.Overlaps(doors) || outsidePosts.Overlaps(crop))
                 errors.Add("field_wall_occupancy_overlap");
             if (fieldWall.Concat(doors).Any(c => !terrain.InBounds(c) ||
-                !terrain[c].Has(TerrainTraits.Buildable) || !Walkable(c)))
+                !terrain[c].Has(TerrainTraits.Buildable) || !DryGround(c)))
                 errors.Add("field_wall_terrain_invalid");
             foreach (GridPoint door in doors)
             {
@@ -54,15 +54,18 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> closed = new HashSet<GridPoint>(solid);
             closed.UnionWith(doors);
             HashSet<GridPoint> edge = Flood(terrain.Points().Where(c => terrain[c].Has(TerrainTraits.MapEdge)),
-                c => Walkable(c) && !closed.Contains(c));
+                c => PawnWalkable(c) && !closed.Contains(c));
             if (crop.Any(edge.Contains)) errors.Add("field_exposed_behind_closed_wall");
             if (outsidePosts.Any(c => !edge.Contains(c))) errors.Add("post_not_outside_field_wall");
-            HashSet<GridPoint> open = Flood(new[] { accessOrigin }, c => Walkable(c) && !solid.Contains(c));
+            HashSet<GridPoint> open = Flood(new[] { accessOrigin }, c => PawnWalkable(c) && !solid.Contains(c));
             if (!crop.Any(open.Contains)) errors.Add("field_inaccessible_with_gates_open");
             return new ReadOnlyCollection<string>(errors.Distinct().ToList());
 
-            bool Walkable(GridPoint c) => terrain.InBounds(c) &&
-                (terrain[c].Has(TerrainTraits.Standable) || terrain[c].Has(TerrainTraits.ClearablePlant)) &&
+            // Exposure and open-gate access use pawn movement; foundations and crops stay dry.
+            bool PawnWalkable(GridPoint c) => terrain.InBounds(c) && LayoutExposure.Walkable(terrain[c]);
+
+            bool DryGround(GridPoint c) => terrain.InBounds(c) &&
+                terrain[c].StandableAfterClearance &&
                 !terrain[c].HasAny(TerrainTraits.Water | TerrainTraits.NaturalRock | TerrainTraits.Occupied);
         }
 

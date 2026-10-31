@@ -51,7 +51,10 @@ namespace RealisticBases.Planning
         ThickRoof = 1 << 9,
         // A blocking plant can be removed by the owned spawn transaction; it
         // is not a permanent terrain obstacle like water or an edifice.
-        ClearablePlant = 1 << 10
+        ClearablePlant = 1 << 10,
+        // A loose stone chunk is relocated by the owned spawn transaction;
+        // it does not exclude its dry ground or create a terrain setback.
+        ClearableStoneChunk = 1 << 11
     }
 
     public struct TerrainCell
@@ -69,6 +72,8 @@ namespace RealisticBases.Planning
 
         public bool Has(TerrainTraits traits) => (Traits & traits) == traits;
         public bool HasAny(TerrainTraits traits) => (Traits & traits) != 0;
+        public bool HasClearableObstruction => HasAny(TerrainTraits.ClearablePlant | TerrainTraits.ClearableStoneChunk);
+        public bool StandableAfterClearance => Has(TerrainTraits.Standable) || HasClearableObstruction;
     }
 
     public sealed class TerrainSnapshot

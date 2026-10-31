@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
@@ -30,8 +31,8 @@ internal static class LivePlannerFixtureReplay
         string expectedRejection = ReadString(args, "--expect-rejection");
         string fixedLayout = ReadString(args, "--expect-fixed-layout");
         bool requireFixedSuccess = args.Contains("--require-success") || fixedLayout != null;
-        if (requireFixedSuccess && (expectedLayout != "none" || expectedRejection != null))
-            throw new InvalidOperationException("Fixed-success replay requires a rejected capture and no --expect-rejection.");
+        if (requireFixedSuccess && expectedRejection != null)
+            throw new InvalidOperationException("Fixed-success replay cannot be combined with --expect-rejection.");
 
         Equal(expectedProfile, ProfileDigest(fixture), "profile digest");
         bool expectsRejection = expectedLayout == "none" && !requireFixedSuccess;
@@ -46,11 +47,15 @@ internal static class LivePlannerFixtureReplay
 
         for (int repeat = 1; repeat <= repeats; repeat++)
         {
+            using var rejectedCapture = RejectedFieldCandidateExport.Capture(ReadString(args, "--capture-field-failures"));
             ProceduralLayoutInput[] inputs = (ProceduralLayoutInput[])build.Invoke(null, new object[] { degree });
             if (inputs.Length != expectedAttemptInputs.Length)
                 throw new InvalidOperationException("Captured attempt count mismatch: expected=" + expectedAttemptInputs.Length +
                     " actual=" + inputs.Length);
             ProceduralLayoutInput finalInput = inputs[inputs.Length - 1];
+            string capturedFinalInputDigest = finalInput.Digest;
+            for (int attempt = 0; attempt < inputs.Length; attempt++)
+                Equal(expectedAttemptInputs[attempt], inputs[attempt].Digest, "captured attempt " + (attempt + 1) + " input digest");
             Equal(expectedTerrain, finalInput.Terrain.Digest, "terrain digest");
             Equal(expectedRequirements, finalInput.Requirements.Digest, "requirements digest");
             Equal(expectedCatalog, finalInput.Catalog.Digest, "catalog digest");
@@ -62,10 +67,13 @@ internal static class LivePlannerFixtureReplay
             long allocatedBytes = 0;
             int validationCalls = 0;
             ProceduralLayoutResult result = null;
+            ProceduralLayoutInput plannedInput = null;
+            int attemptsRun = 0;
             for (int attempt = 0; attempt < inputs.Length; attempt++)
             {
                 ProceduralLayoutInput input = inputs[attempt];
-                Equal(expectedAttemptInputs[attempt], input.Digest, "attempt " + (attempt + 1) + " input digest");
+                plannedInput = input;
+                attemptsRun++;
                 double attemptCpuBefore = Process.GetCurrentProcess().TotalProcessorTime.TotalMilliseconds;
                 long attemptAllocatedBefore = GC.GetAllocatedBytesForCurrentThread();
                 Stopwatch watch = Stopwatch.StartNew();
@@ -91,6 +99,9 @@ internal static class LivePlannerFixtureReplay
                     break;
             }
             Equal(expectedInput, finalInput.Digest, "final input digest");
+            // A repair can succeed at an earlier wall-layer attempt. Keep the
+            // capture anchors above, but validate/report that actual plan input.
+            finalInput = plannedInput;
             if (expectsRejection)
             {
                 if (result == null || result.Success || result.Layout != null)
@@ -105,7 +116,11 @@ internal static class LivePlannerFixtureReplay
                 continue;
             }
             if (result == null || !result.Success || result.Layout == null)
+            {
+                if (args.Contains("--joint-diagnostics") && result != null)
+                    foreach (var diagnostic in result.Diagnostics) Console.WriteLine(diagnostic);
                 throw new InvalidOperationException("Captured live planner attempts rejected: " + result?.RejectionCode);
+            }
             if (!requireFixedSuccess) Equal(expectedLayout, result.Layout.Digest, "layout digest");
             else
             {
@@ -114,10 +129,17 @@ internal static class LivePlannerFixtureReplay
                 if (!preflight.Accepted)
                     throw new InvalidOperationException("Fixed fixture spawn preflight rejected: " + preflight.Failure);
                 Console.WriteLine("live-fixture-fixed-success inputDigest=" + finalInput.Digest +
+                    " capturedFinalInputDigest=" + capturedFinalInputDigest +
                     " terrainDigest=" + finalInput.Terrain.Digest + " layoutDigest=" + result.Layout.Digest +
                     " residents=" + finalInput.Requirements.Residents + " crops=" + (result.Layout.FieldWall?.Fields.Count ?? 0));
             }
             if (args.Contains("--field-route")) CalderaFieldRouteRegression.Run(finalInput, result.Layout);
+            if (args.Contains("--resident-home-report") || args.Contains("--require-home-floor"))
+            {
+                int available = ReportResidentHomeSpace(finalInput, result.Layout);
+                if (args.Contains("--require-home-floor") && available < finalInput.Requirements.Residents)
+                    throw new InvalidOperationException("Resident housing floor shortfall: " + available + "/" + finalInput.Requirements.Residents);
+            }
             if (args.Contains("--joint-diagnostics"))
                 foreach (var diagnostic in result.Diagnostics) Console.WriteLine(diagnostic);
             string stageText = "siteCandidate=" + F(site) +
@@ -129,12 +151,30 @@ internal static class LivePlannerFixtureReplay
                 ",validator=" + F(validator) + "/" + validationCalls +
                 ",scoring=" + F(scoring);
             Console.WriteLine("live-fixture-run plannerDegree=" + degree + " repeat=" + repeat +
-                " attempts=" + inputs.Length + " inputDigest=" + finalInput.Digest + " layoutDigest=" + result.Layout.Digest +
+                " attempts=" + attemptsRun + " capturedAttempts=" + inputs.Length +
+                " inputDigest=" + finalInput.Digest + " layoutDigest=" + result.Layout.Digest +
                 " plannerMs=" + F(plannerMs) + " plannerCpuMs=" + F(cpuMs) +
                 " plannerAllocatedBytes=" + allocatedBytes.ToString(CultureInfo.InvariantCulture) +
                 " plannerStages=" + stageText);
         }
         return 0;
+    }
+
+    private static int ReportResidentHomeSpace(ProceduralLayoutInput input, ProceduralLayout layout)
+    {
+        var rooms = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Barracks || r.Kind == LayoutRoomKind.Bedroom).ToArray();
+        var interior = rooms.SelectMany(r => r.Interior.Points()).Distinct().ToArray();
+        var fixtures = new HashSet<GridPoint>(layout.AllFixtures.SelectMany(f => f.Cells));
+        var terrainWalkable = interior.Where(c => input.Terrain.InBounds(c) &&
+            input.Terrain[c].Has(TerrainTraits.Standable) &&
+            !input.Terrain[c].HasAny(TerrainTraits.Water | TerrainTraits.Occupied)).ToArray();
+        var modeledAvailable = ProceduralLayoutValidator.HousingFloorCells(input, layout);
+        Console.WriteLine("resident-home-space-model planned_terrain_fixture_only=true required=" + input.Requirements.Residents +
+            " rooms=" + rooms.Length + " interior=" + interior.Length + " terrainWalkable=" + terrainWalkable.Length +
+            " fixtureBlocked=" + terrainWalkable.Count(fixtures.Contains) + " modeledAvailable=" + modeledAvailable.Count +
+            " layout=" + layout.Digest + " terrain=" + input.Terrain.Digest);
+        Console.WriteLine("resident-home-space-cells=" + string.Join(";", modeledAvailable.Select(c => c.ToString())));
+        return modeledAvailable.Count;
     }
 
     private static string ProfileDigest(Type fixture)

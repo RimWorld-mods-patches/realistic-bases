@@ -83,6 +83,7 @@ namespace RealisticBases.Integration
                     if (cell.OnEdge(map)) traits |= TerrainTraits.MapEdge;
                     if (edifice != null) traits |= TerrainTraits.Occupied;
                     if (cell.GetPlant(map) != null) traits |= TerrainTraits.ClearablePlant;
+                    if (StoneChunkClearance.CanClearAt(cell, map)) traits |= TerrainTraits.ClearableStoneChunk;
                     cells[z * map.Size.x + x] = new TerrainCell(traits, terrain.shortHash, roof?.shortHash ?? 0);
                 }
             }

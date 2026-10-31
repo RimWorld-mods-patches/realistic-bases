@@ -901,7 +901,7 @@ namespace RealisticBases.Planning
             if (cell.HasAny(TerrainTraits.MapEdge | TerrainTraits.Water)) return LayoutCellClass.Bad;
             if (cell.Has(TerrainTraits.NaturalRock)) return LayoutCellClass.Rock;
             if (cell.Has(TerrainTraits.Occupied) || !cell.Has(TerrainTraits.Buildable) ||
-                (!cell.Has(TerrainTraits.Standable) && !cell.Has(TerrainTraits.ClearablePlant))) return LayoutCellClass.Bad;
+                !cell.StandableAfterClearance) return LayoutCellClass.Bad;
             return cell.Has(TerrainTraits.Roofed) ? LayoutCellClass.Covered : LayoutCellClass.Open;
         }
 
@@ -917,7 +917,7 @@ namespace RealisticBases.Planning
         {
             if (!InBounds(c)) return false;
             TerrainCell cell = Terrain[c];
-            return (cell.Has(TerrainTraits.Standable) || cell.Has(TerrainTraits.ClearablePlant)) &&
+            return cell.StandableAfterClearance &&
                 !cell.HasAny(TerrainTraits.Water | TerrainTraits.Occupied | TerrainTraits.NaturalRock);
         }
 
@@ -1166,7 +1166,7 @@ namespace RealisticBases.Planning
                             scoringWatch.Stop();
                             timings.ScoringMs += scoringWatch.Elapsed.TotalMilliseconds;
                             Note(diagnostics, "candidate", "valid", anchor + " " + score + " digest=" + layout.Digest);
-                            pool.Add(new PoolEntry { Score = score, Run = run, Layout = layout, Site = site, Anchor = anchor });
+                            pool.Add(new PoolEntry { Score = score, Run = run, Layout = layout, Site = site, Anchor = layout.Anchor });
                             if (pool.Count < CandidatePoolSize) continue;
                             ProceduralLayoutResult best = finishBest();
                             if (best != null) return best;
@@ -1545,7 +1545,8 @@ namespace RealisticBases.Planning
         private readonly ProceduralLayoutInput input;
         private readonly LayoutDemandSet demand;
         private readonly LayoutTerrainGrid grid;
-        private readonly GridPoint anchor;
+        private GridPoint anchor;
+        private bool recoveringStreetStart;
         private readonly LayoutDoctrine doctrine;
         private readonly bool wantsCourt;
         private readonly bool envelopeSearch;
@@ -2288,7 +2289,7 @@ namespace RealisticBases.Planning
             return false;
         }
 
-        private bool BuildSpine()
+        internal bool BuildSpine()
         {
             // In joint-site mode the principal public street reaches toward
             // the reserved field interface; branch/room geometry remains seeded.
@@ -2316,11 +2317,11 @@ namespace RealisticBases.Planning
             List<int> positions = new List<int>();
             if (!section(0).All(OkForStreet))
             {
-                Fail("spine_blocked", string.Join(",", section(0).Select(c => c + ":" +
+                if (!recoveringStreetStart) Fail("spine_blocked", string.Join(",", section(0).Select(c => c + ":" +
                     (grid.CanPlace(c) ? "placeable" : "unplaceable") + "/" +
                     (grid.InBounds(c) ? occ[grid.Index(c)].ToString() : "outside") + "/" + grid.At(c) +
                     (grid.InBounds(c) && grid.ThickCover(c) ? "/thick" : string.Empty))));
-                return false;
+                return TryNearbyStreetStarts();
             }
             positions.Add(0);
             int up = 1, down = -1;
@@ -2336,10 +2337,18 @@ namespace RealisticBases.Planning
                 }
                 else if (takeUp) upOpen = false; else downOpen = false;
             }
-            if (positions.Count < 6) { Fail("spine_too_short", positions.Count.ToString()); return false; }
+            if (positions.Count < 6)
+            {
+                if (!recoveringStreetStart) Fail("spine_too_short", positions.Count.ToString());
+                return TryNearbyStreetStarts();
+            }
             Segment main = new Segment { Id = "main", Main = true, Axis = axis, Root = anchor };
             foreach (int t in positions.OrderBy(t => t)) main.Sections.Add(section(t));
-            if (!Claim(main)) { Fail("spine_excavation_budget"); return false; }
+            if (!Claim(main))
+            {
+                if (!recoveringStreetStart) Fail("spine_excavation_budget");
+                return false;
+            }
             segments.Add(main);
             // Entrance plazas beyond both spine ends keep room walls from sealing
             // the street tips, so gates emerge from the circulation network.
@@ -2357,6 +2366,45 @@ namespace RealisticBases.Planning
                     }
             }
             return true;
+        }
+
+        private bool TryNearbyStreetStarts()
+        {
+            if (jointSite == null || recoveringStreetStart) return false;
+            const int radius = 8;
+            GridPoint original = anchor;
+            bool recovered = false;
+            // At most 144 alternative starts. Failed spine construction has
+            // claimed no cells, so the unchanged checks can safely try again.
+            var nearby = Enumerable.Range(-radius, 2 * radius + 1)
+                .SelectMany(x => Enumerable.Range(-radius, 2 * radius + 1)
+                    .Where(z => Math.Abs(x) + Math.Abs(z) > 0 && Math.Abs(x) + Math.Abs(z) <= radius)
+                    .Select(z => new GridPoint(original.X + x, original.Z + z)))
+                .Where(jointSite.Compound.Contains)
+                // Different existing attempts try different local starts,
+                // rather than repeating the same closest street after a
+                // later room-pack failure. No additional layout attempts.
+                .OrderBy(c => LayoutSeed.Key(seed, c.X, c.Z, 0))
+                .ThenBy(c => Manhattan(c, original)).ThenBy(c => c);
+            recoveringStreetStart = true;
+            try
+            {
+                foreach (GridPoint candidate in nearby)
+                {
+                    anchor = candidate;
+                    if (!BuildSpine()) continue;
+                    recovered = true;
+                    Fail("street_start_recovered", "from=" + original + " to=" + anchor +
+                        " distance=" + Manhattan(original, anchor) + " compound=" + jointSite.Compound);
+                    return true;
+                }
+                return false;
+            }
+            finally
+            {
+                recoveringStreetStart = false;
+                if (!recovered) anchor = original;
+            }
         }
 
         private bool Claim(Segment segment)

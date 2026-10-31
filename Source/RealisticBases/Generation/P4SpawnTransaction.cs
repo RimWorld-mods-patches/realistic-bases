@@ -41,6 +41,14 @@ namespace RealisticBases.Generation
             public TerrainDef ExpectedUnder;
         }
 
+        private sealed class ChunkSnapshot
+        {
+            public Thing Thing;
+            public IntVec3 Source, Destination;
+            public Rot4 Rotation;
+            public int Count;
+        }
+
         private readonly Map map;
         private readonly TerrainMutationFootprint footprint;
         private readonly List<Thing> owned = new List<Thing>();
@@ -49,6 +57,7 @@ namespace RealisticBases.Generation
         private readonly List<RockSnapshot> rocks = new List<RockSnapshot>();
         private readonly List<RockSnapshot> smoothed = new List<RockSnapshot>();
         private readonly List<FloorSnapshot> floors = new List<FloorSnapshot>();
+        private readonly List<ChunkSnapshot> chunks = new List<ChunkSnapshot>();
         private readonly Dictionary<IntVec3, RoofDef> roofs = new Dictionary<IntVec3, RoofDef>();
         private readonly string terrainBefore;
         private readonly string terrainLayersBefore;
@@ -95,6 +104,9 @@ namespace RealisticBases.Generation
         public int ExcavatedCount => rocks.Count;
         public int ClearedPlantCount => plants.Count;
         public int RestoredPlantCount { get; private set; }
+        public int MovedChunkCount => chunks.Count;
+        public int MovedChunkUnits => chunks.Sum(c => c.Count);
+        public int RestoredChunkCount { get; private set; }
         public bool ItemLedgerRestored { get; private set; }
         public int DiscardedProvisionalRoofCollapses { get; private set; }
         public int RoofChangedCount => roofs.Count;
@@ -148,6 +160,38 @@ namespace RealisticBases.Generation
             plants.Add(new PlantSnapshot { Cell = cell, Def = plant.def, Growth = plant.Growth, Sown = plant.sown });
             plant.Destroy(DestroyMode.Vanish);
         }
+
+        public void ClearStoneChunks(IEnumerable<GridPoint> clearance)
+        {
+            if (completed || chunks.Count != 0) throw new InvalidOperationException("Invalid repeated chunk clearance");
+            var reserved = new HashSet<IntVec3>(clearance.Select(ToCell).Where(c => c.InBounds(map)));
+            var sources = reserved.SelectMany(c => c.GetThingList(map)).Where(StoneChunkClearance.IsLooseStoneChunk)
+                .Distinct().OrderBy(t => t.Position.z).ThenBy(t => t.Position.x).ThenBy(t => t.thingIDNumber).ToList();
+            if (sources.Count == 0) return;
+            var available = map.AllCells.Where(c => !reserved.Contains(c) && !c.OnEdge(map) &&
+                !c.GetTerrain(map).IsWater && c.Standable(map) && c.GetThingList(map).Count == 0)
+                .Select(c => new GridPoint(c.x, c.z));
+            var destinations = P4ChunkRelocation.SelectDestinations(sources.Select(t =>
+                new GridPoint(t.Position.x, t.Position.z)).ToArray(), available);
+            if (destinations == null) throw new InvalidOperationException("No empty cells outside the planned footprint for loose stone chunks");
+            for (int i = 0; i < sources.Count; i++)
+                chunks.Add(new ChunkSnapshot { Thing = sources[i], Source = sources[i].Position,
+                    Destination = ToCell(destinations[i]), Rotation = sources[i].Rotation, Count = sources[i].stackCount });
+            foreach (ChunkSnapshot chunk in chunks)
+            {
+                // Position updates native thing/cover grids without spawning,
+                // wiping a neighbour, merging stacks or replacing the object.
+                chunk.Thing.Position = chunk.Destination;
+                map.pathing.RecalculatePerceivedPathCostAt(chunk.Source);
+                map.pathing.RecalculatePerceivedPathCostAt(chunk.Destination);
+            }
+            if (reserved.Any(c => c.GetThingList(map).Any(StoneChunkClearance.IsLooseStoneChunk)))
+                throw new InvalidOperationException("Loose chunk remains inside the cleared footprint");
+            if (!ChunksAtDestinations()) throw new InvalidOperationException("Chunk relocation changed an object or stack count");
+        }
+
+        private bool ChunksAtDestinations() => chunks.All(c => !c.Thing.Destroyed && c.Thing.Spawned && c.Thing.Map == map &&
+            c.Thing.stackCount == c.Count && c.Thing.Position == c.Destination && c.Thing.Rotation == c.Rotation);
 
         public void Excavate()
         {
@@ -239,6 +283,8 @@ namespace RealisticBases.Generation
         public void Commit()
         {
             if (completed) throw new InvalidOperationException("P4 transaction has completed");
+            if (!ChunksAtDestinations())
+                throw new InvalidOperationException("Relocated chunk identity, count or position changed during spawn");
             if (rockBefore != P0MapAudit.NaturalRockChecksum(map, footprint.ExcavationCells
                 .Concat(finishes?.Walls.Keys ?? Enumerable.Empty<GridPoint>()).Select(ToCell)))
                 throw new InvalidOperationException("Unowned natural rock changed during P4 spawn");
@@ -302,6 +348,16 @@ namespace RealisticBases.Generation
             }
             foreach (KeyValuePair<IntVec3, RoofDef> roof in roofs) map.roofGrid.SetRoof(roof.Key, roof.Value);
             foreach (RockSnapshot rock in rocks.Concat(smoothed)) RestoreSourceTerrain(rock);
+            foreach (ChunkSnapshot chunk in chunks)
+            {
+                if (chunk.Thing.Destroyed || !chunk.Thing.Spawned || chunk.Thing.Map != map || chunk.Thing.stackCount != chunk.Count)
+                    throw new InvalidOperationException("Relocated chunk cannot be restored: " + chunk.Thing.ThingID);
+                chunk.Thing.Position = chunk.Source;
+                chunk.Thing.Rotation = chunk.Rotation;
+                map.pathing.RecalculatePerceivedPathCostAt(chunk.Source);
+                map.pathing.RecalculatePerceivedPathCostAt(chunk.Destination);
+                if (chunk.Thing.Position == chunk.Source && chunk.Thing.Rotation == chunk.Rotation) RestoredChunkCount++;
+            }
             foreach (PlantSnapshot original in plants)
             {
                 if (original.Cell.GetPlant(map) == null)
@@ -327,7 +383,7 @@ namespace RealisticBases.Generation
             var itemsAfter = map.listerThings.AllThings.Where(t => t.def.category == ThingCategory.Item).ToArray();
             ItemLedgerRestored = itemsAfter.Length == itemsBefore.Count &&
                 itemsAfter.All(t => itemsBefore.TryGetValue(t, out int count) && t.stackCount == count);
-            return ItemLedgerRestored && RestoredPlantCount == plants.Count &&
+            return ItemLedgerRestored && RestoredChunkCount == chunks.Count && RestoredPlantCount == plants.Count &&
                 terrainBefore == P0MapAudit.TerrainRoofChecksum(map) &&
                 terrainLayersBefore == P0MapAudit.TerrainLayerRoofChecksum(map) &&
                 rockBefore == P0MapAudit.NaturalRockChecksum(map, footprint.ExcavationCells

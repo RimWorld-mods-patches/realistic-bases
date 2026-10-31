@@ -1876,7 +1876,7 @@ namespace RealisticBases.Planning
             if (!input.Terrain.InBounds(c)) return "terrain_out_of_bounds";
             TerrainTraits traits = input.Terrain[c].Traits;
             List<string> predicates = new List<string>();
-            if ((traits & TerrainTraits.Standable) == 0 && (traits & TerrainTraits.ClearablePlant) == 0)
+            if (!new TerrainCell(traits).StandableAfterClearance)
                 predicates.Add("not_standable");
             if ((traits & TerrainTraits.Buildable) == 0) predicates.Add("not_buildable");
             if ((traits & TerrainTraits.Roofed) != 0) predicates.Add("roofed");
@@ -1885,6 +1885,7 @@ namespace RealisticBases.Planning
             if ((traits & TerrainTraits.Occupied) != 0) predicates.Add("terrain_occupied");
             if ((traits & TerrainTraits.MapEdge) != 0) predicates.Add("map_edge");
             if ((traits & TerrainTraits.ClearablePlant) != 0) predicates.Add("clearable_plant");
+            if ((traits & TerrainTraits.ClearableStoneChunk) != 0) predicates.Add("clearable_stone_chunk");
             return "terrain_predicate_failed:" + (predicates.Count == 0 ?
                 (requirement ?? "not_buildable") : string.Join("+", predicates));
         }
@@ -1908,7 +1909,7 @@ namespace RealisticBases.Planning
         }
 
         private static bool Walkable(TerrainSnapshot terrain, GridPoint c) => terrain.InBounds(c) &&
-            (terrain[c].Has(TerrainTraits.Standable) || terrain[c].Has(TerrainTraits.ClearablePlant)) &&
+            terrain[c].StandableAfterClearance &&
             !terrain[c].HasAny(TerrainTraits.Water | TerrainTraits.NaturalRock | TerrainTraits.Occupied | TerrainTraits.MapEdge);
 
         private static bool Buildable(TerrainSnapshot terrain, GridPoint c) => Walkable(terrain, c) &&
@@ -2072,7 +2073,7 @@ namespace RealisticBases.Planning
                 if ((traits & TerrainTraits.ClearablePlant) != 0) return "terrain_crop";
                 if ((traits & TerrainTraits.Occupied) != 0) return "terrain_occupied";
                 if ((traits & TerrainTraits.MapEdge) != 0) return "map_edge";
-                if ((traits & TerrainTraits.Standable) == 0) return "terrain_not_standable";
+                if (!new TerrainCell(traits).StandableAfterClearance) return "terrain_not_standable";
             }
             return blocked.Contains(cell) ? "other_reserved_blocker" : "terrain_blocker";
         }

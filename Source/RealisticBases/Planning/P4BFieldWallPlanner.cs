@@ -78,8 +78,18 @@ namespace RealisticBases.Planning
     // outermost wall. Its gate follows the exterior route where that route
     // crosses the new wall, or occupies the far wall when the route bends away.
     // This is a pure candidate generator, not yet a spawn authorization.
+    internal sealed class P4BFieldArrivalFailure
+    {
+        public int GateIndex;
+        public GridPoint InnerGate, OuterGate, Outward;
+        public GridPoint[] Walls, Arrival, InvalidArrival, OutsideRoute, Occupied, Baseline, Doors, Crops, Lane;
+    }
+
     public static class P4BFieldWallPlanner
     {
+        // Diagnostic observer only; the planner's decisions remain unchanged.
+        [ThreadStatic]
+        internal static Action<ProceduralLayoutInput, ProceduralLayout, P4BFieldArrivalFailure> ArrivalFailureObserver;
         private const int MaxFieldInteriorRouteNodes = 2000;
         private const int MaxFieldInteriorRouteCells = 32;
 
@@ -237,9 +247,20 @@ namespace RealisticBases.Planning
                         input.Terrain, arrivalBlocked, baseline, wall, doors);
                     if (outside == null) outside = RouteOutside(option.OuterGate, gate.Outward,
                         input.Terrain, blocked, baseline, wall, doors);
-                    if (outside == null || arrival.Any(c => !Walkable(input.Terrain, c) || wall.Contains(c) ||
+                    if (outside == null || arrival.Any(c => !DryGround(input.Terrain, c) || wall.Contains(c) ||
                         baseline.Contains(c) || (blocked.Contains(c) && !c.Equals(gate.Staging))))
-                    { rejected.Add("field_arrival_route"); continue; }
+                    {
+                        ArrivalFailureObserver?.Invoke(input, layout, new P4BFieldArrivalFailure
+                        {
+                            GateIndex = gateIndex, InnerGate = option.InnerGate, OuterGate = option.OuterGate, Outward = gate.Outward,
+                            Walls = wall.ToArray(), Arrival = arrival.ToArray(), OutsideRoute = outside?.ToArray(),
+                            Crops = option.Crops.ToArray(), Lane = option.Lane.ToArray(),
+                            InvalidArrival = arrival.Where(c => !DryGround(input.Terrain, c) || wall.Contains(c) ||
+                                baseline.Contains(c) || (blocked.Contains(c) && !c.Equals(gate.Staging))).ToArray(),
+                            Occupied = blocked.ToArray(), Baseline = baseline.ToArray(), Doors = doors.ToArray()
+                        });
+                        rejected.Add("field_arrival_route"); continue;
+                    }
                     arrival.AddRange(outside);
                     Dictionary<int, List<GridPoint>> otherGateRoutes = ReconnectSecondaryGates(input, layout,
                         gateIndex, wall, arrival, retiredGateIndices);
@@ -265,7 +286,7 @@ namespace RealisticBases.Planning
                     }
                     if (option.CoverCells.Count != option.PostClearance.Count ||
                         option.CoverCells.Any(c => blocked.Contains(c) || wall.Contains(c) || arrival.Contains(c) ||
-                            baseline.Contains(c) || !Walkable(input.Terrain, c)))
+                            baseline.Contains(c) || !DryGround(input.Terrain, c)))
                     { rejected.Add("outside_cover_blocked"); continue; }
                     IReadOnlyList<string> errors = P4BFieldWall.Validate(input.Terrain, option.Crops, baseline, wall,
                         doors.Concat(new[] { option.InnerGate, option.OuterGate }), option.PostClearance,
@@ -307,12 +328,12 @@ namespace RealisticBases.Planning
             arc.Any(c => ProceduralLayoutPlanner.Cardinal.Any(d =>
                 baseline.Contains(new GridPoint(c.X + d.X, c.Z + d.Z))));
 
-        private static List<GridPoint> RouteOutside(GridPoint outerGate, GridPoint outward,
+        internal static List<GridPoint> RouteOutside(GridPoint outerGate, GridPoint outward,
             TerrainSnapshot terrain, HashSet<GridPoint> occupied, HashSet<GridPoint> baseline,
             HashSet<GridPoint> wall, HashSet<GridPoint> doors)
         {
             GridPoint start = new GridPoint(outerGate.X + outward.X, outerGate.Z + outward.Z);
-            if (!Walkable(terrain, start) || occupied.Contains(start) || baseline.Contains(start) || wall.Contains(start)) return null;
+            if (!PawnWalkable(terrain, start) || occupied.Contains(start) || baseline.Contains(start) || wall.Contains(start) || doors.Contains(start)) return null;
             Queue<GridPoint> queue = new Queue<GridPoint>();
             Dictionary<GridPoint, GridPoint> previous = new Dictionary<GridPoint, GridPoint>();
             queue.Enqueue(start);
@@ -331,7 +352,7 @@ namespace RealisticBases.Planning
                 foreach (GridPoint d in ProceduralLayoutPlanner.Cardinal)
                 {
                     GridPoint next = new GridPoint(here.X + d.X, here.Z + d.Z);
-                    if (previous.ContainsKey(next) || !Walkable(terrain, next) || occupied.Contains(next) ||
+                    if (previous.ContainsKey(next) || !PawnWalkable(terrain, next) || occupied.Contains(next) ||
                         baseline.Contains(next) || wall.Contains(next) || doors.Contains(next)) continue;
                     previous[next] = here;
                     queue.Enqueue(next);
@@ -376,10 +397,10 @@ namespace RealisticBases.Planning
             return routes;
         }
 
-        private static List<GridPoint> RouteFromStagingToEdge(TerrainSnapshot terrain, GridPoint staging,
+        internal static List<GridPoint> RouteFromStagingToEdge(TerrainSnapshot terrain, GridPoint staging,
             HashSet<GridPoint> blocked, int maxNodes)
         {
-            if (!terrain.InBounds(staging) || !Walkable(terrain, staging) || blocked.Contains(staging)) return null;
+            if (!terrain.InBounds(staging) || !PawnWalkable(terrain, staging) || blocked.Contains(staging)) return null;
             Dictionary<GridPoint, GridPoint> previous = new Dictionary<GridPoint, GridPoint> { [staging] = staging };
             Queue<GridPoint> queue = new Queue<GridPoint>();
             queue.Enqueue(staging);
@@ -393,7 +414,7 @@ namespace RealisticBases.Planning
                 {
                     GridPoint next = new GridPoint(here.X + step.X, here.Z + step.Z);
                     if (!terrain.InBounds(next) || blocked.Contains(next) || previous.ContainsKey(next) ||
-                        !Walkable(terrain, next)) continue;
+                        !PawnWalkable(terrain, next)) continue;
                     previous[next] = here; queue.Enqueue(next);
                 }
             }
@@ -405,8 +426,13 @@ namespace RealisticBases.Planning
             return route;
         }
 
-        private static bool Walkable(TerrainSnapshot terrain, GridPoint c) => terrain.InBounds(c) &&
-            (terrain[c].Has(TerrainTraits.Standable) || terrain[c].Has(TerrainTraits.ClearablePlant)) &&
+        // Movement follows ordinary exterior arrivals, including standable shallow water.
+        // Crop soil, field gates, cover and construction retain the dry-ground predicate below.
+        private static bool PawnWalkable(TerrainSnapshot terrain, GridPoint c) =>
+            terrain.InBounds(c) && LayoutExposure.Walkable(terrain[c]);
+
+        private static bool DryGround(TerrainSnapshot terrain, GridPoint c) => terrain.InBounds(c) &&
+            terrain[c].StandableAfterClearance &&
             !terrain[c].HasAny(TerrainTraits.Water | TerrainTraits.NaturalRock | TerrainTraits.Occupied);
 
         private static List<GridPoint> Connector(GridPoint anchor, GridPoint corner, GridPoint outward,
@@ -458,8 +484,8 @@ namespace RealisticBases.Planning
             foreach (GridPoint outward in ProceduralLayoutPlanner.Cardinal)
             {
                 GridPoint inside = new GridPoint(cell.X - outward.X, cell.Z - outward.Z);
-                if (!site.Field.Contains(inside) || !Walkable(input.Terrain, cell) ||
-                    !Walkable(input.Terrain, inside) || !input.Terrain[cell].Has(TerrainTraits.Buildable)) continue;
+                if (!site.Field.Contains(inside) || !DryGround(input.Terrain, cell) ||
+                    !DryGround(input.Terrain, inside) || !input.Terrain[cell].Has(TerrainTraits.Buildable)) continue;
                 List<GridPoint> route = RouteFieldInterior(input.Terrain, site.Field, fieldInterface.InnerGate,
                     inside, wall, fieldInterface.Crops, Math.Min(input.Budget.MaxRouteNodes,
                         MaxFieldInteriorRouteNodes));
@@ -492,7 +518,7 @@ namespace RealisticBases.Planning
                 {
                     GridPoint next = new GridPoint(here.X + d.X, here.Z + d.Z);
                     if (!field.Contains(next) || previous.ContainsKey(next) || blocked.Contains(next) ||
-                        !Walkable(terrain, next)) continue;
+                        !DryGround(terrain, next)) continue;
                     previous[next] = here; queue.Enqueue(next);
                 }
             }
@@ -621,8 +647,7 @@ namespace RealisticBases.Planning
                 !input.Terrain[c].HasAny(TerrainTraits.Water | TerrainTraits.NaturalRock |
                     TerrainTraits.Occupied | TerrainTraits.MapEdge) &&
                 input.Terrain[c].Has(TerrainTraits.Buildable) &&
-                (input.Terrain[c].Has(TerrainTraits.Standable) ||
-                 input.Terrain[c].Has(TerrainTraits.ClearablePlant));
+                input.Terrain[c].StandableAfterClearance;
         }
 
         private static GridPoint At(LayoutGate gate, GridPoint tangent, int lateral, int forward) =>
