@@ -70,7 +70,7 @@ namespace RealisticBases.Integration
             ulong seed = worldState.GetOrCreateProceduralSeed(settlement, worldSeed, profile.Id, profile.Version);
             TerrainSnapshot terrain = P1MapPlanner.Capture(map);
             LayoutLocalResources resources = CaptureResources(map);
-            LayoutClimate climate = CaptureClimate(map);
+            LayoutClimate climate = CaptureClimate(map, profile.CropDef);
             int wealthPercent = worldState.GetOrCreateOrdinaryWealthPercent(settlement, seed);
             if (DebugWealthNext.HasValue)
             {
@@ -239,12 +239,24 @@ namespace RealisticBases.Integration
             return new LayoutLocalResources(wood, stones, river, geysers);
         }
 
-        public static LayoutClimate CaptureClimate(Map map)
+        public static LayoutClimate CaptureClimate(Map map, string cropDef = "Plant_Rice")
         {
             // Tile temperature is stable across visits; current weather is not.
             object tile = Find.WorldGrid[map.Tile];
             double average = ReadNumber(tile, "temperature", 18);
-            return new LayoutClimate((int)Math.Floor(average - 20), (int)Math.Ceiling(average + 20));
+            return new LayoutClimate((int)Math.Floor(average - 20), (int)Math.Ceiling(average + 20),
+                map.IsPocketMap ? (int?)null : CaptureOutdoorGrowingDays(map.Tile, cropDef));
+        }
+
+        public static int? CaptureOutdoorGrowingDays(PlanetTile tile, string cropDef)
+        {
+            ThingDef crop = DefDatabase<ThingDef>.GetNamedSilentFail(cropDef);
+            if (!tile.Valid || crop?.plant == null) return null;
+            // Same crop-specific native seasonal calculation as the growing-zone
+            // UI. Zero means no reliable outdoor growing period, independent of
+            // fertile ground or today's weather. It is not an annual-yield model.
+            return GenTemperature.TwelfthsInAverageTemperatureRange(tile,
+                crop.plant.minOptimalGrowthTemperature, crop.plant.maxOptimalGrowthTemperature).Count * 5;
         }
 
         private static double ReadNumber(object source, string name, double fallback)

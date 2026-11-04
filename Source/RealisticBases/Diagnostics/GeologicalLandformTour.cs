@@ -112,6 +112,21 @@ namespace RealisticBases.Diagnostics
         [DebugAction("Realistic Bases tour", "Recheck recorded GL RiverSource tile", allowedGameStates = AllowedGameStates.Playing)]
         private static void RecordedRiverSource() => RecheckRecordedTile("RiverSource", 67416);
 
+        [DebugAction("Realistic Bases tour", "Audit recorded IceOasis crop season", allowedGameStates = AllowedGameStates.Playing)]
+        private static void AuditRecordedIceOasisSeason()
+        {
+            RequireDisposable();
+            if (Find.World.info.seedString != "narwhal")
+                throw new InvalidOperationException("Recorded GL tour tiles require the narwhal disposable world");
+            string crop = P2ProfileCatalog.IndustrialTemperate.CropDef;
+            int? days = P4AMapPlanner.CaptureOutdoorGrowingDays(new PlanetTile(33970), crop);
+            P0Log.Message("GL_CROP_SEASON", "tile=33970 crop=" + crop + " outdoorGrowingDays=" + days +
+                " source=native_crop_optimal_temperature_twelfths");
+        }
+
+        [DebugAction("Realistic Bases tour", "Recheck recorded GL IceOasis candidate tile", allowedGameStates = AllowedGameStates.Playing)]
+        private static void RecordedIceOasisCandidate() => RecheckRecordedTile("IceOasis", 33970);
+
         private static void RecheckRecordedTile(string form, int tileId)
         {
             RequireDisposable();

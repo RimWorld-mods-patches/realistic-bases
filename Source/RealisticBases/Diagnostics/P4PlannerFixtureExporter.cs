@@ -81,7 +81,8 @@ namespace RealisticBases.Diagnostics
             source.AppendLine("        var requirements = new LayoutRequirements(residents: " + r.Residents +
                 ", capabilities: (SettlementCapability)" + ((int)r.Capabilities).ToString(CultureInfo.InvariantCulture) +
                 ", housing: (HousingStandard)" + ((int)r.Housing).ToString(CultureInfo.InvariantCulture) +
-                ", climate: new LayoutClimate(" + r.Climate.MinOutdoorC + ", " + r.Climate.MaxOutdoorC + ")" +
+                ", climate: new LayoutClimate(" + r.Climate.MinOutdoorC + ", " + r.Climate.MaxOutdoorC +
+                (r.Climate.OutdoorGrowingDays.HasValue ? ", outdoorGrowingDays: " + r.Climate.OutdoorGrowingDays.Value : "") + ")" +
                 ", mortarBiasPercent: " + r.MortarBiasPercent + ", excavationBudgetCells: " + r.ExcavationBudgetCells +
                 ", fieldCells: " + r.FieldCells + ", capacityFloors: " + Literal(r.CapacityFloors.OrderBy(p => p.Key).ToArray()) +
                 ", stage: stage, importValueLimit: " + r.ImportValueLimit + ", equipmentValueLimit: " + r.EquipmentValueLimit +

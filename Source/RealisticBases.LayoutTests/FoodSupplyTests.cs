@@ -5,6 +5,26 @@ using RealisticBases.Planning;
 
 internal static partial class Program
 {
+    private static void OutdoorGrowingSeasonFacts()
+    {
+        var unknown = new LayoutClimate(-43, -2);
+        True(unknown.SupportsOutdoorCrops && !unknown.OutdoorGrowingDays.HasValue,
+            "historical temperature estimates do not invent native seasonal facts");
+        True(new LayoutClimate(-43, -2, 5).SupportsOutdoorCrops,
+            "a captured growing season takes precedence over temperature estimates");
+        True(!new LayoutClimate(7, 48, 0).SupportsOutdoorCrops,
+            "zero native growing days also handles unsuitable hot climates");
+        Func<LayoutClimate, ProceduralLayoutInput> input = climate => new ProceduralLayoutInput(
+            LayoutRequirements.FromPopulation(4, Industrial, climate, stage: MidStage), Plains(100), 7, FoodSupplyTestCatalog());
+        Equal(input(unknown).Digest, input(new LayoutClimate(-43, -2, null)).Digest,
+            "absent growing facts preserve the historical input hash");
+        True(input(unknown).Digest != input(new LayoutClimate(-43, -2, 0)).Digest &&
+            input(new LayoutClimate(-43, -2, 0)).Digest != input(new LayoutClimate(-43, -2, 5)).Digest,
+            "captured growing facts participate in deterministic input hashes");
+        True(LayoutFoodSupplyPlanner.Plan(input(new LayoutClimate(-43, -2, 0)),100,Array.Empty<LayoutRoom>()) == null,
+            "an unusable outdoor crop count cannot receive food credit");
+    }
+
     private static void MainFieldMinimumBoundary()
     {
         var field = new GridRect(80, 80, 12, 12);

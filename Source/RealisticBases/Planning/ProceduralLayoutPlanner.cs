@@ -1006,12 +1006,15 @@ namespace RealisticBases.Planning
             P4BJointSiteResult jointSites = null;
             if (requireJointSite && requirements.FieldCells > 0)
             {
+                bool omitOutdoorField = !requirements.Climate.SupportsOutdoorCrops;
+                if (omitOutdoorField && !LayoutFoodSupplyPlanner.CanImport(input))
+                    return reject("no_legal_food_supply_for_zero_growing_season");
                 jointSites = P4BJointSitePlanner.Find(input.Terrain, requirements.FieldCells, requiredArea,
                     input.Fortification.PlacementMargin, LayoutSeed.Sub(input.Seed, "joint-site"),
                     input.Budget.MaxSites, input.Budget.MaxSites * 1024, requirements.Residents,
                     attachmentDepth: requirements.ReservePopulationCirculation ? P4BJointSitePlanner.AttachmentDepth(input.Fortification) : 0,
                     attachmentHalfTip: P4BJointSitePlanner.AttachmentHalfTip(input.Fortification),
-                    plannerDegree: input.PlannerDegree);
+                    plannerDegree: input.PlannerDegree, minimumCrops: omitOutdoorField ? (int?)0 : null);
                 diagnostics.Add(new LayoutDiagnostic("joint_site", "preflight", "pairs=" + jointSites.Candidates.Count +
                     " evaluated=" + jointSites.Evaluated + " fieldOriginsScanned=" + jointSites.FieldOriginsScanned +
                     " rejected=" + string.Join(",", jointSites.Rejections)));
@@ -1027,6 +1030,13 @@ namespace RealisticBases.Planning
                         " evaluated=" + jointSites.Evaluated + " originalProductionTarget=" + requirements.FieldCells));
                 }
                 if (jointSites.Candidates.Count == 0) return reject("no_feasible_field_compound_pair");
+                if (omitOutdoorField)
+                {
+                    jointSites = new P4BJointSiteResult(jointSites.Candidates.Select(s => s.WithoutMainField()),
+                        jointSites.Rejections, jointSites.Evaluated, jointSites.FieldOriginsScanned);
+                    diagnostics.Add(new LayoutDiagnostic("joint_site", "outdoor_field_omitted",
+                        "nativeGrowingDays=0 naturalCrops=0 originalProductionTarget=" + requirements.FieldCells));
+                }
             }
             List<List<int>> components = Components(grid).Where(c => c.Count >= requiredArea).ToList();
             int placeable = grid.Placeable.Count(p => p);

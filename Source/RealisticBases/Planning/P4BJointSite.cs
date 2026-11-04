@@ -98,6 +98,10 @@ namespace RealisticBases.Planning
         public IEnumerable<GridPoint> AllPostClearance => Interfaces.SelectMany(i => i.PostClearance.Concat(i.CoverCells)).Distinct();
         public int Score { get; }
         public string Digest { get; }
+
+        internal P4BJointSite WithoutMainField() => new P4BJointSite(Field, Compound, Anchor,
+            Enumerable.Empty<GridPoint>(), Enumerable.Empty<GridPoint>(), Enumerable.Empty<GridPoint>(),
+            InnerGate, OuterGate, Enumerable.Empty<GridPoint>(), Score, partialFoodSupply: true);
     }
 
     public sealed class P4BJointSiteResult

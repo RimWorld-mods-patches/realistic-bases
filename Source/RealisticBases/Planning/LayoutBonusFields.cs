@@ -14,6 +14,7 @@ namespace RealisticBases.Planning
 
         public static IReadOnlyList<GridPoint> Select(ProceduralLayoutInput input, ProceduralLayout layout)
         {
+            if (!input.Requirements.Climate.SupportsOutdoorCrops) return new GridPoint[0];
             TerrainSnapshot terrain = input.Terrain;
             HashSet<GridPoint> blocked = new HashSet<GridPoint>(layout.Rooms.SelectMany(r => r.Bounds.Points())
                 .Concat(layout.Corridors.SelectMany(c => c.Cells))

@@ -120,6 +120,9 @@ internal static partial class Program
         Run("hydroponic lamp density fits 24 lit traversable basins and service fixtures", HydroponicLampDensity);
         Run("omitted main field keeps funded food and ordinary spawn acceptance", OmittedMainFieldFoodLayout, 15);
         Run("scarce cropland keeps population with funded cultivation and imports", ScarceCroplandFoodLayout, 15);
+        Run("captured ice sheet uses funded food fallback", IceSheet33970FoodFallback, 30);
+        Run("zero outdoor growing season omits the field and funds food", IceSheet33970NoGrowingSeason, 30);
+        Run("native outdoor growing facts preserve legacy inputs and food credit", OutdoorGrowingSeasonFacts);
         Run("P4B housing reserves empty floor for every resident after furnishing", HousingSpawnFloor);
         Run("P4B dry field fences beside water retain crop capacity and compound setbacks", FieldFenceNearWater);
         Run("P4B turret emplacement respects stage, geometry and finite stocks", P4BTurretPlacementCases, 30);

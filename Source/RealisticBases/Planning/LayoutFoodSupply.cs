@@ -100,6 +100,7 @@ namespace RealisticBases.Planning
             IEnumerable<string> diagnostics = null)
         {
             if (!CanImport(input)) return null;
+            if (naturalCells > 0 && !input.Requirements.Climate.SupportsOutdoorCrops) return null;
             input.Catalog.TryGet(FoodDef(input), out CatalogDef food);
             double hydroponicEquivalent = 0;
             foreach (LayoutRoom room in rooms.Where(r => r.Kind == LayoutRoomKind.Hydroponics))

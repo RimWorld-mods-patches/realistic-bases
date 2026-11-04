@@ -107,15 +107,21 @@ namespace RealisticBases.Planning
         // RoomTempTracker equalizes thick-roofed rooms toward 15C.
         public const int ThickRoofEquilibriumC = 15;
 
-        public LayoutClimate(int minOutdoorC, int maxOutdoorC)
+        public LayoutClimate(int minOutdoorC, int maxOutdoorC, int? outdoorGrowingDays = null)
         {
             if (maxOutdoorC < minOutdoorC) throw new ArgumentOutOfRangeException(nameof(maxOutdoorC));
+            if (outdoorGrowingDays < 0 || outdoorGrowingDays > 60) throw new ArgumentOutOfRangeException(nameof(outdoorGrowingDays));
             MinOutdoorC = minOutdoorC;
             MaxOutdoorC = maxOutdoorC;
+            OutdoorGrowingDays = outdoorGrowingDays;
         }
 
         public int MinOutdoorC { get; }
         public int MaxOutdoorC { get; }
+        // Native crop-specific growing period; null preserves historical captures
+        // that did not record this fact. Temperature estimates cannot replace it.
+        public int? OutdoorGrowingDays { get; }
+        public bool SupportsOutdoorCrops => OutdoorGrowingDays != 0;
         public bool HeatingRequired => MinOutdoorC < HeatingBelowC;
         public bool CoolingRequired => MaxOutdoorC > CoolingAboveC;
         public override string ToString() => MinOutdoorC + ".." + MaxOutdoorC + "C";
@@ -369,6 +375,11 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, (int)Housing);
             hash = StableHash.Add(hash, Climate.MinOutdoorC);
             hash = StableHash.Add(hash, Climate.MaxOutdoorC);
+            if (Climate.OutdoorGrowingDays.HasValue)
+            {
+                hash = StableHash.Add(hash, "outdoor-growing-days");
+                hash = StableHash.Add(hash, Climate.OutdoorGrowingDays.Value);
+            }
             hash = StableHash.Add(hash, MortarBiasPercent);
             hash = StableHash.Add(hash, ExcavationBudgetCells);
             hash = StableHash.Add(hash, FieldCells);

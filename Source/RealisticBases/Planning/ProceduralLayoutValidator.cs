@@ -389,6 +389,9 @@ namespace RealisticBases.Planning
             }
             if (layout.Rooms.Count(r => r.Kind != LayoutRoomKind.MortarMagazine && r.Kind != LayoutRoomKind.Hydroponics) != demand.Rooms.Count)
                 errors.Add("room_count");
+            if (!requirements.Climate.SupportsOutdoorCrops &&
+                ((layout.FieldWall?.Fields.Count ?? 0) > 0 || (layout.JointSite?.Crops.Count ?? 0) > 0 || layout.BonusFields.Count > 0))
+                errors.Add("outdoor_crops_without_growing_season");
             if (layout.FoodSupply == null)
             {
                 if (layout.FieldCellsRequired != requirements.FieldCells) errors.Add("missing_food_supply_contract");
