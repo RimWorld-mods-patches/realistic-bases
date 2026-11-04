@@ -90,6 +90,8 @@ namespace RealisticBases.Planning
         {
             get
             {
+                // Vanilla's non-rotatable floor-light sprites must not inherit room rotation.
+                if (DefName == "StandingLamp" || DefName == "TorchLamp" || DefName == "SunLamp") return "North";
                 GridPoint d = Kind == LayoutFixtureKind.Shelf ? Facing : new GridPoint(-Facing.X, -Facing.Z);
                 if (d.Z > 0) return "North";
                 if (d.Z < 0) return "South";

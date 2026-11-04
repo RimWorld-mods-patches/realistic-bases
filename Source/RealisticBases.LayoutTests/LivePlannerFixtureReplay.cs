@@ -138,6 +138,15 @@ internal static class LivePlannerFixtureReplay
                     " residents=" + finalInput.Requirements.Residents + " crops=" + (result.Layout.FieldWall?.Fields.Count ?? 0));
             }
             if (args.Contains("--field-route")) CalderaFieldRouteRegression.Run(finalInput, result.Layout);
+            if (args.Contains("--lighting-report"))
+                foreach (LayoutRoom room in result.Layout.Rooms.Where(r => r.Kind != LayoutRoomKind.MortarMagazine))
+                {
+                    var lights = room.Fixtures.Where(f => f.Role == SettlementRole.Light).ToArray();
+                    Console.WriteLine("ordinary-room-lighting room=" + room.Id + " kind=" + room.Kind +
+                        " interior=" + room.Interior + " lights=" + lights.Length +
+                        " unlit=" + LayoutRoomLighting.UnlitCells(finalInput.Catalog, room).Count +
+                        " sunLampCredited=False cells=" + string.Join(";", lights.Select(f => f.DefName + "@" + f.Cells[0] + ":" + f.Rotation)));
+                }
             if (args.Contains("--food-report") && result.Layout.FoodSupply != null)
             {
                 var food = result.Layout.FoodSupply;

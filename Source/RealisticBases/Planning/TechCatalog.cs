@@ -39,14 +39,18 @@ namespace RealisticBases.Planning
             double fuelPerShot = 0, bool fuelFactorByDifficulty = false, double explosionRadius = 0, double combatPower = 0,
             IEnumerable<string> linkableFacilities = null, double facilityMaxDistance = 0, bool isSittable = false,
             bool supportsSeatedWork = false, bool? supportsQuality = null, int maxItemsInCell = 1,
-            double nutrition = 0, double growFertility = 0, double growLightRadius = 0)
+            double nutrition = 0, double growFertility = 0, double growLightRadius = 0,
+            double glowRadius = 0, int glowStrength = 0, bool blocksLight = false)
         {
-            if (new[] { nutrition, growFertility, growLightRadius }.Any(value =>
+            if (new[] { nutrition, growFertility, growLightRadius, glowRadius, (double)glowStrength }.Any(value =>
                 value < 0 || double.IsNaN(value) || double.IsInfinity(value)))
                 throw new ArgumentOutOfRangeException(nameof(nutrition));
             Nutrition = nutrition;
             GrowFertility = growFertility;
             GrowLightRadius = growLightRadius;
+            GlowRadius = glowRadius;
+            GlowStrength = glowStrength;
+            BlocksLight = blocksLight;
             if (maxItemsInCell < 1) throw new ArgumentOutOfRangeException(nameof(maxItemsInCell));
             MaxItemsInCell = maxItemsInCell;
             if (string.IsNullOrEmpty(defName)) throw new ArgumentNullException(nameof(defName));
@@ -169,6 +173,9 @@ namespace RealisticBases.Planning
         public double Nutrition { get; }
         public double GrowFertility { get; }
         public double GrowLightRadius { get; }
+        public double GlowRadius { get; }
+        public int GlowStrength { get; }
+        public bool BlocksLight { get; }
         public bool SupportsSeatedWork { get; }
         public bool SupportsQuality { get; }
         public bool AutonomousTurret => TurretGunDefName.Length > 0 && MaximumRange > 0 && BasePowerConsumption > 0;
@@ -184,6 +191,9 @@ namespace RealisticBases.Planning
             if (Nutrition > 0) { hash = StableHash.Add(hash, "nutrition"); hash = AddScaled(hash, Nutrition); }
             if (GrowFertility > 0) { hash = StableHash.Add(hash, "grow-fertility"); hash = AddScaled(hash, GrowFertility); }
             if (GrowLightRadius > 0) { hash = StableHash.Add(hash, "grow-light-radius"); hash = AddScaled(hash, GrowLightRadius); }
+            if (GlowRadius > 0) { hash = StableHash.Add(hash, "glow-radius"); hash = AddScaled(hash, GlowRadius); }
+            if (GlowStrength > 0) { hash = StableHash.Add(hash, "glow-strength"); hash = StableHash.Add(hash, GlowStrength); }
+            if (BlocksLight) hash = StableHash.Add(hash, "blocks-light");
             hash = StableHash.Add(hash, (int)Category);
             hash = StableHash.Add(hash, (int)TechLevel);
             hash = AddList(hash, ResearchPrerequisites);

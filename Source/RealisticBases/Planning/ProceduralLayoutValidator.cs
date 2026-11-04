@@ -373,6 +373,10 @@ namespace RealisticBases.Planning
                 if (distance > rel.MaxDistance) errors.Add("hard_relationship_" + rel.A + "_" + rel.B + "_" + distance);
             }
 
+            foreach (LayoutRoom room in layout.Rooms.Where(r => r.Kind != LayoutRoomKind.MortarMagazine))
+                if (LayoutRoomLighting.UnlitCells(input.Catalog, room).Count > 0)
+                    errors.Add("ordinary_room_lighting_" + room.Id);
+
             // Capacity versus demand and power budget.
             LayoutDemandSet demand = equipment.Demand;
             foreach (LayoutRoomDemand room in demand.Rooms)

@@ -976,8 +976,8 @@ namespace RealisticBases.Planning
                 }
                 // Wall lights hang over racks and stock, so they are planned here
                 // and added after the racks; floor lights must claim cells first.
-                List<LayoutLocalFixture> wallLights = failure == null ? room.WallLights(wallLight) : null;
-                if (failure == null && wallLights == null && (light == null || !room.Place(light, (area + 35) / 36))) failure = "lights";
+                List<LayoutLocalFixture> wallLights = failure == null ? room.PlanLights(wallLight, light, kit.Catalog) : null;
+                if (failure == null && wallLights == null) failure = "lights";
                 int shelfStacks = 0;
                 Template shelf = From(kit.DefFor(SettlementRole.Storage), LayoutFixtureKind.Shelf, SettlementRole.Storage);
                 // A player fills a warehouse with racks: shelves along the walls,
@@ -1079,9 +1079,9 @@ namespace RealisticBases.Planning
                 }
                 if (failure == null)
                 {
-                    List<LayoutLocalFixture> wallLights = room.WallLights(wallLight);
+                    List<LayoutLocalFixture> wallLights = room.PlanLights(wallLight, light, kit.Catalog);
                     if (wallLights != null) room.Fixtures.AddRange(wallLights);
-                    else if (light == null || !room.Place(light, (area + 35) / 36)) failure = "lights";
+                    else failure = "lights";
                 }
             }
             if (failure == null && capacity < capacityTarget) failure = "capacity";
@@ -1112,6 +1112,7 @@ namespace RealisticBases.Planning
 
         private sealed class Template
         {
+            public CatalogDef Definition;
             public LayoutFixtureKind Kind;
             public SettlementRole? Role;
             public string Def;
@@ -1136,6 +1137,7 @@ namespace RealisticBases.Planning
             if (def.HasInteractionCell && (def.InteractionOffset.X != 0 || def.InteractionOffset.Z >= 0)) return null;
             return new Template
             {
+                Definition = def,
                 Kind = kind,
                 Role = role,
                 Def = def.DefName,
@@ -1435,56 +1437,88 @@ namespace RealisticBases.Planning
                 return placed;
             }
 
-            // Wall-mounted coolers sit in a straight wall segment (never a corner or the
-            // door) with their cold side in the room. exhaustCost(local wall cell) prices
-            // the hot-side cell outside that wall, or returns -1 when it cannot take exhaust.
-            // Lower cost wins; at equal cost the door wall is preferred.
-            // A lit cell is within this many cells of a lamp: about half of the
-            // vanilla wall torch's glow radius (9), so the wall lamp's (11) is safe.
-            public const int WallLightReachSquared = 20;
-
-            // Lights attached to this room's own wall, facing the wall they hang
-            // on. They take no floor: the cell below stays free for racks,
-            // stock and furniture. Never on the door or a through-wall fixture.
-            // Each lamp lights the most unlit interior cells; null when a cell
-            // stays unlit, and the room falls back to floor lights.
-            public List<LayoutLocalFixture> WallLights(Template lamp)
+            private sealed class LightCandidate
             {
-                if (lamp == null) return null;
-                HashSet<GridPoint> through = new HashSet<GridPoint>(Fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind)).SelectMany(f => f.Cells));
-                List<KeyValuePair<GridPoint, GridPoint>> candidates = new List<KeyValuePair<GridPoint, GridPoint>>();
-                for (int x = 1; x <= w; x++) candidates.Add(new KeyValuePair<GridPoint, GridPoint>(new GridPoint(x, 0), new GridPoint(0, 1)));
-                for (int z = 1; z <= h; z++) candidates.Add(new KeyValuePair<GridPoint, GridPoint>(new GridPoint(0, z), new GridPoint(1, 0)));
-                for (int z = 1; z <= h; z++) candidates.Add(new KeyValuePair<GridPoint, GridPoint>(new GridPoint(w + 1, z), new GridPoint(-1, 0)));
-                for (int x = 1; x <= w; x++) candidates.Add(new KeyValuePair<GridPoint, GridPoint>(new GridPoint(x, h + 1), new GridPoint(0, -1)));
-                candidates.RemoveAll(c => (c.Key.Z == 0 && c.Key.X == doorX) || through.Contains(c.Key));
-                List<GridPoint> unlit = new List<GridPoint>();
-                for (int z = 1; z <= h; z++)
-                    for (int x = 1; x <= w; x++) unlit.Add(new GridPoint(x, z));
-                List<LayoutLocalFixture> lights = new List<LayoutLocalFixture>();
-                HashSet<GridPoint> used = new HashSet<GridPoint>();
-                Func<GridPoint, GridPoint, bool> litBy = (lampCell, c) =>
-                    (lampCell.X - c.X) * (lampCell.X - c.X) + (lampCell.Z - c.Z) * (lampCell.Z - c.Z) <= WallLightReachSquared;
-                while (unlit.Count > 0)
-                {
-                    int best = -1, gain = 0;
-                    for (int i = 0; i < candidates.Count; i++)
-                    {
-                        GridPoint cell = new GridPoint(candidates[i].Key.X + candidates[i].Value.X, candidates[i].Key.Z + candidates[i].Value.Z);
-                        if (used.Contains(cell)) continue;
-                        int g = unlit.Count(c => litBy(cell, c));
-                        if (g > gain) { gain = g; best = i; }
-                    }
-                    if (best < 0) return null;
-                    GridPoint inward = candidates[best].Value;
-                    GridPoint at = new GridPoint(candidates[best].Key.X + inward.X, candidates[best].Key.Z + inward.Z);
-                    used.Add(at);
-                    unlit.RemoveAll(c => litBy(at, c));
-                    lights.Add(new LayoutLocalFixture(lamp.Kind, lamp.Def, new[] { at }, null, inward, false, lamp.Watts, lamp.Fuel, lamp.Role));
-                }
-                return lights;
+                public LayoutLocalFixture Fixture;
+                public HashSet<GridPoint> Coverage;
+                public bool Floor;
             }
 
+            // Preserve useful wall coverage, then fill only its gaps with floor
+            // fixtures. Floor lights reserve real cells and retain access checks;
+            // wall lights are returned for stock rooms to attach after their racks.
+            public List<LayoutLocalFixture> PlanLights(Template wallLamp, Template floorLamp, TechCatalog catalog)
+            {
+                GridRect interior = new GridRect(1,1,w,h);
+                var through = new HashSet<GridPoint>(Fixtures.Where(f=>LayoutFixtureKinds.ThroughWall(f.Kind)).SelectMany(f=>f.Cells));
+                var blockers = new HashSet<GridPoint>(Fixtures.Where(f=>catalog.TryGet(f.DefName,out CatalogDef def)&&def.BlocksLight)
+                    .SelectMany(f=>f.Cells).Where(interior.Contains));
+                var targets = new HashSet<GridPoint>(interior.Points().Except(blockers));
+                var unlit = new HashSet<GridPoint>(targets);
+                var selected = new List<LightCandidate>();
+                LightCandidate Candidate(Template lamp, GridPoint cell, GridPoint inward, bool floor) => new LightCandidate
+                {
+                    Fixture = new LayoutLocalFixture(lamp.Kind,lamp.Def,new[]{cell},null,inward,floor && lamp.Blocking,lamp.Watts,lamp.Fuel,lamp.Role),
+                    Coverage = new HashSet<GridPoint>(LayoutRoomLighting.CoveredCells(interior,cell,lamp.Definition,blockers)),
+                    Floor = floor
+                };
+                var walls = new List<LightCandidate>();
+                void AddWall(GridPoint support, GridPoint inward)
+                {
+                    if (wallLamp==null || through.Contains(support) || support.Equals(new GridPoint(doorX,0))) return;
+                    var cell=new GridPoint(support.X+inward.X,support.Z+inward.Z);
+                    walls.Add(Candidate(wallLamp,cell,inward,false));
+                }
+                for(int x=1;x<=w;x++) { AddWall(new GridPoint(x,0),new GridPoint(0,1)); AddWall(new GridPoint(x,h+1),new GridPoint(0,-1)); }
+                for(int z=1;z<=h;z++) { AddWall(new GridPoint(0,z),new GridPoint(1,0)); AddWall(new GridPoint(w+1,z),new GridPoint(-1,0)); }
+                while(unlit.Count>0)
+                {
+                    var best=walls.Select(c=>new {Candidate=c,Gain=c.Coverage.Count(unlit.Contains)})
+                        .Where(c=>c.Gain>0).OrderByDescending(c=>c.Gain)
+                        .ThenBy(c=>c.Candidate.Coverage.Count-c.Gain).ThenBy(c=>c.Candidate.Fixture.Cells[0]).FirstOrDefault();
+                    if(best==null) break;
+                    selected.Add(best.Candidate);
+                    unlit.ExceptWith(best.Candidate.Coverage);
+                    walls.RemoveAll(c=>c.Fixture.Cells[0].Equals(best.Candidate.Fixture.Cells[0]));
+                }
+                if(unlit.Count>0)
+                {
+                    if(floorLamp==null || floorLamp.Length!=1 || floorLamp.Depth!=1) return null;
+                    var occupied=new HashSet<GridPoint>(Fixtures.SelectMany(f=>f.Cells).Concat(selected.SelectMany(c=>c.Fixture.Cells)));
+                    var floors=interior.Points().Where(c=>state[Index(c.X,c.Z)]==Free && !occupied.Contains(c))
+                        .Select(c=>Candidate(floorLamp,c,new GridPoint(0,-1),true)).ToList();
+                    while(unlit.Count>0)
+                    {
+                        var best=floors.Select(c=>new {Candidate=c,Gain=c.Coverage.Count(unlit.Contains)})
+                            .Where(c=>c.Gain>0).OrderByDescending(c=>c.Gain)
+                            .ThenBy(c=>c.Candidate.Coverage.Count-c.Gain).ThenBy(c=>c.Candidate.Fixture.Cells[0]).FirstOrDefault();
+                        if(best==null) return null;
+                        floors.Remove(best.Candidate);
+                        var cell=best.Candidate.Fixture.Cells[0];
+                        if(!TryCommit(new List<GridPoint>{cell},new List<GridPoint>())) continue;
+                        Fixtures.Add(best.Candidate.Fixture);
+                        selected.Add(best.Candidate);
+                        unlit.ExceptWith(best.Candidate.Coverage);
+                    }
+                }
+                // Later gap-filling may make an earlier lamp redundant. Remove
+                // unnecessary floor fixtures first, preserving the wall preference.
+                foreach(var candidate in selected.AsEnumerable().Reverse().OrderByDescending(c=>c.Floor).ToArray())
+                {
+                    var without=new HashSet<GridPoint>(selected.Where(c=>c!=candidate).SelectMany(c=>c.Coverage));
+                    if(!targets.All(without.Contains)) continue;
+                    selected.Remove(candidate);
+                    if(candidate.Floor)
+                    {
+                        Fixtures.Remove(candidate.Fixture);
+                        var cell=candidate.Fixture.Cells[0];state[Index(cell.X,cell.Z)]=Free;
+                    }
+                }
+                return selected.Where(c=>!c.Floor).Select(c=>c.Fixture).ToList();
+            }
+
+            // Wall-mounted coolers sit in a straight wall segment, avoiding the
+            // door and corners. Exhaust cost prices their outdoor hot-side cell.
             public bool PlaceWallCoolers(Template cooler, int count, Func<GridPoint, int> exhaustCost, bool keepHotAwayFromDoor)
             {
                 List<KeyValuePair<GridPoint, GridPoint>> walls = new List<KeyValuePair<GridPoint, GridPoint>>();

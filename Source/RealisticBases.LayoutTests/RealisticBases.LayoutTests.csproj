@@ -67,6 +67,7 @@
     <Compile Include="../RealisticBases/Planning/SettlementRoles.cs" Link="Planning/SettlementRoles.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutEquipment.cs" Link="Planning/LayoutEquipment.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutPower.cs" Link="Planning/LayoutPower.cs" />
+    <Compile Include="../RealisticBases/Planning/LayoutRoomLighting.cs" Link="Planning/LayoutRoomLighting.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutFoodSupply.cs" Link="Planning/LayoutFoodSupply.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutHydroponicsPacking.cs" Link="Planning/LayoutHydroponicsPacking.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutRoomPartition.cs" Link="Planning/LayoutRoomPartition.cs" />

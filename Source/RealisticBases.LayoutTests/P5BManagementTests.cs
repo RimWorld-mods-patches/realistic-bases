@@ -9,6 +9,8 @@ internal static partial class Program
     private static void RunP5BTests()
     {
         Run("P5B Neolithic storage: wooden small shelves without ComplexFurniture", NeolithicSmallShelves, 30);
+        Run("ordinary floor lamps keep their light at the top in rotated rooms", FloorLightsStayUpright);
+        Run("ordinary room lighting covers grow rooms and furnished interiors", RoomLightCoverage);
         Run("P5B lights hang on room walls and take no floor", WallLightsTakeNoFloor, 70);
     }
 
@@ -39,6 +41,61 @@ internal static partial class Program
         True(medieval.HasResearch("ComplexFurniture"), "Medieval researches ComplexFurniture");
         Equal("Shelf", Input(Plains(180), medievalRequirements, 3).Equipment.Kit.Roles.ChosenDefName(SettlementRole.Storage),
             "with the research the double shelf stays first");
+    }
+
+    private static void RoomLightCoverage()
+    {
+        var input = new ProceduralLayoutInput(LayoutRequirements.FromPopulation(8,Industrial,Hot,stage:MidStage),
+            Plains(120),7,FoodSupplyTestCatalog());
+        var context = LayoutDemandModel.FurnishContext(input.Equipment.Kit,input.Requirements,false,_=>0);
+        foreach (var example in new[] { (LayoutRoomKind.Hydroponics,23,11), (LayoutRoomKind.Dining,8,11),
+            (LayoutRoomKind.Laboratory,1,11), (LayoutRoomKind.Barracks,4,11), (LayoutRoomKind.Storage,24,11),
+            (LayoutRoomKind.Storage,24,17) })
+        {
+            int size=example.Item3;
+            var furnished=LayoutFurnishing.Furnish(example.Item1,size,size,2,example.Item2,context);
+            True(furnished.Success,example.Item1+" still fits: "+furnished.Failure);
+            var lights=furnished.Fixtures.Where(f=>f.Role==SettlementRole.Light).ToArray();
+            var interior=new GridRect(1,1,size,size);
+            var blockers=furnished.Fixtures.Where(f=>input.Catalog.TryGet(f.DefName,out var d)&&d.BlocksLight)
+                .SelectMany(f=>f.Cells).ToArray();
+            var covered=new HashSet<GridPoint>(lights.SelectMany(f=>LayoutRoomLighting.CoveredCells(interior,
+                f.Cells[0],input.Catalog.Defs.Single(d=>d.DefName==f.DefName),blockers)));
+            var dark=interior.Points().Except(blockers).Except(covered).ToArray();
+            Equal(0,dark.Length,example.Item1+" has no dark cells with the sun lamp off; first="+string.Join(";",dark.Take(4)));
+            if(size==11) True(lights.All(f=>f.DefName=="WallLamp"),example.Item1+" uses feasible wall lamps before floor space");
+            else True(lights.Any(f=>f.DefName=="StandingLamp"),"an interior beyond wall-light reach gets floor lighting");
+            for(int i=0;i<lights.Length;i++)
+            {
+                var without=new HashSet<GridPoint>(lights.Where((_,j)=>i!=j).SelectMany(f=>LayoutRoomLighting.CoveredCells(interior,
+                    f.Cells[0],input.Catalog.Defs.Single(d=>d.DefName==f.DefName),blockers)));
+                True(interior.Points().Except(blockers).Any(c=>!without.Contains(c)),"no lamp remains wholly redundant in "+example.Item1);
+            }
+        }
+        var lamp=new CatalogDef("custom-light",CatalogCategory.Building,glowRadius:12,glowStrength:214);
+        var split=new GridRect(1,1,11,11);
+        var opaque=Enumerable.Range(1,11).Select(z=>new GridPoint(6,z)).ToArray();
+        True(!LayoutRoomLighting.CoveredCells(split,new GridPoint(3,5),lamp,opaque).Any(c=>c.X>6),
+            "an opaque partition blocks light even when geometric radii overlap");
+        Equal(0.0,LayoutRoomLighting.GroundGlow(new CatalogDef("unknown",CatalogCategory.Building),100),
+            "unknown custom lamps receive no guessed coverage");
+    }
+
+    private static void FloorLightsStayUpright()
+    {
+        foreach (GridPoint facing in new[] {new GridPoint(0,1),new GridPoint(0,-1),new GridPoint(1,0),new GridPoint(-1,0)})
+        {
+            foreach (string def in new[] { "StandingLamp", "SunLamp", "TorchLamp" })
+            {
+                var fixture=new LayoutFixture(def=="SunLamp"?LayoutFixtureKind.SunLamp:LayoutFixtureKind.Lamp,def,
+                    new[]{new GridPoint(5,5)},null,facing,false,30,false,"rotated-room");
+                Equal("North",fixture.Rotation,def+" keeps its light at the top for room facing "+facing);
+            }
+            var wall=new LayoutFixture(LayoutFixtureKind.Lamp,"WallLamp",new[]{new GridPoint(5,5)},null,
+                facing,false,30,false,"rotated-room");
+            Equal(facing.Z>0?"South":facing.Z<0?"North":facing.X>0?"West":"East",wall.Rotation,
+                "wall lamps still point toward their supporting wall");
+        }
     }
 
     private static void WallLightsTakeNoFloor()

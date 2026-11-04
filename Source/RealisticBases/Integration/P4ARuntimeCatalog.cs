@@ -64,6 +64,8 @@ namespace RealisticBases.Integration
                 object size = Member(thing, "size");
                 object offset = Member(thing, "interactionCellOffset");
                 object comps = Member(thing, "comps");
+                object glower = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Glower");
+                object glowColor = Member(glower, "glowColor");
                 object power = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Power");
                 object fuel = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Refuelable");
                 object explosive = Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Explosive");
@@ -104,7 +106,10 @@ namespace RealisticBases.Integration
                     nutrition: Stock.Contains(thing.defName) ? Stat(thing, "Nutrition") : 0,
                     growFertility: thing.defName == "HydroponicsBasin" ? Number(Member(thing, "fertility")) : 0,
                     growLightRadius: thing.defName == "SunLamp" ? Math.Min(Number(Member(thing, "specialDisplayRadius")),
-                        Number(Member(Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Glower"), "overlightRadius"))) : 0));
+                        Number(Member(glower, "overlightRadius"))) : 0,
+                    glowRadius: Number(Member(glower, "glowRadius")),
+                    glowStrength: Math.Max(Int(Member(glowColor, "r")), Math.Max(Int(Member(glowColor, "g")), Int(Member(glowColor, "b")))),
+                    blocksLight: Bool(Member(thing, "blockLight"))));
             }
             List<CatalogResearch> projects = DefDatabase<ResearchProjectDef>.AllDefsListForReading
                 .Select(project => new CatalogResearch(project.defName, Tier(Member(project, "techLevel")),
