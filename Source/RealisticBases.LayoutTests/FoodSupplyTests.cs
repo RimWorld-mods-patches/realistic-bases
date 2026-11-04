@@ -5,6 +5,27 @@ using RealisticBases.Planning;
 
 internal static partial class Program
 {
+    private static void UnfundedHydroponicsImportFallback()
+    {
+        var basin = new CatalogDef("HydroponicsBasin",CatalogCategory.Building,TechTier.Industrial,
+            new[]{"Hydroponics"},1,4,costList:new[]{new KeyValuePair<string,int>("Steel",100000)},
+            basePowerConsumption:70,passability:CatalogPassability.PassThroughOnly,growFertility:2.8);
+        var normal = FoodSupplyTestCatalog();
+        var catalog = new TechCatalog(normal.Source,normal.Defs.Where(d=>d.DefName!=basin.DefName).Concat(new[]{basin}),normal.Research);
+        var requirements = LayoutRequirements.FromPopulation(4,Industrial,new LayoutClimate(7,48,0),stage:MidStage,importValueLimit:9000);
+        var input = new ProceduralLayoutInput(requirements,Plains(130),9,catalog,
+            budget:new LayoutSearchBudget(maxSites:1,attemptsPerSite:3,maxEvaluations:500000));
+        True(LayoutFoodSupplyPlanner.CanHydroponics(input,out _),"the growth kit is legal but construction is unaffordable");
+        var result = ProceduralLayoutPlanner.Plan(input,true);
+        Accepted(result);
+        var layout = result.Layout;
+        True(layout.HasOmittedMainField && layout.FoodSupply.Covered,"the finite imported stock covers the original food demand");
+        Equal(0,layout.AllFixtures.Count(f=>f.Kind==LayoutFixtureKind.HydroponicsBasin),"unfunded basins are never granted");
+        True(layout.Materials.OrdinaryImportValue<=requirements.BaseImportValueLimit,"imports retain the existing allowance");
+        True(RealisticBases.Generation.P4BProceduralSpawnPreflight.Evaluate(input,layout).Accepted,
+            "seeking hydroponics must retain the fully validated imports-only fallback");
+    }
+
     private static void OutdoorGrowingSeasonFacts()
     {
         var unknown = new LayoutClimate(-43, -2);

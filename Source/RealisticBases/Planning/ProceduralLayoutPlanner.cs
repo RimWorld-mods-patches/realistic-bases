@@ -974,6 +974,8 @@ namespace RealisticBases.Planning
             LayoutEquipment equipment = input.Equipment;
             LayoutKit kit = equipment.Kit;
             LayoutDemandSet demand = equipment.Demand;
+            ProceduralLayout importsFallback = null;
+            LayoutCandidateScore importsFallbackScore = null;
             Func<ProceduralLayout, ProceduralLayoutResult> makeResult = layout =>
             {
                 plannerWatch.Stop();
@@ -987,6 +989,12 @@ namespace RealisticBases.Planning
             Func<string, ProceduralLayoutResult> reject = code =>
             {
                 if (input.Terrain.Digest != terrainDigest || input.Digest != inputDigest) throw new InvalidOperationException("P4A planner mutated its input.");
+                if (importsFallback != null)
+                {
+                    diagnostics.Add(new LayoutDiagnostic("result", "accepted", stats + " digest=" + importsFallback.Digest +
+                        " foodImportsFallback=" + code + " " + importsFallbackScore));
+                    return makeResult(importsFallback);
+                }
                 diagnostics.Add(new LayoutDiagnostic("result", code, stats.ToString()));
                 return makeResult(null);
             };
@@ -1025,7 +1033,7 @@ namespace RealisticBases.Planning
                         input.Budget.MaxSites, input.Budget.MaxSites * 1024, requirements.Residents,
                         attachmentDepth: requirements.ReservePopulationCirculation ? P4BJointSitePlanner.AttachmentDepth(input.Fortification) : 0,
                         attachmentHalfTip: P4BJointSitePlanner.AttachmentHalfTip(input.Fortification),
-                        plannerDegree: input.PlannerDegree, minimumCrops: 0);
+                        plannerDegree: input.PlannerDegree, refineFieldOrigins: true, minimumCrops: 0);
                     diagnostics.Add(new LayoutDiagnostic("joint_site", "partial_food_preflight", "pairs=" + jointSites.Candidates.Count +
                         " evaluated=" + jointSites.Evaluated + " originalProductionTarget=" + requirements.FieldCells));
                 }
@@ -1114,6 +1122,21 @@ namespace RealisticBases.Planning
                     scoringWatch.Stop();
                     timings.ScoringMs += scoringWatch.Elapsed.TotalMilliseconds;
                     if (input.Terrain.Digest != terrainDigest || input.Digest != inputDigest) throw new InvalidOperationException("P4A planner mutated its input.");
+                    // A valid imports-only attempt remains a safe fallback, but
+                    // cannot end the bounded search before other sites have had
+                    // a chance to furnish and fund legal hydroponics.
+                    if (finished.FoodSupply != null && finished.FoodSupply.NaturalCells < requirements.FieldCells &&
+                        finished.FoodSupply.HydroponicFieldEquivalent == 0 && LayoutFoodSupplyPlanner.CanHydroponics(input, out _))
+                    {
+                        if (importsFallback == null || finished.FoodSupply.NaturalCells > importsFallback.FoodSupply.NaturalCells ||
+                            (finished.FoodSupply.NaturalCells == importsFallback.FoodSupply.NaturalCells && final.Total < importsFallbackScore.Total))
+                        {
+                            importsFallback = finished;
+                            importsFallbackScore = final;
+                        }
+                        diagnostics.Add(new LayoutDiagnostic("food", "imports_fallback_reserved", finished.Digest));
+                        continue;
+                    }
                     diagnostics.Add(new LayoutDiagnostic("result", "accepted", stats + " digest=" + finished.Digest +
                         " candidates=" + considered + " preDefense=" + entry.Score.Total.ToString("F1") + " " + final));
                     return makeResult(finished);

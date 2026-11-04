@@ -121,6 +121,8 @@ internal static partial class Program
         Run("omitted main field keeps funded food and ordinary spawn acceptance", OmittedMainFieldFoodLayout, 15);
         Run("scarce cropland keeps population with funded cultivation and imports", ScarceCroplandFoodLayout, 15);
         Run("captured ice sheet uses funded food fallback", IceSheet33970FoodFallback, 30);
+        Run("captured desert candidate keeps eleven residents and three layers with funded food", Oasis35518FoodFallback, 60);
+        Run("unfunded hydroponics retains a funded imports-only fallback", UnfundedHydroponicsImportFallback, 15);
         Run("zero outdoor growing season omits the field and funds food", IceSheet33970NoGrowingSeason, 30);
         Run("native outdoor growing facts preserve legacy inputs and food credit", OutdoorGrowingSeasonFacts);
         Run("P4B housing reserves empty floor for every resident after furnishing", HousingSpawnFloor);

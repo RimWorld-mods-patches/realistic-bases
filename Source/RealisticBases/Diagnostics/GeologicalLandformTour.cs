@@ -127,6 +127,9 @@ namespace RealisticBases.Diagnostics
         [DebugAction("Realistic Bases tour", "Recheck recorded GL IceOasis candidate tile", allowedGameStates = AllowedGameStates.Playing)]
         private static void RecordedIceOasisCandidate() => RecheckRecordedTile("IceOasis", 33970);
 
+        [DebugAction("Realistic Bases tour", "Recheck recorded GL Oasis candidate tile", allowedGameStates = AllowedGameStates.Playing)]
+        private static void RecordedOasisCandidate() => RecheckRecordedTile("Oasis", 35518);
+
         private static void RecheckRecordedTile(string form, int tileId)
         {
             RequireDisposable();

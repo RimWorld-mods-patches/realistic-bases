@@ -20,6 +20,7 @@
     <Content Include="p5-native-trade-rejected-traits.rle" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="gl-peninsula-rejected-traits.rle" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="ice-sheet-33970-terrain.rle" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="oasis-candidate-35518-terrain.rle" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="coastalisland-field-route.json" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="../RealisticBases/Planning/P1Model.cs" Link="Planning/P1Model.cs" />
     <Compile Include="../RealisticBases/Planning/P4ChunkRelocation.cs" Link="Planning/P4ChunkRelocation.cs" />
