@@ -74,8 +74,7 @@ internal static partial class Program
         Run("stone chunks: thermal partition models owned public exhaust clearance", StoneChunkThermalClearance);
         Run("stone chunks: relocation keeps source objects separate and allocation bounded", StoneChunkDestinations);
         Run("joint sites prefer natural barriers on beach and lakeshore maps", BarrierSiting, 95);
-        Skip("GL peninsula captured tile places a joint settlement",
-            "known: GL peninsula captured tile no_valid_layout, see gl-peninsula issue");
+        Run("GL peninsula captured tile places a joint settlement", GlPeninsulaTile, 30);
         Run("inner yards become crop patches without touching circulation", InnerYardCrops, 70);
         Run("P5A: fueled generator rooms vent to outdoor air", GeneratorRoomVents);
         Run("P5A: shelves face into their rooms", ShelvesFaceTheRoom);
@@ -113,6 +112,7 @@ internal static partial class Program
         Run("P4B field wall planner finds an attached flat-map bailey", P4BFieldWallPlannerCases, 80);
         Run("P4B joint site keeps crop capacity and compound space together", P4BJointSiteCases, 15);
         Run("P4B street starts recover inside the same compound without crossing hazards", StreetStartRecovery);
+        Run("room extension skips impossible footprints without spending candidate slots", RoomExtensionCandidateBudget);
         Run("P4B mountain field approach charges bounded excavation", FieldApproachExcavation);
         Run("main field minimum omits zero and 24 crops but retains 25", MainFieldMinimumBoundary);
         Run("food supply preserves nutrition with one funded first-harvest stock", FoodSupplyContract);

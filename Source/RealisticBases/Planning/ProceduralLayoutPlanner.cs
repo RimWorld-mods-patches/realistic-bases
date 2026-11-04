@@ -1913,15 +1913,33 @@ namespace RealisticBases.Planning
             // large reachable envelope effectively invisible behind near holes.
             int stride = grid.Terrain.Width + 1;
             int[] blocked = new int[stride * (grid.Terrain.Height + 1)];
+            int[] nonReusable = broad ? blocked : new int[blocked.Length];
             for (int z = 0; z < grid.Terrain.Height; z++)
                 for (int x = 0; x < grid.Terrain.Width; x++)
                 {
                     GridPoint c = new GridPoint(x, z);
-                    int bad = !grid.CanPlace(c) || occ[grid.Index(c)] != Free ||
-                        grid.At(c) == LayoutCellClass.Rock && !CanExcavate(c) ? 1 : 0;
+                    byte occupancy = occ[grid.Index(c)];
+                    bool terrainBlocked = !grid.CanPlace(c) ||
+                        grid.At(c) == LayoutCellClass.Rock && !CanExcavate(c);
+                    int bad = terrainBlocked || occupancy != Free ? 1 : 0;
                     int index = (z + 1) * stride + x + 1;
                     blocked[index] = bad + blocked[index - 1] + blocked[index - stride] - blocked[index - stride - 1];
+                    if (!broad)
+                    {
+                        // Legacy extension placement may share plain room walls
+                        // or absorb an exhaust-pocket wall/seal at its boundary.
+                        // Keep those candidates eligible; Evaluate still decides
+                        // their furnishing, thermal and shared-wall legality.
+                        bool reusable = occupancy == Free || occupancy == PocketWall || occupancy == PocketSeal ||
+                            occupancy == RoomCell && SharableWall(c, out _);
+                        int forbidden = terrainBlocked || !reusable ? 1 : 0;
+                        nonReusable[index] = forbidden + nonReusable[index - 1] + nonReusable[index - stride] -
+                            nonReusable[index - stride - 1];
+                    }
                 }
+            bool ClearRectangle(int[] cells, int x0, int z0, int x1, int z1) =>
+                cells[z1 * stride + x1] - cells[z0 * stride + x1] -
+                    cells[z1 * stride + x0] + cells[z0 * stride + x0] == 0;
             bool FreeEnvelope(GridPoint door, GridPoint facing, int w, int h)
             {
                 int doorX = (w + 1) / 2;
@@ -1929,9 +1947,11 @@ namespace RealisticBases.Planning
                 GridPoint b = ToWorld(door, facing, doorX, new GridPoint(w + 1, h + 1));
                 int x0 = Math.Min(a.X, b.X), x1 = Math.Max(a.X, b.X) + 1;
                 int z0 = Math.Min(a.Z, b.Z), z1 = Math.Max(a.Z, b.Z) + 1;
-                return x0 >= 0 && z0 >= 0 && x1 <= grid.Terrain.Width && z1 <= grid.Terrain.Height &&
-                    blocked[z1 * stride + x1] - blocked[z0 * stride + x1] -
-                        blocked[z1 * stride + x0] + blocked[z0 * stride + x0] == 0;
+                if (x0 < 0 || z0 < 0 || x1 > grid.Terrain.Width || z1 > grid.Terrain.Height) return false;
+                if (broad) return ClearRectangle(blocked, x0, z0, x1, z1);
+                return occ[grid.Index(door)] == Free &&
+                    ClearRectangle(nonReusable, x0, z0, x1, z1) &&
+                    ClearRectangle(blocked, x0 + 1, z0 + 1, x1 - 1, z1 - 1);
             }
             foreach (GridPoint frontage in previous.Keys.Where(c => distance[c] > 0)
                 .OrderBy(c => distance[c]).ThenByDescending(c => Math.Min(12, grid.OpenClearance[grid.Index(c)]))
@@ -1940,7 +1960,7 @@ namespace RealisticBases.Planning
                     foreach (GridRect size in room.CandidateSizes.OrderBy(s => s.Area))
                     {
                         GridPoint door = new GridPoint(frontage.X + facing.X, frontage.Z + facing.Z);
-                        if (broad && !FreeEnvelope(door, facing, size.Width, size.Height)) continue;
+                        if (!FreeEnvelope(door, facing, size.Width, size.Height)) continue;
                         if (evaluated++ >= input.Budget.MaxCandidatesPerRoom) return false;
                         if (stats.Evaluations >= input.Budget.MaxEvaluations) { stats.BudgetExhausted = true; return false; }
                         stats.Evaluations++;
