@@ -38,8 +38,15 @@ namespace RealisticBases.Planning
             double fuelCapacity = 0, double fuelMultiplier = 0, double initialFuelPercent = 0,
             double fuelPerShot = 0, bool fuelFactorByDifficulty = false, double explosionRadius = 0, double combatPower = 0,
             IEnumerable<string> linkableFacilities = null, double facilityMaxDistance = 0, bool isSittable = false,
-            bool supportsSeatedWork = false, bool? supportsQuality = null, int maxItemsInCell = 1)
+            bool supportsSeatedWork = false, bool? supportsQuality = null, int maxItemsInCell = 1,
+            double nutrition = 0, double growFertility = 0, double growLightRadius = 0)
         {
+            if (new[] { nutrition, growFertility, growLightRadius }.Any(value =>
+                value < 0 || double.IsNaN(value) || double.IsInfinity(value)))
+                throw new ArgumentOutOfRangeException(nameof(nutrition));
+            Nutrition = nutrition;
+            GrowFertility = growFertility;
+            GrowLightRadius = growLightRadius;
             if (maxItemsInCell < 1) throw new ArgumentOutOfRangeException(nameof(maxItemsInCell));
             MaxItemsInCell = maxItemsInCell;
             if (string.IsNullOrEmpty(defName)) throw new ArgumentNullException(nameof(defName));
@@ -159,6 +166,9 @@ namespace RealisticBases.Planning
         public bool IsSittable { get; }
         // Storage buildings: stacks one cell holds (vanilla shelves hold 3).
         public int MaxItemsInCell { get; }
+        public double Nutrition { get; }
+        public double GrowFertility { get; }
+        public double GrowLightRadius { get; }
         public bool SupportsSeatedWork { get; }
         public bool SupportsQuality { get; }
         public bool AutonomousTurret => TurretGunDefName.Length > 0 && MaximumRange > 0 && BasePowerConsumption > 0;
@@ -171,6 +181,9 @@ namespace RealisticBases.Planning
         {
             hash = StableHash.Add(hash, DefName);
             if (MaxItemsInCell > 1) hash = StableHash.Add(hash, "maxItemsInCell:" + MaxItemsInCell);
+            if (Nutrition > 0) { hash = StableHash.Add(hash, "nutrition"); hash = AddScaled(hash, Nutrition); }
+            if (GrowFertility > 0) { hash = StableHash.Add(hash, "grow-fertility"); hash = AddScaled(hash, GrowFertility); }
+            if (GrowLightRadius > 0) { hash = StableHash.Add(hash, "grow-light-radius"); hash = AddScaled(hash, GrowLightRadius); }
             hash = StableHash.Add(hash, (int)Category);
             hash = StableHash.Add(hash, (int)TechLevel);
             hash = AddList(hash, ResearchPrerequisites);

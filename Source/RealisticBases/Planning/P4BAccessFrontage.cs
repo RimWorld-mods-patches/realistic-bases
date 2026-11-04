@@ -40,7 +40,7 @@ namespace RealisticBases.Planning
                 .Concat(layout.Courts.SelectMany(c => c.Cells)).Concat(layout.ExtraObstacles)
                 .Concat(layout.ExhaustPockets.Select(p => p.Cell)).Concat(layout.ExhaustPocketWalls)
                 .Concat(input.Resources.GeyserFootprints()));
-            HashSet<GridPoint> field = new HashSet<GridPoint>(layout.JointSite.Field.Points()
+            HashSet<GridPoint> field = new HashSet<GridPoint>(layout.JointSite.FieldReservation
                 .Concat(layout.JointSite.AllPostClearance)
                 .Concat(layout.JointSite.Interfaces.SelectMany(i => i.Lane.Concat(i.PostAccess))));
             LayoutTerrainGrid terrain = LayoutTerrainGrid.Build(input.Terrain,

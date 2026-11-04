@@ -52,6 +52,7 @@ namespace RealisticBases.Diagnostics
             source.AppendLine("internal static class CapturedTimingTileFixture");
             source.AppendLine("{");
             source.AppendLine("    public const string ExpectedInputDigest = " + Literal(input.Digest) + ";");
+            source.AppendLine("    public const string ExpectedResearchTableVersion = " + Literal(TechStageModel.ResearchTableVersion) + ";");
             source.AppendLine("    public const string ExpectedLayoutDigest = " + Literal(results[results.Count - 1].Layout?.Digest ?? "none") + ";");
             source.AppendLine("    public const string ExpectedTerrainDigest = " + Literal(input.Terrain.Digest) + ";");
             source.AppendLine("    public const string ExpectedRequirementsDigest = " + Literal(input.Requirements.Digest) + ";");
@@ -89,7 +90,9 @@ namespace RealisticBases.Diagnostics
                 ", saleStorageStacks: " + r.SaleStorageStacks + ", salePerishableStacks: " + r.SalePerishableStacks +
                 ", retainedStorageStacks: " + r.RetainedStorageStacks + ", retainedPerishableStacks: " + r.RetainedPerishableStacks +
                 ", questArtillery: " + r.QuestArtillery + ", defenseImportReserveValue: " + r.DefenseImportReserveValue +
-                ", baseImportValueLimit: " + r.BaseImportValueLimit + ");");
+                ", baseImportValueLimit: " + r.BaseImportValueLimit +
+                ", dailyNutritionPerResident: " + Literal(r.DailyNutritionPerResident) +
+                ", firstHarvestDays: " + r.FirstHarvestDays + ");");
             source.AppendLine("        var terrain = BuildTerrain();");
             source.AppendLine("        var seed = 0x" + input.Seed.ToString("X16", CultureInfo.InvariantCulture) + "UL;");
             source.AppendLine("        var catalog = BuildCatalog();");

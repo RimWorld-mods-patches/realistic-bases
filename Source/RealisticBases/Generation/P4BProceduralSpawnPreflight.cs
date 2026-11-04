@@ -62,6 +62,9 @@ namespace RealisticBases.Generation
             if (layout == null)
                 return new P4BProceduralSpawnPreflightResult("missing_procedural_layout", null,
                     new P4BSpawnGuardLookup[0]);
+            if (layout.FoodSupply != null && layout.FieldWall == null && !layout.HasOmittedMainField)
+                return new P4BProceduralSpawnPreflightResult("missing_food_supply_field_plan", null,
+                    new P4BSpawnGuardLookup[0]);
 
             IReadOnlyList<string> errors = ProceduralLayoutValidator.Validate(input, layout);
             if (errors.Count != 0)

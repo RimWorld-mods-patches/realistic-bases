@@ -53,8 +53,11 @@ namespace RealisticBases.Planning
         internal LayoutPowerPlan(int criticalWatts, int nonCriticalWatts, CatalogDef generator, int generators, int batteries,
             IEnumerable<LayoutPowerYard> yards, CatalogDef fuel, int fuelStock, IEnumerable<string> diagnostics,
             int defenseReserveWatts = 0, int defenseGenerators = 0, int reservedGenerators = 0,
-            int reservedBatteries = 0, int releasedFuelStorageCells = 0, int packedMaterialImportValue = 0)
+            int reservedBatteries = 0, int releasedFuelStorageCells = 0, int packedMaterialImportValue = 0,
+            int fuelDays = LayoutEquipment.FuelHorizonDays)
         {
+            if (fuelDays <= 0) throw new ArgumentOutOfRangeException(nameof(fuelDays));
+            FuelDays = fuelDays;
             CriticalWatts = criticalWatts;
             NonCriticalWatts = nonCriticalWatts;
             GeneratorDef = generator == null ? string.Empty : generator.DefName;
@@ -96,6 +99,7 @@ namespace RealisticBases.Planning
         // the warehouse stock for LayoutEquipment.FuelHorizonDays.
         public string FuelDef { get; }
         public int FuelStock { get; }
+        public int FuelDays { get; }
         // power_source_unplaceable:<def>:<reason>, renewables_skipped_rock_protected, ...
         public IReadOnlyList<string> Diagnostics { get; }
         public string Digest { get; }
@@ -108,6 +112,7 @@ namespace RealisticBases.Planning
         {
             ulong hash = StableHash.Start;
             hash = StableHash.Add(hash, "p4a-power");
+            if (FuelDays != LayoutEquipment.FuelHorizonDays) hash = StableHash.Add(hash, "fuel-days:" + FuelDays);
             hash = StableHash.Add(hash, CriticalWatts);
             hash = StableHash.Add(hash, NonCriticalWatts);
             hash = StableHash.Add(hash, GeneratorDef);
@@ -175,6 +180,7 @@ namespace RealisticBases.Planning
         public static bool IsCritical(LayoutRoomKind room, LayoutFixtureKind kind, SettlementRole? role, int watts)
         {
             if (watts <= 0) return false;
+            if (room == LayoutRoomKind.Hydroponics) return true;
             if (kind == LayoutFixtureKind.WallCooler && room == LayoutRoomKind.Freezer) return true;
             if (role == SettlementRole.Heat) return true;
             if (kind == LayoutFixtureKind.MedicalMonitor) return true;
@@ -233,14 +239,18 @@ namespace RealisticBases.Planning
             return Math.Max(1, (int)Math.Ceiling(Math.Max(0, bridgedWatts) * BatteryBridgeHours / 24.0 / perBattery));
         }
 
-        public static int FuelStock(CatalogDef generator, int generators) =>
-            generator == null ? 0 : TankFill(generator) * generators + WarehouseFuel(generator, generators);
+        public static int FuelStock(CatalogDef generator, int generators) => FuelStock(generator, generators, LayoutEquipment.FuelHorizonDays);
+
+        public static int FuelStock(CatalogDef generator, int generators, int days) =>
+            generator == null ? 0 : TankFill(generator) * generators + WarehouseFuel(generator, generators, days);
 
         // A generator starts with a full tank; the warehouse stock is never cut to fill it.
         public static int TankFill(CatalogDef generator) =>
             generator == null ? 0 : (int)Math.Ceiling(generator.FuelCapacity);
 
-        public static int WarehouseFuel(CatalogDef generator, int generators) =>
-            generator == null ? 0 : (int)Math.Ceiling(generators * generator.FuelPerDay * LayoutEquipment.FuelHorizonDays);
+        public static int WarehouseFuel(CatalogDef generator, int generators) => WarehouseFuel(generator, generators, LayoutEquipment.FuelHorizonDays);
+
+        public static int WarehouseFuel(CatalogDef generator, int generators, int days) =>
+            generator == null ? 0 : (int)Math.Ceiling(generators * generator.FuelPerDay * days);
     }
 }

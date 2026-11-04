@@ -20,6 +20,10 @@ internal static class LivePlannerFixtureReplay
         if (fixture == null)
             throw new InvalidOperationException("No captured live fixture is compiled. Set LivePlannerFixture to its .cs path.");
         MethodInfo build = fixture.GetMethod("Build", BindingFlags.Public | BindingFlags.Static);
+        string tableVersion = fixture.GetField("ExpectedResearchTableVersion")?.GetRawConstantValue() as string ?? "tech-research.1";
+        if (tableVersion != TechStageModel.ResearchTableVersion)
+            throw new InvalidOperationException("Captured research table " + tableVersion + " differs from " + TechStageModel.ResearchTableVersion +
+                ". Use -p:LegacyCapturedStageTables=true for the original pre-hydroponics captures.");
         string expectedInput = Constant<string>(fixture, "ExpectedInputDigest");
         string expectedLayout = Constant<string>(fixture, "ExpectedLayoutDigest");
         string expectedTerrain = Constant<string>(fixture, "ExpectedTerrainDigest");
@@ -134,6 +138,18 @@ internal static class LivePlannerFixtureReplay
                     " residents=" + finalInput.Requirements.Residents + " crops=" + (result.Layout.FieldWall?.Fields.Count ?? 0));
             }
             if (args.Contains("--field-route")) CalderaFieldRouteRegression.Run(finalInput, result.Layout);
+            if (args.Contains("--food-report") && result.Layout.FoodSupply != null)
+            {
+                var food = result.Layout.FoodSupply;
+                Console.WriteLine("food-supply-report natural=" + food.NaturalCells +
+                    " basins=" + result.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.HydroponicsBasin) +
+                    " sunLamps=" + result.Layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.SunLamp) +
+                    " hydroFieldEquivalent=" + food.HydroponicFieldEquivalent.ToString(CultureInfo.InvariantCulture) +
+                    " importedNutritionPerDay=" + food.ImportNutritionPerDay.ToString(CultureInfo.InvariantCulture) +
+                    " foodStock=" + food.TotalFoodUnits + " foodValue=" + food.ImportValue +
+                    " fuelDays=" + result.Layout.Power?.FuelDays + " ordinaryImports=" + result.Layout.Materials.OrdinaryImportValue +
+                    "/" + finalInput.Requirements.BaseImportValueLimit);
+            }
             if (args.Contains("--resident-home-report") || args.Contains("--require-home-floor"))
             {
                 int available = ReportResidentHomeSpace(finalInput, result.Layout);

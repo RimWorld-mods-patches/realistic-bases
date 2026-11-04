@@ -33,7 +33,8 @@ namespace RealisticBases.Planning
         Storage,
         Power,
         Laboratory, // Append: persisted room values must not move.
-        MortarMagazine
+        MortarMagazine,
+        Hydroponics
     }
 
     public static class SettlementTemperatureTargets
@@ -70,7 +71,9 @@ namespace RealisticBases.Planning
         ResearchAnalyzer,
         // A vanilla vent in a power-room wall: fueled generators heat the room,
         // so it exchanges air with outdoor space like a cooler's exhaust side.
-        WallVent
+        WallVent,
+        HydroponicsBasin,
+        SunLamp
     }
 
     public static class LayoutFixtureKinds
@@ -176,8 +179,13 @@ namespace RealisticBases.Planning
             int equipmentValueLimit = -1, int stockpileRoomCapacityTarget = 0, bool compactQuestCamp = false,
             int defenseReserveWatts = 0, int logisticsUtilityValueLimit = 0, int saleStorageStacks = 0, int salePerishableStacks = 0,
             int retainedStorageStacks = 0, int retainedPerishableStacks = 0, int questArtillery = 0,
-            int defenseImportReserveValue = 0, int baseImportValueLimit = -1)
+            int defenseImportReserveValue = 0, int baseImportValueLimit = -1,
+            double dailyNutritionPerResident = P5Readiness.DefaultDailyNutrition, int firstHarvestDays = 8)
         {
+            if (!P5Readiness.Positive(dailyNutritionPerResident) || firstHarvestDays <= 0)
+                throw new ArgumentOutOfRangeException(nameof(dailyNutritionPerResident));
+            DailyNutritionPerResident = dailyNutritionPerResident;
+            FirstHarvestDays = firstHarvestDays;
             if (saleStorageStacks < 0 || salePerishableStacks < 0 || retainedStorageStacks < 0 || retainedPerishableStacks < 0 ||
                 compactQuestCamp && (saleStorageStacks + salePerishableStacks + retainedStorageStacks + retainedPerishableStacks > 0))
                 throw new ArgumentOutOfRangeException(nameof(saleStorageStacks));
@@ -255,6 +263,8 @@ namespace RealisticBases.Planning
         public int MortarBiasPercent { get; }
         public int ExcavationBudgetCells { get; }
         public int FieldCells { get; }
+        public double DailyNutritionPerResident { get; }
+        public int FirstHarvestDays { get; }
         public IReadOnlyDictionary<LayoutRoomKind, int> CapacityFloors { get; }
         // Requested tech stage (before step-downs and adaptations).
         public SettlementTechStage Stage { get; }
@@ -329,7 +339,9 @@ namespace RealisticBases.Planning
                 retainedStorageStacks: retainedStorageStacks, retainedPerishableStacks: retainedPerishableStacks,
                 defenseImportReserveValue: populationBudget?.DefenseImportReserveValue ?? 0,
                 baseImportValueLimit: populationBudget == null ? profile.Budget.ImportValueLimit :
-                    populationBudget.ImportValue - populationBudget.DefenseImportReserveValue);
+                    populationBudget.ImportValue - populationBudget.DefenseImportReserveValue,
+                dailyNutritionPerResident: profile.DailyNutritionPerResident,
+                firstHarvestDays: (int)Math.Ceiling(profile.FirstHarvestDays));
         }
 
         private static bool TryMap(FacilityKind kind, out LayoutRoomKind result)
@@ -360,6 +372,9 @@ namespace RealisticBases.Planning
             hash = StableHash.Add(hash, MortarBiasPercent);
             hash = StableHash.Add(hash, ExcavationBudgetCells);
             hash = StableHash.Add(hash, FieldCells);
+            if (DailyNutritionPerResident != P5Readiness.DefaultDailyNutrition)
+                hash = StableHash.Add(hash, "daily-nutrition:" + DailyNutritionPerResident.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            if (FirstHarvestDays != 8) hash = StableHash.Add(hash, "first-harvest-days:" + FirstHarvestDays);
             foreach (KeyValuePair<LayoutRoomKind, int> floor in CapacityFloors.OrderBy(f => f.Key))
             {
                 hash = StableHash.Add(hash, (int)floor.Key);
@@ -617,7 +632,8 @@ namespace RealisticBases.Planning
         // "Living" includes occupied work spaces, not only sleeping/eating rooms.
         public static bool IsLiving(LayoutRoomKind kind) => kind == LayoutRoomKind.Barracks || kind == LayoutRoomKind.Bedroom ||
             kind == LayoutRoomKind.Jail || kind == LayoutRoomKind.Medical || kind == LayoutRoomKind.Dining ||
-            kind == LayoutRoomKind.Kitchen || kind == LayoutRoomKind.Workshop || kind == LayoutRoomKind.Laboratory;
+            kind == LayoutRoomKind.Kitchen || kind == LayoutRoomKind.Workshop || kind == LayoutRoomKind.Laboratory ||
+            kind == LayoutRoomKind.Hydroponics;
 
         // Rooms whose wall fixtures need outdoor air behind them: freezer and
         // cooled living-room coolers, and the vented generator room.
@@ -983,6 +999,14 @@ namespace RealisticBases.Planning
             {
                 switch (kind)
                 {
+                    case LayoutRoomKind.Hydroponics:
+                        if (!kit.Powered || !kit.Catalog.TryGet(LayoutFoodSupplyPlanner.Basin, out CatalogDef basin) ||
+                            !kit.Catalog.TryGet(LayoutFoodSupplyPlanner.GrowLamp, out CatalogDef growLamp) ||
+                            !kit.Catalog.IsLegal(basin, kit.Stage) || !kit.Catalog.IsLegal(growLamp, kit.Stage) ||
+                            basin.GrowFertility <= 0 || growLamp.GrowLightRadius <= 0)
+                        { failure = "hydroponics_kit"; break; }
+                        capacity = room.PlaceHydroponics(basin, growLamp, capacityTarget);
+                        break;
                     case LayoutRoomKind.Barracks:
                     case LayoutRoomKind.Bedroom:
                         capacity = PlaceAll(room, From(kit.DefFor(SettlementRole.Sleep), LayoutFixtureKind.Bed, SettlementRole.Sleep), capacityTarget);
@@ -1173,6 +1197,46 @@ namespace RealisticBases.Planning
             private int Index(int x, int z) => z * (w + 2) + x;
             private bool Interior(GridPoint c) => c.X >= 1 && c.X <= w && c.Z >= 1 && c.Z <= h;
             public bool IsKeepFree(GridPoint c) => state[Index(c.X, c.Z)] == KeepFree;
+
+            public int PlaceHydroponics(CatalogDef basin, CatalogDef lamp, int count)
+            {
+                // The grow room is roofed. A lamp is mandatory even when the
+                // surrounding map has sunlight; every crop cell stays within
+                // its captured conservative full-growth radius.
+                if (lamp.SizeX != 1 || lamp.SizeZ != 1 || basin.SizeX != 1 || basin.SizeZ != 4) return 0;
+                var center = new GridPoint((w + 1) / 2, (h + 1) / 2);
+                if (state[Index(center.X, center.Z)] != Free) return 0;
+                state[Index(center.X, center.Z)] = KeepFree;
+                Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.SunLamp, lamp.DefName, new[] { center }, null,
+                    new GridPoint(0, 1), false, lamp.BasePowerConsumption, false, null));
+                if (!basin.Blocking)
+                {
+                    var reserved = new HashSet<GridPoint>();
+                    for (int z=1;z<=h;z++) for (int x=1;x<=w;x++)
+                        if (state[Index(x,z)] != Free) reserved.Add(new GridPoint(x,z));
+                    var packed = LayoutHydroponicsPacking.Pack(w,h,center,lamp.GrowLightRadius,reserved,count);
+                    foreach (var bar in packed)
+                    {
+                        if (!TryCommit(new List<GridPoint>(),bar.Cells.ToList())) return 0;
+                        Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.HydroponicsBasin,basin.DefName,bar.Cells,null,
+                            bar.Facing,false,basin.BasePowerConsumption,false,null));
+                    }
+                    return packed.Count;
+                }
+                int placed = 0;
+                for (int x = 1; x <= w && placed < count; x++)
+                    for (int z = 1; z + 3 <= h && placed < count; z++)
+                    {
+                        var cells = Enumerable.Range(0, 4).Select(i => new GridPoint(x, z + i)).ToList();
+                        if (cells.Any(c => state[Index(c.X, c.Z)] != Free ||
+                            (c.X-center.X)*(c.X-center.X)+(c.Z-center.Z)*(c.Z-center.Z) > lamp.GrowLightRadius*lamp.GrowLightRadius)) continue;
+                        if (!TryCommit(cells, new List<GridPoint>())) continue;
+                        Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.HydroponicsBasin, basin.DefName, cells, null,
+                            new GridPoint(0, -1), true, basin.BasePowerConsumption, false, null));
+                        placed++;
+                    }
+                return placed;
+            }
 
             // Far wall first (opposite the door), then the side walls, then the door wall.
             private IEnumerable<KeyValuePair<List<GridPoint>, GridPoint>> Slots(int length, int depth)

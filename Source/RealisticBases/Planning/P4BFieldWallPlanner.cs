@@ -103,6 +103,7 @@ namespace RealisticBases.Planning
             if (layout == null) throw new ArgumentNullException(nameof(layout));
             P4BJointSite site = layout.JointSite;
             if (site == null) { diagnostic = "joint_site_missing"; return null; }
+            if (!site.HasMainField) { diagnostic = "main_field_omitted"; return null; }
             HashSet<GridPoint> blocked = new HashSet<GridPoint>(occupied ?? Enumerable.Empty<GridPoint>());
             // Service lanes reserve space against new walls/furniture, but
             // are not physical obstacles to the serial gate crossing. Keep
@@ -136,7 +137,7 @@ namespace RealisticBases.Planning
                 GridPoint rightAnchor = At(gate, tangent, neck, offset);
                 if (!baseline.Contains(leftAnchor) || !baseline.Contains(rightAnchor))
                 { rejected.Add("anchor"); continue; }
-                foreach (P4BFieldInterface option in site.Interfaces.OrderBy(i =>
+                foreach (P4BFieldInterface option in site.Interfaces.OrderByDescending(i => site.PartialFoodSupply ? i.Crops.Count : 0).ThenBy(i =>
                     Math.Abs(i.InnerGate.X - gate.Cell.X) + Math.Abs(i.InnerGate.Z - gate.Cell.Z)))
                 {
                     GridPoint near = option.InnerGate;
@@ -290,7 +291,7 @@ namespace RealisticBases.Planning
                     { rejected.Add("outside_cover_blocked"); continue; }
                     IReadOnlyList<string> errors = P4BFieldWall.Validate(input.Terrain, option.Crops, baseline, wall,
                         doors.Concat(new[] { option.InnerGate, option.OuterGate }), option.PostClearance,
-                        gate.Inside, layout.ConstructedRoof);
+                        gate.Inside, layout.ConstructedRoof, allowEmptyCrops: layout.FoodSupply != null);
                     if (errors.Count != 0) { rejected.Add("validate:" + errors[0]); continue; }
                     diagnostic = "accepted gate=" + gateIndex + " forward=" + forward + " inner=" + option.InnerGate;
                     return new P4BFieldWallPlan(gateIndex, option.Crops, wall, option.OuterGate,

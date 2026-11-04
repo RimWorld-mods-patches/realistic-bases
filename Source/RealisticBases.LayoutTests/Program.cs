@@ -113,6 +113,13 @@ internal static partial class Program
         Run("P4B field wall planner finds an attached flat-map bailey", P4BFieldWallPlannerCases, 80);
         Run("P4B joint site keeps crop capacity and compound space together", P4BJointSiteCases, 15);
         Run("P4B street starts recover inside the same compound without crossing hazards", StreetStartRecovery);
+        Run("P4B mountain field approach charges bounded excavation", FieldApproachExcavation);
+        Run("main field minimum omits zero and 24 crops but retains 25", MainFieldMinimumBoundary);
+        Run("food supply preserves nutrition with one funded first-harvest stock", FoodSupplyContract);
+        Run("hydroponic food package requires sun lamp growth cells power and funding", HydroponicFoodPackage);
+        Run("hydroponic lamp density fits 24 lit traversable basins and service fixtures", HydroponicLampDensity);
+        Run("omitted main field keeps funded food and ordinary spawn acceptance", OmittedMainFieldFoodLayout, 15);
+        Run("scarce cropland keeps population with funded cultivation and imports", ScarceCroplandFoodLayout, 15);
         Run("P4B housing reserves empty floor for every resident after furnishing", HousingSpawnFloor);
         Run("P4B dry field fences beside water retain crop capacity and compound setbacks", FieldFenceNearWater);
         Run("P4B turret emplacement respects stage, geometry and finite stocks", P4BTurretPlacementCases, 30);

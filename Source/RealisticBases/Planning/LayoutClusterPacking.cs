@@ -22,7 +22,7 @@ namespace RealisticBases.Planning
         private bool PlaceClusteredRooms()
         {
             if (!BuildSpine()) return false;
-            if (jointSite != null && input.Requirements.ReservePopulationCirculation && !ReserveFieldApproach()) return false;
+            if (jointSite?.HasMainField == true && input.Requirements.ReservePopulationCirculation && !ReserveFieldApproach()) return false;
             frontPoint = FrontEnd();
             int depth = LayoutClusters.TypicalDepth(demand.Rooms);
             // Two rooms back to back between parallel branches share one rear wall.
@@ -108,7 +108,7 @@ namespace RealisticBases.Planning
             switch (kind)
             {
                 case LayoutClusterKind.Food:
-                    return jointSite != null ? jointSite.InnerGate : anchor;
+                    return jointSite?.HasMainField == true ? jointSite.InnerGate : anchor;
                 case LayoutClusterKind.Living:
                     return new GridPoint(anchor.X + away.X * 10, anchor.Z + away.Z * 10);
                 default:

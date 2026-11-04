@@ -8,6 +8,9 @@
   <ItemGroup Condition="'$(LivePlannerFixture)' != ''">
     <Compile Include="$(LivePlannerFixture)" />
   </ItemGroup>
+  <PropertyGroup Condition="'$(LegacyCapturedStageTables)' == 'true' and '$(LivePlannerFixture)' != ''">
+    <DefineConstants>$(DefineConstants);RB_CAPTURED_LEGACY_RESEARCH</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <Compile Include="../RealisticBases/Planning/P5Readiness.cs" Link="Planning/P5Readiness.cs" />
     <Compile Include="../RealisticBases/Planning/P4DQuestContract.cs" Link="Planning/P4DQuestContract.cs" />
@@ -64,6 +67,8 @@
     <Compile Include="../RealisticBases/Planning/SettlementRoles.cs" Link="Planning/SettlementRoles.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutEquipment.cs" Link="Planning/LayoutEquipment.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutPower.cs" Link="Planning/LayoutPower.cs" />
+    <Compile Include="../RealisticBases/Planning/LayoutFoodSupply.cs" Link="Planning/LayoutFoodSupply.cs" />
+    <Compile Include="../RealisticBases/Planning/LayoutHydroponicsPacking.cs" Link="Planning/LayoutHydroponicsPacking.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutRoomPartition.cs" Link="Planning/LayoutRoomPartition.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutLoadout.cs" Link="Planning/LayoutLoadout.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutStockCells.cs" Link="Planning/LayoutStockCells.cs" />

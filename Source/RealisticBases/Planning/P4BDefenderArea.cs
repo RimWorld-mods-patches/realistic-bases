@@ -15,7 +15,7 @@ namespace RealisticBases.Planning
                 .Concat(layout.Gates.SelectMany(g => g.BandDoors.Concat(g.OuterVestibule).Concat(new[] { g.Cell, g.Staging })))
                 .Concat(layout.OuterSections.SelectMany(section => section.ServiceLane(layout.Gates[section.GateIndex])))
                 .Concat(layout.JointSite?.Compound.Points() ?? Enumerable.Empty<GridPoint>())
-                .Concat(layout.JointSite?.Field.Points() ?? Enumerable.Empty<GridPoint>())
+                .Concat(layout.JointSite?.FieldReservation ?? Enumerable.Empty<GridPoint>())
                 .Concat(fieldWall?.Access ?? new GridPoint[0])
                 // Low cover is passable; vanilla paths can step over a
                 // screen. This permits transit, not a protected post.

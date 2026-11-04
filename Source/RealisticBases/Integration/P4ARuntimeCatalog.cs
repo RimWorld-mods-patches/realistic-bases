@@ -14,7 +14,7 @@ namespace RealisticBases.Integration
     public static class P4ARuntimeCatalog
     {
         private static readonly HashSet<string> Stock = new HashSet<string>(StringComparer.Ordinal)
-        { "ComponentIndustrial", "ComponentSpacer", "MedicineHerbal", "MedicineIndustrial", "MedicineUltratech", "Chemfuel", "ReinforcedBarrel" };
+        { "ComponentIndustrial", "ComponentSpacer", "MedicineHerbal", "MedicineIndustrial", "MedicineUltratech", "Chemfuel", "ReinforcedBarrel", "MealSimple", "Pemmican" };
         private static readonly HashSet<string> Raw = new HashSet<string>(StringComparer.Ordinal)
         { "ComponentIndustrial", "ComponentSpacer", "MedicineHerbal" };
         private static readonly HashSet<string> RawStuff = new HashSet<string>(StringComparer.Ordinal)
@@ -100,7 +100,11 @@ namespace RealisticBases.Integration
                         typeof(Building_ResearchBench).IsAssignableFrom(thing.thingClass)),
                     Elements(comps).Any(c => Member(c, "compClass") is Type compClass &&
                         typeof(CompQuality).IsAssignableFrom(compClass)),
-                    Math.Max(1, Int(Member(building, "maxItemsInCell"), 1))));
+                    Math.Max(1, Int(Member(building, "maxItemsInCell"), 1)),
+                    nutrition: Stock.Contains(thing.defName) ? Stat(thing, "Nutrition") : 0,
+                    growFertility: thing.defName == "HydroponicsBasin" ? Number(Member(thing, "fertility")) : 0,
+                    growLightRadius: thing.defName == "SunLamp" ? Math.Min(Number(Member(thing, "specialDisplayRadius")),
+                        Number(Member(Elements(comps).FirstOrDefault(c => c.GetType().Name == "CompProperties_Glower"), "overlightRadius"))) : 0));
             }
             List<CatalogResearch> projects = DefDatabase<ResearchProjectDef>.AllDefsListForReading
                 .Select(project => new CatalogResearch(project.defName, Tier(Member(project, "techLevel")),

@@ -36,7 +36,7 @@ namespace RealisticBases.Generation
             P4BApproachDefensePlan approachDefense = layout.ApproachDefense;
             P4BTurretPlan turretPlan = layout.Turret;
             List<P4BTurretPlan> turretPlans = turretPlan?.All.ToList() ?? new List<P4BTurretPlan>();
-            if (layout.FieldCellsRequired > 0 && fieldWall == null)
+            if ((layout.FieldCellsRequired > 0 || layout.FoodSupply != null && !layout.HasOmittedMainField) && fieldWall == null)
             { failure = "missing_joint_field_wall"; return false; }
             P4BProceduralSpawnPreflightResult preflight = P4BProceduralSpawnPreflight.Evaluate(input,
                 layout, includeGuardLookups: quest == null);
@@ -325,7 +325,7 @@ namespace RealisticBases.Generation
                 var clearance = new HashSet<GridPoint>(layout.Enclosure.Concat(structures).Concat(fields).Concat(serviceCells)
                     .Concat(layout.Gates.SelectMany(g => g.OuterVestibule.Concat(g.ExteriorRoute)))
                     .Concat(fieldWall == null ? Enumerable.Empty<GridPoint>() :
-                        layout.JointSite.Field.Points().Concat(fieldWall.ExteriorPosts).Concat(fieldWall.Access))
+                        layout.JointSite.FieldReservation.Concat(fieldWall.ExteriorPosts).Concat(fieldWall.Access))
                     .Concat(finishPlan.Floors.Keys)
                     .Concat(layout.AllFixtures.Where(f => f.HotCell.HasValue).Select(f => f.HotCell.Value)));
                 tx.ClearStoneChunks(clearance);
@@ -415,7 +415,16 @@ namespace RealisticBases.Generation
                         map, settlement.Faction, Rotation(court.Rotation)));
 
                 ThingDef crop = DefDatabase<ThingDef>.GetNamedSilentFail(run.ProfileId == "tribal-temperate-v1" ? "Plant_Rice" : "Plant_Rice") ?? Require("Plant_Rice");
-                foreach (GridPoint c in fields)
+                var hydroponicCrops = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Hydroponics)
+                    .SelectMany(r => r.Fixtures.Where(f => f.Kind == LayoutFixtureKind.HydroponicsBasin))
+                    .SelectMany(f => f.Cells).Distinct().ToList();
+                foreach (LayoutFixture fixture in layout.AllFixtures.Where(f => f.Kind == LayoutFixtureKind.HydroponicsBasin))
+                {
+                    var grower = ToCell(fixture.Cells[0]).GetEdifice(map) as Building_PlantGrower;
+                    if (grower == null) throw new InvalidOperationException("Hydroponics basin did not spawn");
+                    grower.SetPlantDefToGrow(crop);
+                }
+                foreach (GridPoint c in fields.Concat(hydroponicCrops).Distinct())
                 {
                     Plant plant = (Plant)ThingMaker.MakeThing(crop);
                     plant.sown = true;
@@ -423,13 +432,17 @@ namespace RealisticBases.Generation
                     tx.Own(GenSpawn.Spawn(plant, ToCell(c), map, Rot4.North, WipeMode.Vanish));
                     crops++;
                 }
+                foreach (GridPoint cell in hydroponicCrops)
+                    if (!(ToCell(cell).GetEdifice(map) is Building_PlantGrower) || ToCell(cell).GetPlant(map)?.def != crop)
+                        throw new InvalidOperationException("Hydroponic crop or basin missing at " + cell);
                 if (forceFailure) throw new InvalidOperationException("forced procedural partial-spawn failure");
 
                 LayoutRoom food = layout.Rooms.First(r => r.Kind == LayoutRoomKind.Freezer || r.Kind == LayoutRoomKind.Pantry);
                 IReadOnlyList<GridPoint> storageCells = LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Storage);
                 IReadOnlyList<GridPoint> foodCells = LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Freezer, LayoutRoomKind.Pantry);
                 IReadOnlyList<GridPoint> medicalCells = LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Medical);
-                ThingDef startupFood = Require(food.Kind == LayoutRoomKind.Freezer ? "MealSimple" : "Pemmican");
+                ThingDef startupFood = Require(layout.FoodSupply?.FoodDef ??
+                    (food.Kind == LayoutRoomKind.Freezer ? "MealSimple" : "Pemmican"));
                 int startupFoodUnits = quest == null ? input.Requirements.Residents * 12 :
                     quest.Contract.StartupFoodUnits(startupFood.GetStatValueAbstract(StatDefOf.Nutrition));
                 // P5 stock persistence: ordinary settlements record each operating
@@ -670,10 +683,22 @@ namespace RealisticBases.Generation
                 }
                 double nutritionPerDay = defenders.Sum(p => (p.needs?.food?.FoodFallPerTickAssumingCategory(HungerCategory.Fed) ?? 0) * 60000);
                 if (quest == null)
-                    startupFoodUnits = Planned(startupFood.defName, null, P5Readiness.FoodUnits(defenders.Count,
+                {
+                    if (layout.FoodSupply != null && layout.FoodSupply.TotalFoodUnits *
+                        startupFood.GetStatValueAbstract(StatDefOf.Nutrition) + 0.00001 < nutritionPerDay * layout.FoodSupply.Days)
+                        throw new InvalidOperationException("Actual resident food demand exceeds the funded first-harvest inventory");
+                    startupFoodUnits = Planned(startupFood.defName, null, layout.FoodSupply?.TotalFoodUnits ?? P5Readiness.FoodUnits(defenders.Count,
                         Math.Max(P5Readiness.DefaultDailyNutrition, nutritionPerDay / defenders.Count),
                         startupFood.GetStatValueAbstract(StatDefOf.Nutrition), startupFoodUnits));
+                }
                 if (startupFoodUnits > 0) SpawnStacks(tx, startupFood, startupFoodUnits, foodCells, map);
+                if (layout.FoodSupply != null)
+                    P2Log.Message("PROCEDURAL_FOOD_SUPPLY_AUDIT", "map=" + map.uniqueID + " naturalCrops=" + fields.Count +
+                        " hydroponicCrops=" + hydroponicCrops.Count + " sunLamps=" + layout.AllFixtures.Count(f => f.Kind == LayoutFixtureKind.SunLamp) +
+                        " demandNutritionPerDay=" + layout.FoodSupply.DailyNutrition + " importedNutritionPerDay=" + layout.FoodSupply.ImportNutritionPerDay +
+                        " days=" + layout.FoodSupply.Days + " food=" + startupFood.defName + ":" + startupFoodUnits +
+                        " purchasedCoverageUnits=" + layout.FoodSupply.PurchasedFoodUnits + " importValue=" + layout.FoodSupply.ImportValue +
+                        " futureProductionCreditedToInitialStock=0 continuousResupply=0");
                 if (reserves != null)
                 {
                     retainedOperating.AddRange(reserves.RestoreAllocated(tx, storageCells.Select(ToCell), foodCells.Select(ToCell)));
@@ -727,7 +752,7 @@ namespace RealisticBases.Generation
                                         .Concat(new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }), NativeRoute,
                                     encounter.DefendedCells,
                                     P4BPerimeterDepth.Envelope(input.Terrain, layout).Concat(layout.JointSite.Compound.Points())
-                                        .Concat(layout.JointSite.Field.Points()).Distinct().ToArray(), walls.Concat(natural).ToArray(),
+                                        .Concat(layout.JointSite.FieldReservation).Distinct().ToArray(), walls.Concat(natural).ToArray(),
                                     path.Found ? path.NodesReversed.AsEnumerable().Reverse().Select(c => new GridPoint(c.x, c.z)).ToArray() : null);
                                 bool legal = route.Allowed;
                                 int length = route.Cells;
@@ -748,7 +773,7 @@ namespace RealisticBases.Generation
                     if (fieldWall.Fields.Any(c => map.roofGrid.RoofAt(ToCell(c)) != null ||
                         ToCell(c).GetPlant(map)?.def != crop))
                         throw new InvalidOperationException("Field crop missing or roofed after spawn");
-                    int wildPlantsInField = layout.JointSite.Field.Points().Count(c =>
+                    int wildPlantsInField = layout.JointSite.FieldReservation.Count(c =>
                         !fieldWall.Fields.Contains(c) && ToCell(c).GetPlant(map) != null);
                     if (wildPlantsInField != 0)
                         throw new InvalidOperationException("Established field retains wild plants: " + wildPlantsInField);
@@ -896,8 +921,8 @@ namespace RealisticBases.Generation
                         new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }), encounter,
                     defenders, tx.OwnedThings.Concat(retainedOperating), mortars.FirstOrDefault(), combatStocks, PerimeterSegments(layout, encounter.SupportCenter),
                     P4BPerimeterDepth.Envelope(input.Terrain, layout).Concat(layout.JointSite.Compound.Points())
-                        .Concat(layout.JointSite.Field.Points()),
-                    fieldWall == null ? Enumerable.Empty<GridPoint>() : layout.JointSite.Field.Points()
+                        .Concat(layout.JointSite.FieldReservation),
+                    fieldWall == null ? Enumerable.Empty<GridPoint>() : layout.JointSite.FieldReservation
                         .Except(fieldWall.Walls).Except(new[] { fieldWall.InnerGate.Value, fieldWall.OuterGate }),
                     layout.Enclosure, fieldFallbackPosts, mortars);
                 LordMaker.MakeNewLord(settlement.Faction, new LordJob_P3Garrison(settlement.ID), map, defenders);

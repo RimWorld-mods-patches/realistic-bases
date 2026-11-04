@@ -35,11 +35,17 @@ namespace RealisticBases.Planning
             if (layout.JointSite != null)
             {
                 P4BJointSite site = layout.JointSite;
+                if (!site.HasMainField && (!layout.HasOmittedMainField || layout.FieldWall != null ||
+                    site.Crops.Count != 0 || site.Wall.Count != 0 || site.Lane.Count != 0 ||
+                    site.Interfaces.Count != 0 || site.AllPostClearance.Any()))
+                    errors.Add("omitted_main_field_contract_or_reservations");
+                if (site.HasMainField && site.Crops.Count < P4BJointSite.MinimumMainFieldCells)
+                    errors.Add("main_field_below_minimum");
                 if (site.Crops.Count < layout.FieldCellsRequired ||
                     site.Crops.Any(c => !terrain.InBounds(c) || !terrain[c].Has(TerrainTraits.Fertile) ||
                         terrain[c].Has(TerrainTraits.Roofed) || !site.Field.Contains(c)))
                     errors.Add("joint_field_capacity_or_roof");
-                HashSet<GridPoint> fieldReserve = new HashSet<GridPoint>(site.Field.Points());
+                HashSet<GridPoint> fieldReserve = new HashSet<GridPoint>(site.FieldReservation);
                 fieldReserve.UnionWith(site.AllPostClearance);
                 if (site.Crops.Intersect(site.Lane.Concat(site.Wall).Concat(site.PostClearance)).Any())
                     errors.Add("joint_field_reservation_overlap");
@@ -61,6 +67,7 @@ namespace RealisticBases.Planning
                 {
                     P4BFieldWallPlan fieldWall = layout.FieldWall;
                     GridPoint fieldEntry = fieldWall.InnerGate ?? fieldWall.OuterGate;
+                    if (fieldWall.Fields.Count < P4BJointSite.MinimumMainFieldCells) errors.Add("main_field_below_minimum");
                     if (!fieldWall.InnerGate.HasValue || fieldWall.Fields.Count < layout.FieldCellsRequired || !site.Interfaces.Any(option =>
                         option.InnerGate.Equals(fieldEntry) && option.OuterGate.Equals(fieldWall.OuterGate) &&
                         option.Crops.SequenceEqual(fieldWall.Fields) &&
@@ -77,7 +84,8 @@ namespace RealisticBases.Planning
                             .Concat(fieldWall.AccessPorts.SelectMany(p => p.Doors))
                             .Concat(layout.ApproachDefense?.SallyPorts.SelectMany(p => p.Doors) ?? new GridPoint[0])
                             .Concat(new[] { fieldEntry, fieldWall.OuterGate }),
-                        fieldWall.ExteriorPosts, layout.Gates[fieldWall.GateIndex].Inside, layout.ConstructedRoof);
+                        fieldWall.ExteriorPosts, layout.Gates[fieldWall.GateIndex].Inside, layout.ConstructedRoof,
+                        allowEmptyCrops: layout.FoodSupply != null);
                     foreach (string error in fieldErrors) errors.Add("joint_" + error);
                     if (!layout.Gates[fieldWall.GateIndex].ExteriorRoute.SequenceEqual(fieldWall.ArrivalRoute))
                         errors.Add("joint_arrival_route_not_registered_on_compound_gate");
@@ -175,14 +183,14 @@ namespace RealisticBases.Planning
                     (layout.ApproachDefense?.SallyPorts.Sum(p => p.Doors.Count) ?? 0), layout.Power,
                 layout.Turret == null ? Enumerable.Empty<string>() :
                     Enumerable.Repeat(P4BCoverNest.CoverDefName(input), layout.Turret.All.Sum(t => t.CoverCells.Count))
-                        .Concat(layout.Turret.All.Select(t => t.DefName)));
+                        .Concat(layout.Turret.All.Select(t => t.DefName)), foodSupply: layout.FoodSupply);
             if (layout.Materials == null || layout.Materials.ToString() != materials.ToString()) errors.Add("materials_ledger_mismatch");
             LayoutMaterialLedger baseMaterials = layout.Turret == null ? materials :
                 input.Equipment.Count(layout.Rooms,
                     layout.BuiltWalls.Concat(layout.Gates.SelectMany(g => g.BandWalls)).Concat(layout.OuterWalls)
                         .Concat(layout.ExhaustPocketWalls).Concat(layout.FieldWall?.Walls ?? Enumerable.Empty<GridPoint>()),
                     layout.Gates.Sum(g => 1 + g.BandDoors.Count) + (layout.FieldWall == null ? 0 : 2) +
-                        (layout.ApproachDefense?.SallyPorts.Sum(p => p.Doors.Count) ?? 0), layout.Power);
+                        (layout.ApproachDefense?.SallyPorts.Sum(p => p.Doors.Count) ?? 0), layout.Power, foodSupply: layout.FoodSupply);
             // Turret.ImportValue contains its construction and finite fuel.
             // The stored materials ledger already contains construction, so
             // budget from the pre-turret ledger to avoid charging it twice.
@@ -375,7 +383,22 @@ namespace RealisticBases.Planning
                 if (room.Kind == LayoutRoomKind.Storage) needed = Math.Max(0, needed - (realized?.ReleasedCapacity ?? 0));
                 if (realized == null || realized.Capacity < needed) errors.Add("capacity_" + room.Id);
             }
-            if (layout.Rooms.Count(r => r.Kind != LayoutRoomKind.MortarMagazine) != demand.Rooms.Count) errors.Add("room_count");
+            if (layout.Rooms.Count(r => r.Kind != LayoutRoomKind.MortarMagazine && r.Kind != LayoutRoomKind.Hydroponics) != demand.Rooms.Count)
+                errors.Add("room_count");
+            if (layout.FoodSupply == null)
+            {
+                if (layout.FieldCellsRequired != requirements.FieldCells) errors.Add("missing_food_supply_contract");
+                if (layout.Rooms.Any(r => r.Kind == LayoutRoomKind.Hydroponics)) errors.Add("unaccounted_hydroponics");
+            }
+            else
+            {
+                LayoutFoodSupply expectedFood = LayoutFoodSupplyPlanner.Plan(input,
+                    layout.FieldWall?.Fields.Count ?? layout.JointSite?.Crops.Count ?? 0, layout.Rooms);
+                if (expectedFood == null || !layout.FoodSupply.Covered ||
+                    expectedFood.AddTo(StableHash.Start) != layout.FoodSupply.AddTo(StableHash.Start)) errors.Add("food_supply_coverage_or_ledger");
+                if (LayoutStockCells.ForRooms(layout.Rooms, LayoutRoomKind.Freezer, LayoutRoomKind.Pantry).Count < layout.FoodSupply.StorageCells)
+                    errors.Add("food_supply_storage");
+            }
             int beds = layout.Rooms.Where(r => r.Kind == LayoutRoomKind.Barracks || r.Kind == LayoutRoomKind.Bedroom).Sum(r => r.Capacity);
             if (beds < requirements.Residents) errors.Add("housing_beds");
             if (HousingFloorCells(input, layout).Count < requirements.Residents) errors.Add("housing_spawn_floor");
@@ -512,14 +535,15 @@ namespace RealisticBases.Planning
             if (layout.Rooms.Sum(r => r.ReleasedCapacity) != plan.ReleasedFuelStorageCells)
                 errors.Add("power_fuel_storage_trim");
             int fuelStackLimit = Math.Max(1, kit.GeneratorFuel?.StackLimit ?? 1);
-            int reservedFuelCells = (LayoutPowerModel.WarehouseFuel(kit.Generator, plan.ReservedGenerators) + fuelStackLimit - 1) / fuelStackLimit;
-            int keptFuelCells = (LayoutPowerModel.WarehouseFuel(kit.Generator, generators) + fuelStackLimit - 1) / fuelStackLimit;
+            int reservedFuelCells = (LayoutPowerModel.WarehouseFuel(kit.Generator, plan.ReservedGenerators, plan.FuelDays) + fuelStackLimit - 1) / fuelStackLimit;
+            int keptFuelCells = (LayoutPowerModel.WarehouseFuel(kit.Generator, generators, plan.FuelDays) + fuelStackLimit - 1) / fuelStackLimit;
             if (plan.ReleasedFuelStorageCells < 0 || plan.ReleasedFuelStorageCells > reservedFuelCells - keptFuelCells ||
                 layout.Rooms.Any(r => r.ReleasedCapacity < 0 || r.ReleasedCapacity > 0 && r.Kind != LayoutRoomKind.Storage))
                 errors.Add("power_fuel_storage_trim_bound");
             if (fixtures.Any(f => f.Kind == LayoutFixtureKind.Battery && !layout.Rooms.Any(r => r.Kind == LayoutRoomKind.Power && r.Id == f.RoomId)))
                 errors.Add("battery_outdoors");
-            if (plan.FuelStock != LayoutPowerModel.FuelStock(kit.Generator, generators)) errors.Add("power_fuel_stock");
+            if (plan.FuelStock != LayoutPowerModel.FuelStock(kit.Generator, generators, plan.FuelDays)) errors.Add("power_fuel_stock");
+            if (layout.FoodSupply != null && plan.FuelDays < layout.FoodSupply.Days) errors.Add("food_supply_power_fuel_horizon");
             if (layout.Doctrine == LayoutDoctrine.RockProtected && plan.Yards.Count > 0) errors.Add("power_yard_under_rock_doctrine");
             HashSet<GridPoint> geysers = new HashSet<GridPoint>(input.Resources.GeyserFootprints());
             HashSet<GridPoint> solarCells = new HashSet<GridPoint>(layout.PowerYards

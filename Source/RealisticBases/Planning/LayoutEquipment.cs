@@ -221,8 +221,10 @@ namespace RealisticBases.Planning
     {
         internal LayoutMaterialLedger(int wallCells, int doors, IDictionary<string, int> stuff, int constructionWood, int fuelWood,
             int localWoodUsed, int importedWood, int importValue, IEnumerable<string> unaccounted, IDictionary<string, int> costList,
-            string generatorFuelDef, int generatorFuel, int generatorFuelImported, int defensePowerImportValue = 0)
+            string generatorFuelDef, int generatorFuel, int generatorFuelImported, int defensePowerImportValue = 0,
+            int foodImportValue = 0)
         {
+            FoodImportValue = foodImportValue;
             DefensePowerImportValue = defensePowerImportValue;
             GeneratorFuelDef = generatorFuelDef ?? string.Empty;
             GeneratorFuel = generatorFuel;
@@ -258,6 +260,7 @@ namespace RealisticBases.Planning
         public int DefensePowerImportValue { get; }
         public int OrdinaryImportValue => Math.Max(0, ImportValue - DefensePowerImportValue);
         public int ImportValue { get; }
+        public int FoodImportValue { get; }
         // Stuffable defs whose stuff is neither the construction stuff nor wood (not charged here).
         public IReadOnlyList<string> UnaccountedStuffDefs { get; }
         // Fixed CostList totals (Steel, components, ...); recorded, charged in step 6.
@@ -266,10 +269,18 @@ namespace RealisticBases.Planning
         public override string ToString() => "walls=" + WallCells + " doors=" + Doors + " stuff=" +
             string.Join(",", Stuff.Select(s => s.Key + ":" + s.Value)) + " constructionWood=" + ConstructionWood + " fuelWood=" + FuelWood +
             " generatorFuel=" + GeneratorFuelDef + ":" + GeneratorFuel + "/imported " + GeneratorFuelImported +
-            " localWood=" + LocalWoodUsed + " importedWood=" + ImportedWood + " importValue=" + ImportValue;
+            " localWood=" + LocalWoodUsed + " importedWood=" + ImportedWood + " importValue=" + ImportValue +
+            (FoodImportValue == 0 ? string.Empty : " foodImports=" + FoodImportValue);
+
+        internal LayoutMaterialLedger WithFoodSupply(LayoutFoodSupply food) => food == null ? this :
+            new LayoutMaterialLedger(WallCells, Doors, Stuff.ToDictionary(p => p.Key, p => p.Value), ConstructionWood, FuelWood,
+                LocalWoodUsed, ImportedWood, checked(ImportValue + food.ImportValue), UnaccountedStuffDefs,
+                CostListSummary.ToDictionary(p => p.Key, p => p.Value), GeneratorFuelDef, GeneratorFuel, GeneratorFuelImported,
+                DefensePowerImportValue, food.ImportValue);
 
         internal ulong AddTo(ulong hash)
         {
+            if (FoodImportValue > 0) { hash = StableHash.Add(hash, "food-import-value"); hash = StableHash.Add(hash, FoodImportValue); }
             hash = StableHash.Add(hash, WallCells);
             hash = StableHash.Add(hash, Doors);
             foreach (KeyValuePair<string, int> s in Stuff)
@@ -500,7 +511,7 @@ namespace RealisticBases.Planning
         // Exact ledger of a planned layout: room walls (minus doors, natural rock and cooler
         // cells), the outline wall, room doors and gate doors, and every placed fixture.
         public LayoutMaterialLedger Count(IEnumerable<LayoutRoom> rooms, IEnumerable<GridPoint> builtWalls, int gates,
-            LayoutPowerPlan power, IEnumerable<string> defenseFixtures = null)
+            LayoutPowerPlan power, IEnumerable<string> defenseFixtures = null, LayoutFoodSupply foodSupply = null)
         {
             List<LayoutRoom> list = rooms.ToList();
             int wallCells = builtWalls.Count();
@@ -526,7 +537,8 @@ namespace RealisticBases.Planning
             if (defensePower != int.MaxValue) defensePower *= power?.DefenseGenerators ?? 0;
             return Ledger(Kit, Resources, ConstructionStuff, StonecuttingAdapted, wallCells, doors, fixtures,
                 power == null ? 0 : power.FuelStock, defensePower,
-                LayoutPowerModel.FuelStock(Kit.Generator, power?.DefenseGenerators ?? 0));
+                LayoutPowerModel.FuelStock(Kit.Generator, power?.DefenseGenerators ?? 0,
+                    power?.FuelDays ?? FuelHorizonDays)).WithFoodSupply(foodSupply);
         }
 
         private static LayoutMaterialLedger Ledger(LayoutKit kit, LayoutLocalResources resources, string stuff, bool adapted, int wallCells,
@@ -574,9 +586,11 @@ namespace RealisticBases.Planning
             CatalogDef woodDef;
             double woodValue = catalog.TryGet(Wood, out woodDef) ? woodDef.MarketValue : 0;
             int artillery = P4EArtillery.ImportValue(catalog, fixtureList.Count(f => f.Key == LayoutKit.MortarDefName));
+            int agriculture = fixtureList.Where(f => f.Key == LayoutFoodSupplyPlanner.Basin || f.Key == LayoutFoodSupplyPlanner.GrowLamp)
+                .Sum(f => P4EArtillery.ConstructionValue(catalog, f.Key));
             int importValue = artillery == int.MaxValue || defensePowerImports == int.MaxValue ? int.MaxValue :
-                artillery + defensePowerImports + (int)Math.Ceiling(imported * woodValue +
-                    otherFuelImported * (generatorFuelDef == null ? 0 : generatorFuelDef.MarketValue));
+                checked(artillery + agriculture + defensePowerImports + (int)Math.Ceiling(imported * woodValue +
+                    otherFuelImported * (generatorFuelDef == null ? 0 : generatorFuelDef.MarketValue)));
             return new LayoutMaterialLedger(wallCells, doors, stuffs, constructionWood, fuelWood,
                 (int)(constructionWood + allFuelWood - imported), (int)imported, importValue, unaccounted, costs,
                 generatorFuelDef == null ? null : generatorFuelDef.DefName, generatorFuel, generatorImported,

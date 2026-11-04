@@ -17,7 +17,7 @@ namespace RealisticBases.Planning
         public static IReadOnlyList<string> Validate(TerrainSnapshot terrain, IEnumerable<GridPoint> fields,
             IEnumerable<GridPoint> baselineWalls, IEnumerable<GridPoint> fieldWalls,
             IEnumerable<GridPoint> gates, IEnumerable<GridPoint> posts,
-            GridPoint accessOrigin, IEnumerable<GridPoint> constructedRoof = null)
+            GridPoint accessOrigin, IEnumerable<GridPoint> constructedRoof = null, bool allowEmptyCrops = false)
         {
             if (terrain == null) throw new ArgumentNullException(nameof(terrain));
             HashSet<GridPoint> crop = new HashSet<GridPoint>(fields ?? Enumerable.Empty<GridPoint>());
@@ -28,7 +28,7 @@ namespace RealisticBases.Planning
             HashSet<GridPoint> outsidePosts = new HashSet<GridPoint>(posts ?? Enumerable.Empty<GridPoint>());
             HashSet<GridPoint> roofs = new HashSet<GridPoint>(constructedRoof ?? Enumerable.Empty<GridPoint>());
             List<string> errors = new List<string>();
-            if (crop.Count == 0) errors.Add("field_missing");
+            if (crop.Count == 0 && !allowEmptyCrops) errors.Add("field_missing");
             if (baseline.Count == 0 || fieldWall.Count == 0 || doors.Count == 0)
                 errors.Add("field_wall_or_gate_missing");
             if (outsidePosts.Count == 0) errors.Add("field_exterior_posts_missing");
@@ -58,7 +58,7 @@ namespace RealisticBases.Planning
             if (crop.Any(edge.Contains)) errors.Add("field_exposed_behind_closed_wall");
             if (outsidePosts.Any(c => !edge.Contains(c))) errors.Add("post_not_outside_field_wall");
             HashSet<GridPoint> open = Flood(new[] { accessOrigin }, c => PawnWalkable(c) && !solid.Contains(c));
-            if (!crop.Any(open.Contains)) errors.Add("field_inaccessible_with_gates_open");
+            if ((crop.Count > 0 || !allowEmptyCrops) && !crop.Any(open.Contains)) errors.Add("field_inaccessible_with_gates_open");
             return new ReadOnlyCollection<string>(errors.Distinct().ToList());
 
             // Exposure and open-gate access use pawn movement; foundations and crops stay dry.

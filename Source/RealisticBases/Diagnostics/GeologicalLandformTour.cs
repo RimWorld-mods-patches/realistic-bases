@@ -106,6 +106,12 @@ namespace RealisticBases.Diagnostics
         [DebugAction("Realistic Bases tour", "Recheck recorded GL CoveWithIsland candidate tile", allowedGameStates = AllowedGameStates.Playing)]
         private static void RecordedCoveCandidate() => RecheckRecordedTile("CoveWithIsland", 50492);
 
+        [DebugAction("Realistic Bases tour", "Recheck recorded GL DesertPlateau tile", allowedGameStates = AllowedGameStates.Playing)]
+        private static void RecordedDesertPlateau() => RecheckRecordedTile("DesertPlateau", 63300);
+
+        [DebugAction("Realistic Bases tour", "Recheck recorded GL RiverSource tile", allowedGameStates = AllowedGameStates.Playing)]
+        private static void RecordedRiverSource() => RecheckRecordedTile("RiverSource", 67416);
+
         private static void RecheckRecordedTile(string form, int tileId)
         {
             RequireDisposable();

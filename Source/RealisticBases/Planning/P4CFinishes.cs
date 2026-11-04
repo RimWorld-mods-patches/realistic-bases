@@ -120,7 +120,7 @@ namespace RealisticBases.Planning
                         new[] { layout.FieldWall.InnerGate.Value } : new GridPoint[0])
                     .Distinct().ToList();
             HashSet<GridPoint> protectedCells = new HashSet<GridPoint>(layout.FieldWall?.Fields ?? new GridPoint[0]);
-            protectedCells.UnionWith(layout.JointSite?.Field.Points() ?? Enumerable.Empty<GridPoint>());
+            protectedCells.UnionWith(layout.JointSite?.FieldReservation ?? Enumerable.Empty<GridPoint>());
             protectedCells.ExceptWith(fieldRoute);
             protectedCells.UnionWith(layout.FieldWall?.Fields ?? new GridPoint[0]);
             protectedCells.UnionWith(layout.PowerYards.SelectMany(y => y.Cells));

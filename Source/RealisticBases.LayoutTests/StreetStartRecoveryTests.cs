@@ -14,7 +14,7 @@ internal static partial class Program
         LayoutAttempt Attempt(GridRect compound, out List<LayoutDiagnostic> diagnostics)
         {
             diagnostics = new List<LayoutDiagnostic>();
-            var site = new P4BJointSite(field, compound, anchor, new GridPoint[0], new GridPoint[0],
+            var site = new P4BJointSite(field, compound, anchor, new GridRect(66,35,5,5).Points(), new GridPoint[0],
                 new GridPoint[0], new GridPoint(63, 40), new GridPoint(76, 40), new GridPoint[0], 0);
             var grid = LayoutTerrainGrid.Build(terrain, input.Fortification.PlacementMargin).RestrictTo(compound);
             return new LayoutAttempt(input, input.Equipment.Demand, grid, anchor, LayoutDoctrine.OpenGround,

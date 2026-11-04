@@ -148,7 +148,7 @@ namespace RealisticBases.Planning
         private static readonly string[] IndustrialEarly =
         {
             "ComplexFurniture", "Stonecutting", "ComplexClothing", "Electricity", "AirConditioning", "NutrientPaste", "PassiveCooler",
-            "Batteries", "Machining", "Gunsmithing", "Mortars"
+            "Batteries", "Machining", "Gunsmithing", "Mortars", "Hydroponics"
         };
         // SterileMaterials: prerequisite of HospitalBed, found by the prerequisite-closure check.
         private static readonly string[] IndustrialMid =
@@ -200,12 +200,26 @@ namespace RealisticBases.Planning
             foreach (SettlementTechStageLevel l in Levels)
             {
                 if (l > level) break;
-                foreach (string r in AddedResearch(l)) result.Add(r);
+                foreach (string r in AddedResearch(l))
+                {
+#if RB_CAPTURED_LEGACY_RESEARCH
+                    // Explicit historical-fixture build only. Shipped builds
+                    // always use the current stage table above.
+                    if (r == "Hydroponics") continue;
+#endif
+                    result.Add(r);
+                }
             }
             return new ReadOnlyCollection<string>(result.ToList());
         }
 
         public static SettlementTechStage Create(SettlementTechStageLevel level) => new SettlementTechStage(level, null);
+
+#if RB_CAPTURED_LEGACY_RESEARCH
+        public const string ResearchTableVersion = "tech-research.1";
+#else
+        public const string ResearchTableVersion = "tech-research.2-hydroponics";
+#endif
 
         // Stage weights (percent, summing to 100) for a faction tech level; empty when unsupported.
         public static IReadOnlyList<KeyValuePair<SettlementTechStageLevel, int>> Band(TechTier factionTechLevel)

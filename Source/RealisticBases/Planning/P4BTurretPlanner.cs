@@ -155,7 +155,7 @@ namespace RealisticBases.Planning
             CellSet sharedBaseOpaque = null)
         {
             if (input == null || layout == null || turret == null ||
-                layout.FieldWall == null && input.QuestContract == null) return new[] { "missing_plan" };
+                layout.FieldWall == null && input.QuestContract == null && !layout.HasOmittedMainField) return new[] { "missing_plan" };
             List<string> errors = new List<string>();
             List<P4BTurretPlan> guns = turret.All.ToList();
             if (turret.AdditionalGroups.Any(g => g.AdditionalGroups.Count > 0) ||
@@ -485,7 +485,7 @@ namespace RealisticBases.Planning
         {
             List<string> errors = new List<string>();
             if (input == null || layout == null || turret == null ||
-                layout.FieldWall == null && input.QuestContract == null)
+                layout.FieldWall == null && input.QuestContract == null && !layout.HasOmittedMainField)
                 return new[] { "missing_plan" };
             // A quest camp has no field: its guns carry their access gate and side.
             P4BFieldWallPlan fieldWall = layout.FieldWall;
@@ -617,7 +617,7 @@ namespace RealisticBases.Planning
         public static P4BTurretPlan Plan(ProceduralLayoutInput input, ProceduralLayout layout,
             P4BFieldWallPlan fieldWall, IEnumerable<GridPoint> occupied, out string diagnostic)
         {
-            if (input == null || layout == null || fieldWall == null) throw new ArgumentNullException();
+            if (input == null || layout == null || fieldWall == null && !layout.HasOmittedMainField) throw new ArgumentNullException();
             SettlementLoadout garrison = LayoutLoadoutModel.Build(input, layout);
             if (!garrison.Success)
             { diagnostic = "unplaced: garrison_unavailable"; return null; }
@@ -628,9 +628,7 @@ namespace RealisticBases.Planning
                 planningContext.BaseOpaque.Add(cell);
             if (occupied != null)
                 foreach (GridPoint cell in occupied) planningContext.StaticBlocked.Add(cell);
-            planningContext.StaticBlocked.UnionWith(fieldWall.Walls);
-            planningContext.StaticBlocked.UnionWith(fieldWall.ExteriorPosts);
-            planningContext.StaticBlocked.UnionWith(fieldWall.Fields);
+            foreach (GridPoint cell in FieldContent(fieldWall)) planningContext.StaticBlocked.Add(cell);
             if (layout.ApproachDefense != null)
             {
                 foreach (GridPoint cell in layout.ApproachDefense.CoverCells)
@@ -662,7 +660,7 @@ namespace RealisticBases.Planning
                         Exposure = side.Samples.Count, Posts = g.Count() };
                 })
                 .OrderByDescending(c => c.Exposure).ThenBy(c => c.AccessGate).ThenBy(c => c.Outward).ToList();
-            if (crossings.Count == 0 && layout.ApproachDefense == null)
+            if (crossings.Count == 0 && layout.ApproachDefense == null && fieldWall != null)
                 crossings.Add(new { AccessGate = fieldWall.OuterGate, Outward = new GridPoint(
                     Math.Sign(fieldWall.OuterGate.X - fieldWall.InnerGate.Value.X),
                     Math.Sign(fieldWall.OuterGate.Z - fieldWall.InnerGate.Value.Z)), Side = "field", Exposure = 1, Posts = 1 });
@@ -838,8 +836,8 @@ namespace RealisticBases.Planning
             bool ignoreGainGate, int spacingLevel, bool fullCountDefenseReserve,
             out string diagnostic)
         {
-            if (input == null || layout == null || fieldWall == null) throw new ArgumentNullException();
-            if (!fieldWall.InnerGate.HasValue)
+            if (input == null || layout == null || fieldWall == null && !layout.HasOmittedMainField) throw new ArgumentNullException();
+            if (fieldWall != null && !fieldWall.InnerGate.HasValue)
             { diagnostic = "field_gate_unavailable"; return null; }
             if (layout.Power == null || input.Equipment.Kit.Stage.Level < SettlementTechStageLevel.IndustrialMid)
             { diagnostic = "stage_or_power_unavailable"; return null; }
@@ -868,17 +866,18 @@ namespace RealisticBases.Planning
             List<GridPoint> opaqueCells = new List<GridPoint>();
             opaque.CopyTo(opaqueCells);
             for (int i = 0; i < opaqueCells.Count; i++)
-                if (!accessGates.Contains(opaqueCells[i]) && !opaqueCells[i].Equals(fieldWall.InnerGate.Value))
+                if (!accessGates.Contains(opaqueCells[i]) && (fieldWall == null || !opaqueCells[i].Equals(fieldWall.InnerGate.Value)))
                     blocked.Add(opaqueCells[i]);
             HashSet<GridPoint> legacyBlocked = blocked.ToHashSet();
             HashSet<GridPoint> legacyOpaque = opaque.ToHashSet();
-            GridPoint inner = fieldWall.InnerGate.Value, outer = fieldWall.OuterGate;
-            GridPoint outward = new GridPoint(Math.Sign(outer.X - inner.X), Math.Sign(outer.Z - inner.Z));
-            GridPoint tangent = new GridPoint(-outward.Z, outward.X);
             List<Frame> frames = new List<Frame>();
-            string fieldSide = outward.X != 0 ? (outward.X < 0 ? "west" : "east") : (outward.Z < 0 ? "south" : "north");
-            if (layout.ApproachDefense == null)
+            if (layout.ApproachDefense == null && fieldWall != null)
+            {
+                GridPoint inner = fieldWall.InnerGate.Value, outer = fieldWall.OuterGate;
+                GridPoint outward = new GridPoint(Math.Sign(outer.X - inner.X), Math.Sign(outer.Z - inner.Z));
+                string fieldSide = outward.X != 0 ? (outward.X < 0 ? "west" : "east") : (outward.Z < 0 ? "south" : "north");
                 frames.Add(new Frame { Anchor = outer, Gate = outer, Outward = outward, Side = fieldSide });
+            }
             if (layout.ApproachDefense != null)
                 // One frame per post facing a side: its slots stand side by side,
                 // so further slots would only repeat the same turret search.

@@ -64,7 +64,8 @@ namespace RealisticBases.Planning
                 case LayoutRoomKind.Freezer:
                 case LayoutRoomKind.Pantry:
                 case LayoutRoomKind.Kitchen:
-                case LayoutRoomKind.Dining: return LayoutClusterKind.Food;
+                case LayoutRoomKind.Dining:
+                case LayoutRoomKind.Hydroponics: return LayoutClusterKind.Food;
                 case LayoutRoomKind.Storage:
                 case LayoutRoomKind.Workshop:
                 case LayoutRoomKind.Laboratory: return LayoutClusterKind.Production;

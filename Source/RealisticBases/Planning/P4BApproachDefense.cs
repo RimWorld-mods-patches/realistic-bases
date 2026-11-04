@@ -204,7 +204,7 @@ namespace RealisticBases.Planning
         {
             HashSet<GridPoint> opaque = Opaque(layout, input.Terrain);
             HashSet<GridPoint> interior = new HashSet<GridPoint>(layout.Enclosure.Concat(
-                layout.JointSite == null ? Enumerable.Empty<GridPoint>() : layout.JointSite.Field.Points()));
+                layout.JointSite == null ? Enumerable.Empty<GridPoint>() : layout.JointSite.FieldReservation));
             HashSet<GridPoint> enclosureCells = new HashSet<GridPoint>(layout.Enclosure);
             HashSet<GridPoint> occupied = new HashSet<GridPoint>(opaque.Concat(interior)
                 .Concat(layout.PowerYards.SelectMany(y => y.Cells)).Concat(layout.ExtraObstacles));
@@ -695,7 +695,7 @@ namespace RealisticBases.Planning
             // selection cache was scored before returns existed; use the final
             // opaque/occupied flood and the same no-corner-cut rule as metric v3.
             HashSet<GridPoint> finalBlocked = new HashSet<GridPoint>(opaque.Concat(layout.Enclosure)
-                .Concat(layout.JointSite == null ? Enumerable.Empty<GridPoint>() : layout.JointSite.Field.Points())
+                .Concat(layout.JointSite == null ? Enumerable.Empty<GridPoint>() : layout.JointSite.FieldReservation)
                 .Concat(layout.PowerYards.SelectMany(y => y.Cells)).Concat(layout.ExtraObstacles));
             HashSet<GridPoint> finalReachable = FloodEdgesNoCornerCut(input.Terrain, finalBlocked);
             compoundTargets.Clear();
@@ -759,7 +759,7 @@ namespace RealisticBases.Planning
             GridPoint entry = layout.FieldWall.InnerGate.Value;
             HashSet<GridPoint> walls = new HashSet<GridPoint>(layout.FieldWall.Walls.Concat(layout.BuiltWalls)
                 .Concat(layout.NaturalWalls).Concat(layout.ExtraObstacles));
-            HashSet<GridPoint> fieldCells = new HashSet<GridPoint>(layout.JointSite.Field.Points());
+            HashSet<GridPoint> fieldCells = new HashSet<GridPoint>(layout.JointSite.FieldReservation);
             Queue<GridPoint> queue = new Queue<GridPoint>();
             previous[entry] = entry; queue.Enqueue(entry);
             while (queue.Count > 0)
@@ -992,7 +992,7 @@ namespace RealisticBases.Planning
                 .Concat((layout.FieldWall?.Walls ?? new GridPoint[0]).Except(
                     allPorts.Where(p => p.Field).SelectMany(p => p.Doors))),
                 layout.Gates.Sum(g => 1 + g.BandDoors.Count) + (layout.FieldWall == null ? 0 : 2) +
-                    allPorts.Sum(p => p.Doors.Count), layout.Power);
+                    allPorts.Sum(p => p.Doors.Count), layout.Power, foodSupply: layout.FoodSupply);
         }
 
         public static IReadOnlyList<string> Validate(ProceduralLayoutInput input, ProceduralLayout layout)
@@ -1002,7 +1002,7 @@ namespace RealisticBases.Planning
             List<string> errors = new List<string>();
             HashSet<GridPoint> opaque = Opaque(layout, input.Terrain);
             HashSet<GridPoint> occupied = new HashSet<GridPoint>(opaque.Concat(layout.Enclosure)
-                .Concat(layout.JointSite?.Field.Points() ?? new GridPoint[0])
+                .Concat(layout.JointSite?.FieldReservation ?? new GridPoint[0])
                 .Concat(layout.PowerYards.SelectMany(y => y.Cells)).Concat(layout.ExtraObstacles));
             occupied.UnionWith(layout.Turret?.All.SelectMany(t => t.Footprint) ?? new GridPoint[0]);
             HashSet<GridPoint> cover = new HashSet<GridPoint>();
