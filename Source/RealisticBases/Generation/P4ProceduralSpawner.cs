@@ -1226,18 +1226,27 @@ namespace RealisticBases.Generation
 
         private static int AuditCoolerExhaust(Map map, ProceduralLayout layout)
         {
-            int count = 0, freezerCount = 0, roomCount = 0, ventCount = 0;
+            int count = 0, freezerCount = 0, roomCount = 0, ventCount = 0, furnishedColdSides = 0;
+            int furnishedCoolerSides = 0, furnishedVentSides = 0;
             foreach (LayoutRoom room in layout.Rooms)
                 foreach (LayoutFixture cooler in room.Fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind)))
                 {
                     IntVec3 cold = ToCell(cooler.ColdCell.Value);
                     IntVec3 hot = ToCell(cooler.HotCell.Value);
+                    if (cooler.Kind == LayoutFixtureKind.WallCooler && (cold.Impassable(map) || hot.Impassable(map)))
+                        throw new InvalidOperationException("Cooler air cell is natively impassable: " + room.Id + " cold=" + cold + " hot=" + hot);
                     Room served = cold.GetRoom(map);
                     Room exhaust = hot.GetRoom(map);
                     if (served == null || exhaust == null || served == exhaust ||
                         served.UsesOutdoorTemperature || !exhaust.UsesOutdoorTemperature)
                         throw new InvalidOperationException("Cooler lacks a sealed served room and outdoor exhaust: " +
                             room.Id + " cold=" + cold + " hot=" + hot);
+                    if (cold.GetThingList(map).Any(t => t is Building))
+                    {
+                        furnishedColdSides++;
+                        if (cooler.Kind == LayoutFixtureKind.WallVent) furnishedVentSides++;
+                        else furnishedCoolerSides++;
+                    }
                     if (cooler.Kind == LayoutFixtureKind.WallVent)
                     {
                         if (!(ToCell(cooler.Cells[0]).GetEdifice(map) is Building_Vent))
@@ -1254,7 +1263,9 @@ namespace RealisticBases.Generation
                 }
             P2Log.Message("PROCEDURAL_COOLER_AUDIT", "map=" + map.uniqueID + " freezer=" + freezerCount +
                 " targetC=" + SettlementTemperatureTargets.FreezerC + " rooms=" + roomCount +
-                " targetC=" + SettlementTemperatureTargets.OccupiedRoomC + " generatorVents=" + ventCount);
+                " targetC=" + SettlementTemperatureTargets.OccupiedRoomC + " generatorVents=" + ventCount +
+                " furnishedColdSides=" + furnishedColdSides + " furnishedCoolerSides=" + furnishedCoolerSides +
+                " furnishedVentSides=" + furnishedVentSides);
             return count;
         }
 

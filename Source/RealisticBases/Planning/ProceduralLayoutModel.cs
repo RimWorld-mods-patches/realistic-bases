@@ -81,6 +81,10 @@ namespace RealisticBases.Planning
         // Mounted in a wall cell with the room on one side and outdoor air on the other.
         public static bool ThroughWall(LayoutFixtureKind kind) =>
             kind == LayoutFixtureKind.WallCooler || kind == LayoutFixtureKind.WallVent;
+
+        public static bool AllowsIndoorFurniture(LayoutFixtureKind device, CatalogDef furniture) =>
+            furniture != null && (device == LayoutFixtureKind.WallCooler ? !furniture.Blocking :
+                device == LayoutFixtureKind.WallVent && !(furniture.BlocksRoom ?? furniture.Blocking));
     }
 
     public enum LayoutDoctrine
@@ -972,7 +976,7 @@ namespace RealisticBases.Planning
         {
             if (context == null) throw new ArgumentNullException(nameof(context));
             if (w < 1 || h < 1 || doorX < 1 || doorX > w) return new LayoutFurnishResult(new List<LayoutLocalFixture>(), 0, "illegal_room_size");
-            Room room = new Room(w, h, doorX);
+            Room room = new Room(w, h, doorX, context.Kit.Catalog);
             LayoutKit kit = context.Kit;
             int area = w * h;
             int capacity = 0;
@@ -1196,13 +1200,16 @@ namespace RealisticBases.Planning
             private readonly int h;
             private readonly int doorX;
             private readonly byte[] state;
+            private readonly TechCatalog catalog;
+            private readonly List<KeyValuePair<GridPoint, LayoutFixtureKind>> airIntakes = new List<KeyValuePair<GridPoint, LayoutFixtureKind>>();
             public readonly List<LayoutLocalFixture> Fixtures = new List<LayoutLocalFixture>();
 
-            public Room(int w, int h, int doorX)
+            public Room(int w, int h, int doorX, TechCatalog catalog)
             {
                 this.w = w;
                 this.h = h;
                 this.doorX = doorX;
+                this.catalog = catalog;
                 state = new byte[(w + 2) * (h + 2)];
                 state[Index(doorX, 1)] = KeepFree;
             }
@@ -1243,7 +1250,7 @@ namespace RealisticBases.Planning
                         var cells = Enumerable.Range(0, 4).Select(i => new GridPoint(x, z + i)).ToList();
                         if (cells.Any(c => state[Index(c.X, c.Z)] != Free ||
                             (c.X-center.X)*(c.X-center.X)+(c.Z-center.Z)*(c.Z-center.Z) > lamp.GrowLightRadius*lamp.GrowLightRadius)) continue;
-                        if (!TryCommit(cells, new List<GridPoint>())) continue;
+                        if (!TryCommit(cells, new List<GridPoint>(), basin)) continue;
                         Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.HydroponicsBasin, basin.DefName, cells, null,
                             new GridPoint(0, -1), true, basin.BasePowerConsumption, false, null));
                         placed++;
@@ -1306,7 +1313,7 @@ namespace RealisticBases.Planning
                                     (f.Kind == LayoutFixtureKind.Workbench || f.Kind == LayoutFixtureKind.Stove))) continue;
                             access.Add(front);
                         }
-                        if (TryCommit(cells, access))
+                        if (TryCommit(cells, access, template.Definition))
                         {
                             // Cells are reserved in the local plan either way; Blocking reports vanilla passability.
                             Fixtures.Add(new LayoutLocalFixture(template.Kind, template.Def, cells, access, inward, template.Blocking, template.Watts,
@@ -1329,7 +1336,7 @@ namespace RealisticBases.Planning
                 int placed = 0;
                 Func<List<GridPoint>, GridPoint, bool> commit = (cells, facing) =>
                 {
-                    if (!cells.All(c => Interior(c) && state[Index(c.X, c.Z)] == Free) || !TryCommit(cells, new List<GridPoint>())) return false;
+                    if (!cells.All(c => Interior(c) && state[Index(c.X, c.Z)] == Free) || !TryCommit(cells, new List<GridPoint>(), template.Definition)) return false;
                     Fixtures.Add(new LayoutLocalFixture(template.Kind, template.Def, cells, null, facing, template.Blocking,
                         template.Watts, template.Fuel, template.Role));
                     placed++;
@@ -1402,7 +1409,7 @@ namespace RealisticBases.Planning
                         CenterDistance(f.Cells, slot.Key) <= maxDistance &&
                         P4BFireLane.CanEngage(center, f.Cells[f.Cells.Count / 2], 0, (int)Math.Ceiling(maxDistance),
                             Fixtures.Where(o => o != f).SelectMany(o => o.Cells).ToList()))) continue;
-                    if (!TryCommit(slot.Key, new List<GridPoint>())) continue;
+                    if (!TryCommit(slot.Key, new List<GridPoint>(), template.Definition)) continue;
                     Fixtures.Add(new LayoutLocalFixture(template.Kind, template.Def, slot.Key, null, slot.Value,
                         template.Blocking, template.Watts, template.Fuel, template.Role));
                     return true;
@@ -1432,7 +1439,7 @@ namespace RealisticBases.Planning
                         GridPoint[] chairs = { new GridPoint(x - 1, z), new GridPoint(x + 2, z + 1), new GridPoint(x, z + 2), new GridPoint(x + 1, z - 1) };
                         if (!table.All(c => Interior(c) && state[Index(c.X, c.Z)] == Free)) continue;
                         if (!chairs.All(c => Interior(c) && state[Index(c.X, c.Z)] == Free)) continue;
-                        if (!TryCommit(table.ToList(), chairs.ToList())) continue;
+                        if (!FitsAirIntakes(chairs, seatDef) || !TryCommit(table.ToList(), chairs.ToList(), tableDef)) continue;
                         Fixtures.Add(new LayoutLocalFixture(LayoutFixtureKind.Table, tableDef.DefName, table, chairs, new GridPoint(0, -1),
                             tableDef.Passability != CatalogPassability.Standable, 0, false, SettlementRole.Table));
                         if (seatDef != null)
@@ -1506,7 +1513,7 @@ namespace RealisticBases.Planning
                         if(best==null) return null;
                         floors.Remove(best.Candidate);
                         var cell=best.Candidate.Fixture.Cells[0];
-                        if(!TryCommit(new List<GridPoint>{cell},new List<GridPoint>())) continue;
+                        if(!TryCommit(new List<GridPoint>{cell},new List<GridPoint>(),floorLamp.Definition)) continue;
                         Fixtures.Add(best.Candidate.Fixture);
                         selected.Add(best.Candidate);
                         unlit.ExceptWith(best.Candidate.Coverage);
@@ -1557,20 +1564,28 @@ namespace RealisticBases.Planning
                     GridPoint wall = candidate.Value.Key, inward = candidate.Value.Value;
                     GridPoint cold = new GridPoint(wall.X + inward.X, wall.Z + inward.Z);
                     GridPoint hotCell = new GridPoint(wall.X - inward.X, wall.Z - inward.Z);
-                    if (state[Index(cold.X, cold.Z)] != Free) continue;
+                    if (Fixtures.Any(f => f.Cells.Contains(wall))) continue;
+                    if (Fixtures.Where(f => f.Cells.Contains(cold)).Any(f => f.Kind != LayoutFixtureKind.Stockpile &&
+                        (!catalog.TryGet(f.DefName, out CatalogDef def) || !LayoutFixtureKinds.AllowsIndoorFurniture(cooler.Kind, def)))) continue;
                     // Two pockets may not touch: one would have to be the other's wall.
                     if (hot.Any(o => (o.Key > 0 || candidate.Key > 0) && Math.Abs(o.Value.X - hotCell.X) + Math.Abs(o.Value.Z - hotCell.Z) == 1)) continue;
-                    if (!TryCommit(new List<GridPoint>(), new List<GridPoint> { cold })) continue;
+                    // Air exchange needs a compatible native cell, not an empty
+                    // pawn interaction tile. Keep placement occupancy separate.
+                    airIntakes.Add(new KeyValuePair<GridPoint, LayoutFixtureKind>(cold, cooler.Kind));
                     Fixtures.Add(new LayoutLocalFixture(cooler.Kind, cooler.Def, new[] { wall },
-                        new[] { cold }, inward, true, cooler.Watts, cooler.Fuel, cooler.Role));
+                        null, inward, true, cooler.Watts, cooler.Fuel, cooler.Role));
                     hot.Add(new KeyValuePair<int, GridPoint>(candidate.Key, hotCell));
                     placed++;
                 }
                 return placed >= count;
             }
 
-            private bool TryCommit(List<GridPoint> blocking, List<GridPoint> keepFree)
+            private bool FitsAirIntakes(IEnumerable<GridPoint> cells, CatalogDef definition) =>
+                !airIntakes.Any(a => cells.Contains(a.Key) && !LayoutFixtureKinds.AllowsIndoorFurniture(a.Value, definition));
+
+            private bool TryCommit(List<GridPoint> blocking, List<GridPoint> keepFree, CatalogDef definition = null)
             {
+                if (!FitsAirIntakes(blocking, definition)) return false;
                 if (keepFree.Any(c => !Interior(c) || state[Index(c.X, c.Z)] == Blocked || blocking.Contains(c))) return false;
                 byte[] backup = (byte[])state.Clone();
                 foreach (GridPoint c in blocking) state[Index(c.X, c.Z)] = Blocked;

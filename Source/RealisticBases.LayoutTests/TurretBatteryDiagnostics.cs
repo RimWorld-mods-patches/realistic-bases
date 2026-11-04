@@ -585,8 +585,15 @@ internal static partial class Program
             P2ProfileCatalog.IndustrialTemperate, foothillClimate, stage: late, populationBudget: foothillBudget);
         cases.Add(("foothill-seed3849C7F216B8A3E2-late-wealth90", new ProceduralLayoutInput(foothillRequirements,
             Plains(160), 0x3849C7F216B8A3E2UL, CoreCatalog, new LayoutFortificationReservation(1))));
+        TerrainSnapshot ridgeObstacles = Obstacles(160);
+        // This is a network-acceptance fixture: the rock occupies buildable
+        // underlying terrain, as captured separately by the native map adapter.
+        // Occupancy still requires excavation; it does not grant wiring through intact rock.
+        TerrainSnapshot buildableRidge = new TerrainSnapshot(160,160,ridgeObstacles.Points().Select(c =>
+            new TerrainCell(ridgeObstacles[c].Traits | (ridgeObstacles[c].Has(TerrainTraits.NaturalRock)
+                ? TerrainTraits.Buildable : TerrainTraits.None))),"foothill-buildable-underlay");
         cases.Add(("foothill-ridge-seed3849C7F216B8A3E2", new ProceduralLayoutInput(broadRequirements,
-            Obstacles(160), 0x3849C7F216B8A3E2UL, CoreCatalog, new LayoutFortificationReservation(1))));
+            buildableRidge, 0x3849C7F216B8A3E2UL, CoreCatalog, new LayoutFortificationReservation(1))));
 
         foreach ((string label, ProceduralLayoutInput input) in cases)
         {
@@ -601,6 +608,15 @@ internal static partial class Program
                 label + " remains valid under planner-owned turret rules");
             True(P4BTurretPlanner.PowerTerminalsConnected(input, planned.Layout, planned.Layout.Turret),
                 label + " connects every powered fixture, generator yard, battery and turret through legal wiring terrain");
+            if (input.Terrain == buildableRidge)
+            {
+                TerrainSnapshot unsupported = new TerrainSnapshot(160,160,input.Terrain.Points().Select(c =>
+                    new TerrainCell(input.Terrain[c].Traits & ~TerrainTraits.Buildable)),"unsupported-wiring-terrain");
+                var unsupportedInput = new ProceduralLayoutInput(input.Requirements,unsupported,input.Seed,input.Catalog,
+                    input.Fortification,input.Budget,input.Resources);
+                True(!P4BTurretPlanner.PowerTerminalsConnected(unsupportedInput,planned.Layout,planned.Layout.Turret),
+                    "the same network still rejects terrain without conduit support");
+            }
             Equal(planned.Layout.Turret.All.Count(), preflight.GuardLookups.Count,
                 label + " retains one optional guard lookup per planned turret");
             int withGuard = preflight.GuardLookups.Count(g => g.GuardPost.HasValue);

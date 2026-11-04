@@ -109,7 +109,9 @@ namespace RealisticBases.Integration
                         Number(Member(glower, "overlightRadius"))) : 0,
                     glowRadius: Number(Member(glower, "glowRadius")),
                     glowStrength: Math.Max(Int(Member(glowColor, "r")), Math.Max(Int(Member(glowColor, "g")), Int(Member(glowColor, "b")))),
-                    blocksLight: Bool(Member(thing, "blockLight"))));
+                    blocksLight: Bool(Member(thing, "blockLight")),
+                    blocksRoom: thing.passability == Traversability.Impassable && thing.Fillage == FillCategory.Full &&
+                        !thing.IsDoor && !thing.IsFence));
             }
             List<CatalogResearch> projects = DefDatabase<ResearchProjectDef>.AllDefsListForReading
                 .Select(project => new CatalogResearch(project.defName, Tier(Member(project, "techLevel")),

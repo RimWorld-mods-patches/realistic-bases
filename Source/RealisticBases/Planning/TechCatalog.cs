@@ -40,7 +40,7 @@ namespace RealisticBases.Planning
             IEnumerable<string> linkableFacilities = null, double facilityMaxDistance = 0, bool isSittable = false,
             bool supportsSeatedWork = false, bool? supportsQuality = null, int maxItemsInCell = 1,
             double nutrition = 0, double growFertility = 0, double growLightRadius = 0,
-            double glowRadius = 0, int glowStrength = 0, bool blocksLight = false)
+            double glowRadius = 0, int glowStrength = 0, bool blocksLight = false, bool? blocksRoom = null)
         {
             if (new[] { nutrition, growFertility, growLightRadius, glowRadius, (double)glowStrength }.Any(value =>
                 value < 0 || double.IsNaN(value) || double.IsInfinity(value)))
@@ -51,6 +51,7 @@ namespace RealisticBases.Planning
             GlowRadius = glowRadius;
             GlowStrength = glowStrength;
             BlocksLight = blocksLight;
+            BlocksRoom = blocksRoom;
             if (maxItemsInCell < 1) throw new ArgumentOutOfRangeException(nameof(maxItemsInCell));
             MaxItemsInCell = maxItemsInCell;
             if (string.IsNullOrEmpty(defName)) throw new ArgumentNullException(nameof(defName));
@@ -176,6 +177,9 @@ namespace RealisticBases.Planning
         public double GlowRadius { get; }
         public int GlowStrength { get; }
         public bool BlocksLight { get; }
+        // Native impassable full-fill furniture has no room region. Unknown
+        // historical defs remain conservative when used beside a vent.
+        public bool? BlocksRoom { get; }
         public bool SupportsSeatedWork { get; }
         public bool SupportsQuality { get; }
         public bool AutonomousTurret => TurretGunDefName.Length > 0 && MaximumRange > 0 && BasePowerConsumption > 0;
@@ -194,6 +198,11 @@ namespace RealisticBases.Planning
             if (GlowRadius > 0) { hash = StableHash.Add(hash, "glow-radius"); hash = AddScaled(hash, GlowRadius); }
             if (GlowStrength > 0) { hash = StableHash.Add(hash, "glow-strength"); hash = StableHash.Add(hash, GlowStrength); }
             if (BlocksLight) hash = StableHash.Add(hash, "blocks-light");
+            if (BlocksRoom.HasValue)
+            {
+                hash = StableHash.Add(hash, "blocks-room");
+                hash = StableHash.Add(hash, BlocksRoom.Value ? 1 : 0);
+            }
             hash = StableHash.Add(hash, (int)Category);
             hash = StableHash.Add(hash, (int)TechLevel);
             hash = AddList(hash, ResearchPrerequisites);

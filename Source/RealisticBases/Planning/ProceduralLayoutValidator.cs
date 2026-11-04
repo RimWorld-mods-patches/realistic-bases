@@ -715,6 +715,9 @@ namespace RealisticBases.Planning
                     string label = room.Id + "_" + cooler.Cells[0];
                     int served = partition.RoomAt(new GridPoint(room.Interior.MinX, room.Interior.MinZ));
                     if (partition.RoomAt(cooler.ColdCell.Value) != served || served < 0) errors.Add("cooler_cold_side_not_served_room_" + label);
+                    foreach (LayoutFixture occupant in layout.AllFixtures.Where(f => f.Cells.Contains(cooler.ColdCell.Value) && f.Kind != LayoutFixtureKind.Stockpile))
+                        if (!input.Catalog.TryGet(occupant.DefName, out CatalogDef def) || !LayoutFixtureKinds.AllowsIndoorFurniture(cooler.Kind, def))
+                            errors.Add("cooler_cold_side_blocked_" + label);
                     if (!partition.IsOutdoor(cooler.HotCell.Value)) errors.Add("cooler_exhaust_not_outdoor_" + label);
                     if (roomCells.Contains(cooler.HotCell.Value)) errors.Add("cooler_exhaust_into_room_" + label);
                 }
@@ -942,6 +945,14 @@ namespace RealisticBases.Planning
             foreach (LayoutPowerYard yard in layout.PowerYards)
                 foreach (GridPoint cell in yard.Cells)
                     placements.Add(new PhysicalPlacement(PhysicalPlacementKind.Generator, yard.DefName, string.Empty, cell, yard.Rotation, "yard", false, 0));
+            // The legacy P4 model treats every fixture anchor as impassable and
+            // demands adjacent job access, including automated wall devices.
+            // It cannot represent native passable furniture on an air cell.
+            foreach (LayoutRoom room in layout.Rooms)
+                foreach (LayoutFixture device in room.Fixtures.Where(f => LayoutFixtureKinds.ThroughWall(f.Kind)))
+                    if (placements.Any(p => p.FacilityId == room.Id && p.Cell.Equals(device.ColdCell.Value)))
+                        blockers.Add("furnished_thermal_air_cell_not_representable_" + room.Id + "_" + device.ColdCell.Value);
+            if (blockers.Count > 0) return null;
             IReadOnlyCollection<GridPoint> publicCells = ProceduralLayoutValidator.PublicCirculation(input, layout);
             TerrainMutationFootprint mutations = new TerrainMutationFootprint(layout.Excavation, Enumerable.Empty<GridPoint>(), layout.ConstructedRoof,
                 layout.NaturalWalls.Concat(layout.Rooms.SelectMany(r => r.NaturalWalls)));

@@ -66,6 +66,10 @@ internal static partial class Program
         Run("freezer and occupied-room cooler targets differ", CoolerTemperatureTargets);
         Run("workbenches stand against a wall with an interior work cell", WorkbenchesAgainstWall);
         RunCoolerExhaustTests();
+        Run("thermal intake: a cooler can face a passable bed", CoolerIntakeCanContainBed);
+        Run("thermal intake: freezer shelves can occupy the cold side", FreezerIntakeCanContainShelf);
+        Run("thermal intake: vents allow room-permeable furniture", VentIntakeCanContainFurniture);
+        Run("thermal intake: captured airflow facts preserve hashes and native rules", ThermalAirflowFacts);
         RunLayoutEngineV2Tests();
         RunCoverNestTests();
         RunP5BTests();
@@ -2239,10 +2243,13 @@ internal static partial class Program
         Contains(dry.Layout.Power.Diagnostics, "power_source_unplaceable:GeothermalGenerator:no_geyser");
         ProceduralLayoutResult river = Mid(1, null, new LayoutLocalResources(int.MaxValue, null, new[] { new GridPoint(3, 60), new GridPoint(3, 61) }));
         Contains(river.Layout.Power.Diagnostics, "power_source_unplaceable:WatermillGenerator:river_outside_enclosure");
-        // Racked storage needs fewer lamps; 200 residents still exceed the largest legal power room.
-        ProceduralLayoutResult oversized = Plan(Plains(120), LayoutRequirements.FromPopulation(200, Industrial, Temperate), 1);
-        Equal("room_demand_exceeds_legal_dimensions", oversized.RejectionCode, "a load beyond eight generators rejects before search");
+        // Exceed the physical generator-area bound independently of furniture packing efficiency.
+        var oversizedRequirements = new LayoutRequirements(6,Industrial,HousingStandard.Barracks,Temperate,0,480,186,
+            stage:MidStage,importValueLimit:int.MaxValue,defenseReserveWatts:1000000);
+        ProceduralLayoutResult oversized = Plan(Plains(120), oversizedRequirements, 1);
+        Equal("room_demand_exceeds_legal_dimensions", oversized.RejectionCode, "an impossible rated load rejects before search");
         True(oversized.Diagnostics.Any(d => d.Detail.StartsWith("room_demand_exceeds_legal_dimensions:Power")), "power room named");
+        Equal(0,oversized.Stats.EvaluationCount,"physical power demand is rejected before layout search");
     }
 
     private static void InteractionOffsetUnsupported()
