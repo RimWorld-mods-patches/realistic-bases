@@ -184,7 +184,7 @@ namespace RealisticBases.Planning
                 choices.Add("WoodPlankFloor");
                 // A pre-existing natural-rock floor can be smoothed only when
                 // the whole interior resolves to one smooth terrain def.
-                string smooth = cells.All(c => site.SmoothFloors.ContainsKey(c))
+                string smooth = cells.Count > 0 && cells.All(c => site.SmoothFloors.ContainsKey(c))
                     ? site.SmoothFloors[cells[0]] : null;
                 if (smooth != null && cells.Any(c => site.SmoothFloors[c] != smooth)) smooth = null;
                 if (smooth != null) choices.Insert(0, smooth);

@@ -191,19 +191,48 @@ namespace RealisticBases.Planning
                 opaqueTargets[cell.Z * terrain.Width + cell.X] = terrain[cell].HasAny(
                     TerrainTraits.NaturalRock | TerrainTraits.Occupied) &&
                     !terrain[cell].Has(TerrainTraits.ClearablePlant);
-            return FindCore(terrain, requiredCrops, minimumCompoundCells, margin, seed, maxCandidates,
+            P4BJointSiteResult result = FindCore(terrain, requiredCrops, minimumCompoundCells, margin, seed, maxCandidates,
                 maxEvaluations, residents, refineFieldOrigins, attachmentDepth, attachmentHalfTip,
                 grid, edgeReach, opaqueTargets, plannerDegree, minimumCrops: minimumCrops ?? requiredCrops);
+            if (result.Candidates.Count > 0 || !minimumCrops.HasValue || minimumCrops.Value == requiredCrops)
+                return result;
+
+            // Funded partial food supply can use a smaller physical field.
+            // First retain the established full-size search. Only if it has
+            // no connected site, try a fixed family of smaller footprints,
+            // sharing the original three-phase pair-evaluation allowance.
+            int fullSide = (int)Math.Ceiling(Math.Sqrt(requiredCrops)) + 5;
+            int minimumSide = (int)Math.Ceiling(Math.Sqrt(Math.Max(P4BJointSite.MinimumMainFieldCells,
+                minimumCrops.Value))) + 5;
+            int[] sides = new[] { fullSide - 3, fullSide - 6, fullSide - 9, minimumSide }
+                .Where(s => s >= minimumSide && s < fullSide).Distinct().ToArray();
+            int evaluated = result.Evaluated, scanned = result.FieldOriginsScanned;
+            var rejections = result.Rejections.ToList();
+            for (int i = 0; i < sides.Length; i++)
+            {
+                int allowance = (int)((3L * maxEvaluations - evaluated) / (3 * (sides.Length - i)));
+                if (allowance <= 0) break;
+                P4BJointSiteResult smaller = FindCore(terrain, requiredCrops, minimumCompoundCells, margin,
+                    seed, maxCandidates, allowance, residents, true, attachmentDepth, attachmentHalfTip,
+                    grid, edgeReach, opaqueTargets, plannerDegree, minimumCrops: minimumCrops.Value,
+                    fieldSideOverride: sides[i]);
+                evaluated += smaller.Evaluated;
+                scanned += smaller.FieldOriginsScanned;
+                rejections.AddRange(smaller.Rejections.Select(r => "field_" + sides[i] + "_" + r));
+                if (smaller.Candidates.Count > 0)
+                    return new P4BJointSiteResult(smaller.Candidates, rejections, evaluated, scanned);
+            }
+            return new P4BJointSiteResult(Enumerable.Empty<P4BJointSite>(), rejections, evaluated, scanned);
         }
 
         private static P4BJointSiteResult FindCore(TerrainSnapshot terrain, int requiredCrops,
             int minimumCompoundCells, int margin, ulong seed, int maxCandidates, int maxEvaluations,
             int residents, bool refineFieldOrigins, int attachmentDepth, int attachmentHalfTip,
             LayoutTerrainGrid grid, bool[] edgeReach, bool[] opaqueTargets, int plannerDegree,
-            bool useFieldTerrainRules = false, int minimumCrops = -1)
+            bool useFieldTerrainRules = false, int minimumCrops = -1, int fieldSideOverride = 0)
         {
             if (minimumCrops < 0) minimumCrops = requiredCrops;
-            int fieldSide = (int)Math.Ceiling(Math.Sqrt(requiredCrops)) + 5;
+            int fieldSide = fieldSideOverride > 0 ? fieldSideOverride : (int)Math.Ceiling(Math.Sqrt(requiredCrops)) + 5;
             // Room packing needs circulation, gate returns and utility pockets in
             // addition to the minimum room-area count. A 30-cell square passed
             // site preflight but repeatedly ran out of room on live 160x160 maps.
@@ -289,7 +318,8 @@ namespace RealisticBases.Planning
                     maxCandidates, maxEvaluations, residents, refineFieldOrigins: true,
                     attachmentDepth: attachmentDepth, attachmentHalfTip: attachmentHalfTip,
                     grid: grid, edgeReach: edgeReach, opaqueTargets: opaqueTargets, plannerDegree: plannerDegree,
-                    useFieldTerrainRules: refineFieldOrigins, minimumCrops: minimumCrops);
+                    useFieldTerrainRules: refineFieldOrigins, minimumCrops: minimumCrops,
+                    fieldSideOverride: fieldSideOverride);
                 return new P4BJointSiteResult(refined.Candidates,
                     rejected.OrderBy(kv => kv.Key).Select(kv => (refineFieldOrigins ? "setback_" : "coarse_") + kv.Key + ":" + kv.Value)
                         .Concat(refined.Rejections.Select(r => (refineFieldOrigins ? "field_terrain_" : "refined_") + r)),
@@ -343,10 +373,14 @@ namespace RealisticBases.Planning
                 List<GridPoint> compoundCells = compound.Points().ToList();
                 List<GridPoint> compoundPlaceable = compoundCells.Where(grid.CanPlace).ToList();
                 int available = compoundPlaceable.Count;
-                if (available < minimumCompoundCells ||
-                    LargestConnected(compoundPlaceable).Count < minimumCompoundCells)
+                List<List<GridPoint>> regions = ConnectedRegions(compoundPlaceable);
+                if (available < minimumCompoundCells || regions.All(r => r.Count < minimumCompoundCells))
                 { result.Reject("compound_capacity"); continue; }
+                var regionAt = new Dictionary<GridPoint, int>();
+                for (int r = 0; r < regions.Count; r++)
+                    foreach (GridPoint cell in regions[r]) regionAt[cell] = r;
                 List<P4BFieldInterface> interfaces = new List<P4BFieldInterface>();
+                var interfaceRegions = new Dictionary<GridPoint, int>();
                 bool attachmentBlocked = false;
                 for (int gateOffset = 2; gateOffset <= fieldSide - 3; gateOffset++)
                 {
@@ -388,6 +422,19 @@ namespace RealisticBases.Planning
                     List<GridPoint> interior = fertileOpenInterior.Where(c => !laneSet.Contains(c)).ToList();
                     List<GridPoint> reachable = ReachableFromLane(interior, lane);
                     if (reachable.Count < minimumCrops) continue;
+                    // Capacity elsewhere in the envelope cannot supply rooms
+                    // for a field gate stranded on a small dry island. Keep
+                    // the existing terrain/setback rules, including rock that
+                    // later mountain routing may excavate within its budget.
+                    if (attachmentDepth > 0 && reachable.Count >= P4BJointSite.MinimumMainFieldCells)
+                    {
+                        GridPoint terminal = new GridPoint(innerGate.X - Math.Sign(outerGate.X - innerGate.X) * attachmentDepth,
+                            innerGate.Z - Math.Sign(outerGate.Z - innerGate.Z) * attachmentDepth);
+                        int region;
+                        if (!regionAt.TryGetValue(terminal, out region) || regions[region].Count < minimumCompoundCells)
+                        { result.Reject("field_compound_disconnected"); continue; }
+                        interfaceRegions[innerGate] = region;
+                    }
                     interfaces.Add(new P4BFieldInterface(innerGate, outerGate, reachable, lane, posts, cover, postAccess));
                 }
                 if (interfaces.Count == 0)
@@ -401,7 +448,13 @@ namespace RealisticBases.Planning
                 int score = requiredCrops * 4 - farmlandLost - (wall.Count * 2) + available / 8 + ProtectionWeight * protectedRing;
                 GridPoint center = new GridPoint((compound.MinX + compound.MaxX) / 2,
                     (compound.MinZ + compound.MaxZ) / 2);
-                GridPoint anchor = compoundPlaceable
+                int preferredRegion;
+                IEnumerable<GridPoint> anchorCells = interfaceRegions.TryGetValue(preferred.InnerGate, out preferredRegion)
+                    ? regions[preferredRegion] : compoundPlaceable;
+                if (interfaceRegions.ContainsKey(preferred.InnerGate))
+                    interfaces = interfaces.Where(i => interfaceRegions.ContainsKey(i.InnerGate) &&
+                        interfaceRegions[i.InnerGate] == preferredRegion).ToList();
+                GridPoint anchor = anchorCells
                     .OrderBy(c => Manhattan(c, center)).ThenBy(c => c).First();
                 result.Accepted.Add(new P4BJointSite(field, compound, anchor, preferred.Crops, preferred.Lane, wall,
                     preferred.InnerGate, preferred.OuterGate, preferred.PostClearance, score, interfaces,
@@ -539,10 +592,10 @@ namespace RealisticBases.Planning
             return false;
         }
 
-        private static List<GridPoint> LargestConnected(IEnumerable<GridPoint> cells)
+        private static List<List<GridPoint>> ConnectedRegions(IEnumerable<GridPoint> cells)
         {
             HashSet<GridPoint> remaining = new HashSet<GridPoint>(cells);
-            List<GridPoint> best = new List<GridPoint>();
+            List<List<GridPoint>> regions = new List<List<GridPoint>>();
             while (remaining.Count > 0)
             {
                 GridPoint start = remaining.OrderBy(c => c).First();
@@ -560,9 +613,9 @@ namespace RealisticBases.Planning
                         if (remaining.Remove(next)) queue.Enqueue(next);
                     }
                 }
-                if (component.Count > best.Count) best = component;
+                regions.Add(component);
             }
-            return best.OrderBy(c => c).ToList();
+            return regions;
         }
 
         private static List<GridPoint> ReachableFromLane(IEnumerable<GridPoint> crops, IEnumerable<GridPoint> lane)

@@ -126,6 +126,8 @@ internal static partial class Program
         Run("scarce cropland keeps population with funded cultivation and imports", ScarceCroplandFoodLayout, 15);
         Run("captured ice sheet uses funded food fallback", IceSheet33970FoodFallback, 30);
         Run("captured desert candidate keeps eleven residents and three layers with funded food", Oasis35518FoodFallback, 60);
+        Run("captured swamp field terminals share the compound's capacity region", Swamp15155ConnectedSites, 15);
+        Run("captured swamp places a connected funded settlement", Swamp15155Settlement, 60);
         Run("unfunded hydroponics retains a funded imports-only fallback", UnfundedHydroponicsImportFallback, 15);
         Run("zero outdoor growing season omits the field and funds food", IceSheet33970NoGrowingSeason, 30);
         Run("native outdoor growing facts preserve legacy inputs and food credit", OutdoorGrowingSeasonFacts);
@@ -2574,6 +2576,14 @@ internal static partial class Program
         foreach (LayoutRoom room in result.Layout.Rooms)
             True(room.Interior.Points().Where(eligible.Contains).All(first.Floors.ContainsKey),
                 "room " + room.Id + " gets a floor on every supported cell");
+        LayoutRoom alreadyFloored = result.Layout.Rooms.First();
+        P4CFinishPlan partial = P4CFinishPlanner.Plan(input, result.Layout,
+            new P4CFinishSite(eligible.Where(c => !alreadyFloored.Interior.Contains(c))), finishes);
+        True(!partial.Floors.Keys.Any(alreadyFloored.Interior.Contains),
+            "a room with no eligible new floor cells is left untouched");
+        True(result.Layout.Rooms.Where(r => r != alreadyFloored).SelectMany(r => r.Interior.Points())
+            .Where(eligible.Contains).All(partial.Floors.ContainsKey),
+            "one room with no eligible floor does not omit every other room's finish");
         P4CFinishPlan unavailable = P4CFinishPlanner.Plan(input, result.Layout, site, new P4CFloorDef[0]);
         Equal(0, unavailable.Floors.Count, "unsupported definitions cause omission, not rejection");
         True(unavailable.Reasons.Any(r => r.Contains("no_legal_affordable_finish")), "omission is diagnosed");
