@@ -1167,10 +1167,9 @@ namespace RealisticBases.Planning
                     if (stats.SitesTried >= siteLimit) break;
                     stats.SitesTried++;
                     int siteEvaluationStart = stats.Evaluations;
-                    // Every already-ranked same-tile candidate gets a fair
-                    // share. Capping the divisor at four allowed those first
-                    // four to consume the entire budget and starve a viable
-                    // fifth field/compound pair. Reuse unspent early shares.
+                    // Every packing strategy shares the remaining budget
+                    // across the remaining ranked sites. Yield between attempts
+                    // and reuse any unspent allowance from earlier sites.
                     int siteAllowance = Math.Max(1, (input.Budget.MaxEvaluations - stats.Evaluations) /
                         Math.Max(1, anchors.Count - siteIndex));
                     P4BJointSite originalSite = paired == null ? null : paired[siteIndex];
@@ -1181,7 +1180,7 @@ namespace RealisticBases.Planning
                             extendedGrowth: envelopeStrategy);
                     foreach (P4BJointSite site in variants)
                     {
-                        if (envelopeStrategy && stats.Evaluations - siteEvaluationStart >= siteAllowance && siteIndex + 1 < anchors.Count)
+                        if (stats.Evaluations - siteEvaluationStart >= siteAllowance && siteIndex + 1 < anchors.Count)
                         { Note(diagnostics, "site", "fair_budget_yield", "evaluations=" + (stats.Evaluations - siteEvaluationStart)); break; }
                         GridPoint anchor = site == null ? anchors[siteIndex] : site.Anchor;
                         LayoutTerrainGrid siteGrid = site == null ? grid : grid.RestrictTo(site.Compound);
@@ -1190,7 +1189,7 @@ namespace RealisticBases.Planning
                                 "field=" + site.Field + " compound=" + site.Compound + " anchor=" + anchor);
                         for (int attempt = 0; attempt < input.Budget.AttemptsPerSite; attempt++)
                         {
-                            if (envelopeStrategy && stats.Evaluations - siteEvaluationStart >= siteAllowance && siteIndex + 1 < anchors.Count) break;
+                            if (stats.Evaluations - siteEvaluationStart >= siteAllowance && siteIndex + 1 < anchors.Count) break;
                             if (stats.BudgetExhausted) return (pool.Count > 0 ? finishBest() : null) ?? reject("search_budget_exhausted");
                             stats.Attempts++;
                             ulong attemptSeed = LayoutSeed.Key(LayoutSeed.Sub(input.Seed, "attempt"), anchor.X * 4099 + anchor.Z, attempt, (int)doctrine);
@@ -1900,7 +1899,7 @@ namespace RealisticBases.Planning
             bool done = TryPlaceRoom(room);
             if (!done && envelopeSearch && !stats.BudgetExhausted)
                 done = PlaceByConnectedExtension(room, true);
-            while (!done && !stats.BudgetExhausted && repairs < input.Budget.MaxRepairsPerAttempt)
+            while (!done && !stats.BudgetExhausted && repairs + accessRepairs < input.Budget.MaxRepairsPerAttempt)
             {
                 repairs++;
                 stats.Repairs++;
@@ -2023,6 +2022,12 @@ namespace RealisticBases.Planning
                             ProceduralLayoutValidator.Neighbors(c).Any(newPockets.Contains))) continue;
                         int extraDigs = path.Count(c => grid.At(c) == LayoutCellClass.Rock);
                         if (dug.Count + candidate.Dig.Count + extraDigs > Budget && extraDigs > 0) continue;
+                        if (TryPreserveRoomAccess(room, candidate.Bounds))
+                        {
+                            if (TryPlaceRoom(room)) return true;
+                            ReleaseReserves();
+                            return PlaceByConnectedExtension(room, broad);
+                        }
                         Segment extension = new Segment { Id = "room-extension:" + room.Id, Retain = true, Root = joined, Axis = facing };
                         foreach (GridPoint cell in path) extension.Sections.Add(new List<GridPoint> { cell });
                         if (!Claim(extension)) continue;
@@ -2691,6 +2696,7 @@ namespace RealisticBases.Planning
             }
             done:
             if (best == null) return false;
+            if (TryPreserveRoomAccess(room, best.Bounds)) return TryPlaceRoom(room);
             Commit(room, best);
             return true;
         }

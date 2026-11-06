@@ -22,6 +22,9 @@
     <Content Include="ice-sheet-33970-terrain.rle" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="oasis-candidate-35518-terrain.rle" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="swamp-candidate-15155-terrain.rle" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="crater-candidate-47593-terrain.rle" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="swamp-candidate-18364-terrain.rle" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="cliff-coast-92330-terrain.rle" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="coastalisland-field-route.json" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="../RealisticBases/Planning/P1Model.cs" Link="Planning/P1Model.cs" />
     <Compile Include="../RealisticBases/Planning/P4ChunkRelocation.cs" Link="Planning/P4ChunkRelocation.cs" />
@@ -37,6 +40,7 @@
     <Compile Include="../RealisticBases/Planning/LayoutStyle.cs" Link="Planning/LayoutStyle.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutClusterPacking.cs" Link="Planning/LayoutClusterPacking.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutRibs.cs" Link="Planning/LayoutRibs.cs" />
+    <Compile Include="../RealisticBases/Planning/LayoutAccessRepair.cs" Link="Planning/LayoutAccessRepair.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutCandidateScore.cs" Link="Planning/LayoutCandidateScore.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutExposure.cs" Link="Planning/LayoutExposure.cs" />
     <Compile Include="../RealisticBases/Planning/LayoutBonusFields.cs" Link="Planning/LayoutBonusFields.cs" />

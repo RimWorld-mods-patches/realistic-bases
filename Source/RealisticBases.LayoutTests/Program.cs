@@ -117,6 +117,10 @@ internal static partial class Program
         Run("P4B joint site keeps crop capacity and compound space together", P4BJointSiteCases, 15);
         Run("P4B street starts recover inside the same compound without crossing hazards", StreetStartRecovery);
         Run("room extension skips impossible footprints without spending candidate slots", RoomExtensionCandidateBudget);
+        Run("room access repair keeps a dry chamber reachable after placement", RoomAccessRepair);
+        Run("room access repair shares bounded growth and route allowances", RoomAccessRepairBounds);
+        Run("captured swamp18364 keeps rooms connected with unchanged wall clearance", Swamp18364AccessSettlement, 15);
+        Run("captured cliff coast92330 shares the small-roster search budget across sites", CliffCoast92330FairSearch, 15);
         Run("P4B mountain field approach charges bounded excavation", FieldApproachExcavation);
         Run("main field minimum omits zero and 24 crops but retains 25", MainFieldMinimumBoundary);
         Run("food supply preserves nutrition with one funded first-harvest stock", FoodSupplyContract);
@@ -126,6 +130,7 @@ internal static partial class Program
         Run("scarce cropland keeps population with funded cultivation and imports", ScarceCroplandFoodLayout, 15);
         Run("captured ice sheet uses funded food fallback", IceSheet33970FoodFallback, 30);
         Run("captured desert candidate keeps eleven residents and three layers with funded food", Oasis35518FoodFallback, 60);
+        Run("captured Crater candidate retains four residents and two layers", Crater47593CurrentMap, 20);
         Run("captured swamp field terminals share the compound's capacity region", Swamp15155ConnectedSites, 15);
         Run("captured swamp places a connected funded settlement", Swamp15155Settlement, 60);
         Run("unfunded hydroponics retains a funded imports-only fallback", UnfundedHydroponicsImportFallback, 15);
@@ -1397,10 +1402,14 @@ internal static partial class Program
             if (result.Diagnostics.Any(d => d.Stage == "joint_site" && d.Code == "grow_compound")) grownSites++;
             Equal(0, ProceduralLayoutValidator.Validate(input, result.Layout).Count,
                 "high-industrial clutter layout " + sample + " validates");
+            True(result.Stats.Evaluations <= input.Budget.MaxEvaluations &&
+                result.Stats.SitesTried <= input.Budget.MaxSites,
+                "high-industrial clutter search " + sample + " stays inside its allowances");
         }
         True(accepted == seeds.Length, "all plausible flat maps accept; " +
             accepted + "/" + seeds.Length + " failures=" + string.Join("|", failures));
-        True(grownSites > 0, "the flat corpus exercises same-site compound growth");
+        // Growth geometry is checked by P4BJointSiteCases. Fair site sharing
+        // may find another complete site before this corpus needs to grow one.
         Console.WriteLine("  high-industrial flat-density acceptance: " + accepted + "/" + seeds.Length +
             " localGrowth=" + grownSites +
             (failures.Count == 0 ? string.Empty : " rejected=" + string.Join("|", failures)));

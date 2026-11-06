@@ -412,8 +412,8 @@ namespace RealisticBases.Planning
         private bool PlaceInBlocks(LayoutRoomDemand room)
         {
             bool done = TryPlaceRoom(room);
-            int limit = input.Budget.MaxRepairsPerAttempt + 2 * demand.Rooms.Count;
-            while (!done && !stats.BudgetExhausted && growths < limit)
+            int limit = CorridorRepairLimit;
+            while (!done && !stats.BudgetExhausted && growths + accessRepairs < limit)
             {
                 growths++;
                 stats.Repairs++;
