@@ -121,7 +121,8 @@ internal static partial class Program
         Run("room access repair shares bounded growth and route allowances", RoomAccessRepairBounds);
         Run("captured swamp18364 keeps rooms connected with unchanged wall clearance", Swamp18364AccessSettlement, 15);
         Run("captured cliff coast92330 shares the small-roster search budget across sites", CliffCoast92330FairSearch, 15);
-        Run("P4B mountain field approach charges bounded excavation", FieldApproachExcavation);
+        Run("P4B field approach charges bounded excavation for both doctrines", FieldApproachExcavation);
+        Run("captured swamp110256 ordinary field connector excavates within its allowance", Swamp110256FieldExcavation, 30);
         Run("main field minimum omits zero and 24 crops but retains 25", MainFieldMinimumBoundary);
         Run("food supply preserves nutrition with one funded first-harvest stock", FoodSupplyContract);
         Run("hydroponic food package requires sun lamp growth cells power and funding", HydroponicFoodPackage);

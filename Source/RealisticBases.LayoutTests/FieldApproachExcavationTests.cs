@@ -35,11 +35,30 @@ internal static partial class Program
         var tooSmall = Probe(terrain, 4);
         True(!tooSmall.Connected && tooSmall.Excavation.Length == 0, "an unfunded tunnel rejects without claiming partial excavation");
         True(!Probe(terrain, 50, LayoutDoctrine.OpenGround).Connected, "open-ground doctrine still cannot excavate thick roof rock");
+        var ordinaryRock = Barrier(rock & ~TerrainTraits.ThickRoof);
+        string ordinaryBefore = ordinaryRock.Digest;
+        var ordinaryTunnel = Probe(ordinaryRock, 5, LayoutDoctrine.OpenGround);
+        True(ordinaryTunnel.Connected, "an ordinary street can connect through rock it is already allowed to excavate");
+        Equal(5, ordinaryTunnel.Excavation.Length, "the ordinary field connector charges every new rock cell");
+        True(ordinaryTunnel.Excavation.All(c => ordinaryRock[c].Has(TerrainTraits.NaturalRock) &&
+            !ordinaryRock[c].Has(TerrainTraits.ThickRoof)), "ordinary excavation keeps its roof restrictions");
+        var ordinaryTooSmall = Probe(ordinaryRock, 4, LayoutDoctrine.OpenGround);
+        True(!ordinaryTooSmall.Connected && ordinaryTooSmall.Excavation.Length == 0,
+            "ordinary field excavation rejects without partial claims when the shared allowance is insufficient");
+        Equal(ordinaryBefore, ordinaryRock.Digest, "ordinary field routing leaves terrain unchanged");
         var dryRoute = Probe(Barrier(rock, gap: true), 5);
         True(dryRoute.Connected && dryRoute.Excavation.Length == 0, "an existing dry route is preferred to a tunnel");
+        var ordinaryDryRoute = Probe(Barrier(rock, gap: true), 5, LayoutDoctrine.OpenGround);
+        True(ordinaryDryRoute.Connected && ordinaryDryRoute.Excavation.Length == 0,
+            "ordinary connectors also prefer an existing dry route");
         True(!Probe(Barrier(DeepWater), 50).Connected, "excavation does not authorize crossing water");
+        True(!Probe(Barrier(DeepWater), 50, LayoutDoctrine.OpenGround).Connected,
+            "ordinary field excavation does not authorize crossing water");
         var bounded = Probe(terrain, 50, routeNodes: 3);
         True(!bounded.Connected && bounded.Nodes <= 3, "fallback shares the original per-interface route-node cap");
+        var ordinaryBounded = Probe(ordinaryRock, 50, LayoutDoctrine.OpenGround, routeNodes: 3);
+        True(!ordinaryBounded.Connected && ordinaryBounded.Nodes <= 3,
+            "ordinary fallback shares the original per-interface route-node cap");
     }
 }
 

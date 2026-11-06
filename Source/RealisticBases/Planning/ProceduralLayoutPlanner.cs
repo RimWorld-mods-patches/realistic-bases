@@ -2396,8 +2396,10 @@ namespace RealisticBases.Planning
                         queue.Enqueue(next);
                     }
                 }
-                if (!joined.HasValue && doctrine == LayoutDoctrine.RockProtected &&
-                    visited < input.Budget.MaxRouteNodes)
+                // Siting can connect capacity through natural rock for either
+                // doctrine. Use the same excavation permissions as its streets
+                // and rooms; CanExcavate still protects thick roofs on open ground.
+                if (!joined.HasValue && visited < input.Budget.MaxRouteNodes)
                 {
                     int excavationVisited;
                     joined = FindExcavatedFieldJoin(terminal, forbidden, input.Budget.MaxRouteNodes - visited,
