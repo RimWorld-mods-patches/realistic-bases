@@ -37,6 +37,12 @@ EXECUTABLE = "Contents/MacOS/RimWorld by Ludeon Studios"
 SAVE_ROUTE = "/api/v1/debug-actions/save?name="
 PREFS = """<?xml version="1.0" encoding="utf-8"?>
 <PrefsData>
+  <volumeMaster>0</volumeMaster>
+  <volumeGame>0</volumeGame>
+  <volumeMusic>0</volumeMusic>
+  <volumeAmbient>0</volumeAmbient>
+  <volumeUI>0</volumeUI>
+  <fullscreen>False</fullscreen>
   <runInBackground>True</runInBackground>
   <pauseOnLoad>True</pauseOnLoad>
   <pauseOnError>False</pauseOnError>
@@ -44,6 +50,15 @@ PREFS = """<?xml version="1.0" encoding="utf-8"?>
   <devMode>True</devMode>
 </PrefsData>
 """
+PROFILE_PREFS = {
+    "volumeMaster": "0",
+    "volumeGame": "0",
+    "volumeMusic": "0",
+    "volumeAmbient": "0",
+    "volumeUI": "0",
+    "fullscreen": "False",
+    "devMode": "True",
+}
 
 
 class Report:
@@ -120,6 +135,29 @@ def active_mods(path):
         return [li.text.strip().lower() for li in ET.parse(path).getroot().find("activeMods") if li.text]
     except (OSError, ET.ParseError, TypeError):
         return None
+
+
+def configured_prefs(path):
+    """Return profile prefs with all audio buses muted and fullscreen disabled."""
+    if path.exists():
+        root = ET.parse(path).getroot()
+    else:
+        root = ET.fromstring(PREFS)
+    for name, value in PROFILE_PREFS.items():
+        setting = root.find(name)
+        if setting is None:
+            setting = ET.SubElement(root, name)
+        setting.text = value
+    ET.indent(root, space="  ")
+    return '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
+
+
+def prefs_match(path):
+    try:
+        root = ET.parse(path).getroot()
+        return all(root.findtext(name) == value for name, value in PROFILE_PREFS.items())
+    except (OSError, ET.ParseError):
+        return False
 
 
 def fetch_release(repo, tag, dest):
@@ -251,14 +289,14 @@ def plan(root, values, config):
             config_file.write_text(mods_config(version, baseline), encoding="utf-8")
         actions.append(write_mods)
     prefs = profile / "Config/Prefs.xml"
-    if prefs.exists():
-        report.add("ok", "profile prefs", "Prefs.xml present")
+    if prefs_match(prefs):
+        report.add("ok", "profile prefs", "windowed, muted, and developer mode configured")
     else:
-        report.add("todo", "profile prefs", "write Prefs.xml with dev mode on")
+        report.add("todo", "profile prefs", "set windowed, mute audio, and enable dev mode")
 
         def write_prefs():
             prefs.parent.mkdir(parents=True, exist_ok=True)
-            prefs.write_text(PREFS, encoding="utf-8")
+            prefs.write_text(configured_prefs(prefs), encoding="utf-8")
         actions.append(write_prefs)
     for folder in (profile / "Saves", Path(values["RW_LOG_FILE"]).parent):
         if not folder.is_dir():
