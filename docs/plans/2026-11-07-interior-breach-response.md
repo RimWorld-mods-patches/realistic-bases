@@ -27,8 +27,10 @@ costly.
    policy requires a 10% defender advantage to fight; otherwise the garrison
    concedes. A conceded incident stays conceded until intruders leave or the
    defender advantage rises above 35%, preventing rapid policy oscillation.
-   Defenders stop pursuing and withdraw to separate reachable positions. They
-   can return fire from their position when a nearby enemy is visible. Native
+   Defenders stop pursuing, stay in cover if already safe, and otherwise look
+   for separate reachable positions outside enemy fire. A withdrawal can leave
+   an exposed position without moving closer to a shooter. Defenders can return
+   fire when targeted, recently hit, or facing a nearby visible enemy. Native
    raid behavior governs what attackers do next. The player receives one
    **Garrison concedes** letter per concession, with a link to the occupied area.
 5. Clear the danger area when no active intruders remain in the compound and
