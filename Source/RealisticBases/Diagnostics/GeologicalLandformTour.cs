@@ -142,6 +142,9 @@ namespace RealisticBases.Diagnostics
         [DebugAction("Realistic Bases tour", "Recheck recorded GL CliffAndCoast candidate tile", allowedGameStates = AllowedGameStates.Playing)]
         private static void RecordedCliffAndCoastCandidate() => RecheckRecordedTile("CliffAndCoast", 92330);
 
+        [DebugAction("Realistic Bases tour", "Recheck recorded GL CliffCorner tile", allowedGameStates = AllowedGameStates.Playing)]
+        private static void RecordedCliffCorner() => RecheckRecordedTile("CliffCorner", 3810);
+
         [DebugAction("Realistic Bases tour", "Recheck recorded GL Crater candidate tile", allowedGameStates = AllowedGameStates.Playing)]
         private static void RecordedCraterCandidate() => RecheckRecordedTile("Crater", 47593);
 

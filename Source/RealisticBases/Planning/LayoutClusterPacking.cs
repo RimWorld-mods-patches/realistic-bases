@@ -19,10 +19,29 @@ namespace RealisticBases.Planning
 
         private LayoutStyle Style => style ?? (style = LayoutStyle.Select(doctrine, input.Equipment.Kit, input.Requirements));
 
+        private bool BuildFieldStreet() =>
+            BuildSpine() && (jointSite?.HasMainField != true ||
+                !input.Requirements.ReservePopulationCirculation || ReserveFieldApproach());
+
+        // Called on a scratch attempt, before adding rooms or corridor branches.
+        internal int? MeasureConnectedRoomArea()
+        {
+            if (!BuildFieldStreet()) return 0;
+            if (!TryAccessReach(null, out HashSet<GridPoint> reachable)) return null;
+            reachable.RemoveWhere(c => !OkForStreet(c));
+            int side = LayoutDemandModel.MinInterior + 2;
+            var roomGround = new HashSet<GridPoint>();
+            foreach (GridPoint cell in reachable)
+            {
+                var footprint = new GridRect(cell.X, cell.Z, side, side);
+                if (footprint.Points().All(reachable.Contains)) roomGround.UnionWith(footprint.Points());
+            }
+            return roomGround.Count;
+        }
+
         private bool PlaceClusteredRooms()
         {
-            if (!BuildSpine()) return false;
-            if (jointSite?.HasMainField == true && input.Requirements.ReservePopulationCirculation && !ReserveFieldApproach()) return false;
+            if (!BuildFieldStreet()) return false;
             frontPoint = FrontEnd();
             int depth = LayoutClusters.TypicalDepth(demand.Rooms);
             // Two rooms back to back between parallel branches share one rear wall.

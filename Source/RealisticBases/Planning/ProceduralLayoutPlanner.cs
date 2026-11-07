@@ -1069,7 +1069,11 @@ namespace RealisticBases.Planning
             {
                 int roll = LayoutSeed.Roll(input.Seed, "doctrine", 100);
                 bool keepMortar = roll < requirements.MortarBiasPercent;
-                diagnostics.Add(new LayoutDiagnostic("doctrine", keepMortar ? "keep_mortar" : "protect", "roll=" + roll + " mortarBias=" + requirements.MortarBiasPercent));
+                bool mountainFirst = keepMortar && jointSites != null && PreferMountainAtJointSites(
+                    input, demand, grid, jointSites.Candidates, requiredArea, stats, timings, diagnostics);
+                if (mountainFirst) keepMortar = false;
+                diagnostics.Add(new LayoutDiagnostic("doctrine", mountainFirst ? "terrain_protect" : keepMortar ? "keep_mortar" : "protect",
+                    "roll=" + roll + " mortarBias=" + requirements.MortarBiasPercent));
                 KeyValuePair<LayoutDoctrine, bool> open = new KeyValuePair<LayoutDoctrine, bool>(LayoutDoctrine.OpenGround, true);
                 KeyValuePair<LayoutDoctrine, bool> rock = new KeyValuePair<LayoutDoctrine, bool>(LayoutDoctrine.RockProtected, false);
                 doctrines.Add(keepMortar ? open : rock);
@@ -1143,6 +1147,7 @@ namespace RealisticBases.Planning
                 }
                 return null;
             };
+            List<GridPoint> fallbackAnchors = null;
             for (int d = 0; d < doctrines.Count; d++)
             {
                 LayoutDoctrine doctrine = doctrines[d].Key;
@@ -1159,19 +1164,31 @@ namespace RealisticBases.Planning
                 List<P4BJointSite> paired = jointSites == null ? null : jointSites.Candidates
                     .Skip(stats.SitesTried).Take(siteQuota).ToList();
                 List<GridPoint> anchors = paired == null
-                    ? Anchors(grid, components, doctrine, LayoutSeed.Sub(input.Seed, "site"), siteQuota)
+                    ? fallbackAnchors ?? Anchors(grid, components, doctrine, LayoutSeed.Sub(input.Seed, "site"), siteQuota)
                     : paired.Select(s => s.Anchor).ToList();
+                int laterSites = 0;
+                int remainingQuota = sitesRemaining - anchors.Count;
+                if (d + 1 < doctrines.Count && remainingQuota > 0)
+                {
+                    if (paired == null)
+                    {
+                        fallbackAnchors = Anchors(grid, components, doctrines[d + 1].Key,
+                            LayoutSeed.Sub(input.Seed, "site"), remainingQuota);
+                        laterSites = fallbackAnchors.Count;
+                    }
+                    else laterSites = Math.Min(remainingQuota, jointSites.Candidates.Count - stats.SitesTried - anchors.Count);
+                }
                 if (anchors.Count == 0) diagnostics.Add(new LayoutDiagnostic("site", "no_anchor", doctrine.ToString()));
                 for (int siteIndex = 0; siteIndex < anchors.Count; siteIndex++)
                 {
                     if (stats.SitesTried >= siteLimit) break;
                     stats.SitesTried++;
                     int siteEvaluationStart = stats.Evaluations;
-                    // Every packing strategy shares the remaining budget
-                    // across the remaining ranked sites. Yield between attempts
-                    // and reuse any unspent allowance from earlier sites.
+                    // Include the fallback style's sites when sharing the remaining
+                    // budget. Yield between attempts and reuse unused evaluations.
+                    int pendingSites = anchors.Count - siteIndex + laterSites;
                     int siteAllowance = Math.Max(1, (input.Budget.MaxEvaluations - stats.Evaluations) /
-                        Math.Max(1, anchors.Count - siteIndex));
+                        pendingSites);
                     P4BJointSite originalSite = paired == null ? null : paired[siteIndex];
                     IEnumerable<P4BJointSite> variants = originalSite == null
                         ? new P4BJointSite[] { null }
@@ -1180,7 +1197,7 @@ namespace RealisticBases.Planning
                             extendedGrowth: envelopeStrategy);
                     foreach (P4BJointSite site in variants)
                     {
-                        if (stats.Evaluations - siteEvaluationStart >= siteAllowance && siteIndex + 1 < anchors.Count)
+                        if (stats.Evaluations - siteEvaluationStart >= siteAllowance && pendingSites > 1)
                         { Note(diagnostics, "site", "fair_budget_yield", "evaluations=" + (stats.Evaluations - siteEvaluationStart)); break; }
                         GridPoint anchor = site == null ? anchors[siteIndex] : site.Anchor;
                         LayoutTerrainGrid siteGrid = site == null ? grid : grid.RestrictTo(site.Compound);
@@ -1189,10 +1206,10 @@ namespace RealisticBases.Planning
                                 "field=" + site.Field + " compound=" + site.Compound + " anchor=" + anchor);
                         for (int attempt = 0; attempt < input.Budget.AttemptsPerSite; attempt++)
                         {
-                            if (stats.Evaluations - siteEvaluationStart >= siteAllowance && siteIndex + 1 < anchors.Count) break;
+                            if (stats.Evaluations - siteEvaluationStart >= siteAllowance && pendingSites > 1) break;
                             if (stats.BudgetExhausted) return (pool.Count > 0 ? finishBest() : null) ?? reject("search_budget_exhausted");
                             stats.Attempts++;
-                            ulong attemptSeed = LayoutSeed.Key(LayoutSeed.Sub(input.Seed, "attempt"), anchor.X * 4099 + anchor.Z, attempt, (int)doctrine);
+                            ulong attemptSeed = AttemptSeed(input.Seed, anchor, attempt, doctrine);
                             LayoutAttempt run = new LayoutAttempt(input, demand, siteGrid, anchor, doctrine, wantsCourt, attemptSeed, stats, diagnostics, timings,
                                 jointSite: site, envelopeSearch: envelopeStrategy,
                                 allowHydroponics: attempt < input.Budget.AttemptsPerSite - 1,
@@ -1240,6 +1257,38 @@ namespace RealisticBases.Planning
                 }
             }
             return (pool.Count > 0 ? finishBest() : null) ?? reject("no_valid_layout");
+        }
+
+        private static ulong AttemptSeed(ulong seed, GridPoint anchor, int attempt, LayoutDoctrine doctrine) =>
+            LayoutSeed.Key(LayoutSeed.Sub(seed, "attempt"), anchor.X * 4099 + anchor.Z, attempt, (int)doctrine);
+
+        private static bool PreferMountainAtJointSites(ProceduralLayoutInput input, LayoutDemandSet demand,
+            LayoutTerrainGrid grid, IReadOnlyList<P4BJointSite> candidates, int requiredArea, LayoutSearchStats stats,
+            ProceduralLayoutStageTimings timings, List<LayoutDiagnostic> diagnostics)
+        {
+            var preferredSites = candidates.Take(Math.Max(1, input.Budget.MaxSites / 2)).ToList();
+            if (preferredSites.Count == 0) return false;
+            foreach (P4BJointSite site in preferredSites)
+            {
+                var placeable = site.Compound.Points().Where(grid.CanPlace).ToList();
+                int thickRock = placeable.Count(c => grid.At(c) == LayoutCellClass.Rock && grid.ThickCover(c));
+                if (thickRock <= placeable.Count / 2) return false;
+                var siteGrid = grid.RestrictTo(site.Compound);
+                int bestArea = 0;
+                for (int attempt = 0; attempt < input.Budget.AttemptsPerSite; attempt++)
+                {
+                    ulong seed = AttemptSeed(input.Seed, site.Anchor, attempt, LayoutDoctrine.OpenGround);
+                    var scout = new LayoutAttempt(input, demand, siteGrid, site.Anchor, LayoutDoctrine.OpenGround, true,
+                        seed, stats, new List<LayoutDiagnostic>(), timings, jointSite: site);
+                    int? area = scout.MeasureConnectedRoomArea();
+                    // An incomplete measurement or a promising open site keeps the seeded preference.
+                    if (!area.HasValue || area.Value >= requiredArea) return false;
+                    bestArea = Math.Max(bestArea, area.Value);
+                }
+                Note(diagnostics, "doctrine", "open_ground_cramped", site.Anchor + " thickRock=" + thickRock + "/" +
+                    placeable.Count + " connectedRoomArea=" + bestArea + "/" + requiredArea);
+            }
+            return true;
         }
 
         private sealed class PoolEntry

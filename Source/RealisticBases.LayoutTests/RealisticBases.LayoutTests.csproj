@@ -26,6 +26,7 @@
     <Content Include="swamp-candidate-18364-terrain.rle" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="swamp-candidate-110256-terrain.rle" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="cliff-coast-92330-terrain.rle" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="cliff-corner-3810-terrain.rle" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="coastalisland-field-route.json" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="../RealisticBases/Planning/P1Model.cs" Link="Planning/P1Model.cs" />
     <Compile Include="../RealisticBases/Planning/P4ChunkRelocation.cs" Link="Planning/P4ChunkRelocation.cs" />
