@@ -152,4 +152,19 @@
       </subNodes>
     </thinkNode>
   </DutyDef>
+
+  <DutyDef>
+    <defName>RB_P3_InteriorResponse</defName>
+    <alwaysShowWeapon>true</alwaysShowWeapon>
+    <thinkNode Class="ThinkNode_Priority">
+      <subNodes>
+        <li Class="RealisticBases.AI.JobGiver_P3DefendPost">
+          <targetAcquireRadius>100</targetAcquireRadius>
+          <targetKeepRadius>108</targetKeepRadius>
+          <needLOSToAcquireNonPawnTargets>true</needLOSToAcquireNonPawnTargets>
+        </li>
+        <li Class="RealisticBases.AI.JobGiver_P3HoldAssignedPost" />
+      </subNodes>
+    </thinkNode>
+  </DutyDef>
 </Defs>

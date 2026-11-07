@@ -25,7 +25,9 @@ namespace RealisticBases.Planning
         NeedsRelief,
         InnerFallback,
         // Awake in the compound with native needs, no post and no rest.
-        OffDuty
+        OffDuty,
+        // A limited combat team assigned to respond to hostiles inside the compound.
+        InteriorResponder
     }
 
     public enum DefenderWeaponClass
@@ -198,7 +200,8 @@ namespace RealisticBases.Planning
             IEnumerable<string> safeTransferPosts = null, int threatSeverity = 0, GridPoint? reserveStage = null,
             bool fieldPenetrated = false, bool compoundPenetrated = false,
             IEnumerable<string> fieldFallbackPosts = null, bool criticalSupportRequired = false,
-            bool assaultSignal = true, int lastAssaultTick = int.MinValue)
+            bool assaultSignal = true, int lastAssaultTick = int.MinValue,
+            IEnumerable<GridPoint> interiorHostileCells = null, bool interiorConceded = false)
         {
             if (routineSupportWorkers < 0) throw new ArgumentOutOfRangeException(nameof(routineSupportWorkers));
             Tick = tick;
@@ -225,6 +228,8 @@ namespace RealisticBases.Planning
             CriticalSupportRequired = criticalSupportRequired;
             AssaultSignal = assaultSignal;
             LastAssaultTick = lastAssaultTick;
+            InteriorHostileCells = new ReadOnlyCollection<GridPoint>((interiorHostileCells ?? Enumerable.Empty<GridPoint>()).ToList());
+            InteriorConceded = interiorConceded;
         }
 
         public int Tick { get; }
@@ -253,6 +258,8 @@ namespace RealisticBases.Planning
         // The tick of the last assault signal; the assault holds for
         // GarrisonDoctrine.AssaultLatchTicks after it.
         public int LastAssaultTick { get; }
+        public IReadOnlyList<GridPoint> InteriorHostileCells { get; }
+        public bool InteriorConceded { get; }
         public bool Assault => HostileThreat && (AssaultSignal || GateBreached || FieldPenetrated ||
             CompoundPenetrated || LastAssaultTick != int.MinValue &&
             Tick - LastAssaultTick < GarrisonDoctrine.AssaultLatchTicks);
@@ -331,6 +338,20 @@ namespace RealisticBases.Planning
             Dictionary<int, DefensivePost> crews = state == GarrisonState.InnerFallback
                 ? new Dictionary<int, DefensivePost>() : ReserveCrews(situation, validPosts, routineSupport);
             foreach (DefensivePost crewed in crews.Values) occupied.Add(crewed.Id);
+            HashSet<int> interiorResponders = new HashSet<int>();
+            if (state == GarrisonState.InnerFallback && situation.CompoundPenetrated && !situation.InteriorConceded &&
+                situation.InteriorHostileCells.Count > 0)
+            {
+                int responderLimit = Math.Min(situation.InteriorHostileCells.Count,
+                    Math.Max(1, (situation.Defenders.Count + 1) / 2));
+                foreach (DefenderCandidate responder in situation.Defenders
+                    .Where(d => !relieved.Contains(d.Id) && !routineSupport.Contains(d.Id) && !crews.ContainsKey(d.Id) &&
+                        !d.NeedsFood && !d.NeedsTending && d.WeaponRange > 0 && d.RestLevel >= 0.2f)
+                    .OrderByDescending(d => d.WeaponClass == DefenderWeaponClass.LongRanged)
+                    .ThenByDescending(d => d.WeaponClass == DefenderWeaponClass.ShortRanged)
+                    .ThenByDescending(d => d.RestLevel).ThenBy(d => d.Id).Take(responderLimit))
+                    interiorResponders.Add(responder.Id);
+            }
             // Unfunded/unavailable artillery posts must not be picked by the
             // ordinary best-post path after the exclusive crew reservation.
             validPosts = validPosts.Where(p => !p.Mortar || occupied.Contains(p.Id)).ToList();
@@ -355,7 +376,8 @@ namespace RealisticBases.Planning
             var held = new Dictionary<int, DefensivePost>();
             if (situation.ThreatenedSector.Length > 0)
                 foreach (DefenderCandidate defender in situation.Defenders.Where(d => !relieved.Contains(d.Id) &&
-                    !routineSupport.Contains(d.Id) && !crews.ContainsKey(d.Id) && d.Id != mobileReserve?.Id))
+                    !routineSupport.Contains(d.Id) && !crews.ContainsKey(d.Id) && !interiorResponders.Contains(d.Id) &&
+                    d.Id != mobileReserve?.Id))
                 {
                     DefensivePost previous = validPosts.FirstOrDefault(p => p.Id == defender.PreviousPostId &&
                         !p.Mortar && !occupied.Contains(p.Id) && Compatible(defender, p) &&
@@ -367,6 +389,13 @@ namespace RealisticBases.Planning
             List<GarrisonAssignment> assignments = new List<GarrisonAssignment>();
             foreach (DefenderCandidate defender in situation.Defenders)
             {
+                if (interiorResponders.Contains(defender.Id))
+                {
+                    assignments.Add(new GarrisonAssignment(defender.Id, GarrisonRole.InteriorResponder,
+                        situation.ThreatenedSector, string.Empty, situation.InnerFallback, situation.Tick,
+                        "compound_intrusion_response"));
+                    continue;
+                }
                 if (held.TryGetValue(defender.Id, out DefensivePost kept))
                 {
                     assignments.Add(PostAssignment(defender, kept, state, situation.Tick, "held_attacked_side"));
