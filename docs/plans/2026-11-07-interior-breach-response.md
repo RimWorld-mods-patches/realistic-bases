@@ -27,10 +27,10 @@ costly.
    policy requires a 10% defender advantage to fight; otherwise the garrison
    concedes. A conceded incident stays conceded until intruders leave or the
    defender advantage rises above 35%, preventing rapid policy oscillation.
-   Concession disables attacks on intruders in the danger area and redirects
-   defenders away from dangerous fallback cells. It does not force attackers
-   to leave; native raid behavior decides that. The player receives one
-   in-game message per concession with the approximate location and the reason.
+   Defenders stop pursuing and withdraw to separate reachable positions. They
+   can return fire from their position when a nearby enemy is visible. Native
+   raid behavior governs what attackers do next. The player receives one
+   **Garrison concedes** letter per concession, with a link to the occupied area.
 5. Clear the danger area when no active intruders remain in the compound and
    allow safe logistics to resume.
 
@@ -53,8 +53,8 @@ Build evidence is required before commit. Live validation should later cover:
 
 - one attacker in a warehouse with a stronger garrison: a limited response
   attacks while the rest hold safe posts;
-- several armed attackers against a weak garrison: one concession message,
-  no responders charging, and no logistics jobs entering the occupied room;
+- several armed attackers against a weak garrison: one concession letter,
+  distinct fallback positions, and no logistics jobs entering the occupied room;
 - a support worker already fetching stock when the warehouse becomes occupied:
   the job ends and the pawn withdraws;
 - intruders leave: danger clears, the garrison returns to its regular state, and

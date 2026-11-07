@@ -76,10 +76,27 @@ namespace RealisticBases.AI
 
         protected override bool TryFindShootingPosition(Pawn pawn, out IntVec3 dest, Verb verbToUse = null)
         {
-            if (!base.TryFindShootingPosition(pawn, out dest, verbToUse)) return false;
             P3GarrisonController controller = pawn.Map?.GetComponent<P3GarrisonController>();
-            int routeLimit = controller?.P3InteriorResponder(pawn) == true ? 96 : 48;
-            return controller != null && controller.RouteAllowed(pawn, dest, routeLimit);
+            if (controller?.P3InteriorResponder(pawn) == true)
+            {
+                Thing target = pawn.mindState.enemyTarget;
+                Verb verb = target == null ? null : verbToUse ?? pawn.TryGetAttackVerb(target, !pawn.IsColonist);
+                dest = IntVec3.Invalid;
+                if (verb == null || !controller.TargetAllowed(pawn, target)) return false;
+                // Interior responders need a firing position near the intruder, not near their fallback post.
+                return CastPositionFinder.TryFindCastPosition(new CastPositionRequest
+                {
+                    caster = pawn,
+                    target = target,
+                    verb = verb,
+                    maxRangeFromCaster = 48f,
+                    maxRangeFromTarget = verb.EffectiveRange,
+                    wantCoverFromTarget = verb.EffectiveRange > 7f,
+                    validator = controller.InsideBounds
+                }, out dest) && controller.RouteAllowed(pawn, dest, 96);
+            }
+            return base.TryFindShootingPosition(pawn, out dest, verbToUse) &&
+                controller != null && controller.RouteAllowed(pawn, dest, 48);
         }
 
         protected override Job MeleeAttackJob(Pawn pawn, Thing enemyTarget)
@@ -265,8 +282,9 @@ namespace RealisticBases.AI
         internal IntVec3 OffDutyRoot(Pawn pawn)
         {
             Building_Bed bed = pawn.ownership?.OwnedBed;
-            return bed != null && bed.Spawned && bed.Map == map && InsideBounds(bed.Position) &&
-                !IsInteriorDangerCell(bed.Position) ? bed.Position : SafeFallbackCell(pawn);
+            if (bed != null && bed.Spawned && bed.Map == map && InsideBounds(bed.Position) &&
+                !IsInteriorDangerCell(bed.Position)) return bed.Position;
+            return interiorDangerCells.Count == 0 ? supportCenter : SafeFallbackCell(pawn, supportCenter);
         }
 
         internal bool OffDutyCellAllowed(IntVec3 cell) => InsideBounds(cell) &&
@@ -694,9 +712,11 @@ namespace RealisticBases.AI
                 Pawn nearestIntruder = interiorEnemies.OrderBy(p => p.Position.DistanceToSquared(supportCenter)).First();
                 P3Log.Message("INTERIOR_CONCEDED", "map=" + map.uniqueID + " hostileCount=" + interiorEnemies.Count +
                     " position=" + nearestIntruder.Position);
-                Messages.Message("The garrison is conceding the occupied area near " + nearestIntruder.Position +
-                    " to avoid a costly fight. Logistics are withdrawing; attackers may take supplies.",
-                    MessageTypeDefOf.NeutralEvent, true);
+                Find.LetterStack.ReceiveLetter("Garrison concedes",
+                    "The garrison at " + settlement.LabelCap + " is yielding the occupied area to avoid a costly fight. " +
+                    "Workers are staying clear, and defenders are falling back. You can take supplies from the area, " +
+                    "but defenders may return fire if you follow them.",
+                    LetterDefOf.NeutralEvent, new LookTargets(nearestIntruder.Position, map));
             }
             else if (wasConceded && !interiorConceded)
                 P3Log.Message("INTERIOR_CONCESSION_CLEARED", "map=" + map.uniqueID);
@@ -787,19 +807,18 @@ namespace RealisticBases.AI
                     " outerViable=" + outerViable + " assignments=" + string.Join(",", plan.Assignments.Select(a =>
                         a.DefenderId + ":" + a.Role + ":" + (a.PostId.Length == 0 ? "none" : a.PostId)).ToArray()));
             }
-            CancelUnsafeNoncombatJobs(active);
+            if (interiorDangerCells.Count > 0 || wasConceded) CancelUnsafeNoncombatJobs(active);
             if (force || lastAuditTick < 0 || GenTicks.TicksGame - lastAuditTick >= 600) Audit("periodic");
         }
 
         public bool TargetAllowed(Pawn pawn, Thing target)
         {
-            if (!Controls(pawn)) return false;
+            if (!Controls(pawn) || interiorConceded) return false;
             bool hostilePawn = target is Pawn hostile && hostile.HostileTo(faction) && !hostile.Dead && !hostile.Downed;
             if (hostilePawn && compoundRegionCells.Contains(target.Position))
-                return AssignedRole(pawn) == GarrisonRole.InteriorResponder && !interiorConceded;
-            if (hostilePawn && interiorConceded && IsInteriorDangerCell(target.Position)) return false;
+                return AssignedRole(pawn) == GarrisonRole.InteriorResponder;
             if (AssignedRole(pawn) == GarrisonRole.InteriorResponder)
-                return hostilePawn && compoundRegionCells.Contains(target.Position) && !interiorConceded;
+                return false;
             IntVec3 post = AssignedPost(pawn);
             return target != null && post.IsValid && target.Position.InHorDistOf(post, 48f);
         }
@@ -813,7 +832,9 @@ namespace RealisticBases.AI
 
         private bool RouteAvoidingInteriorDanger(Pawn pawn, IntVec3 destination, int maxCells)
         {
-            if (!RouteAllowed(pawn, destination, maxCells) || IsInteriorDangerCell(destination)) return false;
+            if (!Controls(pawn) || !pawn.Position.InBounds(map) || !destination.InBounds(map) ||
+                !InsideBounds(pawn.Position) || !InsideBounds(destination) || IsInteriorDangerCell(destination)) return false;
+            if (destination == pawn.Position) return true;
             using (PawnPath path = map.pathFinder.FindPathNow(pawn.Position, destination,
                 TraverseParms.For(pawn), null, PathEndMode.OnCell))
             {
@@ -821,6 +842,7 @@ namespace RealisticBases.AI
                 bool exitedDanger = !IsInteriorDangerCell(pawn.Position);
                 foreach (IntVec3 cell in path.NodesReversed.AsEnumerable().Reverse())
                 {
+                    if (!InsideBounds(cell)) return false;
                     if (cell == pawn.Position) continue;
                     bool dangerous = IsInteriorDangerCell(cell);
                     if (dangerous && exitedDanger) return false;
@@ -850,7 +872,7 @@ namespace RealisticBases.AI
             interiorDangerCells.Clear();
             if (intruders == null || intruders.Count == 0) return;
             HashSet<Room> occupiedRooms = new HashSet<Room>(intruders.Select(p => p.Position.GetRoom(map))
-                .Where(room => room != null));
+                .Where(room => room != null && room.ProperRoom && !room.PsychologicallyOutdoors && !room.IsDoorway));
             foreach (IntVec3 cell in compoundRegionCells)
             {
                 Room room = cell.GetRoom(map);
@@ -862,16 +884,19 @@ namespace RealisticBases.AI
                     interiorDangerCells.Add(intruder.Position);
         }
 
-        private IntVec3 SafeFallbackCell(Pawn pawn)
+        private IntVec3 SafeFallbackCell(Pawn pawn, IntVec3 preferred)
         {
-            IEnumerable<IntVec3> candidates = interiorCells.Where(c => c.InBounds(map) && c.Standable(map) &&
-                !IsInteriorDangerCell(c)).OrderBy(c => c.DistanceToSquared(supportCenter));
+            // Goto reserves its destination. Also exclude pawns already holding a cell.
+            bool CanHold(IntVec3 cell) => cell.InBounds(map) && InsideBounds(cell) && cell.Standable(map) &&
+                !IsInteriorDangerCell(cell) && !(cell.GetEdifice(map) is Building_Door) &&
+                map.pawnDestinationReservationManager.CanReserve(cell, pawn, pawn.Drafted) &&
+                !cell.GetThingList(map).OfType<Pawn>().Any(other => other != pawn);
+            if (CanHold(preferred) && RouteAvoidingInteriorDanger(pawn, preferred, 160)) return preferred;
+            IEnumerable<IntVec3> candidates = interiorCells.Where(CanHold)
+                .OrderBy(c => c.DistanceToSquared(pawn.Position));
             foreach (IntVec3 candidate in candidates.Take(256))
                 if (RouteAvoidingInteriorDanger(pawn, candidate, 160)) return candidate;
-            if (supportCenter.InBounds(map) && supportCenter.Standable(map) && !IsInteriorDangerCell(supportCenter) &&
-                RouteAvoidingInteriorDanger(pawn, supportCenter, 160))
-                return supportCenter;
-            return pawn?.Position ?? supportCenter;
+            return pawn.Position;
         }
 
         private static float CombatWeight(Pawn pawn)
@@ -1004,13 +1029,15 @@ namespace RealisticBases.AI
                 destination = assignedGun.InteractionCell;
             else if (!destination.IsValid)
                 destination = AssignedDestination(pawn);
-            bool withdrawing = interiorConceded || IsInteriorDangerCell(destination);
-            if (withdrawing) destination = SafeFallbackCell(pawn);
+            bool withdrawing = interiorConceded || (role != GarrisonRole.InteriorResponder &&
+                interiorDangerCells.Count > 0 && !RouteAvoidingInteriorDanger(pawn, destination, 160));
+            if (withdrawing) destination = SafeFallbackCell(pawn, destination);
             if (!destination.IsValid || !InsideBounds(destination) || !destination.Standable(map)) return null;
             if (withdrawing && !RouteAvoidingInteriorDanger(pawn, destination, 160))
             {
                 Job hold = JobMaker.MakeJob(JobDefOf.Wait_Combat);
                 hold.expiryInterval = 120; hold.checkOverrideOnExpire = true;
+                hold.canUseRangedWeapon = CanFireWhileHolding(pawn);
                 return hold;
             }
             // Adjacent posts can share a 1.5-cell wait radius. Requiring the
@@ -1046,8 +1073,12 @@ namespace RealisticBases.AI
             Job wait = JobMaker.MakeJob(JobDefOf.Wait_Combat);
             wait.expiryInterval = 180;
             wait.checkOverrideOnExpire = true;
+            wait.canUseRangedWeapon = CanFireWhileHolding(pawn);
             return wait;
         }
+
+        private bool CanFireWhileHolding(Pawn pawn) => !interiorConceded ||
+            GenAI.EnemyIsNear(pawn, 8f, out _, requireLos: true);
 
         public void Audit(string phase)
         {
@@ -1515,15 +1546,20 @@ namespace RealisticBases.AI
             foreach (Pawn pawn in active)
             {
                 GarrisonRole role = AssignedRole(pawn);
-                Pawn hostileTarget = pawn.CurJob?.targetA.Thing as Pawn;
-                bool targetInside = hostileTarget != null && compoundRegionCells.Contains(hostileTarget.Position);
-                bool combatRole = role == GarrisonRole.RangedPost || role == GarrisonRole.InnerFallback ||
-                    role == GarrisonRole.InteriorResponder;
-                bool activelyEngaging = combatRole && hostileTarget != null && hostileTarget.HostileTo(faction) &&
-                    (!targetInside || role == GarrisonRole.InteriorResponder) && !interiorConceded;
-                if (role == GarrisonRole.InteriorResponder || pawn.CurJob == null || activelyEngaging ||
-                    SupportJobSafe(pawn, pawn.CurJob)) continue;
-                string job = pawn.CurJobDef?.defName ?? "none";
+                Job currentJob = pawn.CurJob;
+                if (currentJob == null) continue;
+                // A sentry can return fire from its current tile. Let its normal expiry retry withdrawal.
+                if (currentJob.def == JobDefOf.Wait_Combat)
+                {
+                    currentJob.canUseRangedWeapon = CanFireWhileHolding(pawn);
+                    continue;
+                }
+                if (role == GarrisonRole.InteriorResponder || interiorDangerCells.Count == 0) continue;
+                bool combatRole = role == GarrisonRole.RangedPost || role == GarrisonRole.InnerFallback;
+                Pawn hostileTarget = currentJob.targetA.Thing as Pawn;
+                bool pursuing = combatRole && hostileTarget != null && hostileTarget.HostileTo(faction);
+                if (pursuing ? TargetAllowed(pawn, hostileTarget) : SupportJobSafe(pawn, currentJob)) continue;
+                string job = currentJob.def.defName;
                 pawn.jobs.EndCurrentJob(JobCondition.InterruptForced, startNewJob: false);
                 P3Log.Message("INTERIOR_JOB_WITHDRAW", "map=" + map.uniqueID + " pawn=" + pawn.thingIDNumber +
                     " role=" + role + " job=" + job);
@@ -1869,7 +1905,7 @@ namespace RealisticBases.AI
 
         private bool PreviousPostAssigned(string id) => assignedPostIds.Contains(id);
 
-        private bool InsideBounds(IntVec3 cell) => defendedCells != null && defendedCells.Count > 0
+        internal bool InsideBounds(IntVec3 cell) => defendedCells != null && defendedCells.Count > 0
             ? defendedCells.Contains(cell)
             : boundsMin.IsValid && cell.x >= boundsMin.x && cell.z >= boundsMin.z &&
                 cell.x < boundsMin.x + boundsWidth && cell.z < boundsMin.z + boundsHeight;
