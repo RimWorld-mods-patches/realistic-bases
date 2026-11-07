@@ -1,12 +1,15 @@
 # Realistic Bases: progress tracker
 
-Updated: 2026-10-14
+Updated: 2026-11-07
 
 ## Current state
 
 - **Code:** everything is merged into `main` (`171abed`, version 0.1.0). Feature branches are deleted
   after their merge, so this tracker names merge commits, not branches.
 - **Complete for their scoped contracts:** design, P0–P5 and P5B. P5A is merged with pure evidence.
+- **Active follow-up:** [interior breach response](plans/2026-11-07-interior-breach-response.md) adds
+  room-level danger areas, a limited indoor response team, safe logistics, and a player notice when
+  the garrison concedes. This extends P3 and is not yet live-validated.
 - **Next milestone:** P6, balance, specialized tactics and release.
 - **Generator:** on by default (`9f9c85c`); the switch is saved with the game for Multiplayer
   (`13b4acf`, [audit](multiplayer-audit.md)).

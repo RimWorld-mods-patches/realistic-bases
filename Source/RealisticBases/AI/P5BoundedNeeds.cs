@@ -39,11 +39,7 @@ namespace RealisticBases.AI
             }
             finally { pawn.mindState.maxDistToSquadFlag = oldRadius; }
             if (!result.IsValid) return result;
-            Thing target = result.Job.targetA.Thing;
-            bool carried = target != null && !target.Spawned && (pawn.inventory.innerContainer.Contains(target) ||
-                pawn.carryTracker.CarriedThing == target);
-            bool stationary = !result.Job.targetA.IsValid;
-            if (carried || stationary || controller.RouteAllowed(pawn, result.Job.targetA.Cell, 160)) return result;
+            if (controller.P5NeedsJobSafe(pawn, result.Job)) return result;
             P0Log.Message("P5_NEEDS_ROUTE_REJECT", "map=" + pawn.Map.uniqueID + " pawn=" + pawn.ThingID +
                 " job=" + result.Job.def.defName + " target=" + result.Job.targetA);
             JobMaker.ReturnToPool(result.Job);
@@ -70,7 +66,7 @@ namespace RealisticBases.AI
                 return self;
             }
             Building_Bed bed = pawn.CurrentBed() ?? RestUtility.FindBedFor(pawn, pawn, checkSocialProperness: false);
-            if (bed == null) return null;
+            if (bed == null || !controller.P5CellSafe(pawn, bed.Position)) return null;
             Job job = JobMaker.MakeJob(JobDefOf.LayDown, bed);
             job.checkOverrideOnExpire = true;
             return job;
