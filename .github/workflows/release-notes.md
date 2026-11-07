@@ -13,7 +13,7 @@
    If `Mods/RealisticBases` already exists, delete it first.
 4. In the mod list, load **Harmony** first and **Realistic Bases** anywhere after it.
 
-#### Supported RimWorld version: 1.6
+#### Supported RimWorld version: 1.7
 
 The settlement generator is on by default and can be turned off in the mod settings. It changes newly generated
 hostile settlements and supported quest sites only; existing maps keep their layout.

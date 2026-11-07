@@ -1,19 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net472</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>RealisticBases</AssemblyName>
     <RootNamespace>RealisticBases</RootNamespace>
     <LangVersion>latest</LangVersion>
-    <Version>0.1.5</Version>
-    <OutputPath>$(MSBuildProjectDirectory)/../../1.6/Assemblies/</OutputPath>
+    <Version>0.2.0</Version>
+    <OutputPath>$(MSBuildProjectDirectory)/../../Assemblies/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <DebugType>none</DebugType>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
-    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.6.4871" PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.7.5000-unstable" PrivateAssets="all" ExcludeAssets="runtime" />
     <PackageReference Include="Lib.Harmony" Version="2.4.1" PrivateAssets="all" ExcludeAssets="runtime" />
   </ItemGroup>
 </Project>

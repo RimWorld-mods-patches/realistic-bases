@@ -79,7 +79,7 @@ review.
 | Retreat test | Deterministic map removal/reopen replaces a literal caravan retreat for P0 because it exercises the same map-unload/re-entry persistence boundary without adding caravan behavior to the spike |
 | Arrival test | Require a pass-doors route from map edge to the settlement target. Hostile doors may still require normal breaching in actual play |
 | Map Preview | Its preview pipeline stops before order 230, so the later settlement step is excluded from previews; the prior fixed-compound compatibility run does not establish P4A compatibility |
-| Supported build | Tested executable: RimWorld 1.6.4871 rev597. The installed `Version.txt` rev595 text is treated as stale packaging metadata; compile API remains pinned to 1.6.4871 |
+| Supported build | RimWorld 1.7 only. The mod now targets net10.0 and pins RimRef to 1.7.5000-unstable; the previous 1.6.4871/net472 runtime evidence predates this target change. |
 
 No active P0 blocker remains. Carryover `CLAUDE.md` describes another mod; the Realistic Bases documents remain authoritative.
 

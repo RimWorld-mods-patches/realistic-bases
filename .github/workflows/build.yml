@@ -25,8 +25,7 @@ env:
   SLN_PATH: RealisticBases.sln
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  # The test runners target net8.0; let them run on a newer runtime on the
-  # SDK override legs, where only that runtime is guaranteed.
+  # The test runners target net8.0; roll forward to the SDK runtime in CI.
   DOTNET_ROLL_FORWARD: Major
 
 permissions:
@@ -98,29 +97,6 @@ jobs:
         if-no-files-found: error
         overwrite: true
 
-  mono-compile:
-    name: Compile mod with Mono MSBuild
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-
-    - name: Checkout repository
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-
-    - name: Display Mono compiler and runtime
-      run: docker run --rm mono:6.12 bash -lc 'msbuild -version && mono --version'
-
-    - name: Compile mod against Mono framework libraries
-      run: |
-        docker run --rm \
-          -v "$PWD:/mod" \
-          -w /mod \
-          mono:6.12 \
-          msbuild Source/RealisticBases/RealisticBases.csproj \
-            /restore /p:Configuration=Release /p:TargetFramework=net472 /v:minimal
-
   format-check:
     name: Code formatting (non-blocking)
     runs-on: ubuntu-latest
@@ -150,7 +126,7 @@ jobs:
 
   package:
     name: Package mod
-    needs: [build-test, mono-compile]
+    needs: [build-test]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -215,17 +191,17 @@ jobs:
         cache: true
         cache-dependency-path: '**/*.csproj'
 
-    # The mod project writes RealisticBases.dll into 1.6/Assemblies/, which
-    # together with About/ and 1.6/Defs/ is the complete mod folder.
+    # The mod project writes RealisticBases.dll into Assemblies/, alongside
+    # the root About/ and Defs/ folders in the complete mod folder.
     - name: Build mod (Release)
       run: dotnet build Source/RealisticBases/RealisticBases.csproj --configuration Release
 
     - name: Verify shipped assemblies
       run: |
         set -euo pipefail
-        ACTUAL=$(cd 1.6/Assemblies && ls)
+        ACTUAL=$(cd Assemblies && ls)
         if [ "$ACTUAL" != "RealisticBases.dll" ]; then
-          echo "::error::1.6/Assemblies must contain only RealisticBases.dll, found: $ACTUAL"
+          echo "::error::Assemblies must contain only RealisticBases.dll, found: $ACTUAL"
           exit 1
         fi
 
@@ -241,7 +217,7 @@ jobs:
       run: |
         set -euo pipefail
         mkdir -p artifacts/mod/RealisticBases
-        cp -R About 1.6 artifacts/mod/RealisticBases/
+        cp -R About Assemblies Defs artifacts/mod/RealisticBases/
         (cd artifacts/mod && zip -r "../${{ steps.stamp.outputs.zip }}" RealisticBases/)
         ls -la "artifacts/${{ steps.stamp.outputs.zip }}"
 

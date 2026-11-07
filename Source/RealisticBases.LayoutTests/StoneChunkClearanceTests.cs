@@ -63,7 +63,7 @@ internal static partial class Program
         True(!result.Any(source.Contains), "source cells are not reused as destinations");
         True(P4ChunkRelocation.SelectDestinations(source, new[] { new GridPoint(3, 2), new GridPoint(3, 2) }) == null,
             "insufficient distinct empty cells rejects before moving any object");
-        Equal(string.Join(";", result), string.Join(";", P4ChunkRelocation.SelectDestinations(source, empty.Reverse())),
+        Equal(string.Join(";", result), string.Join(";", P4ChunkRelocation.SelectDestinations(source, Enumerable.Reverse(empty))),
             "allocation does not depend on map enumeration order");
     }
 }

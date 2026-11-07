@@ -1,12 +1,12 @@
 # Realistic Bases
 
-A RimWorld 1.6 mod that generates terrain-aware, functioning hostile settlements: procedural layouts,
+A RimWorld 1.7 mod that generates terrain-aware, functioning hostile settlements: procedural layouts,
 defended garrisons with finite supplies, physical trade stock and trap-free defenses. The generator is on
 by default and can be turned off in the mod settings; it changes newly generated ordinary hostile
 settlements and supported quest sites only.
 
-Status (2026-10-14): P0–P5 and P5B are complete for their scoped contracts, P5A is merged, and P6–P8
-are planned; see the [progress tracker](docs/progress.md). Baseline: RimWorld 1.6, Core without DLC.
+Status (2026-11-07): P0–P5 and P5B are complete for their scoped contracts, P5A is merged, and P6–P8
+are planned; see the [progress tracker](docs/progress.md). Baseline: RimWorld 1.7, Core without DLC.
 Multiplayer is a requirement; see the [Multiplayer audit](docs/multiplayer-audit.md).
 
 ## Install
@@ -21,10 +21,10 @@ loaded before Realistic Bases.
 
 ### Prerequisites
 
-- macOS with RimWorld 1.6 from Steam (the live-test workflow assumes the macOS Steam layout; build and unit
+- macOS with RimWorld 1.7 from Steam (the live-test workflow assumes the macOS Steam layout; build and unit
   tests run anywhere).
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/): builds and tests run in
-  `mcr.microsoft.com/dotnet/sdk:8.0`; no local .NET SDK is required.
+  `mcr.microsoft.com/dotnet/sdk:10.0`; no local .NET SDK is required.
 - Python 3.9+ and `git`.
 - Steam Workshop subscriptions to the test mods
   [Harmony](https://steamcommunity.com/sharedfiles/filedetails/?id=2009463077) and
@@ -46,7 +46,7 @@ docker run --rm -v "$PWD":/mod -v "$RW_NUGET_VOLUME":/root/.nuget/packages -w /m
   dotnet run --project Source/RealisticBases.LayoutTests/RealisticBases.LayoutTests.csproj -c Release -- --only P4D
 ```
 
-The build writes `1.6/Assemblies/RealisticBases.dll`. The layout suite takes several minutes in full; while
+The build writes `Assemblies/RealisticBases.dll`. The layout suite takes several minutes in full; while
 iterating, select tests with `-- --only <name>`. CI runs everything on every pull request.
 
 ### Live-test setup (once per checkout)

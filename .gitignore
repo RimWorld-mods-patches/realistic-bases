@@ -1,6 +1,6 @@
 bin/
 obj/
-1.6/Assemblies/
+Assemblies/
 *.user
 .DS_Store
 .runtime/
