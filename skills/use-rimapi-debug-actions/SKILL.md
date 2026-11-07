@@ -8,9 +8,12 @@ description: Discover, filter, and invoke supported RimWorld debug actions throu
 Applies to actions from any loaded mod. Require a loaded game with RIMAPI and its
 debug-actions companion enabled after it. Use the configured HTTP address/port;
 default `http://localhost:8765`. The tested macOS listener is IPv6-backed: use
-`localhost`, not `127.0.0.1`, and bypass proxies. Installed RIMAPI 1.10.0 mounts
-`/api/v1/debug-actions/debug-actions`; discover changed versions' routes through
-`GET /api/v1/dev/endpoints`, not extension-ID guesses.
+`localhost`, not `127.0.0.1`, and bypass proxies. Current upstream RIMAPI 1.12.0
+mounts `/api/v1/debug-actions/debug-actions`. For RimWorld 1.7, use RIMAPI
+Debug Actions 0.3.1 and configure `github_release.tag` as `v0.3.1` to pin it.
+Release 0.2.0 is the last companion release tested with RimWorld 1.6.
+Discover changed versions' routes through `GET /api/v1/dev/endpoints`, not
+extension-ID guesses.
 
 ## Discover
 

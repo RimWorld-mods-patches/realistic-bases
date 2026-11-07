@@ -33,9 +33,10 @@ python3 "$RW_REPO_ROOT/.shared/rimworld-dev-skills/scripts/setup-dev.py" --apply
 
 It reports the game, Docker, every `baseline_mods` entry, the profile's
 `ModsConfig.xml`/`Prefs.xml` and the baseline save. `--apply` writes the profile
-config from `baseline_mods` (lowercase IDs), links this checkout and missing
-Workshop items into the game's `Mods/` folder as `dev-<packageId>`, and
-downloads GitHub-release mods named in `mod_sources` into `.runtime/mods`. It
+config from `baseline_mods` (lowercase IDs), ensures `Prefs.xml` starts the game
+windowed with every audio bus muted and developer mode on, links this checkout
+and missing Workshop items into the game's `Mods/` folder as `dev-<packageId>`,
+and downloads GitHub-release mods named in `mod_sources` into `.runtime/mods`. It
 reuses any installed copy of a test mod, repoints only a symlink of this mod that
 targets another checkout, and never replaces a real folder or edits the normal
 profile. Unsubscribed Workshop items are reported with their URL. Run it from the
@@ -49,8 +50,9 @@ it: it refuses while the disposable profile runs or any game answers on the
 RIMAPI port, removes the throwaway `autostart.rws`, launches the profile with
 `-quicktest` (a new Crashlanded colony on a random tile), saves it under the
 `baseline_save` name through the RIMAPI Debug Actions `POST
-/api/v1/debug-actions/save?name=` endpoint (0.1.2 or later), checks the file in
-this profile, and stops the game it started. Without that companion, create a
+/api/v1/debug-actions/save?name=` endpoint (use companion release 0.3.1 for
+RimWorld 1.7; the save endpoint has existed since 0.1.2), checks the file in this
+profile, and stops the game it started. Without that companion, create a
 developer quick-test colony by hand (main menu **Dev quicktest**), save it as the
 baseline name and stop the game before testing. A mod present in `Mods/`
 is not automatically active; the profile's `ModsConfig.xml` decides. RIMAPI and
@@ -93,7 +95,8 @@ may belong to the user's normal game.
 
 ## Prefer the API
 
-The API starts after a colony loads, not at the main menu. Use `localhost` (the
+The API starts after a colony loads, not at the main menu. For RimWorld 1.7, use
+current upstream RIMAPI 1.12.0. Use `localhost` (the
 tested macOS listener is IPv6-backed) and bypass proxies. Discover version-specific
 routes with `GET /api/v1/dev/endpoints`:
 

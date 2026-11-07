@@ -25,9 +25,11 @@ building, installing, or editing anything.
 `scripts/setup-dev.py` prepares the disposable live-test environment that
 `run-rimworld-dev` uses. It reports by default and changes things only with
 `--apply`: the `.runtime/` profile and its `ModsConfig.xml`, `dev-<packageId>`
-links in the game's `Mods/` folder, GitHub-release test mods downloaded into
-`.runtime/mods`, and finally the baseline save, created by launching the profile
-with `-quicktest` and saving through RIMAPI Debug Actions. A consumer names where each non-official baseline mod comes from:
+links in the game's `Mods/` folder, windowed/muted developer preferences,
+GitHub-release test mods downloaded into `.runtime/mods`, and finally the
+baseline save, created by launching the profile with `-quicktest` and saving
+through RIMAPI Debug Actions. A consumer names where each non-official baseline
+mod comes from:
 
 ```json
 "mod_sources": {
@@ -40,6 +42,11 @@ with `-quicktest` and saving through RIMAPI Debug Actions. A consumer names wher
 is used, and the release must have exactly one `.zip` asset. Set `GITHUB_TOKEN`
 if the anonymous GitHub API rate limit is hit, and `RW_WORKSHOP_DIR` when the
 game is not inside a Steam library.
+
+For RimWorld 1.7, use RIMAPI 1.12.0 and RIMAPI Debug Actions 0.3.1. Set that
+companion's `github_release.tag` to `v0.3.1` to pin the release. For RimWorld
+1.6, use companion release 0.2.0, the latest release tested with that version.
+Leave `tag` unset to select the latest stable release automatically.
 
 ## Maintainer workflow
 
